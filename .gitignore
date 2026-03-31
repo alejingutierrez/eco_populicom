@@ -1,0 +1,8 @@
+node_modules/
+.env
+cdk.out/
+dist/
+.next/
+*.js.map
+*.d.ts
+!jest.config.ts
