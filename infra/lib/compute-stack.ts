@@ -54,7 +54,7 @@ export class ComputeStack extends cdk.Stack {
 
     // Container definition
     const container = taskDef.addContainer('eco-web', {
-      image: ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim'),
+      image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
       portMappings: [{ containerPort: 3000 }],
       environment: {
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -92,6 +92,7 @@ export class ComputeStack extends cdk.Stack {
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.fargateSecurityGroup],
       assignPublicIp: false,
+      circuitBreaker: { enable: true, rollback: true },
     });
 
     // Application Load Balancer
