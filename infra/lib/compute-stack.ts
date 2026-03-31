@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
@@ -39,10 +40,14 @@ export class ComputeStack extends cdk.Stack {
       vpc: props.vpc,
     });
 
-    // Fargate Task Definition
+    // Fargate Task Definition (ARM64/Graviton for cost savings)
     const taskDef = new ecs.FargateTaskDefinition(this, 'EcoWebTaskDef', {
       cpu: 512,
       memoryLimitMiB: 1024,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
     });
 
     // CloudWatch log group
@@ -54,7 +59,7 @@ export class ComputeStack extends cdk.Stack {
 
     // Container definition
     const container = taskDef.addContainer('eco-web', {
-      image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
+      image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../apps/web')),
       portMappings: [{ containerPort: 3000 }],
       environment: {
         COGNITO_USER_POOL_ID: props.userPoolId,
