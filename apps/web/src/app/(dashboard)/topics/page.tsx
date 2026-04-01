@@ -1,16 +1,61 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardTitle } from '@/components/ui/card';
-import { SentimentBadge } from '@/components/sentiment-badge';
+import { Row, Col, Card, Table, Skeleton, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { EcoSentimentBadge } from '@/components/ui/EcoSentimentBadge';
+
+const { Title } = Typography;
+
+interface SubtopicData {
+  slug: string;
+  name: string;
+  count: number;
+}
 
 interface TopicData {
   slug: string;
   name: string;
   count: number;
   topSentiment: string;
-  subtopics: Array<{ slug: string; name: string; count: number }>;
+  subtopics: SubtopicData[];
 }
+
+const columns: ColumnsType<TopicData> = [
+  {
+    title: 'Nombre',
+    dataIndex: 'name',
+    key: 'name',
+  },
+  {
+    title: 'Menciones',
+    dataIndex: 'count',
+    key: 'count',
+    sorter: (a, b) => a.count - b.count,
+    defaultSortOrder: 'descend',
+  },
+  {
+    title: 'Sentimiento Principal',
+    dataIndex: 'topSentiment',
+    key: 'topSentiment',
+    render: (sentiment: string) => <EcoSentimentBadge sentiment={sentiment} size="small" />,
+  },
+];
+
+const subtopicColumns: ColumnsType<SubtopicData> = [
+  {
+    title: 'Subtopico',
+    dataIndex: 'name',
+    key: 'name',
+  },
+  {
+    title: 'Menciones',
+    dataIndex: 'count',
+    key: 'count',
+    sorter: (a, b) => a.count - b.count,
+    defaultSortOrder: 'descend',
+  },
+];
 
 export default function TopicsPage() {
   const [topics, setTopics] = useState<TopicData[]>([]);
@@ -25,65 +70,72 @@ export default function TopicsPage() {
   }, []);
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-muted-foreground">Cargando...</div>;
+    return (
+      <div style={{ padding: 24 }}>
+        <Skeleton active title={{ width: 200 }} paragraph={false} />
+        <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Col xs={24} sm={12} md={8} key={i}>
+              <Card>
+                <Skeleton active paragraph={{ rows: 2 }} title={false} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+        <Card style={{ marginTop: 24 }}>
+          <Skeleton active paragraph={{ rows: 6 }} title={{ width: 300 }} />
+        </Card>
+      </div>
+    );
   }
 
   const maxCount = Math.max(...topics.map((t) => t.count), 1);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold text-foreground">Tópicos</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <Title level={4} style={{ margin: 0 }}>Topicos</Title>
 
-      {/* Treemap-like grid */}
-      <div className="grid grid-cols-5 gap-3">
+      <Row gutter={[16, 16]}>
         {topics.map((t) => {
           const size = Math.max(0.4, t.count / maxCount);
           return (
-            <Card
-              key={t.slug}
-              className="cursor-pointer transition-colors hover:border-primary"
-              style={{ opacity: 0.5 + size * 0.5 }}
-            >
-              <div className="text-sm font-medium text-foreground">{t.name}</div>
-              <div className="mt-1 text-2xl font-bold text-foreground">{t.count}</div>
-              <SentimentBadge sentiment={t.topSentiment} className="mt-1" />
-            </Card>
+            <Col xs={24} sm={12} md={8} key={t.slug}>
+              <Card
+                hoverable
+                style={{ opacity: 0.5 + size * 0.5 }}
+                styles={{ body: { padding: 16 } }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{t.name}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{t.count}</div>
+                <div style={{ marginTop: 4 }}>
+                  <EcoSentimentBadge sentiment={t.topSentiment} size="small" />
+                </div>
+              </Card>
+            </Col>
           );
         })}
-      </div>
+      </Row>
 
-      {/* Detailed table */}
       <Card>
-        <CardTitle>Detalle por Tópico y Subtópico</CardTitle>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="pb-2 font-medium">Tópico</th>
-                <th className="pb-2 font-medium">Subtópico</th>
-                <th className="pb-2 text-right font-medium">Menciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topics.map((t) => (
-                <>
-                  <tr key={t.slug} className="border-b border-border/50 font-medium text-foreground">
-                    <td className="py-2">{t.name}</td>
-                    <td className="py-2 text-muted-foreground">—</td>
-                    <td className="py-2 text-right">{t.count}</td>
-                  </tr>
-                  {t.subtopics.map((s) => (
-                    <tr key={`${t.slug}-${s.slug}`} className="text-muted-foreground">
-                      <td className="py-1.5 pl-4"></td>
-                      <td className="py-1.5">{s.name}</td>
-                      <td className="py-1.5 text-right">{s.count}</td>
-                    </tr>
-                  ))}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Title level={5} style={{ marginTop: 0 }}>Detalle por Topico y Subtopico</Title>
+        <Table<TopicData>
+          columns={columns}
+          dataSource={topics}
+          rowKey="slug"
+          pagination={false}
+          expandable={{
+            expandedRowRender: (record) => (
+              <Table<SubtopicData>
+                columns={subtopicColumns}
+                dataSource={record.subtopics}
+                rowKey="slug"
+                pagination={false}
+                size="small"
+              />
+            ),
+            rowExpandable: (record) => record.subtopics.length > 0,
+          }}
+        />
       </Card>
     </div>
   );

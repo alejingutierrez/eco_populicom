@@ -9,26 +9,25 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.1",
     "@eco/database": "*",
     "@eco/shared": "*",
+    "@tanstack/react-query": "^5.75.0",
     "amazon-cognito-identity-js": "^6.3.0",
+    "antd": "^6.3.5",
+    "clsx": "^2.1.0",
     "date-fns": "^4.1.0",
+    "jose": "^6.0.0",
     "lucide-react": "^0.475.0",
     "next": "^15.3.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "recharts": "^2.15.0",
-    "@tanstack/react-query": "^5.75.0",
-    "jose": "^6.0.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^3.0.0"
+    "recharts": "^2.15.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
     "typescript": "~5.9.3"
   }
 }

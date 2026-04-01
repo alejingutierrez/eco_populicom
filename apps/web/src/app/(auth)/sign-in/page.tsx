@@ -1,88 +1,134 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from '@/lib/auth/cognito';
 import { useRouter } from 'next/navigation';
+import { Card, Form, Input, Button, Alert, Typography } from 'antd';
+import { signIn } from '@/lib/auth/cognito';
+
+const { Title, Text } = Typography;
+
+interface SignInFormValues {
+  email: string;
+  password: string;
+}
 
 export default function SignInPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFinish(values: SignInFormValues) {
     setError('');
     setLoading(true);
     try {
-      const result = await signIn(email, password);
-      // Store tokens in cookies for middleware
+      const result = await signIn(values.email, values.password);
       document.cookie = `eco_id_token=${result.idToken}; path=/; max-age=3600; SameSite=Lax`;
       document.cookie = `eco_access_token=${result.accessToken}; path=/; max-age=3600; SameSite=Lax`;
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesión');
+      setError(err.message || 'Error al iniciar sesion');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-8">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">ECO</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: '#F4F7FA',
+      }}
+    >
+      <Card
+        style={{
+          width: '100%',
+          maxWidth: 420,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+        }}
+      >
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #1B3A4B 0%, #3B82F6 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+            }}
+          >
+            <span
+              style={{
+                color: '#FFFFFF',
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: 1,
+              }}
+            >
+              ECO
+            </span>
+          </div>
+          <Title level={3} style={{ margin: 0, color: '#0E1E2C' }}>
+            ECO
+          </Title>
+          <Text style={{ color: '#64748B' }}>
             Social Listening — Gobierno de Puerto Rico
-          </p>
+          </Text>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            style={{ marginBottom: 24 }}
+          />
+        )}
 
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-foreground">
-              Correo electrónico
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="usuario@agencia.pr.gov"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-foreground">
-              Contraseña
-            </label>
-            <input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        <Form<SignInFormValues>
+          layout="vertical"
+          onFinish={handleFinish}
+          requiredMark={false}
+          size="large"
+        >
+          <Form.Item
+            label="Correo electronico"
+            name="email"
+            rules={[
+              { required: true, message: 'Ingrese su correo electronico' },
+              { type: 'email', message: 'Correo electronico invalido' },
+            ]}
           >
-            {loading ? 'Ingresando...' : 'Iniciar sesión'}
-          </button>
-        </form>
-      </div>
+            <Input placeholder="usuario@agencia.pr.gov" />
+          </Form.Item>
+
+          <Form.Item
+            label="Contrasena"
+            name="password"
+            rules={[
+              { required: true, message: 'Ingrese su contrasena' },
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              block
+            >
+              Iniciar sesion
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
     </div>
   );
 }

@@ -1,112 +1,306 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card, CardTitle } from '@/components/ui/card';
+import { useState, useEffect } from 'react';
+import { Row, Col } from 'antd';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, CartesianGrid, RadarChart, Radar, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
 } from 'recharts';
+import { EcoChartCard } from '@/components/data-display/EcoChartCard';
+import { SENTIMENT_COLORS, CHART_THEME, CHART_COLORS } from '@/theme/chart-theme';
+
+interface TimelinePoint {
+  date: string;
+  positivo: number;
+  neutral: number;
+  negativo: number;
+}
+
+interface SourcePoint {
+  source: string;
+  positivo: number;
+  neutral: number;
+  negativo: number;
+}
+
+interface EmotionPoint {
+  emotion: string;
+  count: number;
+}
+
+interface ComparisonPoint {
+  label: string;
+  bw: number;
+  claude: number;
+}
 
 interface SentimentData {
-  timeline: Array<{ date: string; positivo: number; neutral: number; negativo: number }>;
-  bySource: Array<{ source: string; positivo: number; neutral: number; negativo: number }>;
-  emotions: Array<{ emotion: string; count: number }>;
-  comparison: Array<{ label: string; bw: number; claude: number }>;
+  timeline: TimelinePoint[];
+  bySource: SourcePoint[];
+  emotions: EmotionPoint[];
+  comparison: ComparisonPoint[];
 }
+
+const CHART_HEIGHT = 320;
 
 export default function SentimentPage() {
   const [data, setData] = useState<SentimentData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/sentiment')
-      .then((r) => r.json())
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    async function fetchData() {
+      try {
+        const res = await fetch('/api/sentiment');
+        if (!res.ok) throw new Error('Failed to fetch sentiment data');
+        const json: SentimentData = await res.json();
+        if (!cancelled) {
+          setData(json);
+        }
+      } catch (err) {
+        console.error('Error fetching sentiment data:', err);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  if (loading) {
-    return <div className="flex h-64 items-center justify-center text-muted-foreground">Cargando...</div>;
-  }
-  if (!data) {
-    return <div className="flex h-64 items-center justify-center text-muted-foreground">No hay datos</div>;
-  }
-
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold text-foreground">Análisis de Sentimiento</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <Row gutter={[24, 24]}>
+        {/* Sentiment over time -- Stacked Area Chart */}
+        <Col xs={24} lg={12}>
+          <EcoChartCard
+            title="Sentimiento en el tiempo"
+            subtitle="Tendencia de positivo, neutral y negativo"
+            loading={loading}
+          >
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <AreaChart data={data?.timeline ?? []}>
+                <defs>
+                  <linearGradient id="gradPositivo" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor={SENTIMENT_COLORS.positivo}
+                      stopOpacity={CHART_THEME.area.gradientOpacityStart}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={SENTIMENT_COLORS.positivo}
+                      stopOpacity={CHART_THEME.area.gradientOpacityEnd}
+                    />
+                  </linearGradient>
+                  <linearGradient id="gradNeutral" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor={SENTIMENT_COLORS.neutral}
+                      stopOpacity={CHART_THEME.area.gradientOpacityStart}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={SENTIMENT_COLORS.neutral}
+                      stopOpacity={CHART_THEME.area.gradientOpacityEnd}
+                    />
+                  </linearGradient>
+                  <linearGradient id="gradNegativo" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor={SENTIMENT_COLORS.negativo}
+                      stopOpacity={CHART_THEME.area.gradientOpacityStart}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={SENTIMENT_COLORS.negativo}
+                      stopOpacity={CHART_THEME.area.gradientOpacityEnd}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  stroke={CHART_THEME.grid.stroke}
+                  strokeDasharray={CHART_THEME.grid.strokeDasharray}
+                />
+                <XAxis
+                  dataKey="date"
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <YAxis
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <Tooltip contentStyle={CHART_THEME.tooltip.contentStyle} />
+                <Legend />
+                <Area
+                  type="monotone"
+                  dataKey="positivo"
+                  stackId="1"
+                  stroke={SENTIMENT_COLORS.positivo}
+                  fill="url(#gradPositivo)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="neutral"
+                  stackId="1"
+                  stroke={SENTIMENT_COLORS.neutral}
+                  fill="url(#gradNeutral)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="negativo"
+                  stackId="1"
+                  stroke={SENTIMENT_COLORS.negativo}
+                  fill="url(#gradNegativo)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </EcoChartCard>
+        </Col>
 
-      {/* Sentiment over time */}
-      <Card>
-        <CardTitle>Sentimiento por Día</CardTitle>
-        <div className="mt-3 h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data.timeline}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-              <Tooltip contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: '0.5rem' }} />
-              <Area type="monotone" dataKey="positivo" stackId="1" stroke="#4ade80" fill="#4ade80" fillOpacity={0.6} />
-              <Area type="monotone" dataKey="neutral" stackId="1" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.3} />
-              <Area type="monotone" dataKey="negativo" stackId="1" stroke="#f87171" fill="#f87171" fillOpacity={0.6} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-4">
-        {/* By source */}
-        <Card>
-          <CardTitle>Sentimiento por Fuente</CardTitle>
-          <div className="mt-3 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.bySource}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                <XAxis dataKey="source" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-                <Tooltip contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: '0.5rem' }} />
-                <Bar dataKey="positivo" fill="#4ade80" stackId="stack" />
-                <Bar dataKey="neutral" fill="#94a3b8" stackId="stack" />
-                <Bar dataKey="negativo" fill="#f87171" stackId="stack" />
+        {/* Sentiment by source -- Grouped Bar Chart */}
+        <Col xs={24} lg={12}>
+          <EcoChartCard
+            title="Sentimiento por fuente"
+            subtitle="Distribucion por plataforma"
+            loading={loading}
+          >
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <BarChart data={data?.bySource ?? []}>
+                <CartesianGrid
+                  stroke={CHART_THEME.grid.stroke}
+                  strokeDasharray={CHART_THEME.grid.strokeDasharray}
+                />
+                <XAxis
+                  dataKey="source"
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <YAxis
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <Tooltip contentStyle={CHART_THEME.tooltip.contentStyle} />
+                <Legend />
+                <Bar dataKey="positivo" fill={SENTIMENT_COLORS.positivo} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="neutral" fill={SENTIMENT_COLORS.neutral} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="negativo" fill={SENTIMENT_COLORS.negativo} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </Card>
+          </EcoChartCard>
+        </Col>
 
-        {/* Emotions radar */}
-        <Card>
-          <CardTitle>Distribución de Emociones</CardTitle>
-          <div className="mt-3 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={data.emotions} cx="50%" cy="50%" outerRadius="70%">
-                <PolarGrid stroke="var(--color-border)" />
-                <PolarAngleAxis dataKey="emotion" tick={{ fontSize: 10, fill: 'var(--color-muted-foreground)' }} />
-                <PolarRadiusAxis tick={{ fontSize: 10, fill: 'var(--color-muted-foreground)' }} />
-                <Radar dataKey="count" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.3} />
+        {/* Emotion distribution -- Radar Chart */}
+        <Col xs={24} lg={12}>
+          <EcoChartCard
+            title="Distribucion de emociones"
+            subtitle="Perfil emocional detectado"
+            loading={loading}
+          >
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <RadarChart data={data?.emotions ?? []}>
+                <PolarGrid stroke={CHART_THEME.grid.stroke} />
+                <PolarAngleAxis
+                  dataKey="emotion"
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                />
+                <PolarRadiusAxis
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                />
+                <Tooltip contentStyle={CHART_THEME.tooltip.contentStyle} />
+                <Radar
+                  name="Emociones"
+                  dataKey="count"
+                  stroke={CHART_COLORS[0]}
+                  fill={CHART_COLORS[0]}
+                  fillOpacity={0.3}
+                />
               </RadarChart>
             </ResponsiveContainer>
-          </div>
-        </Card>
-      </div>
+          </EcoChartCard>
+        </Col>
 
-      {/* Brandwatch vs Claude comparison */}
-      <Card>
-        <CardTitle>Comparación: Brandwatch vs Claude Opus</CardTitle>
-        <div className="mt-3 h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data.comparison} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-              <YAxis type="category" dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} width={80} />
-              <Tooltip contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: '0.5rem' }} />
-              <Bar dataKey="bw" name="Brandwatch" fill="#94a3b8" />
-              <Bar dataKey="claude" name="Claude Opus" fill="var(--color-primary)" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+        {/* Brandwatch vs Claude comparison -- Grouped Bar Chart */}
+        <Col xs={24} lg={12}>
+          <EcoChartCard
+            title="Brandwatch vs Claude"
+            subtitle="Comparacion de clasificacion de sentimiento"
+            loading={loading}
+          >
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <BarChart data={data?.comparison ?? []}>
+                <CartesianGrid
+                  stroke={CHART_THEME.grid.stroke}
+                  strokeDasharray={CHART_THEME.grid.strokeDasharray}
+                />
+                <XAxis
+                  dataKey="label"
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <YAxis
+                  stroke={CHART_THEME.axis.stroke}
+                  fontSize={CHART_THEME.axis.fontSize}
+                  fill={CHART_THEME.axis.fill}
+                  tickLine={CHART_THEME.axis.tickLine}
+                  axisLine={CHART_THEME.axis.axisLine}
+                />
+                <Tooltip contentStyle={CHART_THEME.tooltip.contentStyle} />
+                <Legend />
+                <Bar
+                  dataKey="bw"
+                  name="Brandwatch"
+                  fill={CHART_COLORS[0]}
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="claude"
+                  name="Claude"
+                  fill={CHART_COLORS[1]}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </EcoChartCard>
+        </Col>
+      </Row>
     </div>
   );
 }

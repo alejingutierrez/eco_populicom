@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card, CardTitle } from '@/components/ui/card';
-import { SentimentBadge } from '@/components/sentiment-badge';
+import { useEffect, useMemo, useState } from 'react';
+import { Row, Col, Collapse, Card, Typography } from 'antd';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { EcoChartCard } from '@/components/data-display/EcoChartCard';
+import { CHART_COLORS, CHART_THEME } from '@/theme/chart-theme';
+
+const { Title, Text } = Typography;
 
 interface MunicipalityData {
   slug: string;
@@ -24,66 +36,101 @@ export default function GeographyPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <div className="flex h-64 items-center justify-center text-muted-foreground">Cargando...</div>;
-  }
+  const top10 = useMemo(
+    () =>
+      [...municipalities]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10),
+    [municipalities],
+  );
 
-  // Group by region
-  const byRegion = municipalities.reduce<Record<string, MunicipalityData[]>>((acc, m) => {
-    (acc[m.region] ??= []).push(m);
-    return acc;
-  }, {});
+  const byRegion = useMemo(() => {
+    const grouped: Record<string, MunicipalityData[]> = {};
+    for (const m of municipalities) {
+      (grouped[m.region] ??= []).push(m);
+    }
+    return grouped;
+  }, [municipalities]);
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold text-foreground">Geografía</h1>
-      <p className="text-sm text-muted-foreground">
-        Distribución de menciones por municipio de Puerto Rico
-      </p>
-
-      {/* Top municipalities bar */}
-      <Card>
-        <CardTitle>Top Municipios por Menciones</CardTitle>
-        <div className="mt-3 space-y-2">
-          {municipalities.slice(0, 10).map((m) => {
-            const maxCount = municipalities[0]?.count || 1;
-            const pct = (m.count / maxCount) * 100;
-            return (
-              <div key={m.slug} className="flex items-center gap-3">
-                <span className="w-28 text-sm text-foreground">{m.name}</span>
-                <div className="flex-1">
-                  <div
-                    className="h-5 rounded bg-primary/30"
-                    style={{ width: `${pct}%` }}
-                  >
-                    <span className="px-2 text-xs text-foreground">{m.count}</span>
-                  </div>
-                </div>
-                <SentimentBadge sentiment={m.topSentiment} />
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* By region */}
-      <div className="grid grid-cols-2 gap-4">
-        {Object.entries(byRegion).map(([region, munis]) => (
-          <Card key={region}>
-            <CardTitle>
-              {region} ({munis.reduce((s, m) => s + m.count, 0)} menciones)
-            </CardTitle>
-            <div className="mt-2 space-y-1">
+  const collapseItems = useMemo(
+    () =>
+      Object.entries(byRegion).map(([region, munis]) => {
+        const total = munis.reduce((s, m) => s + m.count, 0);
+        return {
+          key: region,
+          label: `${region} (${total} menciones)`,
+          children: (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {munis.map((m) => (
-                <div key={m.slug} className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{m.name}</span>
-                  <span className="font-medium text-foreground">{m.count}</span>
+                <div
+                  key={m.slug}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text type="secondary">{m.name}</Text>
+                  <Text strong>{m.count}</Text>
                 </div>
               ))}
             </div>
-          </Card>
-        ))}
+          ),
+        };
+      }),
+    [byRegion],
+  );
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>Geografia</Title>
+        <EcoChartCard title="Top Municipios por Menciones" loading>
+          <div />
+        </EcoChartCard>
       </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div>
+        <Title level={4} style={{ margin: 0 }}>Geografia</Title>
+        <Text type="secondary">Distribucion de menciones por municipio de Puerto Rico</Text>
+      </div>
+
+      <EcoChartCard title="Top Municipios por Menciones">
+        <ResponsiveContainer width="100%" height={360}>
+          <BarChart data={top10} layout="vertical" margin={{ left: 20, right: 20 }}>
+            <CartesianGrid
+              stroke={CHART_THEME.grid.stroke}
+              strokeDasharray={CHART_THEME.grid.strokeDasharray}
+              horizontal={false}
+            />
+            <XAxis
+              type="number"
+              tick={{ fontSize: CHART_THEME.axis.fontSize, fill: CHART_THEME.axis.fill }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={100}
+              tick={{ fontSize: CHART_THEME.axis.fontSize, fill: CHART_THEME.axis.fill }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <Tooltip contentStyle={CHART_THEME.tooltip.contentStyle} />
+            <Bar dataKey="count" name="Menciones" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </EcoChartCard>
+
+      <Card>
+        <Title level={5} style={{ marginTop: 0 }}>Municipios por Region</Title>
+        <Collapse items={collapseItems} />
+      </Card>
     </div>
   );
 }

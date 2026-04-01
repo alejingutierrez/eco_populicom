@@ -1,15 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card, CardTitle } from '@/components/ui/card';
-import { Bell, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Card, Table, Switch, Button, Tag, Space, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Plus } from 'lucide-react';
+import { EcoSentimentBadge } from '@/components/ui/EcoSentimentBadge';
+
+const { Title } = Typography;
 
 interface AlertRule {
   id: string;
   name: string;
   description: string | null;
   isActive: boolean;
-  config: { type: string; [key: string]: unknown };
+  config: { type: string };
   notifyEmails: string[];
   createdAt: string;
 }
@@ -26,7 +30,7 @@ export default function AlertsPage() {
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [history, setHistory] = useState<AlertHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -41,99 +45,130 @@ export default function AlertsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function toggleRule(id: string, isActive: boolean) {
-    await fetch(`/api/alerts/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: !isActive }),
-    });
-    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: !isActive } : r)));
-  }
+  const toggleRule = useCallback(async (id: string, currentActive: boolean) => {
+    setTogglingIds((prev) => new Set(prev).add(id));
+    try {
+      await fetch(`/api/alerts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !currentActive }),
+      });
+      setRules((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, isActive: !currentActive } : r)),
+      );
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
 
-  if (loading) {
-    return <div className="flex h-64 items-center justify-center text-muted-foreground">Cargando...</div>;
-  }
+  const rulesColumns: ColumnsType<AlertRule> = [
+    {
+      title: 'Nombre',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: 'Descripcion',
+      dataIndex: 'description',
+      key: 'description',
+      render: (text: string | null) => text ?? '--',
+    },
+    {
+      title: 'Estado',
+      dataIndex: 'isActive',
+      key: 'isActive',
+      render: (isActive: boolean, record: AlertRule) => (
+        <Switch
+          checked={isActive}
+          loading={togglingIds.has(record.id)}
+          onChange={() => toggleRule(record.id, isActive)}
+          checkedChildren="Activa"
+          unCheckedChildren="Inactiva"
+        />
+      ),
+    },
+    {
+      title: 'Emails',
+      dataIndex: 'notifyEmails',
+      key: 'notifyEmails',
+      render: (emails: string[]) => (
+        <Space size={[0, 4]} wrap>
+          {emails.map((email) => (
+            <Tag key={email}>{email}</Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: 'Creada',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (date: string) => new Date(date).toLocaleDateString('es-PR'),
+    },
+  ];
+
+  const historyColumns: ColumnsType<AlertHistoryItem> = [
+    {
+      title: 'Regla',
+      dataIndex: 'ruleName',
+      key: 'ruleName',
+    },
+    {
+      title: 'Fecha',
+      dataIndex: 'triggeredAt',
+      key: 'triggeredAt',
+      render: (date: string) => new Date(date).toLocaleString('es-PR'),
+    },
+    {
+      title: 'Sentimiento',
+      dataIndex: 'sentiment',
+      key: 'sentiment',
+      render: (sentiment: string) => <EcoSentimentBadge sentiment={sentiment} size="small" />,
+    },
+    {
+      title: 'Menciones',
+      dataIndex: 'mentionCount',
+      key: 'mentionCount',
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Alertas</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Title level={4} style={{ margin: 0 }}>Alertas</Title>
+        <Button type="primary" icon={<Plus size={16} />}>
           Nueva Regla
-        </button>
+        </Button>
       </div>
 
-      {/* Active rules */}
       <Card>
-        <CardTitle>Reglas de Alerta</CardTitle>
-        {rules.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">No hay reglas configuradas</p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {rules.map((rule) => (
-              <div key={rule.id} className="flex items-center justify-between rounded-md border border-border/50 p-3">
-                <div className="flex items-center gap-3">
-                  <Bell className={`h-4 w-4 ${rule.isActive ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{rule.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Tipo: {rule.config.type} · Emails: {rule.notifyEmails.join(', ')}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => toggleRule(rule.id, rule.isActive)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
-                      rule.isActive
-                        ? 'bg-positive/15 text-positive'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {rule.isActive ? 'Activa' : 'Inactiva'}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <Title level={5} style={{ marginTop: 0 }}>Reglas de Alertas</Title>
+        <Table<AlertRule>
+          columns={rulesColumns}
+          dataSource={rules}
+          rowKey="id"
+          loading={loading}
+          pagination={false}
+          locale={{ emptyText: 'No hay reglas configuradas' }}
+        />
       </Card>
 
-      {/* Alert history */}
       <Card>
-        <CardTitle>Historial de Alertas</CardTitle>
-        {history.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">No se han disparado alertas</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="pb-2 font-medium">Regla</th>
-                  <th className="pb-2 font-medium">Fecha</th>
-                  <th className="pb-2 font-medium">Sentimiento</th>
-                  <th className="pb-2 text-right font-medium">Menciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((h) => (
-                  <tr key={h.id} className="border-b border-border/50">
-                    <td className="py-2 text-foreground">{h.ruleName}</td>
-                    <td className="py-2 text-muted-foreground">
-                      {new Date(h.triggeredAt).toLocaleString('es-PR')}
-                    </td>
-                    <td className="py-2">{h.sentiment}</td>
-                    <td className="py-2 text-right">{h.mentionCount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Title level={5} style={{ marginTop: 0 }}>Historial</Title>
+        <Table<AlertHistoryItem>
+          columns={historyColumns}
+          dataSource={history}
+          rowKey="id"
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+          locale={{ emptyText: 'No se han disparado alertas' }}
+        />
       </Card>
     </div>
   );

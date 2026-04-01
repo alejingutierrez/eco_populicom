@@ -1,36 +1,91 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardTitle, CardValue } from '@/components/ui/card';
-import { SentimentBadge } from '@/components/sentiment-badge';
-import { SourceIcon } from '@/components/source-icon';
+import { Row, Col, Card, List, Skeleton, Typography } from 'antd';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
+import { MessageSquare, AlertTriangle, Heart, Globe } from 'lucide-react';
+
+import { EcoStatCard } from '@/components/data-display/EcoStatCard';
+import { EcoChartCard } from '@/components/data-display/EcoChartCard';
+import { EcoSentimentBadge } from '@/components/ui/EcoSentimentBadge';
+import { EcoSourceBadge } from '@/components/ui/EcoSourceBadge';
+import { EcoPeriodSelector } from '@/components/ui/EcoPeriodSelector';
+import {
+  CHART_COLORS,
+  SENTIMENT_COLORS,
+  CHART_THEME,
+  SOURCE_COLORS,
+} from '@/theme/chart-theme';
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface DashboardData {
-  kpis: { totalMentions: number; negativePct: number; avgEngagement: number; totalReach: number };
+  kpis: {
+    totalMentions: number;
+    negativePct: number;
+    avgEngagement: number;
+    totalReach: number;
+  };
   timeline: Array<{ date: string; count: number }>;
   sentimentBreakdown: Array<{ name: string; value: number; color: string }>;
   topSources: Array<{ source: string; count: number }>;
   recentMentions: Array<{
-    id: string; title: string; domain: string; pageType: string;
-    nlpSentiment: string; publishedAt: string; engagementScore: number;
+    id: string;
+    title: string;
+    domain: string;
+    pageType: string;
+    nlpSentiment: string;
+    publishedAt: string;
+    engagementScore: number;
   }>;
 }
 
-const SENTIMENT_COLORS: Record<string, string> = {
-  positivo: '#4ade80',
-  neutral: '#94a3b8',
-  negativo: '#f87171',
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+const PERIOD_OPTIONS = [
+  { label: '7d', value: '7d' },
+  { label: '30d', value: '30d' },
+  { label: '90d', value: '90d' },
+];
+
+const SENTIMENT_LABELS: Record<string, string> = {
+  positivo: 'Positivo',
+  neutral: 'Neutral',
+  negativo: 'Negativo',
 };
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState('30d');
 
   useEffect(() => {
+    setLoading(true);
     fetch('/api/dashboard')
       .then((r) => r.json())
       .then(setData)
@@ -38,153 +93,461 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  /* ---- Loading skeleton ---- */
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
-        Cargando dashboard...
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ marginBottom: 4 }}>
+          <Skeleton active title={{ width: 180 }} paragraph={{ rows: 0 }} />
+        </div>
+        <Row gutter={[16, 16]}>
+          {[1, 2, 3, 4].map((i) => (
+            <Col key={i} xs={24} sm={12} lg={6}>
+              <EcoStatCard
+                title=""
+                value=""
+                icon={null}
+                accentColor="ocean"
+                loading
+              />
+            </Col>
+          ))}
+        </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={16}>
+            <EcoChartCard title="Menciones por Dia" loading>
+              <div />
+            </EcoChartCard>
+          </Col>
+          <Col xs={24} lg={8}>
+            <EcoChartCard title="Sentimiento" loading>
+              <div />
+            </EcoChartCard>
+          </Col>
+        </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={8}>
+            <EcoChartCard title="Top Fuentes" loading>
+              <div />
+            </EcoChartCard>
+          </Col>
+          <Col xs={24} lg={16}>
+            <EcoChartCard title="Menciones Recientes" loading>
+              <div />
+            </EcoChartCard>
+          </Col>
+        </Row>
       </div>
     );
   }
 
+  /* ---- Empty state ---- */
   if (!data) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
+      <div
+        style={{
+          display: 'flex',
+          height: 256,
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#94A3B8',
+          fontSize: 14,
+        }}
+      >
         No hay datos disponibles. Esperando ingestion de menciones.
       </div>
     );
   }
 
+  /* ---- Derived values ---- */
+  const sparklineCounts = data.timeline.map((t) => t.count);
+  const maxSourceCount =
+    data.topSources.length > 0
+      ? Math.max(...data.topSources.map((s) => s.count))
+      : 1;
+  const sentimentTotal = data.sentimentBreakdown.reduce(
+    (acc, s) => acc + s.value,
+    0,
+  );
+
+  /* ---- Render ---- */
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          AAA — Autoridad de Acueductos y Alcantarillados
-        </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+        }}
+      >
+        <div>
+          <Typography.Title level={4} style={{ margin: 0, color: '#0E1E2C' }}>
+            Dashboard
+          </Typography.Title>
+          <Typography.Text style={{ fontSize: 13, color: '#94A3B8' }}>
+            AAA — Autoridad de Acueductos y Alcantarillados
+          </Typography.Text>
+        </div>
+        <EcoPeriodSelector
+          options={PERIOD_OPTIONS}
+          value={period}
+          onChange={setPeriod}
+        />
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <Card>
-          <CardTitle>Total Menciones</CardTitle>
-          <CardValue>{data.kpis.totalMentions.toLocaleString()}</CardValue>
-        </Card>
-        <Card>
-          <CardTitle>Menciones Negativas</CardTitle>
-          <CardValue className="text-negative">{data.kpis.negativePct}%</CardValue>
-        </Card>
-        <Card>
-          <CardTitle>Engagement Promedio</CardTitle>
-          <CardValue>{data.kpis.avgEngagement.toFixed(1)}</CardValue>
-        </Card>
-        <Card>
-          <CardTitle>Alcance Total</CardTitle>
-          <CardValue>{formatNumber(data.kpis.totalReach)}</CardValue>
-        </Card>
-      </div>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={6}>
+          <EcoStatCard
+            title="Total Menciones"
+            value={data.kpis.totalMentions.toLocaleString()}
+            icon={<MessageSquare size={14} color="#0A7EA4" />}
+            accentColor="ocean"
+            sparklineData={sparklineCounts}
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <EcoStatCard
+            title="Menciones Negativas"
+            value={`${data.kpis.negativePct}%`}
+            icon={<AlertTriangle size={14} color="#E86452" />}
+            accentColor="error"
+            valueColor="#E86452"
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <EcoStatCard
+            title="Engagement Promedio"
+            value={data.kpis.avgEngagement.toFixed(1)}
+            icon={<Heart size={14} color="#2E8B6A" />}
+            accentColor="mangrove"
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <EcoStatCard
+            title="Alcance Total"
+            value={formatNumber(data.kpis.totalReach)}
+            icon={<Globe size={14} color="#F5A623" />}
+            accentColor="amber"
+          />
+        </Col>
+      </Row>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Timeline */}
-        <Card className="col-span-2">
-          <CardTitle>Menciones por Día</CardTitle>
-          <div className="mt-3 h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.timeline}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-                <Tooltip
-                  contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: '0.5rem' }}
-                  labelStyle={{ color: 'var(--color-foreground)' }}
-                />
-                <Line type="monotone" dataKey="count" stroke="var(--color-primary)" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+      {/* Charts Row: Timeline + Sentiment */}
+      <Row gutter={[16, 16]}>
+        {/* Timeline Area Chart */}
+        <Col xs={24} lg={16}>
+          <EcoChartCard
+            title="Menciones por Dia"
+            subtitle="Tendencia de volumen en el periodo seleccionado"
+          >
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={data.timeline}
+                  margin={{ top: 4, right: 4, bottom: 0, left: -12 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="areaGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor={CHART_COLORS[0]}
+                        stopOpacity={CHART_THEME.area.gradientOpacityStart}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor={CHART_COLORS[0]}
+                        stopOpacity={CHART_THEME.area.gradientOpacityEnd}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    stroke={CHART_THEME.grid.stroke}
+                    strokeDasharray={CHART_THEME.grid.strokeDasharray}
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    fontSize={CHART_THEME.axis.fontSize}
+                    fill={CHART_THEME.axis.fill}
+                    tickLine={CHART_THEME.axis.tickLine}
+                    axisLine={CHART_THEME.axis.axisLine}
+                    dy={8}
+                  />
+                  <YAxis
+                    fontSize={CHART_THEME.axis.fontSize}
+                    fill={CHART_THEME.axis.fill}
+                    tickLine={CHART_THEME.axis.tickLine}
+                    axisLine={CHART_THEME.axis.axisLine}
+                    dx={-4}
+                  />
+                  <Tooltip
+                    contentStyle={CHART_THEME.tooltip.contentStyle}
+                    labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke={CHART_COLORS[0]}
+                    strokeWidth={2}
+                    fill="url(#areaGradient)"
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </EcoChartCard>
+        </Col>
 
         {/* Sentiment Donut */}
-        <Card>
-          <CardTitle>Sentimiento</CardTitle>
-          <div className="mt-3 h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={data.sentimentBreakdown}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                >
-                  {data.sentimentBreakdown.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 text-xs text-muted-foreground">
-              {data.sentimentBreakdown.map((s) => (
-                <span key={s.name} className="flex items-center gap-1">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
-                  {s.name} ({s.value})
-                </span>
-              ))}
+        <Col xs={24} lg={8}>
+          <EcoChartCard
+            title="Sentimiento"
+            subtitle="Distribucion general por tono"
+          >
+            <div style={{ width: '100%', height: 200 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.sentimentBreakdown}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={52}
+                    outerRadius={78}
+                    paddingAngle={2}
+                    strokeWidth={0}
+                  >
+                    {data.sentimentBreakdown.map((entry) => (
+                      <Cell
+                        key={entry.name}
+                        fill={
+                          SENTIMENT_COLORS[
+                            entry.name as keyof typeof SENTIMENT_COLORS
+                          ] ?? '#CBD5E1'
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={CHART_THEME.tooltip.contentStyle}
+                    formatter={(value: number, name: string) => [
+                      value,
+                      SENTIMENT_LABELS[name] ?? name,
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
-          </div>
-        </Card>
-      </div>
 
-      {/* Bottom Row */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Top Sources */}
-        <Card>
-          <CardTitle>Top Fuentes</CardTitle>
-          <div className="mt-3 h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.topSources} layout="vertical">
-                <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} />
-                <YAxis type="category" dataKey="source" tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} width={100} />
-                <Tooltip contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: '0.5rem' }} />
-                <Bar dataKey="count" fill="var(--color-primary)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+            {/* Sentiment Legend */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: 20,
+                marginTop: 8,
+              }}
+            >
+              {data.sentimentBreakdown.map((s) => {
+                const pct =
+                  sentimentTotal > 0
+                    ? Math.round((s.value / sentimentTotal) * 100)
+                    : 0;
+                return (
+                  <div
+                    key={s.name}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: '#64748B',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background:
+                          SENTIMENT_COLORS[
+                            s.name as keyof typeof SENTIMENT_COLORS
+                          ] ?? '#CBD5E1',
+                      }}
+                    />
+                    <span>
+                      {SENTIMENT_LABELS[s.name] ?? s.name} ({pct}%)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </EcoChartCard>
+        </Col>
+      </Row>
+
+      {/* Bottom Row: Sources + Recent Mentions */}
+      <Row gutter={[16, 16]}>
+        {/* Top Sources - horizontal progress bars */}
+        <Col xs={24} lg={8}>
+          <EcoChartCard
+            title="Top Fuentes"
+            subtitle="Por volumen de menciones"
+          >
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              {data.topSources.map((src, idx) => {
+                const color =
+                  SOURCE_COLORS[src.source.toLowerCase()] ??
+                  CHART_COLORS[idx % CHART_COLORS.length];
+                const pct =
+                  maxSourceCount > 0
+                    ? (src.count / maxSourceCount) * 100
+                    : 0;
+                return (
+                  <div key={src.source}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <EcoSourceBadge
+                        source={src.source}
+                        showLabel
+                        size={22}
+                      />
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: '#0E1E2C',
+                        }}
+                      >
+                        {src.count.toLocaleString()}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 6,
+                        borderRadius: 3,
+                        background: '#F0F4F8',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          borderRadius: 3,
+                          background: `linear-gradient(90deg, ${color}, ${color}99)`,
+                          transition: 'width 0.4s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </EcoChartCard>
+        </Col>
 
         {/* Recent Mentions */}
-        <Card className="col-span-2">
-          <CardTitle>Menciones Recientes</CardTitle>
-          <div className="mt-3 space-y-3">
-            {data.recentMentions.map((m) => (
-              <div key={m.id} className="flex items-start gap-3 rounded-md border border-border/50 p-3">
-                <SourceIcon pageType={m.pageType} className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {m.title || 'Sin título'}
-                  </p>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{m.domain}</span>
-                    <span>·</span>
-                    <span>{new Date(m.publishedAt).toLocaleDateString('es-PR')}</span>
-                    <SentimentBadge sentiment={m.nlpSentiment} />
+        <Col xs={24} lg={16}>
+          <EcoChartCard
+            title="Menciones Recientes"
+            subtitle="Ultimas menciones procesadas"
+          >
+            <List
+              dataSource={data.recentMentions}
+              split={false}
+              renderItem={(m) => (
+                <List.Item
+                  key={m.id}
+                  style={{
+                    padding: '10px 12px',
+                    marginBottom: 8,
+                    borderRadius: 10,
+                    background: '#FAFBFD',
+                    border: '1px solid #EEF2F6',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      width: '100%',
+                    }}
+                  >
+                    <EcoSourceBadge source={m.pageType} size={28} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: '#0E1E2C',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {m.title || 'Sin titulo'}
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginTop: 4,
+                          fontSize: 12,
+                          color: '#94A3B8',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <span>{m.domain}</span>
+                        <span style={{ color: '#CBD5E1' }}>|</span>
+                        <span>
+                          {new Date(m.publishedAt).toLocaleDateString('es-PR')}
+                        </span>
+                        <EcoSentimentBadge
+                          sentiment={m.nlpSentiment}
+                          size="small"
+                        />
+                        {m.engagementScore > 0 && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: '#64748B',
+                              fontWeight: 500,
+                            }}
+                          >
+                            Eng: {m.engagementScore.toFixed(1)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+                </List.Item>
+              )}
+            />
+          </EcoChartCard>
+        </Col>
+      </Row>
     </div>
   );
-}
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toString();
 }

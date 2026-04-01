@@ -1,57 +1,93 @@
-import { Card, CardTitle } from '@/components/ui/card';
+'use client';
+
+import { Card, Descriptions, Tag, Row, Col, Typography } from 'antd';
+
+const { Title, Text } = Typography;
 
 export default function SettingsPage() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold text-foreground">Configuración</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <Title level={4} style={{ color: '#0E1E2C', margin: 0 }}>
+        Configuracion
+      </Title>
 
-      <Card>
-        <CardTitle>Agencia</CardTitle>
-        <div className="mt-3 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Nombre</span>
-            <span className="text-foreground">Autoridad de Acueductos y Alcantarillados</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Brandwatch Project ID</span>
-            <span className="font-mono text-foreground">1998403803</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Brandwatch Query ID</span>
-            <span className="font-mono text-foreground">2003911540</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Polling</span>
-            <span className="text-foreground">Cada 5 minutos</span>
-          </div>
-        </div>
-      </Card>
+      <Row gutter={[24, 24]}>
+        <Col xs={24} lg={12}>
+          <Card
+            title="Agencia"
+            styles={{ header: { color: '#0E1E2C' } }}
+          >
+            <Descriptions column={1} colon={false} size="small">
+              <Descriptions.Item label="Nombre">
+                Autoridad de Acueductos y Alcantarillados
+              </Descriptions.Item>
+              <Descriptions.Item label="Siglas">
+                <Tag color="blue">AAA</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Brandwatch Project ID">
+                <Text code>1998403803</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Brandwatch Query ID">
+                <Text code>2003911540</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Polling">
+                Cada 5 minutos
+              </Descriptions.Item>
+              <Descriptions.Item label="Estado">
+                <Tag color="success">Activo</Tag>
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
 
-      <Card>
-        <CardTitle>NLP</CardTitle>
-        <div className="mt-3 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Modelo</span>
-            <span className="text-foreground">Claude Opus (Bedrock)</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Sentimiento</span>
-            <span className="text-foreground">3 niveles + 7 emociones</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Tópicos</span>
-            <span className="text-foreground">10 fijos + subtópicos</span>
-          </div>
-        </div>
-      </Card>
+        <Col xs={24} lg={12}>
+          <Card
+            title="NLP"
+            styles={{ header: { color: '#0E1E2C' } }}
+          >
+            <Descriptions column={1} colon={false} size="small">
+              <Descriptions.Item label="Modelo">
+                Claude Opus (Bedrock)
+              </Descriptions.Item>
+              <Descriptions.Item label="Proveedor">
+                <Tag color="purple">AWS Bedrock</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Sentimiento">
+                3 niveles + 7 emociones
+              </Descriptions.Item>
+              <Descriptions.Item label="Topicos">
+                10 fijos + subtopicos
+              </Descriptions.Item>
+              <Descriptions.Item label="Estado">
+                <Tag color="success">Conectado</Tag>
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+      </Row>
 
-      <Card>
-        <CardTitle>Plataforma</CardTitle>
-        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-          <p>ECO v0.1.0 — Social Listening Platform</p>
-          <p>Gobierno de Puerto Rico · Populicom</p>
-        </div>
-      </Card>
+      <Row>
+        <Col span={24}>
+          <Card
+            title="Plataforma"
+            styles={{ header: { color: '#0E1E2C' } }}
+          >
+            <Descriptions column={1} colon={false} size="small">
+              <Descriptions.Item label="Version">
+                <Tag>v0.1.0</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Producto">
+                ECO — Social Listening Platform
+              </Descriptions.Item>
+              <Descriptions.Item label="Organizacion">
+                <Text style={{ color: '#64748B' }}>
+                  Gobierno de Puerto Rico &middot; Populicom
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+      </Row>
     </div>
   );
 }
