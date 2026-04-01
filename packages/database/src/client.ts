@@ -6,15 +6,27 @@ const { Pool } = pg;
 
 let pool: pg.Pool | null = null;
 
+function buildConnectionString(): string {
+  // Option 1: Direct DATABASE_URL
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+
+  // Option 2: Build from DB_SECRET (ECS injects Secrets Manager JSON)
+  if (process.env.DB_SECRET) {
+    const secret = JSON.parse(process.env.DB_SECRET);
+    return `postgresql://${secret.username}:${encodeURIComponent(secret.password)}@${secret.host}:${secret.port}/${secret.dbname}`;
+  }
+
+  throw new Error('DATABASE_URL or DB_SECRET environment variable is required');
+}
+
 export function getPool(): pg.Pool {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL environment variable is required');
-    }
     pool = new Pool({
-      connectionString,
-      max: 10,
+      connectionString: buildConnectionString(),
+      ssl: { rejectUnauthorized: false },
+      max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
     });
@@ -30,7 +42,6 @@ export type Db = ReturnType<typeof getDb>;
 
 /**
  * Set RLS context for the current transaction.
- * Must be called within a transaction before any tenant-scoped queries.
  */
 export async function setAgencyContext(db: Db, agencyId: string): Promise<void> {
   await db.execute(
