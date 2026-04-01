@@ -3,131 +3,163 @@
 **Account:** 863956448838
 **Region:** us-east-1
 **IAM User:** agutierrez@populicom.com
-**IaC:** AWS CDK (TypeScript)
+**IaC:** AWS CDK v2 (TypeScript)
 
 ---
 
-## Target Architecture
+## Deployed Stacks (All Active)
 
-### Compute
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| Lambda | `eco-ingestion` | Poll Brandwatch API every 15-30 min, store raw mentions |
-| Lambda | `eco-processing` | Process mentions: Claude/Bedrock NLP, topic classification, geo tagging |
-| Lambda | `eco-alerts` | Evaluate alert rules against new mentions, trigger notifications |
-| Lambda | `eco-exports` | Generate report exports (PDF, Excel) |
-| Lambda | `eco-api` | Next.js API routes (or API Gateway + individual functions) |
+| Stack | Status | Key Resources |
+|-------|--------|---------------|
+| **EcoNetwork** | CREATE_COMPLETE | VPC `vpc-0afa31c337b116cd0`, 4 subnets, 1 NAT GW, 4 SGs |
+| **EcoDatabase** | CREATE_COMPLETE | RDS PostgreSQL 16 (`db.t4g.medium`, ARM64), Secrets Manager |
+| **EcoAuth** | CREATE_COMPLETE | Cognito `eco-users` (`us-east-1_exuhIKYQ8`), 3 groups |
+| **EcoStorage** | CREATE_COMPLETE | S3 `eco-raw-863956448838`, `eco-exports-863956448838` |
+| **EcoMessaging** | CREATE_COMPLETE | 4 SQS queues |
+| **EcoWorkers** | UPDATE_COMPLETE | 3 Lambdas (ingestion, processor, alerts) |
+| **EcoCompute** | UPDATE_COMPLETE | ECS Fargate `eco-cluster`, ALB `eco-alb`, ECR `eco-web` |
+| **EcoMonitoring** | CREATE_COMPLETE | CloudWatch dashboard, 5 alarms, SNS topic |
+
+---
+
+## Resource Details
+
+### Network
+| Resource | Value |
+|----------|-------|
+| VPC | `vpc-0afa31c337b116cd0` (10.0.0.0/16) |
+| Public subnets | `subnet-0c771e21574ce2660`, `subnet-0d821c072bbb59cf0` |
+| Private subnets | `subnet-02030f77abdc24ead`, `subnet-0606d388e91a95db9` |
+| ALB Security Group | `sg-00a8ae17d6da9a96e` (inbound 80/443) |
+| Fargate Security Group | `sg-0e7c03b262ee5276b` (inbound 3000 from ALB) |
+| Lambda Security Group | `sg-0d7e06c12f1717227` (outbound only) |
+| RDS Security Group | `sg-08564874bde90dbd2` (inbound 5432 from Fargate + Lambda) |
 
 ### Database
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| RDS | `eco-db` (PostgreSQL) | Primary database — mentions, users, agencies, topics, alerts |
-| | Instance: `db.t4g.medium` | ~2 vCPU, 4GB RAM — sufficient for MVP |
-| | Multi-AZ: No (MVP) | Enable for production |
+| Resource | Value |
+|----------|-------|
+| Instance | `ecodatabase-ecodbinstance8404a24e-wkypcvhcf7g1` |
+| Endpoint | `ecodatabase-ecodbinstance8404a24e-wkypcvhcf7g1.cslg02yoa34w.us-east-1.rds.amazonaws.com` |
+| Port | 5432 |
+| Database name | `eco` |
+| Engine | PostgreSQL 16 |
+| Instance type | db.t4g.medium (ARM64 Graviton) |
+| Storage | 20GB gp3 (auto-scales to 100GB) |
+| Credentials | Secrets Manager: `EcoDbSecret481D8FFF-VuEFDbBUp7tO` |
+| Tables | 11 (agencies, users, mentions, topics, subtopics, municipalities, mention_topics, mention_municipalities, alert_rules, alert_history, ingestion_cursors) |
+| Seed data | 1 agency (AAA), 77 municipalities, 10 topics, 30 subtopics |
 
-### Storage
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| S3 | `eco-raw` | Raw Brandwatch API responses |
-| S3 | `eco-exports` | Generated report files for download |
-| S3 | `eco-assets` | CDK deployment assets |
+### Auth (Cognito)
+| Resource | Value |
+|----------|-------|
+| User Pool ID | `us-east-1_exuhIKYQ8` |
+| App Client ID | `1t4v0kt8nn9nnmtet8t3l5g7u3` |
+| Groups | admin, analyst, viewer |
+| Admin user | `agutierrez@populicom.com` / `EcoAdmin2026!` |
 
-### Auth
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| Cognito | `eco-users` | User authentication (email/password) |
-| | User groups | Admin, Analyst, Viewer roles |
+### Compute (ECS)
+| Resource | Value |
+|----------|-------|
+| Cluster | `eco-cluster` |
+| Service | `eco-web` (1 task, auto-scales 1-3) |
+| Task CPU/Memory | 0.5 vCPU / 1GB (ARM64 Graviton) |
+| ALB DNS | `eco-alb-1881782703.us-east-1.elb.amazonaws.com` |
+| ECR | `863956448838.dkr.ecr.us-east-1.amazonaws.com/eco-web` |
+| Health check | `GET /api/health` (interval 30s, start 120s) |
+| Container env | NEXT_PUBLIC_COGNITO_USER_POOL_ID, NEXT_PUBLIC_COGNITO_CLIENT_ID, RAW_BUCKET, EXPORTS_BUCKET |
+| Container secret | DB_SECRET (from Secrets Manager) |
 
-### Messaging
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| SQS | `eco-ingestion-queue` | Buffer between ingestion and processing |
-| SQS | `eco-ingestion-dlq` | Dead letter queue for failed ingestions |
-| SQS | `eco-alerts-queue` | Buffer for alert evaluation |
-| SQS | `eco-alerts-dlq` | Dead letter queue for failed alerts |
+### Workers (Lambda)
+| Function | Trigger | Memory | Timeout | Key Env Vars |
+|----------|---------|--------|---------|-------------|
+| `eco-ingestion` | EventBridge (every 5 min) | 512MB | 5 min | BRANDWATCH_TOKEN, PROJECT_ID, QUERY_ID, RAW_BUCKET, INGESTION_QUEUE_URL, DB_SECRET_ARN |
+| `eco-processor` | SQS eco-ingestion (batch 10, concurrency 2) | 1024MB | 5 min | DB_SECRET_ARN, ALERTS_QUEUE_URL, BEDROCK_MODEL_ID, AGENCY_ID |
+| `eco-alerts` | SQS eco-alerts (batch 1) | 256MB | 60s | DB_SECRET_ARN, SES_FROM_EMAIL |
+| `eco-migration` | Manual invoke | 512MB | 120s | DB_SECRET_ARN |
 
-### AI/ML
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| Bedrock | Claude (Anthropic) | Sentiment analysis, topic classification, geo extraction |
-| | Model: claude-sonnet or haiku | Cost-optimized for high-volume mention processing |
+### Storage (S3)
+| Bucket | Purpose | Lifecycle |
+|--------|---------|-----------|
+| `eco-raw-863956448838` | Raw Brandwatch API responses | IA after 90d, expire 365d |
+| `eco-exports-863956448838` | Generated reports | Expire 90d |
 
-### Email
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| SES | `eco-alerts@populicom.com` | Alert email notifications |
+### Messaging (SQS)
+| Queue | Visibility | Retention | DLQ Max Receives |
+|-------|-----------|-----------|-----------------|
+| `eco-ingestion` | 300s | 4 days | 3 → eco-ingestion-dlq (14d) |
+| `eco-alerts` | 60s | 4 days | 3 → eco-alerts-dlq (14d) |
 
-### Frontend Hosting
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| CloudFront | Distribution | CDN for Next.js static assets |
-| S3 | `eco-frontend` | Next.js static export (or use Amplify) |
-| *Alternative* | Amplify Hosting | Managed Next.js deployment with SSR |
+### AI/NLP (Bedrock)
+| Resource | Value |
+|----------|-------|
+| Model | Claude Opus 4.6 |
+| Inference Profile | `us.anthropic.claude-opus-4-6-v1` |
+| Tasks per mention | Sentiment (3-level), emotions (7), pertinence, topics + subtopics, municipalities |
+| Latency | ~4s per mention |
+| Cost | ~$0.01-0.03 per mention |
 
 ### Monitoring
-| Service | Resource | Purpose |
-|---------|----------|---------|
-| CloudWatch | Logs + Metrics | Lambda logs, RDS metrics, custom dashboards |
-| CloudWatch Alarms | Critical alerts | DB connections, Lambda errors, queue depth |
+| Alarm | Condition |
+|-------|-----------|
+| RDS CPU | > 80% for 10 min |
+| Lambda errors (3 functions) | > 5 in 5 min |
+| Ingestion DLQ depth | > 0 |
+| Alerts DLQ depth | > 0 |
+| SNS topic | `eco-alerts-ops` → agutierrez@populicom.com |
 
 ---
 
-## CDK Stack Structure
+## Deployment Commands
 
-```
-infra/
-├── bin/
-│   └── eco.ts                    # CDK app entry point
-├── lib/
-│   ├── network-stack.ts          # VPC, subnets, security groups
-│   ├── database-stack.ts         # RDS PostgreSQL
-│   ├── auth-stack.ts             # Cognito user pool + groups
-│   ├── storage-stack.ts          # S3 buckets
-│   ├── messaging-stack.ts        # SQS queues
-│   ├── ingestion-stack.ts        # Ingestion Lambda + EventBridge schedule
-│   ├── processing-stack.ts       # Processing Lambda + Bedrock access
-│   ├── alerts-stack.ts           # Alert processing Lambda + SES
-│   ├── api-stack.ts              # API Lambda(s) or API Gateway
-│   └── frontend-stack.ts         # CloudFront + S3 or Amplify
-├── cdk.json
-├── tsconfig.json
-└── package.json
+```bash
+# Set credentials
+export AWS_ACCESS_KEY_ID=AKIA4SJ6RGZDH26ZDLDT
+export AWS_SECRET_ACCESS_KEY="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"
+export AWS_REGION=us-east-1
+
+# Deploy all stacks
+cd infra && npx cdk deploy --all --require-approval never
+
+# Deploy specific stack
+npx cdk deploy EcoWorkers --require-approval never
+npx cdk deploy EcoCompute --require-approval never
+
+# Run database migrations + seed
+aws lambda invoke --function-name eco-migration --cli-binary-format raw-in-base64-out --payload '{"action":"migrate-and-seed"}' /tmp/result.json
+
+# Check database status
+aws lambda invoke --function-name eco-migration --cli-binary-format raw-in-base64-out --payload '{"action":"status"}' /tmp/result.json && cat /tmp/result.json
+
+# Manually trigger ingestion
+aws lambda invoke --function-name eco-ingestion --cli-binary-format raw-in-base64-out --payload '{}' /tmp/result.json
+
+# View logs
+aws logs filter-log-events --log-group-name "/aws/lambda/eco-processor" --start-time $(python3 -c "import time; print(int((time.time()-300)*1000))") --query 'events[*].message' --output text
 ```
 
 ---
 
-## Estimated Monthly Cost (MVP)
+## Estimated Monthly Cost
 
 | Service | Estimate |
 |---------|----------|
 | RDS db.t4g.medium | ~$50/mo |
+| ECS Fargate (0.5 vCPU, 1GB) | ~$18/mo |
+| ALB | ~$16/mo |
+| NAT Gateway | ~$32/mo |
 | Lambda (all functions) | ~$5-15/mo |
-| S3 storage | ~$1-5/mo |
-| SQS | ~$1/mo |
-| Cognito | Free tier (50K MAU) |
-| Bedrock (Claude) | ~$20-100/mo (depends on volume) |
-| CloudFront | ~$5-10/mo |
-| SES | ~$1/mo |
-| **Total** | **~$85-185/mo** |
-
----
-
-## Current State
-
-### Active Resources (as of 2026-03-31)
-- **SacPlatformProd stack:** DELETE_IN_PROGRESS (being torn down)
-- **CDKToolkit stack:** Active (bootstrap, can be reused)
-
-### After Cleanup
-- Only CDKToolkit bootstrap stack should remain
-- All application resources will be recreated with the new architecture above
+| Bedrock (Claude Opus 4.6) | ~$5-15/mo (at 15 mentions/day) |
+| S3/SQS/SES/CloudWatch | ~$8-10/mo |
+| **Total** | **~$135-160/mo** |
 
 ---
 
 ## Security Notes
-- RDS should be in private subnets, accessible only via Lambda
-- Cognito handles all user authentication — no custom auth
-- S3 buckets: block all public access
+- RDS in private subnets, accessible only via Lambda and ECS (security groups)
+- SSL required for all RDS connections (`ssl: { rejectUnauthorized: false }`)
+- Cognito handles user authentication
+- S3 buckets: all public access blocked
 - Lambda functions: least-privilege IAM roles
-- Bedrock: IAM policy to invoke specific Claude models only
-- .env file with credentials should NEVER be committed to git
+- Secrets Manager for DB credentials (auto-rotated)
+- `.env` file with credentials NEVER committed to git
+- ALB currently HTTP only — HTTPS requires domain + ACM certificate

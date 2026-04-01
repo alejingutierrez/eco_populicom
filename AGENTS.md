@@ -6,60 +6,102 @@
 
 **Built by:** Populicom (external consultant/vendor)
 **Client:** Government of Puerto Rico
+**Pilot Agency:** AAA (Autoridad de Acueductos y Alcantarillados)
 
 ## Architecture
 
 ### Tech Stack
-- **Frontend:** Next.js (React) — deployed to AWS
-- **Backend:** Node.js (Lambda functions via CDK)
-- **Database:** PostgreSQL (RDS)
-- **Infrastructure:** AWS CDK (TypeScript)
-- **Auth:** AWS Cognito (email/password)
-- **AI/NLP:** Claude via AWS Bedrock — custom sentiment analysis tuned for Puerto Rican Spanish/Spanglish
-- **Data Source:** Brandwatch API (primary) + free news APIs (secondary)
-- **Pilot Agency:** AAA (Autoridad de Acueductos y Alcantarillados) — Project ID: 1998403803, Query: "Directas AAA" (2003911540)
-- **Queues:** SQS for async processing (ingestion, alerts, exports)
-- **Storage:** S3 (raw data, exports)
+- **Frontend:** Next.js 15 (App Router, React 19) — deployed to ECS Fargate (ARM64 Graviton)
+- **Backend:** Node.js Lambda functions via CDK (TypeScript, esbuild bundling)
+- **Database:** PostgreSQL 16 (RDS db.t4g.medium) — Drizzle ORM
+- **Infrastructure:** AWS CDK v2 (TypeScript) — 8 stacks
+- **Auth:** AWS Cognito (email/password, 3 roles)
+- **AI/NLP:** Claude Opus 4.6 via AWS Bedrock (`us.anthropic.claude-opus-4-6-v1`)
+- **Data Source:** Brandwatch API — "Directas AAA" query (ID: 2003911540)
+- **Queues:** SQS (ingestion + DLQ, alerts + DLQ)
+- **Storage:** S3 (raw Brandwatch data, exports)
+- **Email:** SES for alert notifications
+- **UI:** Tailwind CSS v4, Recharts, Lucide icons, dark mode
+- **Monorepo:** npm workspaces (packages/shared, packages/database, packages/brandwatch)
 
 ### Key Design Decisions
-- **Multi-tenant from day one:** Architecture must support 120 agencies even though MVP starts with 1. Tenant isolation at the database level (row-level security or schema-per-tenant).
+- **Multi-tenant from day one:** Row-level security with `agency_id` on all tables. 120 agencies planned.
 - **Brandwatch as data source:** All social media data comes from Brandwatch API. ECO does NOT scrape social media directly.
-- **Custom sentiment with Claude/Bedrock:** Brandwatch provides baseline sentiment, but ECO re-processes mentions through Claude (Bedrock) for Puerto Rican Spanish/Spanglish cultural sensitivity. Both scores are stored.
-- **Ingestion cadence:** Poll Brandwatch API every 15-30 minutes.
-- **Serverless-first:** Lambda for compute, SQS for async, RDS for persistence. No EC2/ECS.
+- **Claude Opus for NLP:** Every mention is processed by Claude Opus 4.6 via Bedrock for sentiment (3 levels), emotions (7 types), pertinence (alta/media/baja), topic classification (10 + 30 subtopics), and municipality extraction. Both Brandwatch and Claude scores stored.
+- **Ingestion cadence:** Poll Brandwatch every 5 minutes via EventBridge.
+- **Topic taxonomy:** 10 fixed topics + 30 subtopics derived from analysis of ~200 real Brandwatch mentions.
+- **Deduplication:** SHA-256 hash of normalized text, flagged but shown.
+- **ORM:** Drizzle ORM with PostgreSQL (schema-as-code, type-safe).
 
 ### Data Flow
 ```
-Brandwatch API → Lambda (Ingestion) → SQS → Lambda (Processing + Claude/Bedrock NLP) → PostgreSQL
-                                                                                          ↓
-                                                                              Next.js Dashboard ← User
-                                                                                          ↓
-                                                                              SQS (Alerts) → Lambda → Email (SES)
+Brandwatch API → Lambda (Ingestion, every 5min)
+    → S3 (raw JSON) + SQS (mention per message)
+        → Lambda (Processor + Claude Opus 4.6 via Bedrock)
+            → PostgreSQL (mentions + topics + municipalities)
+                → Next.js Dashboard (ECS Fargate + ALB) ← User
+            → SQS (alerts queue, if negative + high pertinence)
+                → Lambda (Alerts) → SES Email
+```
+
+### Infrastructure Stacks (CDK)
+| Stack | Resources |
+|-------|-----------|
+| **EcoNetwork** | VPC (10.0.0.0/16), 2 public + 2 private subnets, NAT Gateway, 4 security groups |
+| **EcoDatabase** | RDS PostgreSQL 16 (db.t4g.medium, ARM64), Secrets Manager |
+| **EcoAuth** | Cognito user pool + 3 groups (admin, analyst, viewer) |
+| **EcoStorage** | S3 eco-raw (365d retention), S3 eco-exports (90d) |
+| **EcoMessaging** | 4 SQS queues (ingestion + DLQ, alerts + DLQ) |
+| **EcoWorkers** | 3 Lambdas (ingestion, processor, alerts) with NodejsFunction bundling |
+| **EcoCompute** | ECS Fargate cluster + ALB + ECR (Next.js frontend) |
+| **EcoMonitoring** | CloudWatch dashboard, 5 alarms, SNS topic |
+
+### Database Schema (11 tables)
+```
+agencies            — Multi-tenant root (slug, brandwatch_project_id)
+users               — Cognito sub mapping (email, role, agency_id)
+mentions            — Core table (~40 cols: BW raw + NLP results)
+topics              — 10 fixed topics
+subtopics           — ~30 subtopics linked to topics
+mention_topics      — Junction with confidence score
+municipalities      — 78 PR municipios with coordinates
+mention_municipalities — Junction with source (brandwatch/nlp)
+alert_rules         — Configurable triggers (JSONB config)
+alert_history       — Triggered alerts log
+ingestion_cursors   — Tracks last poll timestamp per query
 ```
 
 ## User Roles
 | Role | Permissions |
 |------|-------------|
-| **Admin** | Full access: manage users, configure agencies, set up alerts, view all data, export reports |
-| **Analyst** | View all data, create/manage alerts, generate reports, configure topics |
+| **Admin** | Full access: manage users, configure agencies, set alerts, view all data, export reports |
+| **Analyst** | View data, create/manage alerts, generate reports, configure topics |
 | **Viewer** | Read-only access to dashboards, mentions, and reports |
 
-## MVP Scope (Phase 1 — 4-8 weeks)
-1. **Dashboard** — KPIs, trends, sentiment overview, top sources, recent mentions
-2. **Mentions** — Filterable feed of social media posts with sentiment, source, engagement
-3. **Sentiment Analysis** — Breakdown by positive/negative/neutral, by source, over time, by agency
-4. **Geographic Classification** — Mentions mapped to PR municipalities
-5. **Topics** — Topic clustering, trending topics, word clouds
-6. **Email Alerts** — Configurable alerts for spikes, negative sentiment, keyword triggers
+## MVP Scope (Phase 1)
+1. **Dashboard** — KPIs, trends, sentiment donut, top sources, recent mentions
+2. **Mentions** — Filterable feed with sentiment/source/pertinence filters + pagination
+3. **Sentiment Analysis** — Timeline, by source, emotions radar, BW vs Claude comparison
+4. **Topics** — Grid with counts + detailed table with subtopics
+5. **Geographic Classification** — Municipality bars + by-region breakdown
+6. **Alerts** — Rule management UI + history table
+7. **Settings** — Agency info, NLP config display
 
 ## Phase 2 (Post-MVP)
+- HTTPS + custom domain
+- Auth middleware on API routes
+- Historical data backfill (2025 Brandwatch data)
+- Agency selector (multi-tenant UI)
+- Global search
+- Mention detail panel
+- Mention actions (tag, archive, reviewed)
 - Advanced reports with PDF/Excel export
 - Scheduled reports via email
 - Agency comparison views
-- Dark mode
 - SSO/Active Directory integration
 - Real-time websocket updates
-- Competitive benchmarking between agencies
+- PR municipality SVG choropleth map
+- Mobile-responsive views
 
 ## Development Team
 - **1 developer** (Alejandro Gutierrez) + AI agents (Claude Code)
@@ -68,40 +110,65 @@ Brandwatch API → Lambda (Ingestion) → SQS → Lambda (Processing + Claude/Be
 ## Conventions
 
 ### Code Style
-- TypeScript everywhere (frontend + backend + CDK)
-- ESLint + Prettier
-- Conventional commits
+- TypeScript everywhere (frontend + backend + CDK + packages)
+- Monorepo with npm workspaces
+- Conventional commits (`feat:`, `fix:`, `docs:`)
 - Feature branches → PR → main
 
-### File Structure (Target)
+### File Structure
 ```
 eco_populicom/
 ├── apps/
-│   ├── web/                 # Next.js frontend
-│   └── api/                 # Lambda functions
+│   └── web/                    # Next.js 15 frontend (App Router)
+│       ├── src/app/            # Pages + API routes
+│       ├── src/components/     # UI components
+│       ├── src/lib/            # Auth, utils
+│       ├── Dockerfile          # Multi-stage for ECS Fargate
+│       └── next.config.ts
 ├── packages/
-│   ├── shared/              # Shared types, utils
-│   ├── database/            # Prisma/Drizzle schema + migrations
-│   └── brandwatch/          # Brandwatch API client
-├── infra/                   # CDK infrastructure
-├── docs/                    # Documentation
-├── AGENTS.md
-├── BACKLOG.md
-├── STATUS.md
-├── AWS.md
-└── .env
+│   ├── shared/                 # Types, topic taxonomy, municipalities data
+│   ├── database/               # Drizzle schema, migrations, seed, client
+│   └── brandwatch/             # Brandwatch API client (auth, pagination, retry)
+├── infra/
+│   ├── bin/eco.ts              # CDK app entry (8 stacks)
+│   ├── lib/                    # CDK stack definitions
+│   ├── lambda/
+│   │   ├── ingestion/          # Brandwatch polling (TypeScript)
+│   │   ├── processor/          # NLP with Claude Opus (TypeScript)
+│   │   ├── alerts/             # Alert evaluation + SES (TypeScript)
+│   │   └── migration/          # Schema creation + seed (temporary)
+│   └── test/                   # Jest CDK tests (8 files, all passing)
+├── docs/
+│   └── superpowers/specs/      # Design specs
+├── AGENTS.md                   # This file
+├── BACKLOG.md                  # Feature backlog
+├── STATUS.md                   # Current project status
+├── AWS.md                      # AWS infrastructure details
+├── BRANDWATCH_API.md           # Brandwatch API reference
+├── package.json                # Root workspace config
+└── .env                        # Credentials (NEVER commit)
 ```
 
-### Database
-- PostgreSQL on RDS
-- ORM: TBD (Prisma or Drizzle)
-- Multi-tenant: Row-level security with `agency_id` on all tables
+### Deployment
+- **CDK deploy:** `cd infra && npx cdk deploy --all` (requires AWS credentials)
+- **Frontend:** Auto-built via CDK `fromAsset` (Docker build → ECR → ECS)
+- **Lambdas:** Auto-bundled via CDK `NodejsFunction` (esbuild → deploy)
+- **Database migrations:** Via `eco-migration` Lambda (temporary, invoke manually)
 
 ### AI Agent Guidelines
-- Always check BACKLOG.md before starting work to understand priorities
-- Check STATUS.md for current state of the project
+- Always check STATUS.md for current state before starting work
+- Check BACKLOG.md for priorities
 - Check AWS.md for infrastructure details
-- Run tests before committing
+- Run `npx tsc --noEmit` before committing
+- Run `npm -w infra test` for CDK tests
 - Never commit .env files or secrets
 - Use CDK for all infrastructure changes — no manual AWS console changes
-- When writing NLP/sentiment code, always consider Puerto Rican Spanish and Spanglish
+- When writing NLP/sentiment code, consider Puerto Rican Spanish and Spanglish
+- Use Drizzle ORM for all database queries
+- All Lambda code is TypeScript in `infra/lambda/`
+- Frontend components go in `apps/web/src/components/`
+- API routes go in `apps/web/src/app/api/`
+- AWS credentials must be exported before CDK commands:
+  ```
+  export AWS_ACCESS_KEY_ID=... && export AWS_SECRET_ACCESS_KEY=... && export AWS_REGION=us-east-1
+  ```

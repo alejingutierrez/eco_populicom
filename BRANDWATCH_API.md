@@ -185,18 +185,73 @@ GET /projects/{projectId}/data/volume/topSites
 - REACT_SCORE
 - SEGMENTATION_IA
 
-## Integration Strategy for ECO
+## Data Analysis (from 2026-03-31 sampling)
 
-1. **Ingestion Lambda** polls every 15-30 min using `/data/mentions` endpoint
-2. Store raw Brandwatch response in S3 (`eco-raw` bucket)
-3. Parse mentions and store in PostgreSQL with both BW sentiment and ECO sentiment (from Claude/Bedrock)
-4. Use `/data/volume/days` and `/data/volume/sentiment/days` for aggregate charts (cache in DB)
-5. Use `/data/topics` for topic clustering (supplement with Claude analysis)
-6. Map mention locations to PR municipalities for geographic view
+### Volume
+| Query | 2025 | Q1 2026 | Daily avg (Q1) |
+|-------|------|---------|-----------------|
+| AAA - General | 58,902 | 16,749 | ~186/day |
+| Directas AAA | 0 | 1,382 | ~15/day |
+
+**Decision:** ECO ingests only "Directas AAA" (2003911540) for MVP. ~15 mentions/day.
+
+### Source Distribution (sample of 100 Directas AAA mentions)
+| Source | % |
+|--------|---|
+| Facebook Public | 42% |
+| News | 36% |
+| Twitter/X | 16% |
+| Instagram | 6% |
+
+### Sentiment Distribution (Brandwatch)
+| Sentiment | % |
+|-----------|---|
+| Neutral | 75% |
+| Negative | 20% |
+| Positive | 5% |
+
+**Key finding:** Brandwatch classifies ~75% as "neutral" but many are clearly negative (complaints about water outages, infrastructure failures). Claude Opus re-analysis provides much more accurate sentiment for PR context.
+
+### Top Themes Identified (from ~200 mention sample)
+1. **Averías en bombeo/represas** (61% of sample) — Carraízo failures dominant
+2. **Conflictos AAA vs Municipios** — Alcalde San Juan vs AAA
+3. **Conflictos AAA vs LUMA** — Energy company blamed for water failures
+4. **Calidad del agua / Turbidez**
+5. **Infraestructura** — Inauguración de obras, fondos FEMA
+6. **Legislación** — Proyectos de ley sobre transparencia
+7. **Servicio al cliente** — Depósitos, facturación
+8. **Gestión** — Nombramientos, vistas públicas
+9. **Emergencias** — Camiones cisterna, contingencias
+10. **Medio ambiente** — Embalses, sequía
+
+### Geographic Data Quality
+- **49% of mentions** have Brandwatch country = "Puerto Rico"
+- **51% have no geo data** from Brandwatch (especially Facebook)
+- **NLP extraction** from text recovers municipalities mentioned in snippets (e.g., "sectores de Ponce", "Carraízo en Trujillo Alto")
+
+### Key Fields per Mention (non-null rates)
+- `title`: ~80% (Twitter often empty)
+- `snippet`: ~95%
+- `domain`: 100%
+- `sentiment`: 100% (from BW)
+- `author`: ~85%
+- `country`: ~49%
+- `engagementScore`: ~44% > 0
+- `mediaUrls`: ~30%
+
+## Integration Strategy (Implemented)
+
+1. **Ingestion Lambda** polls every 5 min using `/data/mentions` endpoint with cursor-based pagination
+2. Raw JSON stored in S3 (`eco-raw-863956448838/brandwatch/{queryId}/{date}/`)
+3. Each mention sent to SQS ingestion queue (inline, < 256KB per mention)
+4. Processor Lambda calls Claude Opus 4.6 via Bedrock for 5 NLP tasks in single prompt
+5. Results stored in PostgreSQL: mention + topic associations + municipality associations
+6. Negative + high-pertinence mentions pushed to alerts queue
 
 ## Notes
 
-- The AAA - General query is extremely comprehensive (~25 boolean sections) covering brand, officials, infrastructure terms, municipalities, and more
-- AI-assisted query creation is available (`booleanQueryCreatedBy: "ai_with_user_edits"`)
-- Sentiment classifier version 3 is in use across all queries
-- AI consent is given on the account (`aiConsentGiven: true`)
+- The AAA - General query is extremely comprehensive (~25 boolean sections) but generates too much noise for MVP
+- Directas AAA query: `"Autoridad de Acueductos y Alcantarillados (AAA)"` — precise, low noise
+- 100% Spanish language mentions
+- Brandwatch sentiment v3 classifier undercounts negative sentiment for PR Spanish/Spanglish
+- Claude Opus 4.6 provides superior sentiment analysis for cultural context
