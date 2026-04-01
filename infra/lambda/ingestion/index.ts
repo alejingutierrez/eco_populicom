@@ -122,7 +122,7 @@ async function getDatabaseUrl(): Promise<string> {
 async function readCursor(dbUrl: string, queryId: number): Promise<CursorRow | null> {
   // Dynamic import to avoid cold-start overhead when no cursor exists yet
   const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl });
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
   try {
     const result = await client.query(
@@ -142,7 +142,7 @@ async function updateCursor(
   mentionsFetched: number,
 ): Promise<void> {
   const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl });
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
   try {
     await client.query(

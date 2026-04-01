@@ -35,14 +35,9 @@ export class WorkersStack extends cdk.Stack {
       minify: true,
       sourceMap: true,
       target: 'node22',
-      // Include workspace packages in bundle
-      nodeModules: ['pg'],
+      // Bundle everything except AWS SDK (provided in Lambda runtime)
       externalModules: [
-        '@aws-sdk/client-s3',
-        '@aws-sdk/client-sqs',
-        '@aws-sdk/client-secrets-manager',
-        '@aws-sdk/client-bedrock-runtime',
-        '@aws-sdk/client-ses',
+        '@aws-sdk/*',
       ],
     };
 
@@ -96,7 +91,7 @@ export class WorkersStack extends cdk.Stack {
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
-        BEDROCK_MODEL_ID: 'anthropic.claude-3-opus-20240229-v1:0',
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         AGENCY_ID: '', // Set after deployment, or resolve from DB
       },
       bundling: bundlingOptions,

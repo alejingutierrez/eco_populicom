@@ -12,7 +12,7 @@ const sm = new SecretsManagerClient({});
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const ALERTS_QUEUE_URL = process.env.ALERTS_QUEUE_URL!;
-const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'anthropic.claude-3-opus-20240229-v1:0';
+const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
 const AGENCY_ID = process.env.AGENCY_ID!;
 
 let dbUrl: string | null = null;
@@ -25,7 +25,7 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   }
 
   const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl });
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
 
   try {
@@ -240,7 +240,9 @@ REGLAS:
   const text = responseBody.content[0].text;
 
   try {
-    const parsed = JSON.parse(text) as NlpAnalysis;
+    // Strip markdown code fences if present
+    const cleanText = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleanText) as NlpAnalysis;
     return validateNlpResult(parsed);
   } catch (err) {
     console.error(`Failed to parse NLP response for ${mention.resourceId}:`, text);

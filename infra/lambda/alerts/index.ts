@@ -27,7 +27,7 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   }
 
   const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl });
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
 
   try {
