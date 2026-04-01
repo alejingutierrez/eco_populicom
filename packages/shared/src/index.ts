@@ -1,3 +1,3 @@
-export * from './types.js';
-export * from './topics.js';
-export * from './municipalities.js';
+export * from './types';
+export * from './topics';
+export * from './municipalities';

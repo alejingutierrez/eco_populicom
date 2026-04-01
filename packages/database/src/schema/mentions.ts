@@ -11,7 +11,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
-import { agencies } from './agencies.js';
+import { agencies } from './agencies';
 
 export const mentions = pgTable(
   'mentions',

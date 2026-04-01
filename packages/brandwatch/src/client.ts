@@ -1,4 +1,4 @@
-import type { BrandwatchConfig, MentionsResponse, MentionsQuery } from './types.js';
+import type { BrandwatchConfig, MentionsResponse, MentionsQuery } from './types';
 import type { BrandwatchMention } from '@eco/shared';
 
 const DEFAULT_BASE_URL = 'https://api.brandwatch.com';

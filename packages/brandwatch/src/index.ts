@@ -1,2 +1,2 @@
-export { BrandwatchClient } from './client.js';
-export type { BrandwatchConfig, MentionsResponse } from './types.js';
+export { BrandwatchClient } from './client';
+export type { BrandwatchConfig, MentionsResponse } from './types';

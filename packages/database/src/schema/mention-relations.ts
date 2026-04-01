@@ -1,7 +1,7 @@
 import { pgTable, uuid, integer, doublePrecision, varchar, primaryKey } from 'drizzle-orm/pg-core';
-import { mentions } from './mentions.js';
-import { topics, subtopics } from './topics.js';
-import { municipalities } from './municipalities.js';
+import { mentions } from './mentions';
+import { topics, subtopics } from './topics';
+import { municipalities } from './municipalities';
 
 export const mentionTopics = pgTable(
   'mention_topics',

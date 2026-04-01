@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
-import { agencies } from './agencies.js';
-import { users } from './users.js';
+import { agencies } from './agencies';
+import { users } from './users';
 import type { AlertConfig } from '@eco/shared';
 
 export const alertRules = pgTable(

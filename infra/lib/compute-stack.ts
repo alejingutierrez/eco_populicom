@@ -59,11 +59,17 @@ export class ComputeStack extends cdk.Stack {
 
     // Container definition
     const container = taskDef.addContainer('eco-web', {
-      image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../apps/web')),
+      image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../'), {
+        file: 'apps/web/Dockerfile',
+        buildArgs: {
+          NEXT_PUBLIC_COGNITO_USER_POOL_ID: props.userPoolId,
+          NEXT_PUBLIC_COGNITO_CLIENT_ID: props.userPoolClientId,
+        },
+      }),
       portMappings: [{ containerPort: 3000 }],
       environment: {
-        COGNITO_USER_POOL_ID: props.userPoolId,
-        COGNITO_CLIENT_ID: props.userPoolClientId,
+        NEXT_PUBLIC_COGNITO_USER_POOL_ID: props.userPoolId,
+        NEXT_PUBLIC_COGNITO_CLIENT_ID: props.userPoolClientId,
         RAW_BUCKET: props.rawBucket.bucketName,
         EXPORTS_BUCKET: props.exportsBucket.bucketName,
       },
