@@ -15,6 +15,7 @@ env:
   ECR_REPOSITORY: eco-web
   ECS_CLUSTER: eco-cluster
   ECS_SERVICE: eco-web
+  CONTAINER_NAME: eco-web
 
 permissions:
   id-token: write
@@ -48,6 +49,7 @@ jobs:
           platforms: arm64
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -63,18 +65,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Update ECS service
+      - name: Get current task definition
+        id: task-def
         run: |
-          aws ecs update-service \
+          TASK_DEF_ARN=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --force-new-deployment \
-            --no-cli-pager
+            --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition' \
+            --output json > task-definition.json
+          echo "arn=$TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for ECS service to stabilize..."
-          aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
-          echo "Deployment complete!"
+      - name: Update image in task definition
+        id: new-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.new-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
