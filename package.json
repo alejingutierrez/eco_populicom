@@ -1,0 +1,20 @@
+{
+  "name": "eco-populicom",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "infra"
+  ],
+  "scripts": {
+    "db:generate": "npm -w packages/database run generate",
+    "db:migrate": "npm -w packages/database run migrate",
+    "db:seed": "npm -w packages/database run seed",
+    "dev": "npm -w apps/web run dev",
+    "build": "npm -w apps/web run build"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

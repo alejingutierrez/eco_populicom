@@ -6,6 +6,28 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import { Template } from 'aws-cdk-lib/assertions';
 import { WorkersStack } from '../lib/workers-stack';
 
+// Mock esbuild bundling for NodejsFunction in tests
+jest.mock('aws-cdk-lib/aws-lambda-nodejs', () => {
+  const original = jest.requireActual('aws-cdk-lib/aws-lambda-nodejs');
+  const lambda = jest.requireActual('aws-cdk-lib/aws-lambda');
+  const path = jest.requireActual('path');
+
+  return {
+    ...original,
+    NodejsFunction: class MockNodejsFunction extends lambda.Function {
+      constructor(scope: any, id: string, props: any) {
+        super(scope, id, {
+          ...props,
+          code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/ingestion')),
+          handler: 'index.handler',
+          entry: undefined,
+          bundling: undefined,
+        });
+      }
+    },
+  };
+});
+
 test('WorkersStack creates 3 Lambda functions', () => {
   const app = new cdk.App();
   const env = { account: '123456789012', region: 'us-east-1' };
