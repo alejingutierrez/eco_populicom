@@ -1,0 +1,79 @@
+name: Deploy ECO Web to ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package-lock.json'
+      - '.github/workflows/deploy.yml'
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: eco-web
+  ECS_CLUSTER: eco-cluster
+  ECS_SERVICE: eco-web
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU (for ARM64 build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          build-args: |
+            NEXT_PUBLIC_COGNITO_USER_POOL_ID=${{ secrets.NEXT_PUBLIC_COGNITO_USER_POOL_ID }}
+            NEXT_PUBLIC_COGNITO_CLIENT_ID=${{ secrets.NEXT_PUBLIC_COGNITO_CLIENT_ID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment \
+            --no-cli-pager
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+          echo "Deployment complete!"
