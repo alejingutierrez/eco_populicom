@@ -62,8 +62,8 @@ export class ComputeStack extends cdk.Stack {
       image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../'), {
         file: 'apps/web/Dockerfile',
         buildArgs: {
-          NEXT_PUBLIC_COGNITO_USER_POOL_ID: props.userPoolId,
-          NEXT_PUBLIC_COGNITO_CLIENT_ID: props.userPoolClientId,
+          NEXT_PUBLIC_COGNITO_USER_POOL_ID: process.env.COGNITO_USER_POOL_ID ?? 'us-east-1_exuhIKYQ8',
+          NEXT_PUBLIC_COGNITO_CLIENT_ID: process.env.COGNITO_CLIENT_ID ?? '1t4v0kt8nn9nnmtet8t3l5g7u3',
         },
       }),
       portMappings: [{ containerPort: 3000 }],
@@ -85,7 +85,7 @@ export class ComputeStack extends cdk.Stack {
         interval: cdk.Duration.seconds(30),
         timeout: cdk.Duration.seconds(5),
         retries: 3,
-        startPeriod: cdk.Duration.seconds(60),
+        startPeriod: cdk.Duration.seconds(120),
       },
     });
 
