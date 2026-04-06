@@ -37,8 +37,9 @@ interface HistoricalSnapshot {
   engagementRate: number | null;
 }
 
-export const handler = async (): Promise<{ statusCode: number; body: string }> => {
-  console.log('Metrics calculator invoked');
+export const handler = async (event?: { backfill?: boolean }): Promise<{ statusCode: number; body: string }> => {
+  const isBackfill = event?.backfill === true;
+  console.log(`Metrics calculator invoked${isBackfill ? ' (backfill mode)' : ''}`);
 
   if (!dbUrl) {
     dbUrl = await getDatabaseUrl();
@@ -54,7 +55,27 @@ export const handler = async (): Promise<{ statusCode: number; body: string }> =
       "SELECT id FROM agencies WHERE is_active = true",
     );
 
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+    if (isBackfill) {
+      // Backfill: compute for every day that has mentions
+      const datesResult = await client.query(
+        "SELECT DISTINCT DATE(published_at) as d FROM mentions ORDER BY d ASC",
+      );
+      const dates = datesResult.rows.map((r: any) => r.d.toISOString().split('T')[0]);
+
+      let computed = 0;
+      for (const agency of agenciesResult.rows) {
+        for (const date of dates) {
+          await computeForAgency(client, agency.id, date);
+          computed++;
+        }
+      }
+
+      console.log(`Backfilled ${computed} snapshots across ${dates.length} days`);
+      return { statusCode: 200, body: `Backfilled ${computed} snapshots across ${dates.length} days` };
+    }
+
+    // Normal mode: compute for today only
+    const today = new Date().toISOString().split('T')[0];
 
     let computed = 0;
     for (const agency of agenciesResult.rows) {
