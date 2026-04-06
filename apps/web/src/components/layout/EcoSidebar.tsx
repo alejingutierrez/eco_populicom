@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Layout, Menu, Avatar, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -60,6 +59,7 @@ function handleLogout() {
 
 export function EcoSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
 
   const selectedKey =
@@ -111,10 +111,7 @@ export function EcoSidebar() {
         mode="inline"
         selectedKeys={[selectedKey]}
         items={buildMenuItems(analysisItems, collapsed)}
-        onClick={({ key }) => {
-          // Using window.location for simplicity; Next.js router could be used
-          // but Menu onClick doesn't have access to router easily
-        }}
+        onClick={({ key }) => router.push(key)}
         style={{ background: 'transparent', borderRight: 0 }}
       />
 
@@ -125,6 +122,7 @@ export function EcoSidebar() {
         mode="inline"
         selectedKeys={[selectedKey]}
         items={buildMenuItems(systemItems, collapsed)}
+        onClick={({ key }) => router.push(key)}
         style={{ background: 'transparent', borderRight: 0 }}
       />
 
@@ -228,14 +226,6 @@ export function EcoSidebar() {
         </button>
       </div>
 
-      {/* Navigation links (hidden, for Next.js client-side routing) */}
-      <nav style={{ display: 'none' }}>
-        {[...analysisItems, ...systemItems].map((item) => (
-          <Link key={item.key} href={item.key} id={`nav-${item.key.slice(1)}`}>
-            {item.label}
-          </Link>
-        ))}
-      </nav>
     </Sider>
   );
 }
