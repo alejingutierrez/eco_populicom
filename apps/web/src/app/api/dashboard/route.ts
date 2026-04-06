@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
-import { mentions } from '@eco/database';
-import { sql, count, avg, sum, eq, gte } from 'drizzle-orm';
+import { mentions, dailyMetricSnapshots } from '@eco/database';
+import { sql, count, gte } from 'drizzle-orm';
 
 export async function GET() {
   const db = getDb();
@@ -9,50 +9,81 @@ export async function GET() {
   // Date range: last 30 days
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
   try {
-    // KPIs
-    const [kpiResult] = await db
-      .select({
-        totalMentions: count(),
-        avgEngagement: avg(mentions.engagementScore),
-        totalReach: sum(mentions.reachEstimate),
-      })
-      .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo));
+    // All queries in parallel
+    const [kpiRows, timeline, sentimentData, topSources, recentMentions] = await Promise.all([
+      // KPIs from pre-computed daily_metric_snapshots (~30 rows vs thousands)
+      db
+        .select({
+          totalMentions: sql<number>`coalesce(sum(${dailyMetricSnapshots.totalMentions}), 0)::int`,
+          negativeCount: sql<number>`coalesce(sum(${dailyMetricSnapshots.negativeCount}), 0)::int`,
+          totalReach: sql<number>`coalesce(sum(${dailyMetricSnapshots.totalReach}), 0)::bigint`,
+          totalEngagement: sql<number>`coalesce(sum(${dailyMetricSnapshots.totalEngagementScore}), 0)`,
+          totalMentionsForAvg: sql<number>`coalesce(sum(${dailyMetricSnapshots.totalMentions}), 1)::int`,
+        })
+        .from(dailyMetricSnapshots)
+        .where(gte(dailyMetricSnapshots.date, thirtyDaysAgoStr)),
 
-    const [negativeCount] = await db
-      .select({ cnt: count() })
-      .from(mentions)
-      .where(
-        sql`${mentions.publishedAt} >= ${thirtyDaysAgo} AND ${mentions.nlpSentiment} = 'negativo'`,
-      );
+      // Timeline
+      db
+        .select({
+          date: sql<string>`to_char(${mentions.publishedAt}, 'MM/DD')`,
+          count: count(),
+        })
+        .from(mentions)
+        .where(gte(mentions.publishedAt, thirtyDaysAgo))
+        .groupBy(sql`to_char(${mentions.publishedAt}, 'MM/DD'), DATE(${mentions.publishedAt})`)
+        .orderBy(sql`DATE(${mentions.publishedAt})`),
 
-    const totalMentions = Number(kpiResult.totalMentions) || 0;
+      // Sentiment breakdown
+      db
+        .select({
+          sentiment: mentions.nlpSentiment,
+          count: count(),
+        })
+        .from(mentions)
+        .where(gte(mentions.publishedAt, thirtyDaysAgo))
+        .groupBy(mentions.nlpSentiment),
+
+      // Top sources
+      db
+        .select({
+          source: mentions.contentSourceName,
+          count: count(),
+        })
+        .from(mentions)
+        .where(gte(mentions.publishedAt, thirtyDaysAgo))
+        .groupBy(mentions.contentSourceName)
+        .orderBy(sql`count(*) DESC`)
+        .limit(6),
+
+      // Recent mentions
+      db
+        .select({
+          id: mentions.id,
+          title: mentions.title,
+          domain: mentions.domain,
+          pageType: mentions.pageType,
+          nlpSentiment: mentions.nlpSentiment,
+          publishedAt: mentions.publishedAt,
+          engagementScore: mentions.engagementScore,
+        })
+        .from(mentions)
+        .orderBy(sql`${mentions.publishedAt} DESC`)
+        .limit(5),
+    ]);
+
+    const kpi = kpiRows[0];
+    const totalMentions = Number(kpi?.totalMentions) || 0;
+    const negativeCount = Number(kpi?.negativeCount) || 0;
     const negativePct = totalMentions > 0
-      ? Math.round((Number(negativeCount.cnt) / totalMentions) * 100)
+      ? Math.round((negativeCount / totalMentions) * 100)
       : 0;
-
-    // Timeline: mentions per day (last 30 days)
-    const timeline = await db
-      .select({
-        date: sql<string>`to_char(${mentions.publishedAt}, 'MM/DD')`,
-        count: count(),
-      })
-      .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
-      .groupBy(sql`to_char(${mentions.publishedAt}, 'MM/DD'), DATE(${mentions.publishedAt})`)
-      .orderBy(sql`DATE(${mentions.publishedAt})`);
-
-    // Sentiment breakdown
-    const sentimentData = await db
-      .select({
-        sentiment: mentions.nlpSentiment,
-        count: count(),
-      })
-      .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
-      .groupBy(mentions.nlpSentiment);
+    const avgEngagement = totalMentions > 0
+      ? Number(kpi?.totalEngagement) / totalMentions
+      : 0;
 
     const sentimentColors: Record<string, string> = {
       positivo: '#4ade80',
@@ -66,39 +97,12 @@ export async function GET() {
       color: sentimentColors[s.sentiment ?? 'neutral'] ?? '#94a3b8',
     }));
 
-    // Top sources
-    const topSources = await db
-      .select({
-        source: mentions.contentSourceName,
-        count: count(),
-      })
-      .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
-      .groupBy(mentions.contentSourceName)
-      .orderBy(sql`count(*) DESC`)
-      .limit(6);
-
-    // Recent mentions
-    const recentMentions = await db
-      .select({
-        id: mentions.id,
-        title: mentions.title,
-        domain: mentions.domain,
-        pageType: mentions.pageType,
-        nlpSentiment: mentions.nlpSentiment,
-        publishedAt: mentions.publishedAt,
-        engagementScore: mentions.engagementScore,
-      })
-      .from(mentions)
-      .orderBy(sql`${mentions.publishedAt} DESC`)
-      .limit(5);
-
     return NextResponse.json({
       kpis: {
         totalMentions,
         negativePct,
-        avgEngagement: Number(kpiResult.avgEngagement) || 0,
-        totalReach: Number(kpiResult.totalReach) || 0,
+        avgEngagement: Number(avgEngagement.toFixed(1)),
+        totalReach: Number(kpi?.totalReach) || 0,
       },
       timeline: timeline.map((t) => ({ date: t.date, count: Number(t.count) })),
       sentimentBreakdown,
@@ -110,6 +114,8 @@ export async function GET() {
         ...m,
         publishedAt: m.publishedAt.toISOString(),
       })),
+    }, {
+      headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
     });
   } catch (err) {
     console.error('Dashboard API error:', err);

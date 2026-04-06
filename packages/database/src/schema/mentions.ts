@@ -94,5 +94,6 @@ export const mentions = pgTable(
     index('idx_mentions_page_type').on(t.pageType),
     index('idx_mentions_text_hash').on(t.textHash),
     index('idx_mentions_domain').on(t.domain),
+    index('idx_mentions_agency_published').on(t.agencyId, t.publishedAt),
   ],
 );

@@ -7,7 +7,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 
-export const handler = async (event: { action?: string }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -30,6 +30,22 @@ export const handler = async (event: { action?: string }): Promise<{ statusCode:
     if (action === 'get-agency-id') {
       const res = await client.query("SELECT id FROM agencies WHERE slug = 'aaa'");
       return { statusCode: 200, body: res.rows[0]?.id ?? 'NOT_FOUND' };
+    }
+    if (action === 'custom-query' && event.query) {
+      // Read-only queries for diagnostics
+      const selectOnly = event.query.trim().toLowerCase();
+      if (!selectOnly.startsWith('select')) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Only SELECT queries allowed' }) };
+      }
+      const res = await client.query(event.query);
+      return { statusCode: 200, body: JSON.stringify({ rows: res.rows, rowCount: res.rowCount }) };
+    }
+    if (action === 'cleanup-empty-mentions') {
+      // Delete mentions with no usable content (e.g. Twitter with no date/snippet/title)
+      const del = await client.query(
+        `DELETE FROM mentions WHERE snippet IS NULL AND title IS NULL RETURNING id`,
+      );
+      return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount }) };
     }
 
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
@@ -243,6 +259,39 @@ async function runMigrations(client: any): Promise<void> {
       status VARCHAR(20) NOT NULL DEFAULT 'idle'
     );
   `);
+
+  // daily_metric_snapshots
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS daily_metric_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      agency_id UUID NOT NULL REFERENCES agencies(id),
+      date DATE NOT NULL,
+      total_mentions INTEGER NOT NULL DEFAULT 0,
+      positive_count INTEGER NOT NULL DEFAULT 0,
+      neutral_count INTEGER NOT NULL DEFAULT 0,
+      negative_count INTEGER NOT NULL DEFAULT 0,
+      high_pertinence_count INTEGER NOT NULL DEFAULT 0,
+      total_likes INTEGER NOT NULL DEFAULT 0,
+      total_comments INTEGER NOT NULL DEFAULT 0,
+      total_shares INTEGER NOT NULL DEFAULT 0,
+      total_reach BIGINT NOT NULL DEFAULT 0,
+      total_impact DOUBLE PRECISION NOT NULL DEFAULT 0,
+      total_engagement_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+      nss DOUBLE PRECISION,
+      brand_health_index DOUBLE PRECISION,
+      reputation_momentum DOUBLE PRECISION,
+      engagement_rate DOUBLE PRECISION,
+      amplification_rate DOUBLE PRECISION,
+      engagement_velocity DOUBLE PRECISION,
+      crisis_risk_score DOUBLE PRECISION,
+      volume_anomaly_zscore DOUBLE PRECISION,
+      nss_7d DOUBLE PRECISION,
+      nss_30d DOUBLE PRECISION,
+      computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(agency_id, date)
+    );
+  `);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_daily_metrics_agency_crisis ON daily_metric_snapshots(agency_id, crisis_risk_score);`);
 
   console.log('Schema migrations completed successfully');
 }

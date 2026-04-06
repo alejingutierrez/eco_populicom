@@ -28,7 +28,7 @@ jest.mock('aws-cdk-lib/aws-lambda-nodejs', () => {
   };
 });
 
-test('WorkersStack creates 3 Lambda functions', () => {
+test('WorkersStack creates 4 Lambda functions', () => {
   const app = new cdk.App();
   const env = { account: '123456789012', region: 'us-east-1' };
 
@@ -57,5 +57,5 @@ test('WorkersStack creates 3 Lambda functions', () => {
   });
 
   const template = Template.fromStack(stack);
-  template.resourceCountIs('AWS::Lambda::Function', 3);
+  template.resourceCountIs('AWS::Lambda::Function', 4);
 });

@@ -25,6 +25,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly ingestionFunction: NodejsFunction;
   public readonly processorFunction: NodejsFunction;
   public readonly alertsFunction: NodejsFunction;
+  public readonly metricsCalculatorFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -92,7 +93,7 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
-        AGENCY_ID: '', // Set after deployment, or resolve from DB
+        AGENCY_ID: 'a6608690-616b-454f-b587-82fb626376ba',
       },
       bundling: bundlingOptions,
     });
@@ -106,6 +107,10 @@ export class WorkersStack extends cdk.Stack {
     // Grant permissions for processor
     this.processorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.processorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe'],
       resources: ['*'],
     }));
     props.rawBucket.grantRead(this.processorFunction);
@@ -147,5 +152,34 @@ export class WorkersStack extends cdk.Stack {
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
     }));
+
+    // ---- eco-metrics-calculator Lambda ----
+    this.metricsCalculatorFunction = new NodejsFunction(this, 'MetricsCalculatorFunction', {
+      functionName: 'eco-metrics-calculator',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/metrics-calculator/index.ts'),
+      handler: 'handler',
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(60),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+      },
+      bundling: bundlingOptions,
+    });
+
+    // Grant DB access for metrics calculator
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // EventBridge schedule: every 10 minutes
+    const metricsRule = new events.Rule(this, 'MetricsCalculatorSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
+    });
+    metricsRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction));
   }
 }

@@ -6,3 +6,4 @@ export * from './topics';
 export * from './municipalities';
 export * from './alerts';
 export * from './ingestion-cursors';
+export * from './daily-metric-snapshots';
