@@ -1,8 +1,6 @@
 'use client';
 
-import { ConfigProvider, App as AntApp } from 'antd';
-import esES from 'antd/locale/es_ES';
-import { ecoTheme } from '@/theme/eco-theme';
+import { Providers } from '@/components/providers/Providers';
 import './globals.css';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -16,9 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <ConfigProvider theme={ecoTheme} locale={esES}>
-          <AntApp>{children}</AntApp>
-        </ConfigProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

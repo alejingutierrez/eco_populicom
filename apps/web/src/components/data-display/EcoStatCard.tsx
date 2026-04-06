@@ -2,7 +2,7 @@ import { Card, Skeleton } from 'antd';
 import { ChevronUp, ChevronDown, Minus } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-type AccentColor = 'ocean' | 'error' | 'mangrove' | 'amber' | 'violet';
+type AccentColor = 'ocean' | 'error' | 'mangrove' | 'amber' | 'violet' | 'sky' | 'orange';
 
 interface Trend {
   value: number;
@@ -26,6 +26,8 @@ const ACCENT_ICON_BG: Record<AccentColor, string> = {
   mangrove: 'rgba(46,139,106,0.06)',
   amber: 'rgba(245,166,35,0.06)',
   violet: 'rgba(139,92,246,0.06)',
+  sky: 'rgba(56,189,248,0.06)',
+  orange: 'rgba(251,146,60,0.06)',
 };
 
 function Sparkline({ data }: { data: number[] }) {

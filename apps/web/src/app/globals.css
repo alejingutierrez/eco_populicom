@@ -101,6 +101,14 @@ body {
   background: linear-gradient(180deg, #8B5CF6, #A78BFA);
 }
 
+.eco-stat-card[data-accent="sky"]::before {
+  background: linear-gradient(180deg, #38BDF8, #7DD3FC);
+}
+
+.eco-stat-card[data-accent="orange"]::before {
+  background: linear-gradient(180deg, #FB923C, #FDBA74);
+}
+
 /* Period selector pill */
 .eco-period-selector {
   display: inline-flex;
