@@ -6,3 +6,5 @@ dist/
 *.js.map
 *.d.ts
 !jest.config.ts
+.worktrees/
+.superpowers/
