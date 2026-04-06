@@ -251,7 +251,7 @@ export default function DashboardPage() {
 
       {/* ─── 4 Hero KPIs ─── */}
       <Row gutter={[12, 12]}>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={24} sm={12} lg={6}>
           <EcoHeroKPI
             title="Total Menciones"
             value={metrics ? formatNumber(metrics.totalMentions) : '—'}
@@ -264,7 +264,7 @@ export default function DashboardPage() {
             valueColor="#0E1E2C"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={24} sm={12} lg={6}>
           <EcoHeroKPI
             title="Net Sentiment Score"
             value={metrics?.nss != null ? `${metrics.nss > 0 ? '+' : ''}${metrics.nss.toFixed(1)}` : '—'}
@@ -282,7 +282,7 @@ export default function DashboardPage() {
             )}
           </EcoHeroKPI>
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={24} sm={12} lg={6}>
           <EcoHeroKPI
             title="Brand Health Index"
             value={metrics?.brandHealthIndex != null ? metrics.brandHealthIndex.toFixed(2) : '—'}
@@ -313,7 +313,7 @@ export default function DashboardPage() {
             )}
           </EcoHeroKPI>
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={24} sm={12} lg={6}>
           <EcoHeroKPI
             title="Crisis Risk"
             value={metrics?.crisisRiskScore != null ? metrics.crisisRiskScore.toFixed(1) : '—'}
@@ -349,7 +349,7 @@ export default function DashboardPage() {
 
       {/* ─── 4 Compact KPIs ─── */}
       <Row gutter={[10, 10]}>
-        <Col xs={12} xl={6}>
+        <Col xs={12} lg={6}>
           <EcoStatCard
             title="Rep. Momentum"
             value={metrics?.reputationMomentum != null ? `${metrics.reputationMomentum > 0 ? '+' : ''}${metrics.reputationMomentum.toFixed(1)}` : '—'}
@@ -370,7 +370,7 @@ export default function DashboardPage() {
             }
           />
         </Col>
-        <Col xs={12} xl={6}>
+        <Col xs={12} lg={6}>
           <EcoStatCard
             title="Eng. Rate"
             value={metrics?.engagementRate != null ? `${metrics.engagementRate.toFixed(2)}%` : '—'}
@@ -386,7 +386,7 @@ export default function DashboardPage() {
             }
           />
         </Col>
-        <Col xs={12} xl={6}>
+        <Col xs={12} lg={6}>
           <EcoStatCard
             title="Amplificacion"
             value={metrics?.amplificationRate != null ? `${metrics.amplificationRate.toFixed(1)}%` : '—'}
@@ -402,7 +402,7 @@ export default function DashboardPage() {
             }
           />
         </Col>
-        <Col xs={12} xl={6}>
+        <Col xs={12} lg={6}>
           <EcoStatCard
             title="Eng. Velocity"
             value={metrics?.engagementVelocity != null ? `${metrics.engagementVelocity > 0 ? '+' : ''}${metrics.engagementVelocity.toFixed(1)}%` : '—'}
