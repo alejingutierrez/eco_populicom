@@ -11,27 +11,37 @@ import { SOURCE_COLORS } from '@/theme/chart-theme';
 const SOURCE_ICONS: Record<string, LucideIcon> = {
   facebook: Facebook,
   facebook_public: Facebook,
+  'facebook public': Facebook,
   twitter: Twitter,
   instagram: Instagram,
   instagram_public: Instagram,
+  'instagram public': Instagram,
   youtube: Youtube,
   news: Globe,
+  'online news': Globe,
   blog: Globe,
+  blogs: Globe,
   forum: Globe,
+  forums: Globe,
   review: Globe,
 };
 
 const SOURCE_LABELS: Record<string, string> = {
   facebook: 'Facebook',
   facebook_public: 'Facebook',
+  'facebook public': 'Facebook',
   twitter: 'Twitter/X',
   instagram: 'Instagram',
   instagram_public: 'Instagram',
+  'instagram public': 'Instagram',
   youtube: 'YouTube',
   news: 'Noticias',
+  'online news': 'Noticias',
   blog: 'Blog',
+  blogs: 'Blog',
   forum: 'Foro',
-  review: 'Reseña',
+  forums: 'Foro',
+  review: 'Resena',
 };
 
 interface EcoSourceBadgeProps {

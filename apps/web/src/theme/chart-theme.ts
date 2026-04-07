@@ -70,12 +70,17 @@ export const CHART_THEME = {
 export const SOURCE_COLORS: Record<string, string> = {
   facebook: '#0A7EA4',
   facebook_public: '#0A7EA4',
+  'facebook public': '#0A7EA4',
   twitter: '#F5A623',
   instagram: '#8B5CF6',
   instagram_public: '#8B5CF6',
+  'instagram public': '#8B5CF6',
   youtube: '#E07A5F',
   news: '#2E8B6A',
+  'online news': '#2E8B6A',
   blog: '#48B8D0',
+  blogs: '#48B8D0',
   forum: '#7BC89C',
+  forums: '#7BC89C',
   review: '#F9C96B',
 };

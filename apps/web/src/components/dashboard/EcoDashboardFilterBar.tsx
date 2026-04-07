@@ -34,9 +34,9 @@ const periodOptions = [
 ];
 
 const sentimentOptions = [
-  { label: 'Positivo', value: 'positive' },
+  { label: 'Positivo', value: 'positivo' },
   { label: 'Neutral', value: 'neutral' },
-  { label: 'Negativo', value: 'negative' },
+  { label: 'Negativo', value: 'negativo' },
 ];
 
 const pertinenceOptions = [

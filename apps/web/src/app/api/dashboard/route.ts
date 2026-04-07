@@ -127,7 +127,9 @@ export async function GET(request: NextRequest) {
         .where(gte(dailyMetricSnapshots.date, startStr))
         .orderBy(desc(dailyMetricSnapshots.date));
 
-      const current = snapshots[0] ?? null;
+      // Find the most recent snapshot that has computed metrics (not null)
+      // Today's snapshot may exist but have null values if Lambda hasn't run yet
+      const current = snapshots.find((s) => s.nss !== null) ?? snapshots[0] ?? null;
       const timeline = [...snapshots].reverse().map((s) => ({
         date: s.date,
         nss: s.nss,
@@ -230,10 +232,48 @@ export async function GET(request: NextRequest) {
         .from(mentions)
         .where(and(...baseConditions));
 
+      // Build daily timeline from filtered mentions
+      const dailyRows = await db
+        .select({
+          date: sql<string>`DATE(${mentions.publishedAt})::text`,
+          totalMentions: sql<number>`count(*)::int`,
+          positiveCount: sql<number>`count(*) FILTER (WHERE ${mentions.nlpSentiment} = 'positivo')::int`,
+          negativeCount: sql<number>`count(*) FILTER (WHERE ${mentions.nlpSentiment} = 'negativo')::int`,
+          totalReach: sql<number>`coalesce(sum(${mentions.reachEstimate}), 0)::int`,
+          totalLikes: sql<number>`coalesce(sum(${mentions.likes}), 0)::int`,
+          totalComments: sql<number>`coalesce(sum(${mentions.comments}), 0)::int`,
+          totalShares: sql<number>`coalesce(sum(${mentions.shares}), 0)::int`,
+        })
+        .from(mentions)
+        .where(and(...baseConditions))
+        .groupBy(sql`DATE(${mentions.publishedAt})`)
+        .orderBy(sql`DATE(${mentions.publishedAt})`);
+
+      const filteredTimeline = dailyRows.map((row) => {
+        const total = row.totalMentions || 1;
+        const nss = ((row.positiveCount - row.negativeCount) / total) * 100;
+        const interactions = row.totalLikes + row.totalComments + row.totalShares;
+        const engRate = row.totalReach > 0 ? (interactions / row.totalReach) * 100 : 0;
+        return {
+          date: row.date,
+          nss: Math.round(nss * 10) / 10,
+          totalMentions: row.totalMentions,
+          engagementRate: Math.round(engRate * 100) / 100,
+          brandHealthIndex: null,
+          crisisRiskScore: null,
+          amplificationRate: interactions > 0 ? Math.round((row.totalShares / interactions) * 1000) / 10 : 0,
+          engagementVelocity: null,
+          volumeAnomalyZscore: null,
+        };
+      });
+
       metricsResult = {
         current: computeMetrics(rawAgg),
-        timeline: [],
-        sparklines: { mentions: [], nss: [] },
+        timeline: filteredTimeline,
+        sparklines: {
+          mentions: filteredTimeline.map((t) => t.totalMentions),
+          nss: filteredTimeline.map((t) => t.nss ?? 0),
+        },
       };
     }
 

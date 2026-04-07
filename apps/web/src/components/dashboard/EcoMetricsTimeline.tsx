@@ -54,7 +54,7 @@ export function EcoMetricsTimeline({
   const hasRightAxis = activeMetrics.some((m) => m.yAxisId === 'right');
 
   return (
-    <EcoChartCard title="Metricas en el tiempo" loading={loading}>
+    <EcoChartCard title="Tendencia de Metricas" loading={loading}>
       {/* Toggle pills */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
         {availableMetrics.map((metric) => {

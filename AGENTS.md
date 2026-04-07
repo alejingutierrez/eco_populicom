@@ -150,10 +150,20 @@ eco_populicom/
 ```
 
 ### Deployment
-- **CDK deploy:** `cd infra && npx cdk deploy --all` (requires AWS credentials)
-- **Frontend:** Auto-built via CDK `fromAsset` (Docker build → ECR → ECS)
-- **Lambdas:** Auto-bundled via CDK `NodejsFunction` (esbuild → deploy)
-- **Database migrations:** Via `eco-migration` Lambda (temporary, invoke manually)
+
+**Frontend (Next.js → ECS Fargate):**
+- Deploys automatically via GitHub Actions on push to `main`
+- Workflow: `.github/workflows/deploy.yml` ("Deploy ECO Web to ECS")
+- Pipeline: push → Docker build → ECR push → ECS task definition update → Fargate rolling deploy
+- To deploy: just `git push origin main` — no manual steps needed
+- To check deploy status: `export GH_TOKEN=$(grep GITHUB_TOKEN .env | cut -d= -f2) && gh run list --limit 5`
+- The GITHUB_TOKEN is in `.env` — always use it for `gh` commands
+
+**Infrastructure (CDK):**
+- `cd infra && npx cdk deploy --all` (requires AWS credentials)
+- Lambdas auto-bundled via CDK `NodejsFunction` (esbuild → deploy)
+
+**Database migrations:** Via `eco-migration` Lambda (temporary, invoke manually)
 
 ### AI Agent Guidelines
 - Always check STATUS.md for current state before starting work

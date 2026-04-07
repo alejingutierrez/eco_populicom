@@ -108,7 +108,7 @@ export function EcoTopicTreemap({ data, onTopicClick, loading = false }: Props) 
   };
 
   return (
-    <EcoChartCard title="Temas por volumen" loading={loading}>
+    <EcoChartCard title="Topicos por Sentimiento" loading={loading}>
       <ResponsiveContainer width="100%" height={200}>
         <Treemap
           data={treemapData}
