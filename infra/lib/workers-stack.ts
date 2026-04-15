@@ -58,8 +58,6 @@ export class WorkersStack extends cdk.Stack {
         INGESTION_QUEUE_URL: props.ingestionQueue.queueUrl,
         DB_SECRET_ARN: props.dbSecret.secretArn,
         BRANDWATCH_TOKEN: process.env.BRANDWATCH_TOKEN ?? '',
-        BRANDWATCH_PROJECT_ID: process.env.BRANDWATCH_PROJECT_ID ?? '1998403803',
-        BRANDWATCH_QUERY_ID: process.env.BRANDWATCH_QUERY_ID ?? '2003911540',
       },
       bundling: bundlingOptions,
     });
@@ -93,7 +91,6 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
-        AGENCY_ID: 'a6608690-616b-454f-b587-82fb626376ba',
       },
       bundling: bundlingOptions,
     });
