@@ -4,7 +4,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS, MUNICIPALITY_SLUGS } from '@eco/shared';
+import { TOPICS_BY_AGENCY, TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY } from '@eco/shared';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -13,15 +13,40 @@ const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const ALERTS_QUEUE_URL = process.env.ALERTS_QUEUE_URL!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
-const AGENCY_ID = process.env.AGENCY_ID!;
 
 let dbUrl: string | null = null;
+
+interface AgencyInfo { id: string; slug: string; name: string; }
+let agencyMap: Map<number, AgencyInfo> | null = null;
+
+async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
+  const pg = await import('pg');
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  await client.connect();
+  try {
+    const result = await client.query(
+      'SELECT id, slug, name, brandwatch_query_ids FROM agencies WHERE is_active = true AND brandwatch_query_ids IS NOT NULL'
+    );
+    const map = new Map<number, AgencyInfo>();
+    for (const row of result.rows) {
+      for (const qid of row.brandwatch_query_ids as number[]) {
+        map.set(qid, { id: row.id, slug: row.slug, name: row.name });
+      }
+    }
+    return map;
+  } finally { await client.end(); }
+}
 
 export const handler = async (event: SQSEvent): Promise<void> => {
   console.log(`Processing ${event.Records.length} records`);
 
   if (!dbUrl) {
     dbUrl = await getDatabaseUrl();
+  }
+
+  if (!agencyMap) {
+    agencyMap = await loadAgencyMap(dbUrl);
+    console.log(`Agency map loaded: ${agencyMap.size} query-to-agency mappings`);
   }
 
   const pg = await import('pg');
@@ -41,7 +66,10 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
   const resourceId = mention.resourceId;
 
-  console.log(`Processing mention ${resourceId} from ${mention.domain}`);
+  const agency = agencyMap!.get(mention.queryId);
+  if (!agency) { console.warn(`Unknown queryId ${mention.queryId}, skipping`); return; }
+
+  console.log(`[${agency.slug}] Processing mention ${resourceId} from ${mention.domain}`);
 
   // Check if already processed (idempotency)
   const existing = await pgClient.query(
@@ -49,7 +77,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     [resourceId],
   );
   if (existing.rows.length > 0) {
-    console.log(`Mention ${resourceId} already exists, skipping`);
+    console.log(`[${agency.slug}] Mention ${resourceId} already exists, skipping`);
     return;
   }
 
@@ -60,13 +88,13 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   // Check for duplicate text
   const duplicate = await pgClient.query(
     'SELECT id FROM mentions WHERE text_hash = $1 AND agency_id = $2 LIMIT 1',
-    [textHash, AGENCY_ID],
+    [textHash, agency.id],
   );
   const isDuplicate = duplicate.rows.length > 0;
   const duplicateOfId = isDuplicate ? duplicate.rows[0].id : null;
 
   // Call Claude Opus via Bedrock for NLP analysis
-  const nlp = await analyzeWithClaude(mention);
+  const nlp = await analyzeWithClaude(mention, agency);
 
   // Insert mention
   const mentionResult = await pgClient.query(
@@ -96,7 +124,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $44, NOW(), $45
     ) RETURNING id`,
     [
-      AGENCY_ID, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
+      agency.id, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
       mention.title, mention.snippet, mention.url, mention.originalUrl,
       mention.author, mention.fullname, mention.gender, mention.avatarUrl,
       mention.domain, mention.pageType, mention.contentSource, mention.contentSourceName, mention.pubType, mention.subtype,
@@ -118,10 +146,10 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
 
   // Insert topic associations
   for (const topic of nlp.topics) {
-    // Look up topic ID
+    // Look up topic ID scoped to agency
     const topicRow = await pgClient.query(
-      'SELECT id FROM topics WHERE slug = $1',
-      [topic.topic_slug],
+      'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
+      [topic.topic_slug, agency.id],
     );
     if (topicRow.rows.length === 0) continue;
 
@@ -179,7 +207,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
         QueueUrl: ALERTS_QUEUE_URL,
         MessageBody: JSON.stringify({
           mentionId,
-          agencyId: AGENCY_ID,
+          agencyId: agency.id,
           sentiment: nlp.sentiment,
           emotions: nlp.emotions,
           topics: nlp.topics,
@@ -189,12 +217,16 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     );
   }
 
-  console.log(`Mention ${resourceId} processed: sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}, topics=${nlp.topics.length}`);
+  console.log(`[${agency.slug}] Mention ${resourceId} processed: sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}, topics=${nlp.topics.length}`);
 }
 
-async function analyzeWithClaude(mention: BrandwatchMention): Promise<NlpAnalysis> {
+async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo): Promise<NlpAnalysis> {
+  const agencyTopics = TOPICS_BY_AGENCY[agency.slug] ?? [];
+  const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
+  const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
+
   const prompt = `Eres un analista de social listening especializado en Puerto Rico.
-Analiza esta mención sobre la Autoridad de Acueductos y Alcantarillados (AAA).
+Analiza esta mención sobre ${agency.name}.
 
 MENCIÓN:
 Título: ${mention.title ?? '(sin título)'}
@@ -215,9 +247,9 @@ Responde SOLO con JSON válido (sin markdown, sin backticks):
 
 REGLAS:
 - emotions: del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3.
-- pertinence: "alta" si la mención TRATA sobre la AAA. "media" si AAA es secundaria. "baja" si AAA se menciona de paso.
-- topics: usar SOLO estos slugs de tópicos: averias-interrupciones, calidad-agua, conflictos-inter-agencia, infraestructura, servicio-cliente, crisis-emergencias, gestion-administracion, legislacion, impacto-comunitario, medio-ambiente
-- subtopic_slug: bombeo-represas, plantas-filtracion, tuberias-fugas, apagones-infraestructura, turbidez, contaminacion, presion-baja, aaa-vs-luma, aaa-vs-municipios, aaa-vs-legislatura, obras-nuevas, renovacion, fondos-federales, inversiones, facturacion-depositos, quejas, comunicacion-deficiente, sin-agua-prolongado, contingencia, camiones-cisterna, nombramientos, vistas-publicas, auditorias, declaraciones-ejecutivas, proyectos-ley, resoluciones, transparencia, municipios-afectados, sectores-residenciales, infraestructura-critica, embalses, rios, sequia
+- pertinence: "alta" si la mención TRATA sobre ${agency.name}. "media" si ${agency.name} es secundaria. "baja" si ${agency.name} se menciona de paso.
+- topics: usar SOLO estos slugs de tópicos: ${topicSlugs}
+- subtopic_slug: ${subtopicSlugs}
 - municipalities: slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon). Solo los que se mencionan o infieren del contexto.
 - confidence: 0.0 a 1.0
 - Máximo 3 tópicos por mención.`;
@@ -243,9 +275,9 @@ REGLAS:
     // Strip markdown code fences if present
     const cleanText = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     const parsed = JSON.parse(cleanText) as NlpAnalysis;
-    return validateNlpResult(parsed);
+    return validateNlpResult(parsed, agency.slug);
   } catch (err) {
-    console.error(`Failed to parse NLP response for ${mention.resourceId}:`, text);
+    console.error(`[${agency.slug}] Failed to parse NLP response for ${mention.resourceId}:`, text);
     return {
       sentiment: 'neutral',
       emotions: [],
@@ -257,25 +289,26 @@ REGLAS:
   }
 }
 
-function validateNlpResult(raw: NlpAnalysis): NlpAnalysis {
+function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
   const validSentiments: Sentiment[] = ['negativo', 'neutral', 'positivo'];
   const validEmotions: Emotion[] = [
     'frustración', 'enojo', 'alivio', 'gratitud', 'preocupación', 'sarcasmo', 'indiferencia',
   ];
   const validPertinence = ['alta', 'media', 'baja'];
+  const validTopics = TOPIC_SLUGS_BY_AGENCY[agencySlug] ?? [];
 
   return {
     sentiment: validSentiments.includes(raw.sentiment) ? raw.sentiment : 'neutral',
     emotions: (raw.emotions ?? []).filter((e) => validEmotions.includes(e)).slice(0, 3),
     pertinence: validPertinence.includes(raw.pertinence) ? raw.pertinence : 'media',
     topics: (raw.topics ?? [])
-      .filter((t) => TOPIC_SLUGS.includes(t.topic_slug))
+      .filter((t) => validTopics.includes(t.topic_slug))
       .slice(0, 3)
       .map((t) => ({
         ...t,
         confidence: Math.max(0, Math.min(1, t.confidence ?? 0.5)),
       })),
-    municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
+    municipalities: (raw.municipalities ?? []).filter((m) => typeof m === 'string' && m.length > 0),
     summary: (raw.summary ?? '').slice(0, 500),
   };
 }
