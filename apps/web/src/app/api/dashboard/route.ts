@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         const topicRow = await db
           .select({ id: topics.id })
           .from(topics)
-          .where(eq(topics.slug, topicFilter))
+          .where(and(eq(topics.slug, topicFilter), eq(topics.agencyId, agencyId)))
           .limit(1);
         if (topicRow.length > 0) {
           const mentionIds = await db
@@ -424,6 +424,7 @@ export async function GET(request: NextRequest) {
       db
         .select({ source: mentions.contentSourceName })
         .from(mentions)
+        .where(eq(mentions.agencyId, agencyId))
         .groupBy(mentions.contentSourceName)
         .orderBy(mentions.contentSourceName),
 

@@ -4,7 +4,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPICS_BY_AGENCY, TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS } from '@eco/shared';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -308,7 +308,7 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
         ...t,
         confidence: Math.max(0, Math.min(1, t.confidence ?? 0.5)),
       })),
-    municipalities: (raw.municipalities ?? []).filter((m) => typeof m === 'string' && m.length > 0),
+    municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
     summary: (raw.summary ?? '').slice(0, 500),
   };
 }
