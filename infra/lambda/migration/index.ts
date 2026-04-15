@@ -303,6 +303,7 @@ async function runMigrations(client: any): Promise<void> {
   await client.query(`ALTER TABLE topics ALTER COLUMN agency_id SET NOT NULL;`);
 
   // Drop old unique constraint on slug, replace with (agency_id, slug)
+  await client.query(`ALTER TABLE topics DROP CONSTRAINT IF EXISTS topics_slug_key;`);
   await client.query(`DROP INDEX IF EXISTS topics_slug_key;`);
   await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_topic_agency_slug ON topics(agency_id, slug);`);
 
@@ -349,7 +350,7 @@ async function runSeed(client: any): Promise<void> {
       await client.query(
         `INSERT INTO topics (agency_id, name, slug, description, display_order)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (agency_id, slug) DO NOTHING`,
         [ddecprAgencyId, name, slug, description, order],
       );
     }
@@ -427,13 +428,17 @@ async function runSeed(client: any): Promise<void> {
     ]],
   ];
 
+  // Get AAA agency ID for topic seeding
+  const aaaResult = await client.query("SELECT id FROM agencies WHERE slug = 'aaa'");
+  const aaaAgencyId = aaaResult.rows[0]?.id;
+
   for (const [slug, name, desc, order, subtopics] of topicsData) {
     const res = await client.query(`
-      INSERT INTO topics (name, slug, description, display_order)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (slug) DO UPDATE SET name = $1
+      INSERT INTO topics (agency_id, name, slug, description, display_order)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (agency_id, slug) DO UPDATE SET name = $2
       RETURNING id
-    `, [name, slug, desc, order]);
+    `, [aaaAgencyId, name, slug, desc, order]);
     const topicId = res.rows[0].id;
 
     for (const [sSlug, sName, sDesc, sOrder] of subtopics) {
