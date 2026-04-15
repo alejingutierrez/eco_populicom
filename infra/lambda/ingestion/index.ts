@@ -23,19 +23,12 @@ interface AgencyRow {
   brandwatch_query_ids: number[];
 }
 
-async function loadActiveAgencies(dbUrl: string): Promise<AgencyRow[]> {
-  const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-  await client.connect();
-  try {
-    const result = await client.query<AgencyRow>(
-      `SELECT slug, brandwatch_project_id, brandwatch_query_ids FROM agencies
-       WHERE is_active = true AND brandwatch_project_id IS NOT NULL AND brandwatch_query_ids IS NOT NULL`,
-    );
-    return result.rows;
-  } finally {
-    await client.end();
-  }
+async function loadActiveAgencies(client: any): Promise<AgencyRow[]> {
+  const result = await client.query<AgencyRow>(
+    `SELECT slug, brandwatch_project_id, brandwatch_query_ids FROM agencies
+     WHERE is_active = true AND brandwatch_project_id IS NOT NULL AND brandwatch_query_ids IS NOT NULL`,
+  );
+  return result.rows;
 }
 
 export const handler = async (event: unknown): Promise<{ statusCode: number; body: string }> => {
@@ -46,90 +39,98 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
   const datePrefix = now.toISOString().split('T')[0];
 
   const dbUrl = await getDatabaseUrl();
-  const agencies = await loadActiveAgencies(dbUrl);
-  console.log(`Found ${agencies.length} active agencies`);
+  const pg = await import('pg');
+  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  await client.connect();
 
   const agencySummaries: string[] = [];
 
-  for (const agency of agencies) {
-    const bw = new BrandwatchClient({
-      token: BRANDWATCH_TOKEN,
-      projectId: agency.brandwatch_project_id,
-    });
+  try {
+    const agencies = await loadActiveAgencies(client);
+    console.log(`Found ${agencies.length} active agencies`);
 
-    for (const queryId of agency.brandwatch_query_ids) {
-      // Determine time window from cursor
-      let startDate: string;
-      const cursor = await readCursor(dbUrl, queryId);
+    for (const agency of agencies) {
+      const bw = new BrandwatchClient({
+        token: BRANDWATCH_TOKEN,
+        projectId: agency.brandwatch_project_id,
+      });
 
-      if (cursor) {
-        const cursorDate = new Date(cursor.last_mention_date);
-        cursorDate.setMinutes(cursorDate.getMinutes() - 1);
-        startDate = cursorDate.toISOString();
-      } else {
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        startDate = yesterday.toISOString();
-      }
+      for (const queryId of agency.brandwatch_query_ids) {
+        // Determine time window from cursor
+        let startDate: string;
+        const cursor = await readCursor(client, queryId);
 
-      console.log(`[${agency.slug}] Query ${queryId}: fetching ${startDate} → ${endDate}`);
+        if (cursor) {
+          const cursorDate = new Date(cursor.last_mention_date);
+          cursorDate.setMinutes(cursorDate.getMinutes() - 1);
+          startDate = cursorDate.toISOString();
+        } else {
+          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          startDate = yesterday.toISOString();
+        }
 
-      let totalMentions = 0;
-      let pageIndex = 0;
-      let lastMentionDate = startDate;
+        console.log(`[${agency.slug}] Query ${queryId}: fetching ${startDate} → ${endDate}`);
 
-      for await (const mentions of bw.fetchMentionPages({
-        queryId,
-        startDate,
-        endDate,
-        pageSize: 100,
-        orderBy: 'date',
-        orderDirection: 'asc',
-      })) {
-        // Store raw JSON in S3 under agency-scoped path
-        const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
-        await s3.send(
-          new PutObjectCommand({
-            Bucket: RAW_BUCKET,
-            Key: s3Key,
-            Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
-            ContentType: 'application/json',
-          }),
-        );
+        let totalMentions = 0;
+        let pageIndex = 0;
+        let lastMentionDate = startDate;
 
-        // Send each mention to SQS (batches of 10 max)
-        const batches = chunk(mentions, 10);
-        for (const batch of batches) {
-          await sqs.send(
-            new SendMessageBatchCommand({
-              QueueUrl: INGESTION_QUEUE_URL,
-              Entries: batch.map((mention, idx) => ({
-                Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
-                MessageBody: JSON.stringify(mention),
-              })),
+        for await (const mentions of bw.fetchMentionPages({
+          queryId,
+          startDate,
+          endDate,
+          pageSize: 100,
+          orderBy: 'date',
+          orderDirection: 'asc',
+        })) {
+          // Store raw JSON in S3 under agency-scoped path
+          const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
+          await s3.send(
+            new PutObjectCommand({
+              Bucket: RAW_BUCKET,
+              Key: s3Key,
+              Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
+              ContentType: 'application/json',
             }),
           );
+
+          // Send each mention to SQS (batches of 10 max)
+          const batches = chunk(mentions, 10);
+          for (const batch of batches) {
+            await sqs.send(
+              new SendMessageBatchCommand({
+                QueueUrl: INGESTION_QUEUE_URL,
+                Entries: batch.map((mention, idx) => ({
+                  Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
+                  MessageBody: JSON.stringify(mention),
+                })),
+              }),
+            );
+          }
+
+          // Track last mention date for cursor update
+          const lastMention = mentions[mentions.length - 1];
+          if (lastMention?.date) {
+            lastMentionDate = lastMention.date;
+          }
+
+          totalMentions += mentions.length;
+          pageIndex++;
+          console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
         }
 
-        // Track last mention date for cursor update
-        const lastMention = mentions[mentions.length - 1];
-        if (lastMention?.date) {
-          lastMentionDate = lastMention.date;
+        // Update cursor if we got any mentions
+        if (totalMentions > 0) {
+          await updateCursor(client, queryId, lastMentionDate, totalMentions);
         }
 
-        totalMentions += mentions.length;
-        pageIndex++;
-        console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
+        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages`;
+        console.log(summary);
+        agencySummaries.push(summary);
       }
-
-      // Update cursor if we got any mentions
-      if (totalMentions > 0) {
-        await updateCursor(dbUrl, queryId, lastMentionDate, totalMentions);
-      }
-
-      const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages`;
-      console.log(summary);
-      agencySummaries.push(summary);
     }
+  } finally {
+    await client.end();
   }
 
   const body = agencySummaries.length > 0
@@ -150,42 +151,27 @@ async function getDatabaseUrl(): Promise<string> {
   return `postgresql://${parsed.username}:${encodeURIComponent(parsed.password)}@${parsed.host}:${parsed.port}/${parsed.dbname}`;
 }
 
-async function readCursor(dbUrl: string, queryId: number): Promise<CursorRow | null> {
-  // Dynamic import to avoid cold-start overhead when no cursor exists yet
-  const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-  await client.connect();
-  try {
-    const result = await client.query(
-      'SELECT last_mention_date FROM ingestion_cursors WHERE query_id = $1',
-      [queryId],
-    );
-    return result.rows[0] ?? null;
-  } finally {
-    await client.end();
-  }
+async function readCursor(client: any, queryId: number): Promise<CursorRow | null> {
+  const result = await client.query(
+    'SELECT last_mention_date FROM ingestion_cursors WHERE query_id = $1',
+    [queryId],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function updateCursor(
-  dbUrl: string,
+  client: any,
   queryId: number,
   lastMentionDate: string,
   mentionsFetched: number,
 ): Promise<void> {
-  const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-  await client.connect();
-  try {
-    await client.query(
-      `INSERT INTO ingestion_cursors (query_id, last_mention_date, last_run_at, mentions_fetched, status)
-       VALUES ($1, $2, NOW(), $3, 'idle')
-       ON CONFLICT (query_id)
-       DO UPDATE SET last_mention_date = $2, last_run_at = NOW(), mentions_fetched = ingestion_cursors.mentions_fetched + $3, status = 'idle'`,
-      [queryId, lastMentionDate, mentionsFetched],
-    );
-  } finally {
-    await client.end();
-  }
+  await client.query(
+    `INSERT INTO ingestion_cursors (query_id, last_mention_date, last_run_at, mentions_fetched, status)
+     VALUES ($1, $2, NOW(), $3, 'idle')
+     ON CONFLICT (query_id)
+     DO UPDATE SET last_mention_date = $2, last_run_at = NOW(), mentions_fetched = ingestion_cursors.mentions_fetched + $3, status = 'idle'`,
+    [queryId, lastMentionDate, mentionsFetched],
+  );
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
