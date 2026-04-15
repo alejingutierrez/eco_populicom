@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useAgency } from '@/contexts/AgencyContext';
 import { Layout, Breadcrumb, Select, DatePicker, Avatar, Space, Tooltip } from 'antd';
 import { Building2, Calendar } from 'lucide-react';
 import dayjs from 'dayjs';
@@ -21,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
 export function EcoHeader() {
   const pathname = usePathname();
   const pageTitle = PAGE_TITLES[pathname] ?? 'Dashboard';
+  const { agencies, selectedAgency, setAgency, isLoading } = useAgency();
 
   return (
     <Header
@@ -58,15 +60,15 @@ export function EcoHeader() {
       <Space size={10}>
         {/* Agency selector */}
         <Select
-          defaultValue="aaa"
+          value={selectedAgency}
+          onChange={setAgency}
+          loading={isLoading}
           style={{ minWidth: 200 }}
           suffixIcon={<Building2 size={14} color="#0A7EA4" />}
-          options={[
-            {
-              value: 'aaa',
-              label: 'AAA — Acueductos y Alcantarillados',
-            },
-          ]}
+          options={agencies.map((a) => ({
+            value: a.slug,
+            label: a.name,
+          }))}
         />
 
         {/* Date range picker */}
