@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useAgency } from '@/contexts/AgencyContext';
 import { useQuery } from '@tanstack/react-query';
 import { Row, Col, Skeleton } from 'antd';
 import {
@@ -175,6 +176,7 @@ const EMPTY_FILTER_OPTIONS: FilterOptions = {
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
+  const { selectedAgency } = useAgency();
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [selectedMention, setSelectedMention] = useState<DashboardData['recentMentions'][0] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -182,6 +184,7 @@ export default function DashboardPage() {
   // Build query string from filters
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
+    params.set('agency', selectedAgency);
     params.set('period', filters.period);
     if (filters.customRange) {
       params.set('startDate', filters.customRange[0]);
@@ -194,10 +197,10 @@ export default function DashboardPage() {
     if (filters.municipality) params.set('municipality', filters.municipality);
     if (filters.compare) params.set('compare', 'true');
     return params.toString();
-  }, [filters]);
+  }, [filters, selectedAgency]);
 
   const { data, isLoading } = useQuery<DashboardData>({
-    queryKey: ['dashboard', queryString],
+    queryKey: ['dashboard', selectedAgency, queryString],
     queryFn: () => fetch(`/api/dashboard?${queryString}`).then((r) => r.json()),
   });
 

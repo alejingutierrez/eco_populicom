@@ -7,6 +7,7 @@ import {
   mentionTopics,
   municipalities,
   mentionMunicipalities,
+  agencies,
 } from '@eco/database';
 import { sql, count, gte, lte, eq, and, desc, inArray } from 'drizzle-orm';
 
@@ -40,8 +41,8 @@ function parseDateRange(params: URLSearchParams) {
   return { start, end, days: 30 };
 }
 
-function buildMentionFilters(params: URLSearchParams, dateStart: Date) {
-  const conditions = [gte(mentions.publishedAt, dateStart)];
+function buildMentionFilters(params: URLSearchParams, dateStart: Date, agencyId: string) {
+  const conditions = [gte(mentions.publishedAt, dateStart), eq(mentions.agencyId, agencyId)];
 
   const sentiment = params.get('sentiment');
   if (sentiment) conditions.push(eq(mentions.nlpSentiment, sentiment));
@@ -113,6 +114,18 @@ export async function GET(request: NextRequest) {
   const startStr = start.toISOString().split('T')[0];
 
   const db = getDb();
+
+  const agencySlug = searchParams.get('agency') ?? 'aaa';
+  const [agencyRow] = await db
+    .select({ id: agencies.id })
+    .from(agencies)
+    .where(eq(agencies.slug, agencySlug))
+    .limit(1);
+  if (!agencyRow) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+  const agencyId = agencyRow.id;
+
   const useFiltered = hasContentFilters(searchParams);
 
   try {
@@ -124,7 +137,7 @@ export async function GET(request: NextRequest) {
       const snapshots = await db
         .select()
         .from(dailyMetricSnapshots)
-        .where(gte(dailyMetricSnapshots.date, startStr))
+        .where(and(gte(dailyMetricSnapshots.date, startStr), eq(dailyMetricSnapshots.agencyId, agencyId)))
         .orderBy(desc(dailyMetricSnapshots.date));
 
       // Find the most recent snapshot that has computed metrics (not null)
@@ -174,7 +187,7 @@ export async function GET(request: NextRequest) {
       };
     } else {
       // Filtered path: aggregate from mentions table
-      const baseConditions = buildMentionFilters(searchParams, start);
+      const baseConditions = buildMentionFilters(searchParams, start, agencyId);
 
       // If topic/municipality filter, we need to join
       let mentionIdSubquery: string[] | null = null;
@@ -293,6 +306,7 @@ export async function GET(request: NextRequest) {
           and(
             gte(dailyMetricSnapshots.date, prevStartStr),
             lte(dailyMetricSnapshots.date, prevEndStr),
+            eq(dailyMetricSnapshots.agencyId, agencyId),
           ),
         )
         .orderBy(desc(dailyMetricSnapshots.date));
@@ -320,7 +334,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ─── MENTIONS QUERIES (always filtered) ──────────────────────
-    const mentionConditions = buildMentionFilters(searchParams, start);
+    const mentionConditions = buildMentionFilters(searchParams, start, agencyId);
 
     const [sentimentData, topSources, recentMentions] = await Promise.all([
       // Sentiment breakdown
@@ -380,7 +394,7 @@ export async function GET(request: NextRequest) {
       .from(topics)
       .innerJoin(mentionTopics, eq(mentionTopics.topicId, topics.id))
       .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
-      .where(gte(mentions.publishedAt, start))
+      .where(and(gte(mentions.publishedAt, start), eq(mentions.agencyId, agencyId)))
       .groupBy(topics.slug, topics.name)
       .orderBy(sql`count(${mentionTopics.mentionId}) DESC`);
 
@@ -416,6 +430,7 @@ export async function GET(request: NextRequest) {
       db
         .select({ slug: topics.slug, name: topics.name })
         .from(topics)
+        .where(eq(topics.agencyId, agencyId))
         .orderBy(topics.name),
 
       db
