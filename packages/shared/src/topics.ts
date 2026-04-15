@@ -18,7 +18,7 @@ export interface SubtopicDef {
   displayOrder: number;
 }
 
-export const TOPICS: TopicDef[] = [
+export const AAA_TOPICS: TopicDef[] = [
   {
     slug: 'averias-interrupciones',
     name: 'Averías / Interrupciones',
@@ -134,10 +134,100 @@ export const TOPICS: TopicDef[] = [
   },
 ];
 
-/** Flat list of all topic slugs for validation */
-export const TOPIC_SLUGS = TOPICS.map((t) => t.slug);
+export const DDECPR_TOPICS: TopicDef[] = [
+  {
+    slug: 'permisos-reforma',
+    name: 'Permisos / Reforma',
+    description: 'Reforma de permisos y procesos regulatorios para el desarrollo económico',
+    displayOrder: 1,
+    subtopics: [],
+  },
+  {
+    slug: 'incentivos-economicos',
+    name: 'Incentivos Económicos',
+    description: 'Incentivos fiscales y económicos para empresas e inversores',
+    displayOrder: 2,
+    subtopics: [],
+  },
+  {
+    slug: 'desarrollo-empresarial',
+    name: 'Desarrollo Empresarial',
+    description: 'Apoyo y fomento al desarrollo de empresas locales',
+    displayOrder: 3,
+    subtopics: [],
+  },
+  {
+    slug: 'comercio-exterior',
+    name: 'Comercio Exterior',
+    description: 'Exportaciones, importaciones y relaciones comerciales internacionales',
+    displayOrder: 4,
+    subtopics: [],
+  },
+  {
+    slug: 'turismo-economia',
+    name: 'Turismo / Economía',
+    description: 'Impacto del turismo en la economía de Puerto Rico',
+    displayOrder: 5,
+    subtopics: [],
+  },
+  {
+    slug: 'empleo-fuerza-laboral',
+    name: 'Empleo / Fuerza Laboral',
+    description: 'Empleo, desempleo y desarrollo de la fuerza laboral',
+    displayOrder: 6,
+    subtopics: [],
+  },
+  {
+    slug: 'gestion-secretario',
+    name: 'Gestión del Secretario',
+    description: 'Declaraciones y acciones del Secretario de Desarrollo Económico',
+    displayOrder: 7,
+    subtopics: [],
+  },
+  {
+    slug: 'legislacion-economica',
+    name: 'Legislación Económica',
+    description: 'Proyectos de ley y regulación relacionados con el desarrollo económico',
+    displayOrder: 8,
+    subtopics: [],
+  },
+  {
+    slug: 'inversion-extranjera',
+    name: 'Inversión Extranjera',
+    description: 'Atracción y gestión de inversión extranjera directa',
+    displayOrder: 9,
+    subtopics: [],
+  },
+  {
+    slug: 'criticas-controversias',
+    name: 'Críticas / Controversias',
+    description: 'Críticas públicas y controversias relacionadas con la agencia',
+    displayOrder: 10,
+    subtopics: [],
+  },
+];
 
-/** Flat list of all subtopic slugs (prefixed with topic) for validation */
-export const SUBTOPIC_SLUGS = TOPICS.flatMap((t) =>
-  t.subtopics.map((s) => `${t.slug}/${s.slug}`),
+export const TOPICS_BY_AGENCY: Record<string, TopicDef[]> = {
+  aaa: AAA_TOPICS,
+  ddecpr: DDECPR_TOPICS,
+};
+
+/** Backwards compat: defaults to AAA topics */
+export const TOPICS = AAA_TOPICS;
+
+export const TOPIC_SLUGS_BY_AGENCY: Record<string, string[]> = Object.fromEntries(
+  Object.entries(TOPICS_BY_AGENCY).map(([key, topics]) => [key, topics.map((t) => t.slug)]),
 );
+
+/** Backwards compat: flat list of all AAA topic slugs for validation */
+export const TOPIC_SLUGS = TOPIC_SLUGS_BY_AGENCY.aaa;
+
+export const SUBTOPIC_SLUGS_BY_AGENCY: Record<string, string[]> = Object.fromEntries(
+  Object.entries(TOPICS_BY_AGENCY).map(([key, topics]) => [
+    key,
+    topics.flatMap((t) => t.subtopics.map((s) => s.slug)),
+  ]),
+);
+
+/** Backwards compat: flat list of all AAA subtopic slugs (prefixed with topic) for validation */
+export const SUBTOPIC_SLUGS = TOPICS.flatMap((t) => t.subtopics.map((s) => `${t.slug}/${s.slug}`));
