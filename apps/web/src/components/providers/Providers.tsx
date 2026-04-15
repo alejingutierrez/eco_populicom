@@ -4,6 +4,7 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import esES from 'antd/locale/es_ES';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ecoTheme } from '@/theme/eco-theme';
+import { AgencyProvider } from '@/contexts/AgencyContext';
 
 function makeQueryClient() {
   return new QueryClient({
@@ -33,7 +34,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ConfigProvider theme={ecoTheme} locale={esES}>
-        <AntApp>{children}</AntApp>
+        <AntApp>
+          <AgencyProvider>{children}</AgencyProvider>
+        </AntApp>
       </ConfigProvider>
     </QueryClientProvider>
   );
