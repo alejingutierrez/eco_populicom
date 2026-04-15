@@ -293,6 +293,19 @@ async function runMigrations(client: any): Promise<void> {
   `);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_daily_metrics_agency_crisis ON daily_metric_snapshots(agency_id, crisis_risk_score);`);
 
+  // Multi-tenant: add agency_id to topics
+  await client.query(`ALTER TABLE topics ADD COLUMN IF NOT EXISTS agency_id UUID REFERENCES agencies(id);`);
+
+  // Backfill existing topics with AAA agency_id
+  await client.query(`UPDATE topics SET agency_id = (SELECT id FROM agencies WHERE slug = 'aaa') WHERE agency_id IS NULL;`);
+
+  // Make agency_id NOT NULL after backfill
+  await client.query(`ALTER TABLE topics ALTER COLUMN agency_id SET NOT NULL;`);
+
+  // Drop old unique constraint on slug, replace with (agency_id, slug)
+  await client.query(`DROP INDEX IF EXISTS topics_slug_key;`);
+  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_topic_agency_slug ON topics(agency_id, slug);`);
+
   console.log('Schema migrations completed successfully');
 }
 
@@ -306,6 +319,42 @@ async function runSeed(client: any): Promise<void> {
     ON CONFLICT (slug) DO NOTHING;
   `);
   console.log('  -> AAA agency seeded');
+
+  // Seed DDECPR agency
+  await client.query(`
+    INSERT INTO agencies (name, slug, brandwatch_project_id, brandwatch_query_ids)
+    VALUES ('Departamento de Desarrollo Económico y Comercio', 'ddecpr', 1998405210, '[2003921640, 2003930254, 2003930261, 2003930255]'::jsonb)
+    ON CONFLICT (slug) DO NOTHING;
+  `);
+  console.log('  -> DDECPR agency seeded');
+
+  // Seed DDECPR topics
+  const ddecprTopics = [
+    ['permisos-reforma', 'Permisos / Reforma', 'Sistema de permisos, PS 1173, simplificación, #conpermiso', 1],
+    ['incentivos-economicos', 'Incentivos Económicos', 'Ley 60, Act 20/22, incentivos contributivos, atracción de inversión', 2],
+    ['desarrollo-empresarial', 'Desarrollo Empresarial', 'Apoyo a PyMEs, emprendimiento, startups, incubadoras', 3],
+    ['comercio-exterior', 'Comercio Exterior', 'Exportaciones, importaciones, zona de comercio', 4],
+    ['turismo-economia', 'Turismo / Economía', 'Impacto turístico en desarrollo económico', 5],
+    ['empleo-fuerza-laboral', 'Empleo / Fuerza Laboral', 'Desempleo, capacitación, fuga de talento', 6],
+    ['gestion-secretario', 'Gestión del Secretario', 'Declaraciones, nombramientos, gestión de Negrón Reichard', 7],
+    ['legislacion-economica', 'Legislación Económica', 'Proyectos de ley, vistas públicas, regulación económica', 8],
+    ['inversion-extranjera', 'Inversión Extranjera', 'FDI, empresas nuevas, relocalizaciones, zonas industriales', 9],
+    ['criticas-controversias', 'Críticas / Controversias', 'Quejas, señalamientos, controversias, auditorías', 10],
+  ];
+
+  const ddecprAgencyResult = await client.query("SELECT id FROM agencies WHERE slug = 'ddecpr'");
+  const ddecprAgencyId = ddecprAgencyResult.rows[0]?.id;
+  if (ddecprAgencyId) {
+    for (const [slug, name, description, order] of ddecprTopics) {
+      await client.query(
+        `INSERT INTO topics (agency_id, name, slug, description, display_order)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT DO NOTHING`,
+        [ddecprAgencyId, name, slug, description, order],
+      );
+    }
+    console.log(`  -> ${ddecprTopics.length} DDECPR topics seeded`);
+  }
 
   // Seed municipalities (all 78)
   const municipalities = [
