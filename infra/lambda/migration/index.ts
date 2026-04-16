@@ -40,6 +40,18 @@ export const handler = async (event: { action?: string; query?: string }): Promi
       const res = await client.query(event.query);
       return { statusCode: 200, body: JSON.stringify({ rows: res.rows, rowCount: res.rowCount }) };
     }
+    if (action === 'reset-cursors') {
+      // Reset ingestion cursors for specified query IDs to re-ingest from scratch
+      const queryIds = event.queryIds as number[] | undefined;
+      if (!queryIds || queryIds.length === 0) {
+        return { statusCode: 400, body: 'queryIds required' };
+      }
+      const del = await client.query(
+        `DELETE FROM ingestion_cursors WHERE query_id = ANY($1::bigint[])`,
+        [queryIds],
+      );
+      return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount, queryIds }) };
+    }
     if (action === 'cleanup-empty-mentions') {
       // Delete mentions with no usable content (e.g. Twitter with no date/snippet/title)
       const del = await client.query(
