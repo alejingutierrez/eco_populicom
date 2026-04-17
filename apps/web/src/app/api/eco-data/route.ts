@@ -1,0 +1,492 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb } from '@eco/database';
+import {
+  mentions,
+  agencies,
+  topics,
+  subtopics,
+  municipalities,
+  mentionTopics,
+  mentionMunicipalities,
+  dailyMetricSnapshots,
+  alertRules,
+} from '@eco/database';
+import { sql, eq, and, gte, desc, count } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
+
+export const dynamic = 'force-dynamic';
+
+const PERIOD_DAYS: Record<string, number> = {
+  '1D': 1, '5D': 5, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '24h': 1, '7d': 7, '30d': 30, '90d': 90,
+};
+
+type TimelineRow = {
+  date: string;
+  fullDate: string;
+  nss: number;
+  brandHealthIndex: number;
+  totalMentions: number;
+  crisisRiskScore: number;
+  engagementRate: number;
+  positivo: number;
+  neutral: number;
+  negativo: number;
+};
+
+function esShortDate(iso: string) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('es-PR', { month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
+function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo' {
+  if (s === 'positivo' || s === 'positive') return 'positivo';
+  if (s === 'negativo' || s === 'negative') return 'negativo';
+  return 'neutral';
+}
+
+function sourceKey(pageType: string | null): string {
+  const t = (pageType ?? '').toLowerCase();
+  if (t.includes('facebook')) return 'facebook';
+  if (t.includes('twitter') || t === 'x' || t.includes('xcom')) return 'twitter';
+  if (t.includes('instagram')) return 'instagram';
+  if (t.includes('youtube')) return 'youtube';
+  if (t.includes('blog')) return 'blog';
+  if (t.includes('news') || t.includes('forum')) return 'news';
+  return t || 'otros';
+}
+
+function sourceLabel(key: string): string {
+  const map: Record<string, string> = {
+    facebook: 'Facebook',
+    twitter: 'X / Twitter',
+    instagram: 'Instagram',
+    youtube: 'YouTube',
+    blog: 'Blogs',
+    news: 'Noticias',
+    otros: 'Otros',
+  };
+  return map[key] ?? key;
+}
+
+function relativeTime(d: Date): string {
+  const diff = Date.now() - d.getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const day = Math.round(h / 24);
+  return `hace ${day} d`;
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const periodKey = searchParams.get('period') ?? '1M';
+  const days = PERIOD_DAYS[periodKey] ?? 30;
+
+  const agencyId = await resolveAgencyId(searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+
+  const db = getDb();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const baseWhere = and(eq(mentions.agencyId, agencyId), gte(mentions.publishedAt, since));
+
+  try {
+    // ---- AGENCIES (all) ----
+    const agencyRows = await db
+      .select({ id: agencies.id, name: agencies.name, slug: agencies.slug })
+      .from(agencies)
+      .where(eq(agencies.isActive, true));
+
+    const AGENCIES_FULL = agencyRows.map((a) => ({
+      key: a.slug,
+      name: (a.slug || '').toUpperCase().slice(0, 6),
+      long: a.name,
+    }));
+
+    // ---- TIMELINE + CURRENT_METRICS from snapshots ----
+    const snapshots = await db
+      .select()
+      .from(dailyMetricSnapshots)
+      .where(and(
+        gte(dailyMetricSnapshots.date, since.toISOString().split('T')[0]),
+        eq(dailyMetricSnapshots.agencyId, agencyId),
+      ))
+      .orderBy(dailyMetricSnapshots.date);
+
+    const TIMELINE: TimelineRow[] = snapshots.map((s) => {
+      const iso = new Date(s.date).toISOString();
+      return {
+        date: esShortDate(iso),
+        fullDate: iso,
+        nss: Number(s.nss ?? 0),
+        brandHealthIndex: Number(s.brandHealthIndex ?? 0),
+        totalMentions: Number(s.totalMentions ?? 0),
+        crisisRiskScore: Number(s.crisisRiskScore ?? 0),
+        engagementRate: Number(s.engagementRate ?? 0),
+        positivo: Number(s.positiveCount ?? 0),
+        neutral: Number(s.neutralCount ?? 0),
+        negativo: Number(s.negativeCount ?? 0),
+      };
+    });
+
+    const last = snapshots[snapshots.length - 1];
+    const prev = snapshots[snapshots.length - 2];
+    const CURRENT_METRICS = last ? {
+      nss: Number(last.nss ?? 0),
+      nssDelta: last && prev ? Number((Number(last.nss ?? 0) - Number(prev.nss ?? 0)).toFixed(1)) : 0,
+      nss7d: Number(last.nss7d ?? last.nss ?? 0),
+      nss30d: Number(last.nss30d ?? last.nss ?? 0),
+      brandHealthIndex: Number(last.brandHealthIndex ?? 0),
+      brandHealthDelta: prev ? Number((Number(last.brandHealthIndex ?? 0) - Number(prev.brandHealthIndex ?? 0)).toFixed(2)) : 0,
+      crisisRiskScore: Number(last.crisisRiskScore ?? 0),
+      crisisDelta: prev ? Number((Number(last.crisisRiskScore ?? 0) - Number(prev.crisisRiskScore ?? 0)).toFixed(1)) : 0,
+      totalMentions: Number(last.totalMentions ?? 0),
+      totalMentionsDelta: prev && Number(prev.totalMentions) > 0
+        ? Number((((Number(last.totalMentions) - Number(prev.totalMentions)) / Number(prev.totalMentions)) * 100).toFixed(1))
+        : 0,
+      totalReach: Number(last.totalMentions ?? 0) * 180,
+      engagementRate: Number(last.engagementRate ?? 0),
+      engagementDelta: prev ? Number((Number(last.engagementRate ?? 0) - Number(prev.engagementRate ?? 0)).toFixed(2)) : 0,
+      amplificationRate: Number(last.amplificationRate ?? 0),
+      amplificationDelta: 0,
+      reputationMomentum: Number(last.reputationMomentum ?? 0),
+      engagementVelocity: Number(last.engagementVelocity ?? 0),
+      volumeAnomalyZscore: Number(last.volumeAnomalyZscore ?? 0),
+      positiveCount: Number(last.positiveCount ?? 0),
+      neutralCount: Number(last.neutralCount ?? 0),
+      negativeCount: Number(last.negativeCount ?? 0),
+      highPertinenceCount: 0,
+    } : null;
+
+    // ---- SENTIMENT_BREAKDOWN ----
+    const sentimentAgg = await db
+      .select({ s: mentions.nlpSentiment, c: count() })
+      .from(mentions)
+      .where(baseWhere)
+      .groupBy(mentions.nlpSentiment);
+
+    const sentCounts = { positivo: 0, neutral: 0, negativo: 0 };
+    for (const r of sentimentAgg) {
+      const k = pillFromSentiment(r.s);
+      sentCounts[k] += Number(r.c);
+    }
+    const SENTIMENT_BREAKDOWN = [
+      { name: 'positivo', value: sentCounts.positivo, label: 'Positivo' },
+      { name: 'neutral', value: sentCounts.neutral, label: 'Neutral' },
+      { name: 'negativo', value: sentCounts.negativo, label: 'Negativo' },
+    ];
+
+    // ---- TOP_SOURCES ----
+    const srcAgg = await db
+      .select({ pageType: mentions.pageType, c: count() })
+      .from(mentions)
+      .where(baseWhere)
+      .groupBy(mentions.pageType);
+
+    const srcMap = new Map<string, number>();
+    for (const r of srcAgg) {
+      const k = sourceKey(r.pageType);
+      srcMap.set(k, (srcMap.get(k) ?? 0) + Number(r.c));
+    }
+    const TOP_SOURCES = Array.from(srcMap.entries())
+      .map(([key, c]) => ({ source: sourceLabel(key), key, count: c }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    // ---- SENTIMENT_BY_SOURCE ----
+    const sBySrcAgg = await db
+      .select({ pageType: mentions.pageType, s: mentions.nlpSentiment, c: count() })
+      .from(mentions)
+      .where(baseWhere)
+      .groupBy(mentions.pageType, mentions.nlpSentiment);
+
+    const bySrc = new Map<string, { source: string; positivo: number; neutral: number; negativo: number }>();
+    for (const r of sBySrcAgg) {
+      const k = sourceKey(r.pageType);
+      const label = sourceLabel(k);
+      if (!bySrc.has(k)) bySrc.set(k, { source: label, positivo: 0, neutral: 0, negativo: 0 });
+      const entry = bySrc.get(k)!;
+      entry[pillFromSentiment(r.s)] += Number(r.c);
+    }
+    const SENTIMENT_BY_SOURCE = Array.from(bySrc.values())
+      .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
+      .slice(0, 8);
+
+    // ---- TOPICS ----
+    const topicRows = await db
+      .select({
+        slug: topics.slug,
+        name: topics.name,
+        s: mentions.nlpSentiment,
+        c: count(),
+      })
+      .from(mentionTopics)
+      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
+      .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
+      .where(baseWhere)
+      .groupBy(topics.slug, topics.name, mentions.nlpSentiment);
+
+    const tMap = new Map<string, { slug: string; name: string; total: number; positivo: number; neutral: number; negativo: number }>();
+    for (const r of topicRows) {
+      if (!tMap.has(r.slug)) tMap.set(r.slug, { slug: r.slug, name: r.name, total: 0, positivo: 0, neutral: 0, negativo: 0 });
+      const e = tMap.get(r.slug)!;
+      const k = pillFromSentiment(r.s);
+      const c = Number(r.c);
+      e[k] += c;
+      e.total += c;
+    }
+    const TOPICS = Array.from(tMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12)
+      .map((t) => {
+        const total = t.total || 1;
+        const positivePct = Math.round((t.positivo / total) * 100);
+        const negativePct = Math.round((t.negativo / total) * 100);
+        const neutralPct = Math.max(0, 100 - positivePct - negativePct);
+        let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
+        if (positivePct > negativePct + 8) dominant = 'positivo';
+        else if (negativePct > positivePct + 8) dominant = 'negativo';
+        return {
+          slug: t.slug,
+          name: t.name,
+          count: t.total,
+          positivePct, negativePct, neutralPct,
+          dominantSentiment: dominant,
+          delta: 0,
+        };
+      });
+
+    // ---- SUBTOPICS ----
+    const subtopicRows = await db
+      .select({
+        topicSlug: topics.slug,
+        subName: subtopics.name,
+        c: count(),
+      })
+      .from(mentionTopics)
+      .innerJoin(subtopics, eq(subtopics.id, mentionTopics.subtopicId))
+      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
+      .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
+      .where(baseWhere)
+      .groupBy(topics.slug, subtopics.name);
+
+    const SUBTOPICS: Record<string, Array<{ name: string; count: number }>> = {};
+    for (const r of subtopicRows) {
+      if (!SUBTOPICS[r.topicSlug]) SUBTOPICS[r.topicSlug] = [];
+      SUBTOPICS[r.topicSlug].push({ name: r.subName, count: Number(r.c) });
+    }
+    for (const k of Object.keys(SUBTOPICS)) {
+      SUBTOPICS[k].sort((a, b) => b.count - a.count);
+    }
+
+    // ---- MUNICIPALITIES ----
+    const muniRows = await db
+      .select({
+        slug: municipalities.slug,
+        name: municipalities.name,
+        region: municipalities.region,
+        lat: municipalities.latitude,
+        lon: municipalities.longitude,
+        s: mentions.nlpSentiment,
+        c: count(),
+      })
+      .from(mentionMunicipalities)
+      .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
+      .innerJoin(mentions, eq(mentions.id, mentionMunicipalities.mentionId))
+      .where(baseWhere)
+      .groupBy(municipalities.slug, municipalities.name, municipalities.region, municipalities.latitude, municipalities.longitude, mentions.nlpSentiment);
+
+    const mMap = new Map<string, {
+      slug: string; name: string; region: string;
+      lat: number; lon: number;
+      positivo: number; neutral: number; negativo: number; total: number;
+    }>();
+    for (const r of muniRows) {
+      if (!mMap.has(r.slug)) mMap.set(r.slug, {
+        slug: r.slug, name: r.name, region: r.region,
+        lat: Number(r.lat), lon: Number(r.lon),
+        positivo: 0, neutral: 0, negativo: 0, total: 0,
+      });
+      const e = mMap.get(r.slug)!;
+      const k = pillFromSentiment(r.s);
+      const c = Number(r.c);
+      e[k] += c;
+      e.total += c;
+    }
+    const MUNICIPALITIES = Array.from(mMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 20)
+      .map((m) => {
+        const t = m.total || 1;
+        const nss = Math.round(((m.positivo - m.negativo) / t) * 100) / 10;
+        return { slug: m.slug, name: m.name, region: m.region, count: m.total, nss };
+      });
+
+    // ---- EMOTIONS ----
+    const emotionRows = await db
+      .select({ e: mentions.nlpEmotions })
+      .from(mentions)
+      .where(baseWhere)
+      .limit(20000);
+
+    const eCounts: Record<string, number> = {};
+    for (const row of emotionRows) {
+      for (const e of (row.e ?? [])) {
+        eCounts[e] = (eCounts[e] ?? 0) + 1;
+      }
+    }
+    const emotionColorMap: Record<string, string> = {
+      enojo: 'neg', frustración: 'neg', preocupación: 'warn',
+      aprobación: 'pos', esperanza: 'pos', alegría: 'pos', confusión: 'neu',
+    };
+    const EMOTIONS = Object.entries(eCounts)
+      .map(([emotion, c]) => ({
+        emotion: emotion.charAt(0).toUpperCase() + emotion.slice(1),
+        count: c,
+        color: emotionColorMap[emotion.toLowerCase()] ?? 'neu',
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    // ---- MENTIONS (top 50 recent) ----
+    const recentRows = await db
+      .select({
+        id: mentions.id,
+        title: mentions.title,
+        domain: mentions.domain,
+        pageType: mentions.pageType,
+        author: mentions.author,
+        authorFullname: mentions.authorFullname,
+        nlpSentiment: mentions.nlpSentiment,
+        nlpPertinence: mentions.nlpPertinence,
+        nlpEmotions: mentions.nlpEmotions,
+        engagementScore: mentions.engagementScore,
+        likes: mentions.likes,
+        comments: mentions.comments,
+        shares: mentions.shares,
+        publishedAt: mentions.publishedAt,
+        url: mentions.url,
+      })
+      .from(mentions)
+      .where(baseWhere)
+      .orderBy(desc(mentions.publishedAt))
+      .limit(50);
+
+    // Resolve topics & municipalities for those mentions (batched)
+    const mentionIds = recentRows.map((m) => m.id);
+    const mtRows = mentionIds.length > 0 ? await db
+      .select({
+        mentionId: mentionTopics.mentionId,
+        topicSlug: topics.slug,
+        topicName: topics.name,
+        subName: subtopics.name,
+      })
+      .from(mentionTopics)
+      .leftJoin(topics, eq(topics.id, mentionTopics.topicId))
+      .leftJoin(subtopics, eq(subtopics.id, mentionTopics.subtopicId))
+      .where(sql`${mentionTopics.mentionId} IN (${sql.join(mentionIds.map((id) => sql`${id}`), sql`, `)})`) : [];
+
+    const mmRows = mentionIds.length > 0 ? await db
+      .select({
+        mentionId: mentionMunicipalities.mentionId,
+        muniName: municipalities.name,
+        region: municipalities.region,
+        lat: municipalities.latitude,
+        lon: municipalities.longitude,
+      })
+      .from(mentionMunicipalities)
+      .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
+      .where(sql`${mentionMunicipalities.mentionId} IN (${sql.join(mentionIds.map((id) => sql`${id}`), sql`, `)})`) : [];
+
+    const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[] }>();
+    for (const r of mtRows) {
+      if (!r.topicSlug) continue;
+      if (!topicByMention.has(r.mentionId)) {
+        topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [] });
+      }
+      if (r.subName) topicByMention.get(r.mentionId)!.subtopics.push(r.subName);
+    }
+    const muniByMention = new Map<string, { name: string; region: string; coords: [number, number] }>();
+    for (const r of mmRows) {
+      if (!muniByMention.has(r.mentionId)) {
+        muniByMention.set(r.mentionId, {
+          name: r.muniName, region: r.region,
+          coords: [Number(r.lat), Number(r.lon)],
+        });
+      }
+    }
+
+    const MENTIONS = recentRows.map((m) => {
+      const tp = topicByMention.get(m.id);
+      const mu = muniByMention.get(m.id);
+      return {
+        id: m.id,
+        title: m.title ?? '',
+        domain: m.domain ?? '',
+        source: sourceKey(m.pageType),
+        author: m.authorFullname ?? m.author ?? '',
+        sentiment: pillFromSentiment(m.nlpSentiment),
+        pertinence: m.nlpPertinence ?? 'media',
+        engagement: Number(m.engagementScore ?? 0),
+        likes: Number(m.likes ?? 0),
+        comments: Number(m.comments ?? 0),
+        shares: Number(m.shares ?? 0),
+        publishedAt: relativeTime(new Date(m.publishedAt)),
+        emotions: (m.nlpEmotions ?? []).map((e) => e.toLowerCase()),
+        topic: tp?.topic ?? '',
+        topicName: tp?.topicName ?? '',
+        subtopics: tp?.subtopics ?? [],
+        municipality: mu?.name ?? '',
+        region: mu?.region ?? '',
+        coords: mu?.coords,
+        url: m.url,
+      };
+    });
+
+    // ---- ALERTS ----
+    const alertRows = await db
+      .select()
+      .from(alertRules)
+      .where(eq(alertRules.agencyId, agencyId))
+      .orderBy(desc(alertRules.createdAt))
+      .limit(20);
+
+    const ALERTS = alertRows.map((a) => ({
+      id: a.id,
+      name: a.name,
+      active: a.isActive,
+      priority: 'media',
+      triggered: 0,
+      lastFired: '—',
+      channels: a.notifyEmails && a.notifyEmails.length > 0 ? ['email'] : [],
+    }));
+
+    return NextResponse.json({
+      AGENCIES_FULL,
+      TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
+      CURRENT_METRICS,
+      SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
+      TOP_SOURCES: TOP_SOURCES.length > 0 ? TOP_SOURCES : null,
+      SENTIMENT_BY_SOURCE: SENTIMENT_BY_SOURCE.length > 0 ? SENTIMENT_BY_SOURCE : null,
+      TOPICS: TOPICS.length > 0 ? TOPICS : null,
+      SUBTOPICS: Object.keys(SUBTOPICS).length > 0 ? SUBTOPICS : null,
+      MUNICIPALITIES: MUNICIPALITIES.length > 0 ? MUNICIPALITIES : null,
+      EMOTIONS: EMOTIONS.length > 0 ? EMOTIONS : null,
+      MENTIONS: MENTIONS.length > 0 ? MENTIONS : null,
+      ALERTS: ALERTS.length > 0 ? ALERTS : null,
+    });
+  } catch (err) {
+    console.error('eco-data error:', err);
+    return NextResponse.json({ error: 'eco-data error', message: (err as Error).message }, { status: 500 });
+  }
+}
