@@ -29,17 +29,35 @@ function App() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eco.collapsed') === 'true');
 
   const [active, setActive] = useState(() => localStorage.getItem('eco.active') || 'dashboard');
-  const [agency, setAgency] = useState(() => localStorage.getItem('eco.agency') || (AGENCIES[0] && AGENCIES[0].key) || 'dtop');
+  const [agency, setAgency] = useState(() => {
+    const saved = localStorage.getItem('eco.agency');
+    if (saved && AGENCIES.some((a) => a.key === saved)) return saved;
+    return (AGENCIES[0] && AGENCIES[0].key) || 'dtop';
+  });
   const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '1M');
   const [cmdOpen, setCmdOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
   const [mentionsFilter, setMentionsFilter] = useState(null);
 
-  useEffect(() => { localStorage.setItem('eco.period', period); }, [period]);
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
-  useEffect(() => { localStorage.setItem('eco.agency', agency); }, [agency]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);
+
+  // Period and agency drive the /api/eco-data query. A reload re-runs the
+  // boot loader with the new slug/period so the dashboard reflects real data.
+  const firstRun = React.useRef(true);
+  useEffect(() => {
+    const prev = localStorage.getItem('eco.period');
+    localStorage.setItem('eco.period', period);
+    if (firstRun.current) return;
+    if (prev !== period) window.location.reload();
+  }, [period]);
+  useEffect(() => {
+    const prev = localStorage.getItem('eco.agency');
+    localStorage.setItem('eco.agency', agency);
+    if (firstRun.current) { firstRun.current = false; return; }
+    if (prev !== agency) window.location.reload();
+  }, [agency]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

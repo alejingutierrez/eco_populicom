@@ -89,12 +89,23 @@ export async function GET(request: NextRequest) {
   const periodKey = searchParams.get('period') ?? '1M';
   const days = PERIOD_DAYS[periodKey] ?? 30;
 
-  const agencyId = await resolveAgencyId(searchParams);
+  const db = getDb();
+
+  // Resolve agency — fall back to the first active agency if the requested
+  // one doesn't exist (so a stale localStorage slug from testing doesn't 404).
+  let agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
-    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+    const [first] = await db
+      .select({ id: agencies.id })
+      .from(agencies)
+      .where(eq(agencies.isActive, true))
+      .limit(1);
+    agencyId = first?.id ?? null;
+  }
+  if (!agencyId) {
+    return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
   }
 
-  const db = getDb();
   const since = new Date();
   since.setDate(since.getDate() - days);
 
