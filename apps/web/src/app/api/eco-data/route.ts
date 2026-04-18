@@ -47,6 +47,21 @@ function esShortDate(iso: string) {
   }
 }
 
+/** ISO YYYY-MM-DD in the Puerto Rico calendar (not UTC). */
+function astDateKey(iso: string | Date): string {
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo' {
   if (s === 'positivo' || s === 'positive') return 'positivo';
   if (s === 'negativo' || s === 'negative') return 'negativo';
@@ -579,16 +594,21 @@ export async function GET(request: NextRequest) {
     }));
 
     // ---- HOUR_HEATMAP (7 days × 24 hours, Mon=0..Sun=6) ----
-    // Postgres DOW returns Sun=0..Sat=6; remap to Mon=0..Sun=6.
+    // Convert the UTC-stored `published_at` into Puerto Rico local time
+    // (America/Puerto_Rico is AST year-round, UTC-4) before extracting the
+    // day-of-week and hour — otherwise a mention posted at 02:00 AST shows up
+    // in the 06:00 UTC bucket on the wrong weekday.
+    // Postgres DOW returns Sun=0..Sat=6; we remap to Mon=0..Sun=6 in JS.
+    const localTs = sql`(${mentions.publishedAt} AT TIME ZONE 'America/Puerto_Rico')`;
     const heatRows = await db
       .select({
-        dow: sql<number>`EXTRACT(DOW FROM ${mentions.publishedAt})`.mapWith(Number),
-        hour: sql<number>`EXTRACT(HOUR FROM ${mentions.publishedAt})`.mapWith(Number),
+        dow: sql<number>`EXTRACT(DOW FROM ${localTs})`.mapWith(Number),
+        hour: sql<number>`EXTRACT(HOUR FROM ${localTs})`.mapWith(Number),
         c: count(),
       })
       .from(mentions)
       .where(baseWhere)
-      .groupBy(sql`EXTRACT(DOW FROM ${mentions.publishedAt})`, sql`EXTRACT(HOUR FROM ${mentions.publishedAt})`);
+      .groupBy(sql`EXTRACT(DOW FROM ${localTs})`, sql`EXTRACT(HOUR FROM ${localTs})`);
 
     const HOUR_HEATMAP = Array(7 * 24).fill(0);
     for (const r of heatRows) {

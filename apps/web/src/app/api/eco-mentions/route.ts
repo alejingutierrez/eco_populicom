@@ -140,23 +140,27 @@ export async function GET(request: NextRequest) {
     conditions.push(sql`${mentions.nlpEmotions} @> ${JSON.stringify([emotion.toLowerCase()])}::jsonb` as any);
   }
 
+  // The `published_at` column is stored in UTC, but the dashboard thinks in
+  // Puerto Rico local time (AST, UTC-4). Convert before extracting weekday /
+  // hour, and treat day=YYYY-MM-DD as a local calendar day.
   const dow = searchParams.get('dow');
   if (dow !== null && dow !== '') {
-    // Mon=0..Sun=6 in UI; Postgres DOW is Sun=0..Sat=6 -> remap pgDow = (uiDow + 1) % 7
-    const uiDow = Number(dow);
-    const pgDow = (uiDow + 1) % 7;
-    conditions.push(sql`EXTRACT(DOW FROM ${mentions.publishedAt}) = ${pgDow}` as any);
+    const uiDow = Number(dow); // Mon=0..Sun=6
+    const pgDow = (uiDow + 1) % 7; // Postgres: Sun=0..Sat=6
+    conditions.push(sql`EXTRACT(DOW FROM (${mentions.publishedAt} AT TIME ZONE 'America/Puerto_Rico')) = ${pgDow}` as any);
   }
 
   const hour = searchParams.get('hour');
   if (hour !== null && hour !== '') {
-    conditions.push(sql`EXTRACT(HOUR FROM ${mentions.publishedAt}) = ${Number(hour)}` as any);
+    conditions.push(sql`EXTRACT(HOUR FROM (${mentions.publishedAt} AT TIME ZONE 'America/Puerto_Rico')) = ${Number(hour)}` as any);
   }
 
   const day = searchParams.get('day');
   if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
-    const start = new Date(day + 'T00:00:00Z');
-    const end = new Date(day + 'T23:59:59.999Z');
+    // AST is UTC-4 year-round (no DST in PR), so start/end in AST maps to
+    // explicit -04:00 offsets in UTC.
+    const start = new Date(day + 'T00:00:00-04:00');
+    const end = new Date(day + 'T23:59:59.999-04:00');
     conditions.push(gte(mentions.publishedAt, start));
     conditions.push(lte(mentions.publishedAt, end));
   }
