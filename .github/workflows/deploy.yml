@@ -62,8 +62,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_COGNITO_USER_POOL_ID=${{ secrets.NEXT_PUBLIC_COGNITO_USER_POOL_ID }}
             NEXT_PUBLIC_COGNITO_CLIENT_ID=${{ secrets.NEXT_PUBLIC_COGNITO_CLIENT_ID }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: false
 
       - name: Get current task definition
         id: task-def
