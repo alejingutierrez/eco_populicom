@@ -1,10 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { alertHistory, alertRules } from '@eco/database';
 import { sql, eq } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const db = getDb();
+
+  const agencyId = await resolveAgencyId(request.nextUrl.searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
 
   try {
     const rows = await db
@@ -17,6 +23,7 @@ export async function GET() {
       })
       .from(alertHistory)
       .innerJoin(alertRules, eq(alertHistory.alertRuleId, alertRules.id))
+      .where(eq(alertHistory.agencyId, agencyId))
       .orderBy(sql`${alertHistory.triggeredAt} DESC`)
       .limit(50);
 

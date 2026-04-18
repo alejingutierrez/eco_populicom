@@ -1,12 +1,23 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { mentions } from '@eco/database';
-import { sql, count, gte } from 'drizzle-orm';
+import { sql, count, gte, eq, and } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const db = getDb();
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const agencyId = await resolveAgencyId(request.nextUrl.searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+
+  const baseWhere = and(
+    gte(mentions.publishedAt, thirtyDaysAgo),
+    eq(mentions.agencyId, agencyId),
+  );
 
   try {
     // Sentiment over time
@@ -17,7 +28,7 @@ export async function GET() {
         count: count(),
       })
       .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
+      .where(baseWhere)
       .groupBy(sql`to_char(${mentions.publishedAt}, 'MM/DD'), DATE(${mentions.publishedAt}), ${mentions.nlpSentiment}`)
       .orderBy(sql`DATE(${mentions.publishedAt})`);
 
@@ -39,7 +50,7 @@ export async function GET() {
         count: count(),
       })
       .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
+      .where(baseWhere)
       .groupBy(mentions.contentSourceName, mentions.nlpSentiment)
       .orderBy(sql`count(*) DESC`)
       .limit(20);
@@ -57,7 +68,7 @@ export async function GET() {
     const allMentions = await db
       .select({ nlpEmotions: mentions.nlpEmotions })
       .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo));
+      .where(baseWhere);
 
     const emotionCounts: Record<string, number> = {};
     for (const m of allMentions) {
@@ -74,7 +85,7 @@ export async function GET() {
         count: count(),
       })
       .from(mentions)
-      .where(gte(mentions.publishedAt, thirtyDaysAgo))
+      .where(baseWhere)
       .groupBy(mentions.bwSentiment, mentions.nlpSentiment);
 
     const bwCounts: Record<string, number> = { positive: 0, neutral: 0, negative: 0 };

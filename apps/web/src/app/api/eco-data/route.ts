@@ -13,6 +13,8 @@ import {
 } from '@eco/database';
 import { sql, eq, and, gte, desc, count } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
+import { log } from '@/lib/log';
+import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,6 +87,11 @@ function relativeTime(d: Date): string {
 }
 
 export async function GET(request: NextRequest) {
+  const rl = consume('eco-data:' + clientKey(request), { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfter / 1000)) } });
+  }
+  const start = Date.now();
   const { searchParams } = new URL(request.url);
   const periodKey = searchParams.get('period') ?? '1M';
   const days = PERIOD_DAYS[periodKey] ?? 30;
@@ -396,9 +403,10 @@ export async function GET(request: NextRequest) {
       e[k] += c;
       e.total += c;
     }
+    // All municipalities with mentions in the period (PR has 78, we return all
+    // that appear). Callers can rely on complete data; no silent drop.
     const MUNICIPALITIES = Array.from(mMap.values())
       .sort((a, b) => b.total - a.total)
-      .slice(0, 40)
       .map((m) => {
         const t = m.total || 1;
         const nss = Math.round(((m.positivo - m.negativo) / t) * 100) / 10;
@@ -416,18 +424,19 @@ export async function GET(request: NextRequest) {
         };
       });
 
-    // ---- EMOTIONS ----
-    const emotionRows = await db
-      .select({ e: mentions.nlpEmotions })
-      .from(mentions)
-      .where(baseWhere)
-      .limit(20000);
-
+    // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
+    const emotionAgg = await db.execute(sql`
+      SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
+      FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
+      WHERE m.agency_id = ${agencyId}
+        AND m.published_at >= ${since.toISOString()}
+      GROUP BY emotion
+      ORDER BY c DESC
+      LIMIT 20
+    `);
     const eCounts: Record<string, number> = {};
-    for (const row of emotionRows) {
-      for (const e of (row.e ?? [])) {
-        eCounts[e] = (eCounts[e] ?? 0) + 1;
-      }
+    for (const row of (emotionAgg as unknown as Array<{ emotion: string; c: number | string }>)) {
+      if (row && row.emotion) eCounts[row.emotion] = Number(row.c);
     }
     const emotionColorMap: Record<string, string> = {
       enojo: 'neg', frustración: 'neg', preocupación: 'warn',
@@ -645,7 +654,9 @@ export async function GET(request: NextRequest) {
       INGESTION_STATUS,
     });
   } catch (err) {
-    console.error('eco-data error:', err);
+    log.error('eco-data', 'handler failed', { msg: (err as Error).message });
     return NextResponse.json({ error: 'eco-data error', message: (err as Error).message }, { status: 500 });
+  } finally {
+    log.info('eco-data', 'request complete', { latencyMs: Date.now() - start, period: periodKey });
   }
 }

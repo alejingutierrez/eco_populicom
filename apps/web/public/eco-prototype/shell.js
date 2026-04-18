@@ -308,7 +308,29 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   const [query, setQuery] = useState('');
   const inputRef = useRef(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [liveResults, setLiveResults] = useState([]); // mentions matching `query`
+  const [searching, setSearching] = useState(false);
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Debounced live search — calls /api/eco-mentions?q= so the palette can
+  // surface real mentions by keyword, not just navigation commands.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setLiveResults([]); setSearching(false); return; }
+    setSearching(true);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      const agency = localStorage.getItem('eco.agency') || '';
+      const period = localStorage.getItem('eco.period') || '1M';
+      const params = new URLSearchParams({ q, agency, period, limit: '8' });
+      fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
+        .then((r) => r.ok ? r.json() : { mentions: [] })
+        .then((j) => setLiveResults(j.mentions || []))
+        .catch(() => {})
+        .finally(() => setSearching(false));
+    }, 220);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [query]);
 
   // Real, executable commands
   const items = [
@@ -340,7 +362,14 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     })),
   ];
 
-  const filtered = query.trim() === '' ? items : items.filter((i) => i.label.toLowerCase().includes(query.toLowerCase()) || i.kind.toLowerCase().includes(query.toLowerCase()));
+  const commandsMatch = query.trim() === '' ? items : items.filter((i) => i.label.toLowerCase().includes(query.toLowerCase()) || i.kind.toLowerCase().includes(query.toLowerCase()));
+  const liveItems = liveResults.map((mn) => ({
+    kind: 'Mención',
+    label: mn.title.length > 80 ? mn.title.slice(0, 80) + '…' : mn.title,
+    action: () => onMentionClick && onMentionClick(mn),
+    icon: mn.sentiment === 'negativo' ? 'AlertTriangle' : mn.sentiment === 'positivo' ? 'Heart' : 'MessageSquare',
+  }));
+  const filtered = [...liveItems, ...commandsMatch];
   const grouped = filtered.reduce((acc, it) => { (acc[it.kind] ??= []).push(it); return acc; }, {});
 
   useEffect(() => { setSelectedIdx(0); }, [query]);
@@ -842,7 +871,33 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
               );
             })()}
             <button className="btn"><Icons.Download size={13} /> Exportar</button>
-            <button className="btn"><Icons.Bell size={13} /> Crear alerta</button>
+            <button className="btn"
+              onClick={async () => {
+                const name = prompt('Nombre de la alerta (ej. "Menciones sobre ' + (mention.topicName || 'este tópico') + '")');
+                if (!name) return;
+                try {
+                  const res = await fetch('/api/alerts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                      name,
+                      description: 'Creada desde la mención: ' + mention.title.slice(0, 80),
+                      config: {
+                        topic: mention.topic || null,
+                        municipality: mention.municipality || null,
+                        sentiment: mention.sentiment,
+                        threshold: { volumeMinutes: 60, minMentions: 5 },
+                      },
+                      notifyEmails: [],
+                    }),
+                  });
+                  if (res.ok) alert('Alerta creada.');
+                  else alert('No se pudo crear la alerta (' + res.status + ')');
+                } catch (_) { alert('Error creando la alerta'); }
+              }}>
+              <Icons.Bell size={13} /> Crear alerta
+            </button>
           </div>
         </div>
       </div>

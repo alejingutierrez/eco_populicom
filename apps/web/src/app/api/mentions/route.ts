@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { mentions } from '@eco/database';
 import { sql, count, eq, ilike, and, type SQL } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
 
 export async function GET(request: NextRequest) {
   const db = getDb();
@@ -14,8 +15,13 @@ export async function GET(request: NextRequest) {
   const pertinence = searchParams.get('pertinence');
   const search = searchParams.get('search');
 
+  const agencyId = await resolveAgencyId(searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+
   try {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [eq(mentions.agencyId, agencyId)];
 
     if (sentiment) {
       conditions.push(eq(mentions.nlpSentiment, sentiment));

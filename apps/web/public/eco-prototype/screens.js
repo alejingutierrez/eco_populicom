@@ -1714,13 +1714,68 @@ function AlertsScreen({ onMentionClick }) {
         </div>
       )}
 
-      {tab === 'history' && (
-        <div className="card card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-          Historial de 90 días — gráfico temporal y tabla detallada
-        </div>
-      )}
+      {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+    </div>
+  );
+}
+
+function AlertsHistory({ onMentionClick }) {
+  const [rows, setRows] = React.useState(null); // null = loading
+  React.useEffect(() => {
+    const agency = localStorage.getItem('eco.agency') || '';
+    const period = localStorage.getItem('eco.period') || '1M';
+    fetch('/api/alerts/history?' + new URLSearchParams({ agency, period }).toString(), { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : { history: [] })
+      .then((j) => setRows(j.history || []))
+      .catch(() => setRows([]));
+  }, []);
+  if (rows === null) {
+    return <div className="card card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Cargando historial…</div>;
+  }
+  if (rows.length === 0) {
+    return <div className="card card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin alertas disparadas en el período.</div>;
+  }
+  // Aggregate by day for a mini bar chart
+  const byDay = {};
+  rows.forEach((r) => {
+    const day = (r.triggeredAt || '').slice(0, 10);
+    if (!day) return;
+    byDay[day] = (byDay[day] || 0) + 1;
+  });
+  const days = Object.keys(byDay).sort();
+  const max = Math.max(1, ...Object.values(byDay));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="card">
+        <div className="card-hd"><div><div className="card-hd-title">Disparos por día</div><div className="card-hd-sub">{rows.length} eventos en el período</div></div></div>
+        <div className="card-bd">
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 2, height: 110, alignItems: 'end' }}>
+            {days.map((d) => (
+              <div key={d} title={`${d} · ${byDay[d]} eventos`} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
+                <div style={{ width: '100%', height: `${(byDay[d] / max) * 100}%`, background: 'var(--accent)', opacity: 0.85, borderRadius: '2px 2px 0 0', minHeight: 2 }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)' }}>
+            <span>{days[0]}</span><span>{days[days.length - 1]}</span>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
+        <div>
+          {rows.slice(0, 40).map((r, i) => (
+            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
+              <span className="mono" style={{ color: 'var(--text-3)' }}>{r.triggeredAt ? new Date(r.triggeredAt).toLocaleString('es-PR', { timeZone: 'America/Puerto_Rico' }) : '—'}</span>
+              <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`}>{r.severity || 'media'}</span>
+              <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
+              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.mentionIds?.length || 0}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1776,11 +1831,38 @@ const ROLES = [
 ];
 
 function UsersAdmin() {
-  const [users, setUsers] = useState(SEED_USERS);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [drawer, setDrawer] = useState(null); // { mode: 'create' | 'edit', user }
+  const [error, setError] = useState(null);
+
+  // Map API row -> UI shape so existing render logic keeps working.
+  const fromApi = (u) => ({
+    id: u.id,
+    name: u.name || u.email.split('@')[0],
+    email: u.email,
+    role: u.role, // 'admin' | 'analyst' | 'viewer'
+    agency: localStorage.getItem('eco.agency') || '',
+    status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
+    lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
+    avatar: '#4A7FB5',
+  });
+
+  // Normalize the prototype's richer role vocabulary to the backend's enum.
+  const roleToApi = (r) => (r === 'admin' ? 'admin' : r === 'editor' || r === 'analista' || r === 'analyst' ? 'analyst' : 'viewer');
+
+  const refresh = React.useCallback(() => {
+    setLoading(true);
+    fetch('/api/users', { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+      .then((j) => { setUsers((j.users || []).map(fromApi)); setError(null); })
+      .catch((e) => setError(e.message || 'Error cargando usuarios'))
+      .finally(() => setLoading(false));
+  }, []);
+  React.useEffect(() => { refresh(); }, [refresh]);
 
   const filtered = users.filter(u => {
     if (roleFilter !== 'all' && u.role !== roleFilter) return false;
@@ -1796,18 +1878,52 @@ function UsersAdmin() {
     suspendidos: users.filter(u => u.status === 'suspendido').length,
   };
 
-  const saveUser = (u) => {
-    setUsers(prev => {
-      const exists = prev.find(x => x.id === u.id);
-      if (exists) return prev.map(x => x.id === u.id ? u : x);
-      return [{ ...u, id: 'u' + (prev.length + 1) }, ...prev];
-    });
-    setDrawer(null);
+  const saveUser = async (u) => {
+    try {
+      if (u.id && users.find((x) => x.id === u.id)) {
+        // Edit: PATCH
+        await fetch('/api/users/' + encodeURIComponent(u.id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            name: u.name,
+            role: roleToApi(u.role),
+            isActive: u.status !== 'suspendido',
+          }),
+        });
+      } else {
+        // Create: POST
+        await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: u.email,
+            name: u.name,
+            role: roleToApi(u.role),
+          }),
+        });
+      }
+      setDrawer(null);
+      refresh();
+    } catch (e) {
+      alert('No se pudo guardar: ' + (e.message || e));
+    }
   };
 
-  const deleteUser = (id) => {
-    setUsers(prev => prev.filter(u => u.id !== id));
-    setDrawer(null);
+  const deleteUser = async (id) => {
+    if (!confirm('¿Suspender este usuario? Podrás reactivarlo después.')) return;
+    try {
+      await fetch('/api/users/' + encodeURIComponent(id), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      setDrawer(null);
+      refresh();
+    } catch (e) {
+      alert('No se pudo eliminar: ' + (e.message || e));
+    }
   };
 
   return (

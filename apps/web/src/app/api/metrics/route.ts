@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { dailyMetricSnapshots } from '@eco/database';
-import { sql, desc, eq, gte } from 'drizzle-orm';
+import { sql, desc, eq, gte, and } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
 
 const PERIOD_DAYS: Record<string, number> = {
   '7d': 7,
@@ -14,6 +15,11 @@ export async function GET(request: NextRequest) {
   const period = searchParams.get('period') ?? '30d';
   const days = PERIOD_DAYS[period] ?? 30;
 
+  const agencyId = await resolveAgencyId(searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+
   const db = getDb();
   const since = new Date();
   since.setDate(since.getDate() - days);
@@ -24,7 +30,10 @@ export async function GET(request: NextRequest) {
     const snapshots = await db
       .select()
       .from(dailyMetricSnapshots)
-      .where(gte(dailyMetricSnapshots.date, sinceStr))
+      .where(and(
+        gte(dailyMetricSnapshots.date, sinceStr),
+        eq(dailyMetricSnapshots.agencyId, agencyId),
+      ))
       .orderBy(desc(dailyMetricSnapshots.date));
 
     if (snapshots.length === 0) {

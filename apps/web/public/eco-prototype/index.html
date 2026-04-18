@@ -278,7 +278,20 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    min-width: 1120px;
+  }
+  /* Tablet + desktop scroll guard */
+  @media (min-width: 900px) {
+    .eco-page { min-width: 900px; }
+  }
+  @media (min-width: 1120px) {
+    .eco-page { min-width: 1120px; }
+  }
+  /* Mobile: collapse sidebar, tighten paddings */
+  @media (max-width: 768px) {
+    .eco-app { grid-template-columns: 56px 1fr; }
+    .eco-app[data-collapsed="true"] { grid-template-columns: 56px 1fr; }
+    .eco-page { padding: 14px 12px 36px; }
+    .eco-page > .card { padding: 0; }
   }
 
   /* Card primitive */

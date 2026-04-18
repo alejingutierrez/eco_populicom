@@ -3,6 +3,54 @@ const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
 const { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
 
+// Map URL path <-> active screen so deep links, browser back/forward and
+// bookmarks all work. `/` and unknown paths resolve to the dashboard.
+const PATH_TO_SCREEN = {
+  '/': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/mentions': 'mentions',
+  '/sentiment': 'sentiment',
+  '/topics': 'topics',
+  '/geography': 'geography',
+  '/alerts': 'alerts',
+  '/settings': 'settings',
+};
+const SCREEN_TO_PATH = {
+  dashboard: '/dashboard',
+  mentions: '/mentions',
+  sentiment: '/sentiment',
+  topics: '/topics',
+  geography: '/geography',
+  alerts: '/alerts',
+  settings: '/settings',
+};
+
+// Error boundary — without this a render crash in any screen white-screens
+// the whole dashboard.
+class EcoErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error('[ECO] render crash', error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return React.createElement('div', {
+        style: { padding: 32, maxWidth: 640, margin: '80px auto', background: 'var(--canvas)', border: '1px solid var(--hairline-strong)', borderRadius: 12 },
+      }, [
+        React.createElement('div', { key: 'eye', className: 'section-eyebrow', style: { color: 'var(--neg)' } }, 'Error de render'),
+        React.createElement('h2', { key: 'h', style: { marginTop: 8, fontFamily: 'var(--ff-display)', fontSize: 20 } }, 'Algo rompió la pantalla actual.'),
+        React.createElement('pre', { key: 'p', style: { marginTop: 12, padding: 12, background: 'var(--canvas-2)', borderRadius: 6, fontSize: 11, color: 'var(--text-2)', whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 180 } }, String(this.state.error && (this.state.error.stack || this.state.error.message))),
+        React.createElement('div', { key: 'btns', style: { marginTop: 16, display: 'flex', gap: 8 } }, [
+          React.createElement('button', { key: 'r', className: 'btn btn-primary', onClick: () => { this.setState({ error: null }); } }, 'Reintentar'),
+          React.createElement('button', { key: 'h2', className: 'btn', onClick: () => { location.href = '/dashboard'; } }, 'Volver al dashboard'),
+        ]),
+      ]);
+    }
+    return this.props.children;
+  }
+}
+
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
@@ -28,7 +76,33 @@ function App() {
   const [density] = useState(TWEAK_DEFAULTS.density);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eco.collapsed') === 'true');
 
-  const [active, setActive] = useState(() => localStorage.getItem('eco.active') || 'dashboard');
+  // URL path is the source of truth for the active screen on initial load, so
+  // deep links like /mentions or /geography work from a fresh browser.
+  const [active, setActiveRaw] = useState(() => {
+    const fromPath = PATH_TO_SCREEN[location.pathname];
+    return fromPath || localStorage.getItem('eco.active') || 'dashboard';
+  });
+  const setActive = useCallback((next) => {
+    setActiveRaw((prev) => {
+      if (prev === next) return prev;
+      const path = SCREEN_TO_PATH[next];
+      if (path && location.pathname !== path) {
+        history.pushState({ eco: next }, '', path);
+      }
+      return next;
+    });
+  }, []);
+
+  // Keep the app in sync when the user presses back/forward in the browser.
+  useEffect(() => {
+    const handler = () => {
+      const fromPath = PATH_TO_SCREEN[location.pathname];
+      if (fromPath) setActiveRaw(fromPath);
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, []);
+
   const [agency, setAgency] = useState(() => {
     const saved = localStorage.getItem('eco.agency');
     if (saved && AGENCIES.some((a) => a.key === saved)) return saved;
@@ -42,6 +116,15 @@ function App() {
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);
+
+  // Sign-out helper exposed globally so the sidebar user menu can call it.
+  window.ecoSignOut = useCallback(async () => {
+    try {
+      await fetch('/api/auth/session', { method: 'DELETE', credentials: 'same-origin' });
+    } catch (_) {}
+    try { localStorage.clear(); } catch (_) {}
+    location.href = '/sign-in';
+  }, []);
 
   // Period and agency drive the /api/eco-data query. A reload re-runs the
   // boot loader with the new slug/period so the dashboard reflects real data.
@@ -141,6 +224,10 @@ function boot() {
   }
   const root = document.getElementById('eco-root');
   if (!root) { setTimeout(boot, 30); return; }
-  ReactDOM.createRoot(root).render(<App />);
+  ReactDOM.createRoot(root).render(
+    <EcoErrorBoundary>
+      <App />
+    </EcoErrorBoundary>
+  );
 }
 boot();

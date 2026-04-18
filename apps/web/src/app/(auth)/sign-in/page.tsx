@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, Form, Input, Button, Alert, Typography } from 'antd';
 import { signIn } from '@/lib/auth/cognito';
 
@@ -13,7 +13,16 @@ interface SignInFormValues {
 }
 
 export default function SignInPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#F4F7FA' }} />}>
+      <SignInPageInner />
+    </Suspense>
+  );
+}
+
+function SignInPageInner() {
   const router = useRouter();
+  const search = useSearchParams();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -22,9 +31,17 @@ export default function SignInPage() {
     setLoading(true);
     try {
       const result = await signIn(values.email, values.password);
-      document.cookie = `eco_id_token=${result.idToken}; path=/; max-age=3600; SameSite=Lax`;
-      document.cookie = `eco_access_token=${result.accessToken}; path=/; max-age=3600; SameSite=Lax`;
-      router.push('/dashboard');
+      // Hand tokens to the server so it can set httpOnly/SameSite=Strict
+      // cookies that neither JS nor CSRF requests can read.
+      const res = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ idToken: result.idToken, refreshToken: result.refreshToken }),
+      });
+      if (!res.ok) throw new Error('No se pudo iniciar la sesión');
+      const next = search?.get('next') || '/dashboard';
+      router.push(next.startsWith('/') ? next : '/dashboard');
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesion');
     } finally {

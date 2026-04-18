@@ -11,6 +11,8 @@ import {
 } from '@eco/database';
 import { sql, eq, and, gte, lte, desc, inArray } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
+import { consume, clientKey } from '@/lib/rate-limit';
+import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +70,11 @@ function relativeTime(d: Date): string {
  *   offset — default 0
  */
 export async function GET(request: NextRequest) {
+  const rl = consume('eco-mentions:' + clientKey(request), { limit: 120, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfter / 1000)) } });
+  }
+  const start = Date.now();
   const { searchParams } = new URL(request.url);
 
   const periodKey = searchParams.get('period') ?? '1M';
@@ -332,6 +339,7 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  log.info('eco-mentions', 'request complete', { latencyMs: Date.now() - start, total: Number(total) });
   return NextResponse.json({
     mentions: out,
     total: Number(total),

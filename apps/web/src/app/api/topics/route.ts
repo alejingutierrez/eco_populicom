@@ -1,13 +1,19 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
-import { topics, subtopics, mentionTopics } from '@eco/database';
-import { sql, count, eq } from 'drizzle-orm';
+import { topics, subtopics, mentionTopics, mentions } from '@eco/database';
+import { sql, count, eq, and } from 'drizzle-orm';
+import { resolveAgencyId } from '@/lib/agency';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const db = getDb();
 
+  const agencyId = await resolveAgencyId(request.nextUrl.searchParams);
+  if (!agencyId) {
+    return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
+  }
+
   try {
-    // Topics with mention counts
+    // Topics with mention counts scoped to agency
     const topicRows = await db
       .select({
         id: topics.id,
@@ -17,10 +23,15 @@ export async function GET() {
       })
       .from(topics)
       .leftJoin(mentionTopics, eq(mentionTopics.topicId, topics.id))
+      .leftJoin(mentions, and(
+        eq(mentions.id, mentionTopics.mentionId),
+        eq(mentions.agencyId, agencyId),
+      ))
+      .where(eq(topics.agencyId, agencyId))
       .groupBy(topics.id, topics.slug, topics.name)
       .orderBy(sql`count(${mentionTopics.mentionId}) DESC`);
 
-    // For each topic, get subtopics with counts
+    // For each topic, get subtopics with counts scoped to agency mentions
     const result = [];
     for (const t of topicRows) {
       const subRows = await db
@@ -30,7 +41,11 @@ export async function GET() {
           count: count(mentionTopics.mentionId),
         })
         .from(subtopics)
-        .leftJoin(mentionTopics, sql`${mentionTopics.subtopicId} = ${subtopics.id}`)
+        .leftJoin(mentionTopics, eq(mentionTopics.subtopicId, subtopics.id))
+        .leftJoin(mentions, and(
+          eq(mentions.id, mentionTopics.mentionId),
+          eq(mentions.agencyId, agencyId),
+        ))
         .where(eq(subtopics.topicId, t.id))
         .groupBy(subtopics.slug, subtopics.name)
         .orderBy(sql`count(${mentionTopics.mentionId}) DESC`);
