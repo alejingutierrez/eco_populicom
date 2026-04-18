@@ -442,7 +442,7 @@ export async function GET(request: NextRequest) {
       });
 
     // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
-    const emotionAgg = await db.execute(sql`
+    const emotionAgg = await db.execute<{ emotion: string; c: number | string }>(sql`
       SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
@@ -451,8 +451,13 @@ export async function GET(request: NextRequest) {
       ORDER BY c DESC
       LIMIT 20
     `);
+    // pg driver returns { rows, rowCount, ... }; Drizzle passes that through.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const emotionRowsList: Array<{ emotion: string; c: number | string }> = Array.isArray(emotionAgg)
+      ? (emotionAgg as unknown as Array<{ emotion: string; c: number | string }>)
+      : (((emotionAgg as unknown as { rows?: Array<{ emotion: string; c: number | string }> }).rows) ?? []);
     const eCounts: Record<string, number> = {};
-    for (const row of (emotionAgg as unknown as Array<{ emotion: string; c: number | string }>)) {
+    for (const row of emotionRowsList) {
       if (row && row.emotion) eCounts[row.emotion] = Number(row.c);
     }
     const emotionColorMap: Record<string, string> = {
