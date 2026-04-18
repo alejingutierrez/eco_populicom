@@ -185,10 +185,10 @@ function DashboardScreen({ onMentionClick }) {
 
       {/* ── Hero KPIs: NSS + Crisis prominent ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={`+${m.nss}`} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
+        <KpiCard label="Net Sentiment Score" value={`${m.nss > 0 ? '+' : ''}${m.nss}`} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
-            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>+{m.nss7d}</strong></span>
-            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>+{m.nss30d}</strong></span>
+            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d > 0 ? '+' : ''}{m.nss7d}</strong></span>
+            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d > 0 ? '+' : ''}{m.nss30d}</strong></span>
           </div>
         </KpiCard>
         <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore.toFixed(1)} delta={m.crisisDelta} sub="vs ayer" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>

@@ -2,14 +2,21 @@
 const { Icons } = window;
 const { useState, useEffect, useRef } = React;
 
-const NAV = [
-  { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
-  { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: 12847 },
-  { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
-  { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
-  { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G' },
-  { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', badge: 4, urgent: true },
-];
+// Badges are derived from real data at render time (window.ECO_DATA).
+function getNav() {
+  const D = window.ECO_DATA || {};
+  const totalMentions = (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
+  const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
+  return [
+    { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
+    { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
+    { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
+    { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
+    { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G' },
+    { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', badge: activeAlerts || null, urgent: activeAlerts > 0 },
+  ];
+}
+const NAV = getNav();
 const SYSTEM_NAV = [
   { key: 'settings', icon: 'Settings', label: 'Configuración' },
 ];
@@ -41,7 +48,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         <IconC size={16} />
         {!collapsed && <>
           <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
-          {item.badge != null && (
+          {item.badge != null && item.badge > 0 && (
             <span style={{
               fontSize: 10, fontWeight: 700,
               padding: '2px 6px', borderRadius: 10,
