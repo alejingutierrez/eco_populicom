@@ -398,11 +398,22 @@ export async function GET(request: NextRequest) {
     }
     const MUNICIPALITIES = Array.from(mMap.values())
       .sort((a, b) => b.total - a.total)
-      .slice(0, 20)
+      .slice(0, 40)
       .map((m) => {
         const t = m.total || 1;
         const nss = Math.round(((m.positivo - m.negativo) / t) * 100) / 10;
-        return { slug: m.slug, name: m.name, region: m.region, count: m.total, nss };
+        return {
+          slug: m.slug,
+          name: m.name,
+          region: m.region,
+          count: m.total,
+          nss,
+          lat: m.lat,
+          lon: m.lon,
+          positivo: m.positivo,
+          neutral: m.neutral,
+          negativo: m.negativo,
+        };
       });
 
     // ---- EMOTIONS ----

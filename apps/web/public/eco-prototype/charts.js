@@ -449,7 +449,122 @@ function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, 
 }
 
 // Puerto Rico map — tile-style mockup (Mapbox/Leaflet look)
+// Real map backed by Leaflet + OpenStreetMap tiles (no API key).
+// Falls back to the SVG mockup if Leaflet hasn't loaded yet.
 function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
+  const containerRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const markersLayerRef = React.useRef(null);
+
+  // Mount Leaflet once, then re-render markers whenever inputs change.
+  React.useEffect(() => {
+    if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
+    const L = window.L;
+    if (!mapRef.current) {
+      const map = L.map(containerRef.current, {
+        center: [18.22, -66.59],
+        zoom: 9,
+        minZoom: 8,
+        maxZoom: 14,
+        scrollWheelZoom: true,
+        zoomControl: true,
+        attributionControl: true,
+      });
+      // Dark base tiles match the Mando theme; OSM tiles free of charge.
+      const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19,
+      });
+      const light = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      });
+      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+      (mode === 'light' ? light : dark).addTo(map);
+
+      // Layer control to toggle between base styles.
+      L.control.layers({ 'Oscuro': dark, 'Claro': light }, undefined, { position: 'topright', collapsed: true }).addTo(map);
+
+      markersLayerRef.current = L.layerGroup().addTo(map);
+      mapRef.current = map;
+    }
+
+    const layer = markersLayerRef.current;
+    layer.clearLayers();
+
+    const valid = (municipalities || []).filter((m) => m.lat && m.lon);
+    if (valid.length === 0) return;
+    const max = Math.max(...valid.map(accessor), 1);
+
+    valid.forEach((m) => {
+      const v = accessor(m);
+      const r = 8 + (v / max) * 22;
+      const color = colorFn(m);
+      const clickable = !!onMunicipalityClick;
+      const marker = L.circleMarker([m.lat, m.lon], {
+        radius: r,
+        fillColor: color,
+        color: '#0E1620',
+        weight: 1.5,
+        fillOpacity: 0.78,
+        className: 'eco-map-marker',
+      });
+      const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
+      const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
+      const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      marker.bindTooltip(
+        `<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;line-height:1.3;">
+          <div style="font-weight:700;color:#E6ECF3;margin-bottom:2px;">${label}</div>
+          <div style="color:#8A94A1;">${m.region}</div>
+          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${v.toLocaleString('es-PR')}</span> menciones</div>
+          <div style="color:${nssColor};font-weight:600;">NSS ${nssStr}</div>
+        </div>`,
+        { direction: 'top', offset: [0, -4], opacity: 0.95, className: 'eco-map-tooltip' },
+      );
+      if (clickable) marker.on('click', () => onMunicipalityClick(m));
+      marker.addTo(layer);
+    });
+
+    // Fit the map to the markers so the user always sees PR framed.
+    const group = L.featureGroup(layer.getLayers());
+    if (group.getLayers().length > 0) {
+      mapRef.current.fitBounds(group.getBounds(), { padding: [24, 24], maxZoom: 10 });
+    }
+  }, [municipalities, accessor, colorFn, onMunicipalityClick]);
+
+  // Cleanup on unmount.
+  React.useEffect(() => () => {
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+  }, []);
+
+  // If Leaflet hasn't loaded, show a lightweight placeholder (never the fake SVG).
+  if (typeof window !== 'undefined' && !window.L) {
+    return (
+      <div style={{ height: 420, borderRadius: 8, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+        Cargando mapa…
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        height: 420,
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid var(--hairline)',
+        background: '#0E1620',
+      }}
+    />
+  );
+}
+
+function PRMapLegacy({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   const viewW = 900, viewH = 400;
   // Zoom state (1 = fit, 2 = 2x, etc). Max 4x. Scale anchored to center of viewport.
   const [zoom, setZoom] = React.useState(1);
