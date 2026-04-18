@@ -38,7 +38,7 @@ function fmt(n) {
 }
 
 // =============== DASHBOARD ===============
-function DashboardScreen({ onMentionClick }) {
+function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   const m = D.CURRENT_METRICS;
   const [activeMetrics, setActiveMetrics] = useState(['nss', 'totalMentions', 'crisisRiskScore']);
   const [focus, setFocus] = useState('signal'); // signal | narrative | crisis
@@ -115,8 +115,10 @@ function DashboardScreen({ onMentionClick }) {
   }
 
   function openBriefingSlice() {
-    // Hero CTA — the "dominant signal" slice
-    const topic = D.TOPICS.find(t => t.slug === 'infraestructura') || D.TOPICS[0];
+    // Hero CTA opens the mention slice for the actual dominant topic reported
+    // by the API briefing (falls back to the first topic by volume).
+    const briefingTopicName = (D.BRIEFING && D.BRIEFING.dominantSignal || '').split(' · ')[0];
+    const topic = (briefingTopicName && D.TOPICS.find(t => t.name === briefingTopicName)) || D.TOPICS[0];
     if (topic) openTopicSlice(topic);
   }
 
@@ -238,10 +240,13 @@ function DashboardScreen({ onMentionClick }) {
             </div>
           </div>
           <div className="card-bd">
-            {/* Timeframe selector — stock-chart style */}
+            {/* Timeframe selector — drives the global period (same as header pills) */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 8, fontSize: 10, justifyContent: 'flex-end' }}>
-              {['1D', '7D', '30D', '90D', '6M', '1A'].map((tf, i) => (
-                <button key={tf} className={`chip ${tf === '30D' ? 'active' : ''}`} style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'var(--ff-numeric)', fontWeight: 600 }}>{tf}</button>
+              {['1D', '5D', '1M', '3M', '6M', '1A', 'Max'].map((tf) => (
+                <button key={tf}
+                  onClick={() => setPeriod && setPeriod(tf)}
+                  className={`chip ${period === tf ? 'active' : ''}`}
+                  style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'var(--ff-numeric)', fontWeight: 600 }}>{tf}</button>
               ))}
             </div>
             <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
@@ -268,7 +273,7 @@ function DashboardScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
-            <button className="chip">Ver todo</button>
+            <button className="chip" onClick={() => setActive && setActive('topics')}>Ver todo</button>
           </div>
           <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {D.TOPICS.slice(0, 5).map((t) => (
@@ -495,13 +500,45 @@ function HourActivityCard({ onCellClick }) {
 function MentionsScreen({ onMentionClick }) {
   const [sentiment, setSentiment] = useState('all');
   const [source, setSource] = useState('all');
+  const [pertinence, setPertinence] = useState('all');
   const [query, setQuery] = useState('');
-  const [viewMode, setViewMode] = useState('list'); // list | cards | table
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [sortBy, setSortBy] = useState({ key: 'recent', dir: 'desc' });
+  const [showCount, setShowCount] = useState(20);
+
+  React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
 
   let filtered = D.MENTIONS;
   if (sentiment !== 'all') filtered = filtered.filter(m => m.sentiment === sentiment);
   if (source !== 'all') filtered = filtered.filter(m => m.source === source);
+  if (pertinence !== 'all') filtered = filtered.filter(m => m.pertinence === pertinence);
   if (query) filtered = filtered.filter(m => m.title.toLowerCase().includes(query.toLowerCase()));
+
+  // Sort
+  filtered = [...filtered];
+  const sortFns = {
+    recent: (a, b) => 0, // API already returns newest first
+    engagement: (a, b) => (a.engagement || 0) - (b.engagement || 0),
+    pertinence: (a, b) => ({ alta: 3, media: 2, baja: 1 }[a.pertinence] || 0) - ({ alta: 3, media: 2, baja: 1 }[b.pertinence] || 0),
+    sentiment: (a, b) => ({ positivo: 3, neutral: 2, negativo: 1 }[a.sentiment] || 0) - ({ positivo: 3, neutral: 2, negativo: 1 }[b.sentiment] || 0),
+  };
+  if (sortFns[sortBy.key]) filtered.sort((a, b) => (sortBy.dir === 'desc' ? -1 : 1) * sortFns[sortBy.key](a, b));
+
+  const visible = filtered.slice(0, showCount);
+
+  function exportCsv() {
+    const header = ['Título', 'Sentimiento', 'Pertinencia', 'Engagement', 'Tópico', 'Subtópicos', 'Municipio', 'Fuente', 'Publicado', 'URL'];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filtered.map((m) => [m.title, m.sentiment, m.pertinence, m.engagement, m.topicName || m.topic, (m.subtopics || []).join('; '), m.municipality, m.source, m.publishedAt, m.url || ''].map(esc).join(','));
+    const csv = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `eco-menciones-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -527,10 +564,36 @@ function MentionsScreen({ onMentionClick }) {
           <option value="instagram">Instagram</option>
           <option value="youtube">YouTube</option>
         </select>
-        <button className="btn"><Icons.Filter size={13} /> Más filtros</button>
+        <div style={{ position: 'relative' }}>
+          <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
+            <Icons.Filter size={13} /> Más filtros {pertinence !== 'all' && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·1</span>}
+          </button>
+          {moreOpen && (
+            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 220, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Pertinencia</div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                {['all', 'alta', 'media', 'baja'].map((p) => (
+                  <button key={p} className={`chip ${pertinence === p ? 'active' : ''}`} onClick={() => setPertinence(p)}>
+                    {p === 'all' ? 'Todas' : p}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Ordenar por</div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'pertinence', l: 'Pertinencia' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
+                  <button key={o.k} className={`chip ${sortBy.key === o.k ? 'active' : ''}`} onClick={() => setSortBy({ key: o.k, dir: 'desc' })}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{filtered.length} de {D.MENTIONS.length}</span>
-        <button className="btn"><Icons.Download size={13} /> CSV</button>
+        <button className="btn" onClick={exportCsv} disabled={filtered.length === 0}>
+          <Icons.Download size={13} /> CSV
+        </button>
       </div>
 
       {/* Quick metrics */}
@@ -568,9 +631,16 @@ function MentionsScreen({ onMentionClick }) {
             })}
           </div>
         </div>
-        {viewMode === 'list' && <MentionsList mentions={filtered} onMentionClick={onMentionClick} />}
-        {viewMode === 'cards' && <MentionsCards mentions={filtered} onMentionClick={onMentionClick} />}
-        {viewMode === 'table' && <MentionsTable mentions={filtered} onMentionClick={onMentionClick} />}
+        {viewMode === 'list' && <MentionsList mentions={visible} onMentionClick={onMentionClick} />}
+        {viewMode === 'cards' && <MentionsCards mentions={visible} onMentionClick={onMentionClick} />}
+        {viewMode === 'table' && <MentionsTable mentions={visible} onMentionClick={onMentionClick} sortBy={sortBy} setSortBy={setSortBy} />}
+        {visible.length < filtered.length && (
+          <div style={{ padding: 14, textAlign: 'center', borderTop: '1px solid var(--hairline)' }}>
+            <button className="chip" onClick={() => setShowCount((n) => n + 20)}>
+              Cargar más ({filtered.length - visible.length} restantes)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -644,15 +714,41 @@ function MentionsCards({ mentions, onMentionClick }) {
 }
 
 // --- Mentions: Table view (compact with more columns) ---
-function MentionsTable({ mentions, onMentionClick }) {
+function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
+  const columns = [
+    { key: null, l: '' },
+    { key: null, l: 'ID' },
+    { key: null, l: 'Título' },
+    { key: null, l: 'Autor' },
+    { key: null, l: 'Dominio' },
+    { key: 'sentiment', l: 'Sentim.' },
+    { key: 'pertinence', l: 'Pert.' },
+    { key: 'engagement', l: 'Engage.' },
+    { key: null, l: 'Alcance' },
+    { key: null, l: 'Tópico' },
+    { key: null, l: 'Municipio' },
+    { key: 'recent', l: 'Fecha' },
+  ];
+  const toggle = (k) => {
+    if (!k || !setSortBy) return;
+    setSortBy((s) => s.key === k ? { key: k, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key: k, dir: 'desc' });
+  };
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--hairline-strong)', background: 'var(--canvas-2)' }}>
-            {['', 'ID', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Pert.', 'Engage.', 'Alcance', 'Tópico', 'Municipio', 'Fecha'].map(h => (
-              <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{h}</th>
-            ))}
+            {columns.map((c) => {
+              const sortable = !!c.key;
+              const active = sortBy && sortBy.key === c.key;
+              return (
+                <th key={c.l}
+                  onClick={() => toggle(c.key)}
+                  style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: active ? 'var(--accent)' : 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap', cursor: sortable ? 'pointer' : 'default', userSelect: 'none' }}>
+                  {c.l}{sortable && active ? (sortBy.dir === 'desc' ? ' ↓' : ' ↑') : ''}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -1447,7 +1543,20 @@ function GeographyScreen() {
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
               const pct = Math.max(-1, Math.min(1, avgNss / 10));
               return (
-                <div key={r} style={{ padding: '10px 12px', background: 'var(--canvas-2)', borderRadius: 8 }}>
+                <button key={r}
+                  onClick={() => {
+                    const mns = buildSliceMentions((mn) => mn.region === r, 8);
+                    setSlice({
+                      eyebrow: `Región · ${r}`,
+                      title: `Sentimiento en ${r}`,
+                      accent: avgNss > 0 ? 'var(--pos)' : 'var(--neg)',
+                      volume: total,
+                      sentiment: { pos: regionMunis.filter(x => x.nss > 0).reduce((s, x) => s + x.count, 0), neg: regionMunis.filter(x => x.nss < 0).reduce((s, x) => s + x.count, 0), neu: 0 },
+                      mentions: mns,
+                    });
+                  }}
+                  className="row-hover"
+                  style={{ padding: '10px 12px', background: 'var(--canvas-2)', borderRadius: 8, border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600 }}>{r}</div>
@@ -1461,7 +1570,7 @@ function GeographyScreen() {
                     <div style={{ position: 'absolute', left: '50%', top: -2, bottom: -2, width: 1, background: 'var(--text-3)' }} />
                     <div style={{ position: 'absolute', left: pct > 0 ? '50%' : `${50 + pct*50}%`, width: `${Math.abs(pct)*50}%`, height: '100%', background: pct > 0 ? 'var(--pos)' : 'var(--neg)' }} />
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -1477,6 +1586,16 @@ function GeographyScreen() {
 function AlertsScreen() {
   const [tab, setTab] = useState('feed');
   const [slice, setSlice] = useState(null);
+  // Local overrides for feed event state (attended / muted) — since these are
+  // user acknowledgements that don't persist yet to the backend.
+  const [attended, setAttended] = useState(() => new Set());
+  const [muted, setMuted] = useState(() => new Map()); // ruleName -> expiresAt
+  // Local overrides for rule active toggle (same reason).
+  const [ruleActive, setRuleActive] = useState(() => {
+    const m = {};
+    (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
+    return m;
+  });
 
   function openAlertSlice(a) {
     const sev = a.severity === 'alta' ? 'neg' : 'warn';
@@ -1540,10 +1659,18 @@ function AlertsScreen() {
                     <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)' }}>{a.time}</span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{a.detail}</div>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
                     <button className="chip" onClick={() => openAlertSlice(a)}>Ver menciones</button>
-                    <button className="chip">Marcar atendida</button>
-                    <button className="chip">Silenciar regla 1h</button>
+                    <button className={`chip ${attended.has(a.id) ? 'active' : ''}`}
+                      onClick={() => setAttended((s) => new Set(s).add(a.id))}
+                      disabled={attended.has(a.id)}>
+                      {attended.has(a.id) ? '✓ Atendida' : 'Marcar atendida'}
+                    </button>
+                    <button className={`chip ${muted.has(a.rule) ? 'active' : ''}`}
+                      onClick={() => setMuted((m) => { const n = new Map(m); n.set(a.rule, Date.now() + 3600000); return n; })}
+                      disabled={muted.has(a.rule)}>
+                      {muted.has(a.rule) ? '🔕 Silenciada 1h' : 'Silenciar regla 1h'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1562,11 +1689,13 @@ function AlertsScreen() {
               <span style={{ fontWeight: 500 }}>{a.name}</span>
               <span className={`pill ${a.priority === 'alta' ? 'pill-neg' : a.priority === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{a.priority}</span>
               <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered}</span>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
-                <div style={{ width: 28, height: 16, borderRadius: 10, background: a.active ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
-                  <div style={{ position: 'absolute', top: 2, left: a.active ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'all 0.2s' }} />
+              <label
+                onClick={() => setRuleActive((s) => ({ ...s, [a.id]: !s[a.id] }))}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                <div style={{ width: 28, height: 16, borderRadius: 10, background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
+                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'all 0.2s' }} />
                 </div>
-                <span style={{ color: a.active ? 'var(--pos)' : 'var(--text-3)' }}>{a.active ? 'Activa' : 'Inactiva'}</span>
+                <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
               </label>
               <div style={{ display: 'flex', gap: 4 }}>
                 {a.channels.map((c) => {

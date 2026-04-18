@@ -189,7 +189,14 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>
           <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)' }} />
           <span>Ingesta en vivo</span>
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--ff-mono)' }}>5 min</span>
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--ff-mono)' }}>
+            {(() => {
+              const s = (window.ECO_DATA && window.ECO_DATA.INGESTION_STATUS) || null;
+              if (s && s.lastIngestLabel) return s.lastIngestLabel;
+              const firstMention = (window.ECO_DATA && window.ECO_DATA.MENTIONS && window.ECO_DATA.MENTIONS[0]);
+              return firstMention && firstMention.publishedAt ? firstMention.publishedAt : '—';
+            })()}
+          </span>
         </div>
       )}
 
@@ -544,9 +551,29 @@ function MentionDrawer({ mention, onClose }) {
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}><Icons.ExternalLink size={13} /> Ver original</button>
-            <button className="btn"><Icons.Bell size={13} /> Crear alerta</button>
-            <button className="btn"><Icons.Download size={13} /></button>
+            <button className="btn btn-primary"
+              style={{ flex: 1, justifyContent: 'center' }}
+              disabled={!mention.url}
+              onClick={() => mention.url && window.open(mention.url, '_blank', 'noopener,noreferrer')}>
+              <Icons.ExternalLink size={13} /> Ver original
+            </button>
+            <button className="btn"
+              onClick={() => {
+                const url = mention.url || '';
+                const text = `${mention.title || ''}\n${url}`;
+                if (navigator.share) {
+                  navigator.share({ title: mention.title, text, url }).catch(() => {});
+                } else if (navigator.clipboard) {
+                  navigator.clipboard.writeText(text);
+                }
+              }}>
+              <Icons.ExternalLink size={13} /> Compartir
+            </button>
+            <button className="btn"
+              title="Copiar URL"
+              onClick={() => navigator.clipboard && mention.url && navigator.clipboard.writeText(mention.url)}>
+              <Icons.Download size={13} />
+            </button>
           </div>
         </div>
       </div>

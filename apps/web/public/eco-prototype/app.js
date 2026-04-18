@@ -117,6 +117,7 @@ function App() {
             period={period} setPeriod={setPeriod}
             mentionsFilter={mentionsFilter} setMentionsFilter={setMentionsFilter}
             agency={agency}
+            setActive={setActive}
           />
         </main>
       </div>

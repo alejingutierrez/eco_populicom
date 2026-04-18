@@ -526,6 +526,18 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // ---- INGESTION_STATUS (most recent mention timestamp for "live" badge) ----
+    const [latestIngest] = await db
+      .select({ ts: sql<Date>`MAX(${mentions.ingestedAt})`.mapWith((v) => v as Date) })
+      .from(mentions)
+      .where(eq(mentions.agencyId, agencyId));
+
+    const lastIngest = latestIngest?.ts ? new Date(latestIngest.ts) : null;
+    const INGESTION_STATUS = lastIngest ? {
+      lastIngestAt: lastIngest.toISOString(),
+      lastIngestLabel: relativeTime(lastIngest),
+    } : null;
+
     // ---- ALERTS ----
     const alertRows = await db
       .select()
@@ -619,6 +631,7 @@ export async function GET(request: NextRequest) {
       HOUR_HEATMAP: HOUR_HEATMAP.some((v) => v > 0) ? HOUR_HEATMAP : null,
       PULSE: PULSE.length > 0 ? PULSE : null,
       BRIEFING,
+      INGESTION_STATUS,
     });
   } catch (err) {
     console.error('eco-data error:', err);

@@ -451,6 +451,13 @@ function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, 
 // Puerto Rico map — tile-style mockup (Mapbox/Leaflet look)
 function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   const viewW = 900, viewH = 400;
+  // Zoom state (1 = fit, 2 = 2x, etc). Max 4x. Scale anchored to center of viewport.
+  const [zoom, setZoom] = React.useState(1);
+  const [layers, setLayers] = React.useState({ munis: true, roads: true, rural: false });
+  const zoomedViewW = viewW / zoom;
+  const zoomedViewH = viewH / zoom;
+  const zoomX = (viewW - zoomedViewW) / 2;
+  const zoomY = (viewH - zoomedViewH) / 2;
 
   // More realistic PR outline (coast polygon — hand-traced into this aspect)
   const prPath = "M 60 180 L 75 172 L 95 168 L 115 170 L 140 165 L 165 160 L 195 158 L 225 155 L 260 152 L 295 150 L 330 148 L 365 150 L 400 152 L 440 155 L 480 160 L 520 165 L 560 170 L 600 175 L 640 180 L 680 185 L 720 192 L 755 200 L 780 210 L 795 225 L 800 245 L 790 262 L 770 275 L 740 285 L 700 292 L 660 296 L 615 298 L 565 298 L 515 296 L 465 294 L 415 292 L 365 290 L 315 288 L 270 285 L 225 280 L 185 274 L 148 266 L 115 256 L 88 244 L 70 228 L 58 210 L 55 195 Z";
@@ -487,7 +494,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
   return (
     <div style={{ position: 'relative', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--hairline-strong)' }}>
-      <svg viewBox={`0 0 ${viewW} ${viewH}`} width="100%" style={{ display: 'block', background: '#DCE6EC' }}>
+      <svg viewBox={`${zoomX} ${zoomY} ${zoomedViewW} ${zoomedViewH}`} width="100%" style={{ display: 'block', background: '#DCE6EC', transition: 'all 0.2s var(--ease)' }}>
         <defs>
           <pattern id="tile-grid" width={tileSize} height={tileSize} patternUnits="userSpaceOnUse">
             <rect width={tileSize} height={tileSize} fill="none" />
@@ -511,9 +518,11 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         {/* Land */}
         <path d={prPath} fill="#F2EDE3" stroke="#C4B896" strokeWidth="1" />
 
-        {/* Parks / shaded regions */}
-        <ellipse cx="380" cy="235" rx="80" ry="25" fill="#D8E2C8" opacity="0.7" />
-        <ellipse cx="520" cy="245" rx="55" ry="18" fill="#D8E2C8" opacity="0.7" />
+        {/* Parks / shaded regions — rural areas layer */}
+        {layers.rural && <>
+          <ellipse cx="380" cy="235" rx="80" ry="25" fill="#D8E2C8" opacity="0.7" />
+          <ellipse cx="520" cy="245" rx="55" ry="18" fill="#D8E2C8" opacity="0.7" />
+        </>}
 
         {/* Small islands (Vieques, Culebra) */}
         <ellipse cx="820" cy="260" rx="30" ry="9" fill="#F2EDE3" stroke="#C4B896" strokeWidth="1" />
@@ -522,15 +531,15 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         <text x="855" y="232" fontSize="7" textAnchor="middle" fill="#7A6F55" fontStyle="italic">Culebra</text>
 
         {/* Roads */}
-        {roads.map((d, i) => (
+        {layers.roads && roads.map((d, i) => (
           <path key={i} d={d} fill="none" stroke="#FFFFFF" strokeWidth="2.5" opacity="0.8" />
         ))}
-        {roads.map((d, i) => (
+        {layers.roads && roads.map((d, i) => (
           <path key={'r'+i} d={d} fill="none" stroke="#E8B84A" strokeWidth="0.8" opacity="0.6" />
         ))}
 
         {/* Municipality bubbles */}
-        {municipalities.map((m) => {
+        {layers.munis && municipalities.map((m) => {
           const p = positions[m.slug];
           if (!p) return null;
           const v = accessor(m);
@@ -560,8 +569,10 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
       {/* Map chrome overlay */}
       <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', flexDirection: 'column', border: '1px solid rgba(0,0,0,0.2)', borderRadius: 3, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }}>
-        <button style={{ width: 28, height: 28, background: '#fff', border: 'none', borderBottom: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>+</button>
-        <button style={{ width: 28, height: 28, background: '#fff', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>−</button>
+        <button onClick={() => setZoom((z) => Math.min(4, z * 1.4))}
+          style={{ width: 28, height: 28, background: '#fff', border: 'none', borderBottom: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>+</button>
+        <button onClick={() => setZoom((z) => Math.max(1, z / 1.4))}
+          style={{ width: 28, height: 28, background: '#fff', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>−</button>
       </div>
 
       {/* Scale bar */}
@@ -578,9 +589,15 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       {/* Layer toggle */}
       <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(0,0,0,0.15)', padding: '6px 10px', fontSize: 10, display: 'flex', flexDirection: 'column', gap: 3, boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
         <div style={{ fontWeight: 600, marginBottom: 2, color: '#333' }}>Capas</div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}><input type="checkbox" defaultChecked style={{ margin: 0 }} /> Municipios</label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}><input type="checkbox" defaultChecked style={{ margin: 0 }} /> Carreteras</label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#888' }}><input type="checkbox" style={{ margin: 0 }} /> Áreas rurales</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}>
+          <input type="checkbox" checked={layers.munis} onChange={(e) => setLayers((l) => ({ ...l, munis: e.target.checked }))} style={{ margin: 0 }} /> Municipios
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}>
+          <input type="checkbox" checked={layers.roads} onChange={(e) => setLayers((l) => ({ ...l, roads: e.target.checked }))} style={{ margin: 0 }} /> Carreteras
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#888' }}>
+          <input type="checkbox" checked={layers.rural} onChange={(e) => setLayers((l) => ({ ...l, rural: e.target.checked }))} style={{ margin: 0 }} /> Áreas rurales
+        </label>
       </div>
     </div>
   );
