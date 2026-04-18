@@ -710,13 +710,13 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
 
   return (
     <>
-      <div className="drawer-backdrop" onClick={onClose} />
+      <div className="drawer-backdrop" onClick={onClose} style={{ zIndex: 2000 }} />
       <div role="dialog" aria-modal="true" style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 'min(880px, 94vw)', maxHeight: '88vh', overflow: 'auto',
         background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
         borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
-        zIndex: 200,
+        zIndex: 2001,
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{

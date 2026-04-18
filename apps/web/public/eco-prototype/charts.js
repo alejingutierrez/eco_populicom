@@ -455,6 +455,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const markersLayerRef = React.useRef(null);
+  const tilesRef = React.useRef({ dark: null, light: null, active: null });
 
   // Mount Leaflet once, then re-render markers whenever inputs change.
   React.useEffect(() => {
@@ -470,21 +471,34 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         zoomControl: true,
         attributionControl: true,
       });
-      // Dark base tiles match the Mando theme; OSM tiles free of charge.
+      // Two tile layers — swapped when the Mando/Costa mode toggle changes.
       const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
         subdomains: 'abcd',
         maxZoom: 19,
       });
-      const light = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      const light = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
         maxZoom: 19,
       });
-      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
-      (mode === 'light' ? light : dark).addTo(map);
+      tilesRef.current = { dark, light, active: null };
 
-      // Layer control to toggle between base styles.
-      L.control.layers({ 'Oscuro': dark, 'Claro': light }, undefined, { position: 'topright', collapsed: true }).addTo(map);
+      function applyMode() {
+        const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+        const nextLayer = mode === 'light' ? light : dark;
+        if (tilesRef.current.active === nextLayer) return;
+        if (tilesRef.current.active) map.removeLayer(tilesRef.current.active);
+        nextLayer.addTo(map);
+        tilesRef.current.active = nextLayer;
+      }
+      applyMode();
+
+      // Watch the <html data-mode> attribute so the map base layer follows
+      // the dashboard's theme toggle automatically.
+      const observer = new MutationObserver(applyMode);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
+      tilesRef.current.observer = observer;
 
       markersLayerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
@@ -535,6 +549,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
   // Cleanup on unmount.
   React.useEffect(() => () => {
+    if (tilesRef.current.observer) tilesRef.current.observer.disconnect();
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;

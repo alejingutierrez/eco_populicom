@@ -430,7 +430,7 @@
     background: rgba(11, 26, 38, 0.4);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
-    z-index: 200;
+    z-index: 2100;
     display: flex; justify-content: center; align-items: flex-start;
     padding-top: 12vh;
     animation: fadeIn 0.18s var(--ease);
@@ -450,11 +450,11 @@
   [data-theme="gaceta"] .spotlight { border-radius: 4px; }
   [data-theme="mando"] .spotlight { border-radius: 6px; }
 
-  /* Drawer */
+  /* Drawer — z-index above Leaflet which goes up to 1000 */
   .drawer-backdrop {
     position: fixed; inset: 0;
     background: rgba(11, 26, 38, 0.4);
-    z-index: 150;
+    z-index: 2000;
     animation: fadeIn 0.2s var(--ease);
   }
   [data-mode="dark"] .drawer-backdrop { background: rgba(0,0,0,0.5); }
@@ -463,7 +463,7 @@
     width: 560px; max-width: 95vw;
     background: var(--canvas);
     border-left: 1px solid var(--hairline);
-    z-index: 151;
+    z-index: 2001;
     overflow-y: auto;
     animation: slideLeft 0.26s var(--ease);
   }
