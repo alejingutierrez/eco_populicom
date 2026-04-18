@@ -125,22 +125,34 @@ function DashboardScreen({ onMentionClick }) {
       {/* ── Executive Briefing ── */}
       <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, alignItems: 'stretch' }}>
         <div>
-          <div className="section-eyebrow">Resumen ejecutivo · 17 abr 2026 · 08:12 AST</div>
+          <div className="section-eyebrow">Resumen ejecutivo · {(D.BRIEFING && D.BRIEFING.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
           <div style={{ fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600, lineHeight: 1.25, letterSpacing: 'var(--letter-display)', marginTop: 8, color: 'var(--text)' }}>
-            La percepción pública se <span style={{ color: 'var(--neg)' }}>deteriora</span> por denuncias sobre la <strong>PR-21</strong>, pero el anuncio de la ruta AMA del sur está ganando tracción positiva.
+            {D.BRIEFING ? (
+              <>
+                {D.BRIEFING.narrative.pre}{' '}
+                <span style={{ color: `var(--${D.BRIEFING.narrative.verbTone === 'pos' ? 'pos' : D.BRIEFING.narrative.verbTone === 'neg' ? 'neg' : 'warn'})` }}>
+                  {D.BRIEFING.narrative.verb}
+                </span>
+                {D.BRIEFING.narrative.linkPre}
+                <strong>{D.BRIEFING.narrative.emphasis}</strong>
+                {D.BRIEFING.narrative.linkPost}
+              </>
+            ) : (
+              <>Sin suficientes menciones en este período para generar un resumen.</>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 20, marginTop: 20, fontSize: 12 }}>
+          <div style={{ display: 'flex', gap: 20, marginTop: 20, fontSize: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
-              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>Infraestructura · Negativa</div>
+              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.dominantSignal) || '—'}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance 24h</div>
-              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>2.34M impresiones</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
+              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
             </div>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Acción recomendada</div>
-              <div style={{ color: 'var(--accent)', fontWeight: 600, marginTop: 2 }}>Comunicado oficial PR-21 →</div>
+              <div style={{ color: 'var(--accent)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.action) || 'Monitorear tópicos activos →'}</div>
             </div>
           </div>
           <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -154,20 +166,20 @@ function DashboardScreen({ onMentionClick }) {
           </div>
         </div>
         <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pulso en vivo · últimas 2h</div>
-          {[
-            { time: '08:08', dot: 'neg', text: 'Nueva mención viral en elnuevodia sobre PR-21', eng: '8.4K' },
-            { time: '07:54', dot: 'pos', text: 'Post oficial sobre ruta AMA → 6.2K engagement', eng: '6.2K' },
-            { time: '07:41', dot: 'warn', text: 'Pico 3.4x en volumen de menciones (alerta)', eng: '—' },
-            { time: '07:12', dot: 'pos', text: 'Reapertura Paseo del Río celebrada en Caguas', eng: '1.2K' },
-          ].map((e, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12 }}>
-              <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2, width: 34 }}>{e.time}</span>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pulso en vivo · últimas menciones</div>
+          {(D.PULSE || []).map((e, i) => (
+            <button key={i} onClick={() => e.mention && onMentionClick(e.mention)}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
+              className="row-hover">
+              <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2, width: 54, flexShrink: 0 }}>{e.time}</span>
               <span className="dot" style={{ background: `var(--${e.dot})`, marginTop: 5, flexShrink: 0 }} />
               <span style={{ flex: 1, color: 'var(--text)' }}>{e.text}</span>
               <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{e.eng}</span>
-            </div>
+            </button>
           ))}
+          {!(D.PULSE && D.PULSE.length > 0) && (
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sin actividad reciente en el período.</div>
+          )}
         </div>
       </div>
 
@@ -379,12 +391,14 @@ function BrandHealthMini({ value }) {
 
 // --- DashSentimentCard: redesigned with donut + prominent legend rows (clickable) ---
 function DashSentimentCard({ total, nss, onSliceClick }) {
+  const safeTotal = (D.SENTIMENT_BREAKDOWN || []).reduce((s, x) => s + (x.value || 0), 0) || total || 0;
+  const pctOf = (v) => safeTotal > 0 ? Math.round((v / safeTotal) * 100) : 0;
   return (
     <div className="card">
       <div className="card-hd">
         <div>
           <div className="card-hd-title">Sentimiento</div>
-          <div className="card-hd-sub">Distribución · {fmt(total)} menciones</div>
+          <div className="card-hd-sub">Distribución · {fmt(safeTotal)} menciones</div>
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>
           NSS <span className="num" style={{ color: 'var(--accent)', fontSize: 13, fontWeight: 700 }}>+{nss}</span>
@@ -395,14 +409,14 @@ function DashSentimentCard({ total, nss, onSliceClick }) {
           <Donut data={D.SENTIMENT_BREAKDOWN} size={120} thickness={18} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
             <div className="num" style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', lineHeight: 1 }}>
-              {Math.round((D.SENTIMENT_BREAKDOWN.find(s => s.name === 'positivo').value / total) * 100)}%
+              {pctOf((D.SENTIMENT_BREAKDOWN.find(s => s.name === 'positivo') || {}).value || 0)}%
             </div>
             <div style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.06em', marginTop: 2 }}>POSITIVO</div>
           </div>
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {D.SENTIMENT_BREAKDOWN.map((s) => {
-            const pct = Math.round((s.value / total) * 100);
+            const pct = pctOf(s.value);
             const c = s.name === 'positivo' ? 'var(--pos)' : s.name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
             return (
               <button key={s.name} onClick={() => onSliceClick(s.name)}
@@ -427,16 +441,16 @@ function DashSentimentCard({ total, nss, onSliceClick }) {
   );
 }
 
-// --- HourActivityCard: redesigned heatmap with peak callout + legend ---
+// --- HourActivityCard: heatmap fed from window.ECO_DATA.HOUR_HEATMAP ---
 function HourActivityCard({ onCellClick }) {
-  const data = React.useMemo(() => Array.from({ length: 7 * 24 }, (_, i) => {
-    const d = Math.floor(i / 24), h = i % 24;
-    const base = Math.sin((h - 12) / 5) * 0.6 + 0.8;
-    const weekday = d < 5 ? 1 : 0.6;
-    return Math.round(base * weekday * 40 + (i % 7) * 2);
-  }), []);
-  const max = Math.max(...data);
-  const peakIdx = data.indexOf(max);
+  const data = React.useMemo(() => {
+    const remote = window.ECO_DATA && window.ECO_DATA.HOUR_HEATMAP;
+    if (Array.isArray(remote) && remote.length === 7 * 24) return remote;
+    // Fallback stub if backend hasn't populated it yet — flat, near-zero.
+    return Array.from({ length: 7 * 24 }, () => 0);
+  }, []);
+  const max = Math.max(1, ...data);
+  const peakIdx = data.indexOf(Math.max(...data));
   const peakDay = Math.floor(peakIdx / 24);
   const peakHour = peakIdx % 24;
   const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -447,7 +461,7 @@ function HourActivityCard({ onCellClick }) {
       <div className="card-hd">
         <div>
           <div className="card-hd-title">Actividad por hora</div>
-          <div className="card-hd-sub">Mapa de calor · {fmt(total * 10)} menciones · click una franja</div>
+          <div className="card-hd-sub">Mapa de calor · {fmt(total)} menciones · click una franja</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)' }}>
           <span>menos</span>
@@ -466,8 +480,8 @@ function HourActivityCard({ onCellClick }) {
         <Heatmap
           data={data}
           colorFn={(v) => {
-            const intensity = Math.min(1, v / 60);
-            return `rgba(11, 95, 128, ${0.08 + intensity * 0.9})`;
+            const intensity = max > 0 ? Math.min(1, v / max) : 0;
+            return `rgba(255, 106, 61, ${0.08 + intensity * 0.85})`;
           }}
           cellSize={11}
           onCellClick={onCellClick}

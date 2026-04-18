@@ -152,32 +152,36 @@ export async function GET(request: NextRequest) {
 
     const last = snapshots[snapshots.length - 1];
     const prev = snapshots[snapshots.length - 2];
-    const CURRENT_METRICS = last ? {
+
+    // Snapshot-based metrics (may be zero/null if the metrics-calculator
+    // Lambda hasn't run yet). We keep the numbers and fall back to live
+    // aggregates below when they come back empty.
+    const snapMetrics = last ? {
       nss: Number(last.nss ?? 0),
-      nssDelta: last && prev ? Number((Number(last.nss ?? 0) - Number(prev.nss ?? 0)).toFixed(1)) : 0,
-      nss7d: Number(last.nss7d ?? last.nss ?? 0),
-      nss30d: Number(last.nss30d ?? last.nss ?? 0),
+      nss7d: Number(last.nss7d ?? 0),
+      nss30d: Number(last.nss30d ?? 0),
       brandHealthIndex: Number(last.brandHealthIndex ?? 0),
-      brandHealthDelta: prev ? Number((Number(last.brandHealthIndex ?? 0) - Number(prev.brandHealthIndex ?? 0)).toFixed(2)) : 0,
       crisisRiskScore: Number(last.crisisRiskScore ?? 0),
-      crisisDelta: prev ? Number((Number(last.crisisRiskScore ?? 0) - Number(prev.crisisRiskScore ?? 0)).toFixed(1)) : 0,
-      totalMentions: Number(last.totalMentions ?? 0),
-      totalMentionsDelta: prev && Number(prev.totalMentions) > 0
-        ? Number((((Number(last.totalMentions) - Number(prev.totalMentions)) / Number(prev.totalMentions)) * 100).toFixed(1))
-        : 0,
-      totalReach: Number(last.totalMentions ?? 0) * 180,
       engagementRate: Number(last.engagementRate ?? 0),
-      engagementDelta: prev ? Number((Number(last.engagementRate ?? 0) - Number(prev.engagementRate ?? 0)).toFixed(2)) : 0,
       amplificationRate: Number(last.amplificationRate ?? 0),
-      amplificationDelta: 0,
       reputationMomentum: Number(last.reputationMomentum ?? 0),
       engagementVelocity: Number(last.engagementVelocity ?? 0),
       volumeAnomalyZscore: Number(last.volumeAnomalyZscore ?? 0),
+      totalMentions: Number(last.totalMentions ?? 0),
       positiveCount: Number(last.positiveCount ?? 0),
       neutralCount: Number(last.neutralCount ?? 0),
       negativeCount: Number(last.negativeCount ?? 0),
-      highPertinenceCount: 0,
     } : null;
+
+    const snapDeltas = last && prev ? {
+      nssDelta: Number((Number(last.nss ?? 0) - Number(prev.nss ?? 0)).toFixed(1)),
+      brandHealthDelta: Number((Number(last.brandHealthIndex ?? 0) - Number(prev.brandHealthIndex ?? 0)).toFixed(2)),
+      crisisDelta: Number((Number(last.crisisRiskScore ?? 0) - Number(prev.crisisRiskScore ?? 0)).toFixed(1)),
+      totalMentionsDelta: Number(prev.totalMentions) > 0
+        ? Number((((Number(last.totalMentions) - Number(prev.totalMentions)) / Number(prev.totalMentions)) * 100).toFixed(1))
+        : 0,
+      engagementDelta: Number((Number(last.engagementRate ?? 0) - Number(prev.engagementRate ?? 0)).toFixed(2)),
+    } : { nssDelta: 0, brandHealthDelta: 0, crisisDelta: 0, totalMentionsDelta: 0, engagementDelta: 0 };
 
     // ---- SENTIMENT_BREAKDOWN ----
     const sentimentAgg = await db
@@ -196,6 +200,64 @@ export async function GET(request: NextRequest) {
       { name: 'neutral', value: sentCounts.neutral, label: 'Neutral' },
       { name: 'negativo', value: sentCounts.negativo, label: 'Negativo' },
     ];
+
+    // Live-aggregate metrics from mentions — used when daily snapshots are
+    // missing or zero. Also drive the hero KPIs until the metrics-calculator
+    // Lambda catches up.
+    const liveTotal = sentCounts.positivo + sentCounts.neutral + sentCounts.negativo;
+    const liveNss = liveTotal > 0
+      ? Number((((sentCounts.positivo - sentCounts.negativo) / liveTotal) * 100).toFixed(1))
+      : 0;
+    // Brand Health Index: 0.5 neutral baseline, shifts with positivity
+    const liveBhi = liveTotal > 0
+      ? Number((0.5 + ((sentCounts.positivo - sentCounts.negativo) / liveTotal) * 0.5).toFixed(2))
+      : 0;
+    // Crisis risk: scale by fraction of negative mentions (0..3)
+    const liveCrisis = liveTotal > 0
+      ? Number(((sentCounts.negativo / liveTotal) * 3).toFixed(1))
+      : 0;
+
+    const [engAgg] = await db
+      .select({
+        reach: sql<number>`COALESCE(SUM(${mentions.reachEstimate}), 0)`.mapWith(Number),
+        eng: sql<number>`COALESCE(SUM(${mentions.likes} + ${mentions.comments} + ${mentions.shares}), 0)`.mapWith(Number),
+        hiPert: sql<number>`COUNT(*) FILTER (WHERE ${mentions.nlpPertinence} = 'alta')`.mapWith(Number),
+      })
+      .from(mentions)
+      .where(baseWhere);
+
+    const liveReach = Number(engAgg?.reach ?? 0);
+    const liveEngSum = Number(engAgg?.eng ?? 0);
+    const liveEngRate = liveReach > 0
+      ? Number(((liveEngSum / liveReach) * 100).toFixed(2))
+      : 0;
+
+    // Prefer snapshot values when non-zero; fall back to live aggregates.
+    const pick = (snap: number, live: number) => (snap && snap !== 0 ? snap : live);
+    const CURRENT_METRICS = {
+      nss: pick(snapMetrics?.nss ?? 0, liveNss),
+      nss7d: pick(snapMetrics?.nss7d ?? 0, liveNss),
+      nss30d: pick(snapMetrics?.nss30d ?? 0, liveNss),
+      nssDelta: snapDeltas.nssDelta,
+      brandHealthIndex: pick(snapMetrics?.brandHealthIndex ?? 0, liveBhi),
+      brandHealthDelta: snapDeltas.brandHealthDelta,
+      crisisRiskScore: pick(snapMetrics?.crisisRiskScore ?? 0, liveCrisis),
+      crisisDelta: snapDeltas.crisisDelta,
+      totalMentions: pick(snapMetrics?.totalMentions ?? 0, liveTotal),
+      totalMentionsDelta: snapDeltas.totalMentionsDelta,
+      totalReach: pick(0, liveReach || liveTotal * 180),
+      engagementRate: pick(snapMetrics?.engagementRate ?? 0, liveEngRate),
+      engagementDelta: snapDeltas.engagementDelta,
+      amplificationRate: Number(snapMetrics?.amplificationRate ?? 0),
+      amplificationDelta: 0,
+      reputationMomentum: Number(snapMetrics?.reputationMomentum ?? 0),
+      engagementVelocity: Number(snapMetrics?.engagementVelocity ?? 0),
+      volumeAnomalyZscore: Number(snapMetrics?.volumeAnomalyZscore ?? 0),
+      positiveCount: pick(snapMetrics?.positiveCount ?? 0, sentCounts.positivo),
+      neutralCount: pick(snapMetrics?.neutralCount ?? 0, sentCounts.neutral),
+      negativeCount: pick(snapMetrics?.negativeCount ?? 0, sentCounts.negativo),
+      highPertinenceCount: Number(engAgg?.hiPert ?? 0),
+    };
 
     // ---- TOP_SOURCES ----
     const srcAgg = await db
@@ -482,6 +544,65 @@ export async function GET(request: NextRequest) {
       channels: a.notifyEmails && a.notifyEmails.length > 0 ? ['email'] : [],
     }));
 
+    // ---- HOUR_HEATMAP (7 days × 24 hours, Mon=0..Sun=6) ----
+    // Postgres DOW returns Sun=0..Sat=6; remap to Mon=0..Sun=6.
+    const heatRows = await db
+      .select({
+        dow: sql<number>`EXTRACT(DOW FROM ${mentions.publishedAt})`.mapWith(Number),
+        hour: sql<number>`EXTRACT(HOUR FROM ${mentions.publishedAt})`.mapWith(Number),
+        c: count(),
+      })
+      .from(mentions)
+      .where(baseWhere)
+      .groupBy(sql`EXTRACT(DOW FROM ${mentions.publishedAt})`, sql`EXTRACT(HOUR FROM ${mentions.publishedAt})`);
+
+    const HOUR_HEATMAP = Array(7 * 24).fill(0);
+    for (const r of heatRows) {
+      const pgDow = Number(r.dow);
+      const hour = Number(r.hour);
+      // Postgres Sun=0..Sat=6 → Mon=0..Sun=6
+      const day = (pgDow + 6) % 7;
+      if (day >= 0 && day < 7 && hour >= 0 && hour < 24) {
+        HOUR_HEATMAP[day * 24 + hour] += Number(r.c);
+      }
+    }
+
+    // ---- PULSE (live feed for the hero right-rail) ----
+    // Take the 6 most recent mentions and surface them as short ticker events.
+    const PULSE = MENTIONS.slice(0, 6).map((m) => ({
+      time: m.publishedAt,
+      dot: m.sentiment === 'positivo' ? 'pos' : m.sentiment === 'negativo' ? 'neg' : 'warn',
+      text: m.title.length > 78 ? m.title.slice(0, 78) + '…' : m.title,
+      eng: m.engagement > 999 ? (m.engagement / 1000).toFixed(1) + 'K' : String(m.engagement || '—'),
+      mention: m,
+    }));
+
+    // ---- BRIEFING (data-driven executive summary) ----
+    const dominantTopic = TOPICS[0];
+    const sentTrend = liveNss;
+    const briefingTone = sentTrend > 5 ? 'pos' : sentTrend < -5 ? 'neg' : 'neu';
+    const briefingVerb = briefingTone === 'pos' ? 'mejora' : briefingTone === 'neg' ? 'deteriora' : 'se mantiene estable';
+    const BRIEFING = dominantTopic ? {
+      eyebrow: new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
+      narrative: {
+        pre: 'La percepción pública se',
+        verb: briefingVerb,
+        verbTone: briefingTone,
+        linkPre: ' por la conversación sobre ',
+        emphasis: dominantTopic.name,
+        linkPost: ` (${dominantTopic.count.toLocaleString('es-PR')} menciones, ${dominantTopic.negativePct}% negativo).`,
+      },
+      dominantSignal: `${dominantTopic.name} · ${dominantTopic.dominantSentiment === 'positivo' ? 'Positiva' : dominantTopic.dominantSentiment === 'negativo' ? 'Negativa' : 'Mixta'}`,
+      reachLabel: liveReach >= 1_000_000
+        ? (liveReach / 1_000_000).toFixed(2) + 'M impresiones'
+        : liveReach >= 1000
+        ? Math.round(liveReach / 1000) + 'K impresiones'
+        : String(liveReach) + ' impresiones',
+      action: dominantTopic.negativePct > 50
+        ? `Comunicado oficial ${dominantTopic.name} →`
+        : `Monitorear ${dominantTopic.name} →`,
+    } : null;
+
     return NextResponse.json({
       AGENCIES_FULL,
       TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
@@ -495,6 +616,9 @@ export async function GET(request: NextRequest) {
       EMOTIONS: EMOTIONS.length > 0 ? EMOTIONS : null,
       MENTIONS: MENTIONS.length > 0 ? MENTIONS : null,
       ALERTS: ALERTS.length > 0 ? ALERTS : null,
+      HOUR_HEATMAP: HOUR_HEATMAP.some((v) => v > 0) ? HOUR_HEATMAP : null,
+      PULSE: PULSE.length > 0 ? PULSE : null,
+      BRIEFING,
     });
   } catch (err) {
     console.error('eco-data error:', err);
