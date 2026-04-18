@@ -677,8 +677,35 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
 //   }
 // =========================================================
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
+  const [liveSlice, setLiveSlice] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  // If a slice carries a structured filter, fetch real matching mentions from
+  // /api/eco-mentions and replace the placeholder list + counts. The slice
+  // object is immutable; we merge the fetched fields into `liveSlice`.
+  React.useEffect(() => {
+    if (!slice || !slice._filter) { setLiveSlice(null); return; }
+    setLoading(true);
+    fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
+      Object.entries({
+        agency: localStorage.getItem('eco.agency') || '',
+        period: localStorage.getItem('eco.period') || '1M',
+        limit: '20',
+        ...slice._filter,
+      }).filter(([, v]) => v != null && v !== '')
+    )).toString(), { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
+      .then((j) => setLiveSlice(j))
+      .catch(() => setLiveSlice({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }))
+      .finally(() => setLoading(false));
+  }, [slice]);
+
   if (!slice) return null;
-  const { eyebrow, title, highlight, accent = 'var(--accent)', volume, sentiment = {}, histogram, mentions = [], ctaLabel, ctaIcon, onCta } = slice;
+  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
+  const volume = liveSlice ? liveSlice.total : slice.volume;
+  const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
+  const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
+  const histogram = slice.histogram;
   const { pos = 0, neu = 0, neg = 0 } = sentiment;
 
   return (
@@ -771,7 +798,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
               <div className="section-eyebrow" style={{ margin: 0 }}>Menciones destacadas</div>
               <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--ff-numeric)' }}>
-                mostrando {mentions.length}{volume ? ` de ${volume.toLocaleString('es-PR')}` : ''}
+                {loading ? 'Cargando…' : `mostrando ${mentions.length}${volume ? ` de ${volume.toLocaleString('es-PR')}` : ''}`}
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

@@ -60,38 +60,37 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
       const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
       return Math.round(base * (total / 24) * 1.6);
     });
+    const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     setSlice({
       eyebrow: d.date,
       title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
       histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
-      mentions: buildSliceMentions(() => true, 8),
+      mentions: [],
+      _filter: { day: dayIso },
     });
   }
 
   function openSourceSlice(src) {
     const key = src.key;
-    const total = src.value;
-    const senti = splitSentiment(total, 'neutral');
     const colors = { facebook: '#0A7EA4', twitter: 'var(--accent)', news: 'var(--pos)', instagram: '#8B5CF6', youtube: 'var(--neg)', blog: 'var(--warn)' };
     setSlice({
       eyebrow: 'Fuente',
       title: src.label,
       accent: colors[key] || 'var(--accent)',
-      volume: total, sentiment: senti,
-      mentions: buildSliceMentions(mn => mn.source === key, 8),
+      mentions: [],
+      _filter: { source: key },
     });
   }
 
   function openHeatmapSlice(cell) {
-    const total = cell.value;
     setSlice({
       eyebrow: `${cell.dayLabel} · ${String(cell.hour).padStart(2,'0')}:00 – ${String(cell.hour).padStart(2,'0')}:59`,
       title: 'Franja horaria',
       accent: 'var(--accent)',
-      volume: total, sentiment: splitSentiment(total, 'neutral'),
-      mentions: buildSliceMentions(() => true, 6),
+      mentions: [],
+      _filter: { dow: cell.day, hour: cell.hour },
     });
   }
 
@@ -104,13 +103,8 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
       eyebrow: 'Tópico',
       title: t.name,
       accent,
-      volume: t.count,
-      sentiment: {
-        pos: Math.round(t.count * t.positivePct / 100),
-        neu: Math.round(t.count * t.neutralPct / 100),
-        neg: Math.round(t.count * t.negativePct / 100),
-      },
-      mentions: buildSliceMentions(mn => mn.topic === t.slug, 8),
+      mentions: [],
+      _filter: { topic: t.slug },
     });
   }
 
@@ -262,8 +256,9 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
           setSlice({
             eyebrow: 'Sentimiento',
             title: `Menciones ${row.label.toLowerCase()}`,
-            accent, volume: row.value, sentiment: senti,
-            mentions: buildSliceMentions(mn => mn.sentiment === name, 8),
+            accent,
+            mentions: [],
+            _filter: { sentiment: name },
           });
         }} />
       </div>
@@ -309,7 +304,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         <HourActivityCard onCellClick={openHeatmapSlice} />
       </div>
 
-      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} />}
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
 
       {/* ── Recent mentions table (dense) ── */}
       <div className="card">
@@ -780,39 +775,34 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
 }
 
 // =============== SENTIMENT ===============
-function SentimentScreen() {
+function SentimentScreen({ onMentionClick }) {
   const [slice, setSlice] = useState(null);
   const m = D.CURRENT_METRICS;
 
   function openSentimentSlice(name) {
     const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
     if (!row) return;
-    const total = row.value;
     const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-    const senti = { pos: 0, neu: 0, neg: 0 };
-    senti[name === 'positivo' ? 'pos' : name === 'negativo' ? 'neg' : 'neu'] = total;
     const values = D.TIMELINE.map(d => d[name] || 0);
     const xLabels = D.TIMELINE.map(d => d.date);
     setSlice({
       eyebrow: 'Sentimiento',
       title: `Menciones ${row.label.toLowerCase()}`,
-      accent, volume: total, sentiment: senti,
+      accent,
       histogram: { label: `Evolución diaria · ${row.label.toLowerCase()}`, values, xLabels },
-      mentions: buildSliceMentions(mn => mn.sentiment === name, 8),
+      mentions: [],
+      _filter: { sentiment: name },
     });
   }
 
   function openEmotionSlice(e) {
     const accent = `var(--${e.color})`;
-    const senti = splitSentiment(e.count, e.color === 'neg' ? 'negativo' : e.color === 'pos' ? 'positivo' : 'neutral');
-    const xLabels = D.TIMELINE.slice(-14).map(d => d.date);
-    const values = xLabels.map((_, i) => Math.round(e.count / 14 * (0.6 + ((i * 13) % 11) / 11 * 0.8)));
     setSlice({
       eyebrow: 'Emoción detectada',
       title: e.emotion,
-      accent, volume: e.count, sentiment: senti,
-      histogram: { label: 'Últimos 14 días', values, xLabels },
-      mentions: buildSliceMentions(mn => mn.sentiment === (e.color === 'neg' ? 'negativo' : e.color === 'pos' ? 'positivo' : 'neutral'), 8),
+      accent,
+      mentions: [],
+      _filter: { emotion: e.emotion },
     });
   }
 
@@ -824,26 +814,30 @@ function SentimentScreen() {
       const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
       return Math.round(base * (total / 24) * 1.6);
     });
+    const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     setSlice({
       eyebrow: d.date,
       title: bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro',
-      accent, volume: total,
+      accent,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
       histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
-      mentions: buildSliceMentions(() => true, 8),
+      mentions: [],
+      _filter: { day: dayIso },
     });
   }
 
   function openSourceSlice(s, sentimentType) {
-    const val = s[sentimentType] || 0;
     const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-    const senti = { pos: 0, neu: 0, neg: 0 };
-    senti[sentimentType === 'positivo' ? 'pos' : sentimentType === 'negativo' ? 'neg' : 'neu'] = val;
+    const sourceKey = {
+      'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
+      'Noticias': 'news', 'Instagram': 'instagram', 'YouTube': 'youtube', 'Blogs': 'blog',
+    }[s.source] || (s.source || '').toLowerCase();
     setSlice({
       eyebrow: `Fuente · ${s.source}`,
       title: `Sentimiento ${sentimentType}`,
-      accent, volume: val, sentiment: senti,
-      mentions: buildSliceMentions(mn => mn.sentiment === sentimentType, 8),
+      accent,
+      mentions: [],
+      _filter: { source: sourceKey, sentiment: sentimentType },
     });
   }
 
@@ -943,7 +937,7 @@ function SentimentScreen() {
         </div>
       </div>
 
-      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} />}
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
 }
@@ -1027,7 +1021,7 @@ function EmotionsCard({ emotions, onEmotionClick }) {
 }
 
 // =============== TOPICS ===============
-function TopicsScreen() {
+function TopicsScreen({ onMentionClick }) {
   const [selected, setSelected] = useState(null); // null = overview, else slug for drill-in
   const [view, setView] = useState('treemap'); // treemap | bubbles | list
   const [dayModal, setDayModal] = useState(null); // { date, fullDate, topicSlug, topicName, volume, sentiment }
@@ -1099,21 +1093,22 @@ function TopicsScreen() {
         });
         const xLabels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2,'0')}:00`);
         const dateStr = dayModal.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const dayIso = dayModal.dt.toISOString().slice(0, 10);
         return (
           <MentionsSliceModal
             slice={{
               eyebrow: dateStr,
               title: dayModal.topicName,
               accent,
-              volume: dayModal.volume,
-              sentiment: senti,
               histogram: { label: 'Volumen por hora', values: hours, xLabels },
-              mentions: buildSliceMentions(m => m.topic === dayModal.topicSlug),
+              mentions: [],
+              _filter: { topic: dayModal.topicSlug, day: dayIso },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
               ctaIcon: 'Hash',
               onCta: () => { setDayModal(null); setSelected(dayModal.topicSlug); },
             }}
             onClose={() => setDayModal(null)}
+            onMentionClick={onMentionClick}
           />
         );
       })()}
@@ -1455,10 +1450,29 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
 }
 
 // --- Slice builder: generate a plausible mentions slice from aggregate info ---
+// Local filter over the cached MENTIONS list. Used only as the initial
+// optimistic slice while the async fetch from /api/eco-mentions is in flight.
+// No "extras" padding — irrelevant mentions must never appear.
 function buildSliceMentions(predicate, max = 8) {
-  const matched = D.MENTIONS.filter(predicate);
-  const extras = D.MENTIONS.filter(m => !predicate(m)).slice(0, Math.max(0, max - matched.length));
-  return [...matched, ...extras].slice(0, max);
+  return (D.MENTIONS || []).filter(predicate).slice(0, max);
+}
+
+// Fetch a real slice of mentions from the backend using the structured filter.
+// The slice object must carry a `_filter` hash of query params.
+function fetchSliceMentions(filter) {
+  const params = new URLSearchParams();
+  const agency = localStorage.getItem('eco.agency');
+  const period = localStorage.getItem('eco.period') || '1M';
+  if (agency) params.set('agency', agency);
+  params.set('period', period);
+  params.set('limit', '20');
+  for (const [k, v] of Object.entries(filter || {})) {
+    if (v == null || v === '') continue;
+    params.set(k, String(v));
+  }
+  return fetch('/api/eco-mentions?' + params.toString(), { cache: 'no-store' })
+    .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
+    .catch(() => ({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }));
 }
 
 function splitSentiment(total, bias = 'neutral') {
@@ -1475,7 +1489,7 @@ function splitSentiment(total, bias = 'neutral') {
 }
 
 // =============== GEOGRAPHY ===============
-function GeographyScreen() {
+function GeographyScreen({ onMentionClick }) {
   const [metric, setMetric] = useState('count');
   const [slice, setSlice] = useState(null);
 
@@ -1489,7 +1503,8 @@ function GeographyScreen() {
       accent,
       volume: m.count,
       sentiment: senti,
-      mentions: buildSliceMentions(mn => (mn.region || '').toLowerCase() === m.name.toLowerCase() || Math.random() < 0.15, 8),
+      mentions: [],
+      _filter: { municipality: m.slug },
     });
   }
 
@@ -1545,14 +1560,12 @@ function GeographyScreen() {
               return (
                 <button key={r}
                   onClick={() => {
-                    const mns = buildSliceMentions((mn) => mn.region === r, 8);
                     setSlice({
                       eyebrow: `Región · ${r}`,
                       title: `Sentimiento en ${r}`,
                       accent: avgNss > 0 ? 'var(--pos)' : 'var(--neg)',
-                      volume: total,
-                      sentiment: { pos: regionMunis.filter(x => x.nss > 0).reduce((s, x) => s + x.count, 0), neg: regionMunis.filter(x => x.nss < 0).reduce((s, x) => s + x.count, 0), neu: 0 },
-                      mentions: mns,
+                      mentions: [],
+                      _filter: { region: r },
                     });
                   }}
                   className="row-hover"
@@ -1577,13 +1590,13 @@ function GeographyScreen() {
         </div>
       </div>
 
-      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} />}
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
 }
 
 // =============== ALERTS ===============
-function AlertsScreen() {
+function AlertsScreen({ onMentionClick }) {
   const [tab, setTab] = useState('feed');
   const [slice, setSlice] = useState(null);
   // Local overrides for feed event state (attended / muted) — since these are
@@ -1598,27 +1611,18 @@ function AlertsScreen() {
   });
 
   function openAlertSlice(a) {
-    const sev = a.severity === 'alta' ? 'neg' : 'warn';
     const accent = a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)';
-    // derive a filter from the rule name
-    const topicMatch = a.rule.toLowerCase();
-    const mns = buildSliceMentions(mn => {
-      const blob = (mn.title + ' ' + (mn.topic || '')).toLowerCase();
-      if (topicMatch.includes('ama')) return blob.includes('ama') || blob.includes('app');
-      if (topicMatch.includes('cráter') || topicMatch.includes('crater')) return blob.includes('crát') || blob.includes('hoyo') || blob.includes('carret');
-      if (topicMatch.includes('marbete')) return blob.includes('marbete') || blob.includes('suri');
-      return a.severity === 'alta' ? mn.sentiment === 'negativo' : true;
-    }, 8);
-    const neg = mns.filter(m => m.sentiment === 'negativo').length;
-    const pos = mns.filter(m => m.sentiment === 'positivo').length;
-    const neu = mns.filter(m => m.sentiment === 'neutral').length;
+    // Alert rules don't have a deterministic mention filter today. Best
+    // approximation: show high-severity recent negatives / lower-severity
+    // all mentions. A future task will persist each alert firing with the
+    // actual matched mention IDs.
+    const filter = a.severity === 'alta' ? { sentiment: 'negativo' } : {};
     setSlice({
       eyebrow: `Alerta · ${a.time} · severidad ${a.severity}`,
       title: a.rule,
       accent,
-      volume: a.volume || mns.length * 40,
-      sentiment: { pos: pos * 12, neu: neu * 12, neg: neg * 12 },
-      mentions: mns,
+      mentions: [],
+      _filter: filter,
       ctaLabel: 'Marcar atendida',
       ctaIcon: 'Check',
       onCta: () => setSlice(null),
@@ -1716,7 +1720,7 @@ function AlertsScreen() {
         </div>
       )}
 
-      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} />}
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
 }
