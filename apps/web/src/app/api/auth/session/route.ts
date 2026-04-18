@@ -38,7 +38,12 @@ export async function POST(request: NextRequest) {
   }
 
   const res = NextResponse.json({ ok: true, expiresIn: ttl });
-  const secure = process.env.NODE_ENV === 'production';
+  // The ALB in front of ECS runs on plain HTTP today. A `Secure` cookie set
+  // over HTTP is never returned by the browser, so we'd lock users out. Flip
+  // it only when the request itself came over HTTPS (directly or via
+  // x-forwarded-proto from a TLS-terminating proxy).
+  const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '');
+  const secure = proto === 'https';
   res.cookies.set(SESSION_COOKIE, idToken, {
     httpOnly: true,
     secure,
@@ -59,9 +64,10 @@ export async function POST(request: NextRequest) {
 }
 
 /** DELETE /api/auth/session — clear cookies (sign out). */
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   const res = NextResponse.json({ ok: true });
-  const secure = process.env.NODE_ENV === 'production';
+  const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '');
+  const secure = proto === 'https';
   res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: 0 });
   res.cookies.set('eco_refresh', '', { httpOnly: true, secure, sameSite: 'strict', path: '/', maxAge: 0 });
   // Also clear the old plaintext cookies from the legacy flow, if present.
