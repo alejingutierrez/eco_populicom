@@ -570,44 +570,52 @@
 
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
 <script>
+  // React hooks exposed as globals because each pre-compiled prototype file
+  // destructures them at top level (`const { useState } = React`).
+  window.useState = React.useState;
+  window.useEffect = React.useEffect;
+  window.useCallback = React.useCallback;
+  window.useRef = React.useRef;
+  window.useMemo = React.useMemo;
+  window.Fragment = React.Fragment;
+
   (async function () {
     const params = new URLSearchParams(location.search);
-    const agency = params.get('agency') || localStorage.getItem('eco.agency') || 'dtop';
+    const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
     const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
     try {
-      const res = await fetch(`/api/eco-data?agency=${encodeURIComponent(agency)}&period=${encodeURIComponent(period)}`, { cache: 'no-store' });
+      const qs = new URLSearchParams({ period });
+      if (agency) qs.set('agency', agency);
+      const res = await fetch('/api/eco-data?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
       if (res.ok) window.ECO_DATA_REMOTE = await res.json();
+      else if (res.status === 401) { location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search); return; }
     } catch (_) {}
     const boot = document.getElementById('eco-boot');
     if (boot) boot.remove();
-    // Expose React hooks globally so each file's top-level
-    // `const { useState } = React` destructure resolves when evaled separately.
-    window.useState = React.useState;
-    window.useEffect = React.useEffect;
-    window.useCallback = React.useCallback;
-    window.useRef = React.useRef;
-    window.useMemo = React.useMemo;
-    window.Fragment = React.Fragment;
-
-    const base = '/eco-prototype';
-    const files = [`${base}/data.js?v=prod4`,`${base}/icons.js?v=prod4`,`${base}/charts.js?v=prod4`,`${base}/shell.js?v=prod4`,`${base}/screens.js?v=prod4`,`${base}/app.js?v=prod4`];
-    for (const src of files) {
-      try {
-        const r = await fetch(src);
-        const source = await r.text();
-        const out = Babel.transform(source, { presets: ['env', 'react'] }).code;
-        (0, eval)(out);
-      } catch (e) {
-        console.error('[ECO] failed loading', src, e);
+    // Load the pre-compiled prototype bundle. Each file is plain JS (no
+    // Babel-in-browser cost). Sequential to preserve global dependency order
+    // (data -> icons -> charts -> shell -> screens -> app).
+    const base = '/eco-prototype/dist';
+    const files = ['data.js', 'icons.js', 'charts.js', 'shell.js', 'screens.js', 'app.js'];
+    for (const f of files) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = base + '/' + f + '?v=prodc1';
+        s.async = false;
+        s.onload = resolve;
+        s.onerror = () => {
+          console.error('[ECO] failed loading', s.src);
+          reject(new Error('Failed to load ' + f));
+        };
+        document.body.appendChild(s);
+      }).catch((e) => {
         const err = document.createElement('pre');
         err.style.cssText = 'color:#ff6a3d;padding:24px;font-family:monospace;white-space:pre-wrap;';
-        err.textContent = 'ECO boot error in ' + src + ':\n' + (e.stack || e.message);
+        err.textContent = 'ECO boot error: ' + e.message;
         document.body.appendChild(err);
-        break;
-      }
+      });
     }
   })();
 </script>

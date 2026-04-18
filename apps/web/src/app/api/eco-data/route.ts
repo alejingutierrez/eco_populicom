@@ -36,10 +36,12 @@ type TimelineRow = {
   negativo: number;
 };
 
+const TZ = 'America/Puerto_Rico';
+
 function esShortDate(iso: string) {
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString('es-PR', { month: 'short', day: 'numeric' });
+    return d.toLocaleDateString('es-PR', { month: 'short', day: 'numeric', timeZone: TZ });
   } catch {
     return iso;
   }
