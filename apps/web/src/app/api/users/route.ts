@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, users, agencies } from '@eco/database';
 import { eq, desc } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
+import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'users.GET', msg: (err as Error).message }));
+    log.error('users.GET', (err as Error).message, { agencyId });
     return NextResponse.json({ users: [] });
   }
 }
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
       .returning();
     return NextResponse.json({ user: row }, { status: 201 });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'users.POST', msg: (err as Error).message }));
+    log.error('users.POST', (err as Error).message, { email: body?.email, role });
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
   }
 }

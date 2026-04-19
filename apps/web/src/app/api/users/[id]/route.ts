@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, users, agencies } from '@eco/database';
 import { eq, and } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
+import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!row) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     return NextResponse.json({ user: row });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'users.PATCH', id, msg: (err as Error).message }));
+    log.error('users.PATCH', (err as Error).message, { id, agencyId });
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
   }
 }
@@ -67,7 +68,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!row) return NextResponse.json({ error: 'User not found' }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'users.DELETE', id, msg: (err as Error).message }));
+    log.error('users.DELETE', (err as Error).message, { id, agencyId });
     return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 });
   }
 }

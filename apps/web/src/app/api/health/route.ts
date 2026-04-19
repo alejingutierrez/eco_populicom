@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { sql } from 'drizzle-orm';
+import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,12 +18,7 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error(JSON.stringify({
-      level: 'error',
-      scope: 'health',
-      msg: 'db probe failed',
-      err: (err as Error).message,
-    }));
+    log.error('health', 'db probe failed', { err: (err as Error).message });
     return NextResponse.json({
       status: 'degraded',
       service: 'eco-web',

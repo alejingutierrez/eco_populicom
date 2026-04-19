@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, alertRules, agencies } from '@eco/database';
 import { sql, eq } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
+import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'alerts.GET', msg: (err as Error).message }));
+    log.error('alerts.GET', (err as Error).message);
     return NextResponse.json({ rules: [] });
   }
 }
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
       .returning();
     return NextResponse.json({ rule }, { status: 201 });
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', scope: 'alerts.POST', msg: (err as Error).message }));
+    log.error('alerts.POST', (err as Error).message, { name: body?.name });
     return NextResponse.json({ error: 'Failed to create alert' }, { status: 500 });
   }
 }

@@ -165,10 +165,18 @@ export async function GET(request: NextRequest) {
     conditions.push(lte(mentions.publishedAt, end));
   }
 
+  // Defensive validation — Drizzle parameterizes these, but shaped slugs
+  // keep garbage out of the query plan and make bad input fail fast.
+  const SLUG = /^[a-z0-9][a-z0-9\-]{0,60}$/;
+  const isSlug = (s: string | null) => !!s && SLUG.test(s);
   const region = searchParams.get('region');
   const municipalitySlug = searchParams.get('municipality');
   const topicSlug = searchParams.get('topic');
   const subtopicName = searchParams.get('subtopic');
+  if (municipalitySlug && !isSlug(municipalitySlug)) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid municipality' }, { status: 400 });
+  if (topicSlug && !isSlug(topicSlug)) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid topic' }, { status: 400 });
+  if (region && region.length > 60) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid region' }, { status: 400 });
+  if (subtopicName && subtopicName.length > 120) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid subtopic' }, { status: 400 });
 
   // If filtering by topic/subtopic/municipality/region, we need subqueries.
   let filteredMentionIds: string[] | null = null;
@@ -344,9 +352,11 @@ export async function GET(request: NextRequest) {
   });
 
   log.info('eco-mentions', 'request complete', { latencyMs: Date.now() - start, total: Number(total) });
-  return NextResponse.json({
+  const res = NextResponse.json({
     mentions: out,
     total: Number(total),
     sentiment: sentCounts,
   });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
 }

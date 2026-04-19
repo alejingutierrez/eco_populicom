@@ -662,7 +662,7 @@ export async function GET(request: NextRequest) {
         : `Monitorear ${dominantTopic.name} →`,
     } : null;
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       AGENCIES_FULL,
       TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
       CURRENT_METRICS,
@@ -680,6 +680,8 @@ export async function GET(request: NextRequest) {
       BRIEFING,
       INGESTION_STATUS,
     });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
   } catch (err) {
     log.error('eco-data', 'handler failed', { msg: (err as Error).message });
     return NextResponse.json({ error: 'eco-data error', message: (err as Error).message }, { status: 500 });

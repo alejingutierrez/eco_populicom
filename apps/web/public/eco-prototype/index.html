@@ -581,19 +581,64 @@
   window.useMemo = React.useMemo;
   window.Fragment = React.Fragment;
 
+  // A visible banner is better than silently rendering mocks. The banner sits
+  // above the dashboard whenever the API call fails so the user knows the
+  // numbers they see are seed data, not live.
+  function showApiBanner(kind, message) {
+    if (document.getElementById('eco-api-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'eco-api-banner';
+    banner.style.cssText = [
+      'position:fixed','top:0','left:0','right:0','z-index:3000',
+      'padding:10px 20px','font-family:-apple-system,sans-serif','font-size:12px','font-weight:600',
+      'display:flex','gap:12px','align-items:center','justify-content:center',
+      'background:' + (kind === 'error' ? '#3a1411' : '#3a2e11'),
+      'color:' + (kind === 'error' ? '#ff8a63' : '#ffc043'),
+      'border-bottom:1px solid rgba(255,255,255,0.1)',
+    ].join(';');
+    const msg = document.createElement('span');
+    msg.textContent = message;
+    const retry = document.createElement('button');
+    retry.textContent = 'Reintentar';
+    retry.style.cssText = 'background:rgba(255,255,255,0.12);color:#E6ECF3;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
+    retry.onclick = () => location.reload();
+    banner.appendChild(msg);
+    banner.appendChild(retry);
+    document.body.appendChild(banner);
+    // Nudge the dashboard down so nothing is hidden under the banner.
+    document.documentElement.style.setProperty('--eco-banner-offset', '40px');
+    document.body.style.paddingTop = '40px';
+  }
+
   (async function () {
     const params = new URLSearchParams(location.search);
     const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
     const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
+    let apiFailed = false;
+    let apiError = null;
     try {
       const qs = new URLSearchParams({ period });
       if (agency) qs.set('agency', agency);
       const res = await fetch('/api/eco-data?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
-      if (res.ok) window.ECO_DATA_REMOTE = await res.json();
-      else if (res.status === 401) { location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search); return; }
-    } catch (_) {}
+      if (res.ok) {
+        window.ECO_DATA_REMOTE = await res.json();
+      } else if (res.status === 401) {
+        location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
+        return;
+      } else if (res.status === 429) {
+        apiFailed = true;
+        apiError = 'Demasiadas solicitudes al servidor. Esperando y reintentando…';
+      } else {
+        apiFailed = true;
+        apiError = 'El servidor devolvió ' + res.status + '. Los datos mostrados son un respaldo estático.';
+      }
+    } catch (e) {
+      apiFailed = true;
+      apiError = 'No hay conexión con el servidor. Revisa tu red.';
+    }
     const boot = document.getElementById('eco-boot');
     if (boot) boot.remove();
+    if (apiFailed) showApiBanner('error', apiError);
     // Load the pre-compiled prototype bundle. Each file is plain JS (no
     // Babel-in-browser cost). Sequential to preserve global dependency order
     // (data -> icons -> charts -> shell -> screens -> app).
