@@ -1496,7 +1496,6 @@ function GeographyScreen({ onMentionClick }) {
   function openMuniSlice(m) {
     const senti = splitSentiment(m.count, m.nss > 2 ? 'positivo' : m.nss < -2 ? 'negativo' : 'neutral');
     const accent = m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)';
-    const muniSlug = m.slug;
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
       title: `NSS ${m.nss > 0 ? '+' : ''}${m.nss.toFixed(1)}`,
@@ -1507,6 +1506,31 @@ function GeographyScreen({ onMentionClick }) {
       _filter: { municipality: m.slug },
     });
   }
+
+  // If the user came here from a MentionDrawer "Ver en mapa" action, auto-open
+  // the slice modal for the requested municipality. The focus is only honored
+  // if set within the last 30 seconds, so a stale focus never re-triggers.
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem('eco.map.focus');
+      if (!raw) return;
+      const focus = JSON.parse(raw);
+      localStorage.removeItem('eco.map.focus');
+      if (!focus || !focus.slug || (Date.now() - (focus.ts || 0)) > 30_000) return;
+      const muni = (D.MUNICIPALITIES || []).find((m) => m.slug === focus.slug
+        || (m.name || '').toLowerCase() === (focus.name || '').toLowerCase());
+      if (muni) openMuniSlice(muni);
+      else {
+        setSlice({
+          eyebrow: 'Región',
+          title: focus.name || focus.slug,
+          accent: 'var(--accent)',
+          mentions: [],
+          _filter: { municipality: focus.slug },
+        });
+      }
+    } catch (_) {}
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1599,6 +1623,8 @@ function GeographyScreen({ onMentionClick }) {
 function AlertsScreen({ onMentionClick }) {
   const [tab, setTab] = useState('feed');
   const [slice, setSlice] = useState(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [toast, setToast] = useState(null); // { kind, text }
   // Local overrides for feed event state (attended / muted) — since these are
   // user acknowledgements that don't persist yet to the backend.
   const [attended, setAttended] = useState(() => new Set());
@@ -1609,6 +1635,11 @@ function AlertsScreen({ onMentionClick }) {
     (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
     return m;
   });
+
+  function fireToast(kind, text) {
+    setToast({ kind, text });
+    setTimeout(() => setToast(null), 3600);
+  }
 
   function openAlertSlice(a) {
     const accent = a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)';
@@ -1643,7 +1674,7 @@ function AlertsScreen({ onMentionClick }) {
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-primary"><Icons.Plus size={13} /> Nueva regla</button>
+        <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
       </div>
 
       {tab === 'feed' && (
@@ -1717,7 +1748,150 @@ function AlertsScreen({ onMentionClick }) {
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+      {editorOpen && (
+        <AlertRuleEditor
+          topics={D.TOPICS || []}
+          onClose={() => setEditorOpen(false)}
+          onSaved={() => { setEditorOpen(false); fireToast('ok', 'Regla creada.'); setTab('rules'); }}
+          onError={(m) => fireToast('err', m || 'No se pudo guardar la regla')}
+        />
+      )}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 2200,
+          background: toast.kind === 'err' ? 'var(--neg-bg)' : 'var(--pos-bg)',
+          color: toast.kind === 'err' ? 'var(--neg)' : 'var(--pos)',
+          padding: '10px 16px', borderRadius: 8, border: '1px solid var(--hairline)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontSize: 12, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span className="dot" style={{ background: 'currentColor' }} />
+          {toast.text}
+        </div>
+      )}
     </div>
+  );
+}
+
+// --- AlertRuleEditor ---
+function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [topic, setTopic] = useState('');
+  const [sentiment, setSentiment] = useState('any');
+  const [pertinence, setPertinence] = useState('any');
+  const [minVolume, setMinVolume] = useState(5);
+  const [windowMinutes, setWindowMinutes] = useState(60);
+  const [emailsText, setEmailsText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim()) { onError && onError('El nombre es obligatorio'); return; }
+    setSaving(true);
+    const emails = emailsText.split(/[\s,]+/).map(s => s.trim()).filter(s => /.+@.+\..+/.test(s));
+    try {
+      const res = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          config: {
+            topic: topic || null,
+            sentiment: sentiment === 'any' ? null : sentiment,
+            pertinence: pertinence === 'any' ? null : pertinence,
+            threshold: { minMentions: Number(minVolume), windowMinutes: Number(windowMinutes) },
+          },
+          notifyEmails: emails,
+        }),
+      });
+      if (res.ok) { onSaved && onSaved(); }
+      else {
+        const body = await res.json().catch(() => ({}));
+        onError && onError(body.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      onError && onError(e.message || 'Error de red');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <div role="dialog" aria-modal="true" style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto',
+        background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
+        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        zIndex: 2001, display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div className="section-eyebrow">Nueva regla</div>
+            <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', marginTop: 4 }}>Configurar condiciones y notificación</div>
+          </div>
+          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+        </div>
+        <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Nombre</span>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Pico de negativos en infraestructura" />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Descripción (opcional)</span>
+            <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Tópico</span>
+              <select className="input" value={topic} onChange={(e) => setTopic(e.target.value)}>
+                <option value="">Cualquiera</option>
+                {(topics || []).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Sentimiento</span>
+              <select className="input" value={sentiment} onChange={(e) => setSentiment(e.target.value)}>
+                <option value="any">Cualquiera</option>
+                <option value="negativo">Negativo</option>
+                <option value="neutral">Neutral</option>
+                <option value="positivo">Positivo</option>
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Pertinencia mínima</span>
+              <select className="input" value={pertinence} onChange={(e) => setPertinence(e.target.value)}>
+                <option value="any">Cualquiera</option>
+                <option value="alta">Alta</option>
+                <option value="media">Media</option>
+                <option value="baja">Baja</option>
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral · menciones</span>
+              <input className="input" type="number" min="1" value={minVolume} onChange={(e) => setMinVolume(e.target.value)} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Ventana de evaluación · minutos</span>
+              <input className="input" type="number" min="5" step="5" value={windowMinutes} onChange={(e) => setWindowMinutes(e.target.value)} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Correos a notificar (separados por coma)</span>
+              <input className="input" value={emailsText} onChange={(e) => setEmailsText(e.target.value)} placeholder="equipo@agencia.pr.gov" />
+            </label>
+          </div>
+        </div>
+        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving ? 'Guardando…' : 'Crear regla'}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1907,13 +2081,17 @@ function UsersAdmin() {
       }
       setDrawer(null);
       refresh();
+      (window.ecoToast || (() => {}))('ok', 'Usuario guardado');
     } catch (e) {
-      alert('No se pudo guardar: ' + (e.message || e));
+      (window.ecoToast || (() => {}))('err', 'No se pudo guardar: ' + (e.message || e));
     }
   };
 
   const deleteUser = async (id) => {
-    if (!confirm('¿Suspender este usuario? Podrás reactivarlo después.')) return;
+    const confirmed = window.ecoConfirm
+      ? await window.ecoConfirm('¿Suspender este usuario? Podrás reactivarlo después.')
+      : confirm('¿Suspender este usuario? Podrás reactivarlo después.');
+    if (!confirmed) return;
     try {
       await fetch('/api/users/' + encodeURIComponent(id), {
         method: 'DELETE',
@@ -1921,8 +2099,9 @@ function UsersAdmin() {
       });
       setDrawer(null);
       refresh();
+      (window.ecoToast || (() => {}))('ok', 'Usuario suspendido');
     } catch (e) {
-      alert('No se pudo eliminar: ' + (e.message || e));
+      (window.ecoToast || (() => {}))('err', 'No se pudo eliminar: ' + (e.message || e));
     }
   };
 
@@ -2217,33 +2396,93 @@ function Field({ label, required, children }) {
 }
 
 function AlertsPrefs() {
+  // Persist toggles + destinations in localStorage so the settings survive
+  // reload. When a user-preferences API lands we can swap the storage layer
+  // without changing the UI.
+  const DEFAULTS = {
+    email: { on: true,  dest: '' },
+    sms:   { on: false, dest: '' },
+    slack: { on: false, dest: '' },
+    teams: { on: false, dest: '' },
+  };
+  const [prefs, setPrefs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('eco.prefs.alertChannels');
+      if (!raw) return DEFAULTS;
+      return { ...DEFAULTS, ...JSON.parse(raw) };
+    } catch { return DEFAULTS; }
+  });
+  const [saved, setSaved] = useState(false);
+
+  function update(k, patch) {
+    setPrefs((p) => {
+      const next = { ...p, [k]: { ...p[k], ...patch } };
+      try { localStorage.setItem('eco.prefs.alertChannels', JSON.stringify(next)); } catch {}
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      return next;
+    });
+  }
+
+  const channels = [
+    { k: 'email', l: 'Correo electrónico', placeholder: 'tu@agencia.pr.gov' },
+    { k: 'sms',   l: 'SMS',                placeholder: '+1 787 000 0000' },
+    { k: 'slack', l: 'Slack',              placeholder: '#canal-monitoreo' },
+    { k: 'teams', l: 'Microsoft Teams',    placeholder: 'Webhook URL' },
+  ];
+
   return (
     <div className="card">
-      <div className="card-hd"><div><div className="card-hd-title">Preferencias de alertas</div><div className="card-hd-sub">Canales por defecto para tu cuenta</div></div></div>
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">Preferencias de alertas</div>
+          <div className="card-hd-sub">Canales por defecto · se aplican a las reglas que crees desde ahora</div>
+        </div>
+        {saved && <span className="pill pill-pos">Guardado</span>}
+      </div>
       <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {[
-          { k: 'email', l: 'Correo electrónico', d: 'maria.santos@dtop.pr.gov', on: true },
-          { k: 'sms',   l: 'SMS',                d: '+1 787 ••• 4821',           on: true },
-          { k: 'slack', l: 'Slack',              d: '#dtop-monitoreo',           on: true },
-          { k: 'teams', l: 'Microsoft Teams',    d: 'No conectado',              on: false },
-        ].map(c => (
-          <div key={c.k} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--hairline)', borderRadius: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.l}</div>
-              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{c.d}</div>
+        {channels.map((c) => {
+          const val = prefs[c.k] || { on: false, dest: '' };
+          return (
+            <div key={c.k}
+              style={{
+                display: 'grid', gridTemplateColumns: '1fr auto 40px',
+                alignItems: 'center', gap: 12,
+                padding: '12px 14px', border: '1px solid var(--hairline)', borderRadius: 10,
+              }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.l}</div>
+                <input
+                  className="input"
+                  style={{ marginTop: 4, fontSize: 11 }}
+                  placeholder={c.placeholder}
+                  value={val.dest}
+                  onChange={(e) => update(c.k, { dest: e.target.value })}
+                  disabled={!val.on}
+                />
+              </div>
+              <span style={{ fontSize: 10, color: val.on ? 'var(--pos)' : 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase' }}>
+                {val.on ? 'Activo' : 'Inactivo'}
+              </span>
+              <button
+                onClick={() => update(c.k, { on: !val.on })}
+                aria-label={`Toggle ${c.l}`}
+                style={{
+                  width: 36, height: 20, borderRadius: 999, border: 'none',
+                  background: val.on ? 'var(--pos)' : 'var(--hairline-strong)',
+                  position: 'relative', cursor: 'pointer', padding: 0,
+                }}>
+                <span style={{
+                  display: 'block', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                  position: 'absolute', top: 2, left: val.on ? 18 : 2, transition: 'left 0.2s',
+                }} />
+              </button>
             </div>
-            <div style={{
-              width: 36, height: 20, borderRadius: 999,
-              background: c.on ? 'var(--pos)' : 'var(--hairline)',
-              position: 'relative', cursor: 'pointer',
-            }}>
-              <div style={{
-                width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                position: 'absolute', top: 2, left: c.on ? 18 : 2, transition: 'left 0.2s',
-              }} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+          Estas preferencias se guardan localmente. Cuando una regla incluya estos canales, se usarán automáticamente.
+        </div>
       </div>
     </div>
   );

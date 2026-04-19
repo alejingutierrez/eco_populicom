@@ -3,6 +3,74 @@ const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
 const { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
 
+// Toast system — replaces browser alert()/confirm() for ephemeral messages.
+// Shared state stored on window and observed by the React <ToastHost>.
+(function initToastBus() {
+  if (window.ecoToast) return;
+  const listeners = new Set();
+  let nextId = 1;
+  window.ecoToast = function (kind, text, opts) {
+    const toast = { id: nextId++, kind: kind || 'info', text: String(text || ''), ttl: (opts && opts.ttl) || 3600 };
+    listeners.forEach((fn) => fn({ type: 'add', toast }));
+    setTimeout(() => {
+      listeners.forEach((fn) => fn({ type: 'remove', id: toast.id }));
+    }, toast.ttl);
+    return toast.id;
+  };
+  window.ecoConfirm = function (text) {
+    return new Promise((resolve) => {
+      const id = nextId++;
+      const toast = { id, kind: 'confirm', text, onChoice: (v) => resolve(v) };
+      listeners.forEach((fn) => fn({ type: 'add', toast }));
+    });
+  };
+  window.__ecoToastBus = { listeners, remove: (id) => listeners.forEach((fn) => fn({ type: 'remove', id })) };
+})();
+
+function ToastHost() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    const fn = (evt) => {
+      if (evt.type === 'add') setToasts((ts) => [...ts, evt.toast]);
+      else if (evt.type === 'remove') setToasts((ts) => ts.filter((t) => t.id !== evt.id));
+    };
+    window.__ecoToastBus.listeners.add(fn);
+    return () => window.__ecoToastBus.listeners.delete(fn);
+  }, []);
+  const close = (id) => window.__ecoToastBus.remove(id);
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 2500, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {toasts.map((t) => {
+        const base = {
+          padding: '10px 16px', borderRadius: 8, border: '1px solid var(--hairline)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontSize: 12, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 10, minWidth: 240, maxWidth: 420,
+        };
+        const palette = t.kind === 'err' ? { bg: 'var(--neg-bg)', fg: 'var(--neg)' }
+          : t.kind === 'ok' ? { bg: 'var(--pos-bg)', fg: 'var(--pos)' }
+          : t.kind === 'warn' ? { bg: 'var(--warn-bg)', fg: 'var(--warn)' }
+          : t.kind === 'confirm' ? { bg: 'var(--canvas)', fg: 'var(--text)' }
+          : { bg: 'var(--canvas-2)', fg: 'var(--text)' };
+        return (
+          <div key={t.id} style={{ ...base, background: palette.bg, color: palette.fg }}>
+            {t.kind !== 'confirm' && <span className="dot" style={{ background: 'currentColor' }} />}
+            <span style={{ flex: 1 }}>{t.text}</span>
+            {t.kind === 'confirm' ? (
+              <>
+                <button className="btn" style={{ fontSize: 11 }} onClick={() => { t.onChoice(false); close(t.id); }}>Cancelar</button>
+                <button className="btn btn-primary" style={{ fontSize: 11 }} onClick={() => { t.onChoice(true); close(t.id); }}>Confirmar</button>
+              </>
+            ) : (
+              <button onClick={() => close(t.id)} style={{ background: 'transparent', border: 'none', color: 'currentColor', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Map URL path <-> active screen so deep links, browser back/forward and
 // bookmarks all work. `/` and unknown paths resolve to the dashboard.
 const PATH_TO_SCREEN = {
@@ -212,7 +280,15 @@ function App() {
         onSetMode={(m) => { setMode(m); }}
         onOpenMentionsWithFilter={(f) => { setMentionsFilter(f); setActive('mentions'); }}
       />}
-      {drawerMention && <MentionDrawer mention={drawerMention} onClose={() => setDrawerMention(null)} />}
+      {drawerMention && (
+        <MentionDrawer
+          mention={drawerMention}
+          onClose={() => setDrawerMention(null)}
+          onNavigate={(screen) => { setDrawerMention(null); setActive(screen); }}
+          onMentionClick={(m) => setDrawerMention(m)}
+        />
+      )}
+      <ToastHost />
     </div>
   );
 }

@@ -437,7 +437,28 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   );
 }
 
-function MentionDrawer({ mention, onClose }) {
+function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
+  const [related, setRelated] = React.useState(null); // null while loading, [] if none
+
+  // Fetch a handful of mentions in the same topic (or subtopic if present)
+  // whenever a mention is opened. Falls back to municipality when no topic.
+  React.useEffect(() => {
+    if (!mention) return;
+    setRelated(null);
+    const ctrl = new AbortController();
+    const agency = (typeof window !== 'undefined' && localStorage.getItem('eco.agency')) || '';
+    const period = (typeof window !== 'undefined' && localStorage.getItem('eco.period')) || '1M';
+    const params = new URLSearchParams({ period, limit: '6' });
+    if (agency) params.set('agency', agency);
+    if (mention.topic) params.set('topic', mention.topic);
+    else if (mention.municipality) params.set('municipality', mention.municipality.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : { mentions: [] })
+      .then((j) => setRelated((j.mentions || []).filter((m) => m.id !== mention.id).slice(0, 5)))
+      .catch(() => setRelated([]));
+    return () => ctrl.abort();
+  }, [mention?.id]);
+
   if (!mention) return null;
   const sentClass = mention.sentiment === 'positivo' ? 'pill-pos' : mention.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
   return (
@@ -573,11 +594,63 @@ function MentionDrawer({ mention, onClose }) {
                       {mention.coords?.[0].toFixed(4)}°N, {Math.abs(mention.coords?.[1] ?? 0).toFixed(4)}°O · Región {mention.region}
                     </div>
                   </div>
-                  <button className="btn" style={{ fontSize: 11 }}>Ver en mapa</button>
+                  <button className="btn"
+                    style={{ fontSize: 11 }}
+                    onClick={() => {
+                      if (onNavigate) {
+                        // Persist desired map focus so the geography screen can
+                        // open the slice modal for the clicked municipality.
+                        try {
+                          localStorage.setItem('eco.map.focus', JSON.stringify({
+                            slug: (mention.municipality || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                            name: mention.municipality,
+                            ts: Date.now(),
+                          }));
+                        } catch (_) {}
+                        onClose && onClose();
+                        onNavigate('geography');
+                      }
+                    }}>Ver en mapa</button>
                 </div>
               </div>
             </div>
           )}
+
+          {/* Relacionadas — mentions from the same topic (or same municipality) */}
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Relacionadas</div>
+            {related === null && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Cargando menciones similares…</div>
+            )}
+            {related && related.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sin menciones similares en el período.</div>
+            )}
+            {related && related.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {related.map((r) => {
+                  const sc = r.sentiment === 'positivo' ? 'pill-pos' : r.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+                  return (
+                    <button key={r.id}
+                      onClick={() => onMentionClick && onMentionClick(r)}
+                      style={{
+                        textAlign: 'left', background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+                        borderRadius: 8, padding: '10px 12px', cursor: 'pointer', display: 'flex',
+                        flexDirection: 'column', gap: 4,
+                      }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span className={`pill ${sc}`} style={{ fontSize: 9 }}>{r.sentiment}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.publishedAt}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.title}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.domain}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-primary"
@@ -892,9 +965,9 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                       notifyEmails: [],
                     }),
                   });
-                  if (res.ok) alert('Alerta creada.');
-                  else alert('No se pudo crear la alerta (' + res.status + ')');
-                } catch (_) { alert('Error creando la alerta'); }
+                  if (res.ok) (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
+                  else (window.ecoToast || (() => {}))('err', 'No se pudo crear la alerta (' + res.status + ')');
+                } catch (_) { (window.ecoToast || (() => {}))('err', 'Error creando la alerta'); }
               }}>
               <Icons.Bell size={13} /> Crear alerta
             </button>
