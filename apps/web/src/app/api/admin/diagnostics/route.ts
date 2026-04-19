@@ -164,14 +164,28 @@ export async function GET(request: NextRequest) {
       UNION ALL SELECT 'oldest_published', MIN(published_at)::text FROM mentions
     `));
 
-    // Ingestion cursors — do they look current per query?
-    const cursors = rowsOf<{ agency_slug: string; query_id: string; last_cursor: string | null; updated_at: string | null }>(await db.execute(sql`
-      SELECT a.slug AS agency_slug, ic.brandwatch_query_id::text AS query_id,
-        ic.last_cursor::text AS last_cursor,
-        ic.updated_at::text AS updated_at
+    // Ingestion cursors — schema is keyed by Brandwatch query_id only; we
+    // correlate back to an agency via the jsonb brandwatch_query_ids array.
+    const cursors = rowsOf<{
+      query_id: string;
+      last_mention_date: string | null;
+      last_run_at: string | null;
+      mentions_fetched: number | string;
+      status: string;
+      agency_slug: string | null;
+    }>(await db.execute(sql`
+      SELECT
+        ic.query_id::text AS query_id,
+        ic.last_mention_date::text AS last_mention_date,
+        ic.last_run_at::text AS last_run_at,
+        ic.mentions_fetched,
+        ic.status,
+        (SELECT a.slug FROM agencies a
+          WHERE a.brandwatch_query_ids IS NOT NULL
+            AND a.brandwatch_query_ids::jsonb @> to_jsonb(ic.query_id)
+          LIMIT 1) AS agency_slug
       FROM ingestion_cursors ic
-      JOIN agencies a ON a.id = ic.agency_id
-      ORDER BY a.slug, ic.brandwatch_query_id
+      ORDER BY ic.query_id
     `));
 
     // How many unique bw_resource_ids per day — trend line, makes outages visible
