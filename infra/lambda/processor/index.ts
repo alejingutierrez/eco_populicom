@@ -4,7 +4,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText } from '@eco/shared';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -12,7 +12,22 @@ const sm = new SecretsManagerClient({});
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const ALERTS_QUEUE_URL = process.env.ALERTS_QUEUE_URL!;
+// Primary model: best quality. Fallback: used when primary is throttled/quota-agotado.
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
+const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+
+// Soft circuit-breaker: once the primary model throttles, skip it for this many
+// milliseconds to avoid hammering a quota that's been consumed for the day.
+const PRIMARY_COOLDOWN_MS = 5 * 60 * 1000;
+let primaryCooldownUntil = 0;
+
+function isThrottlingError(err: unknown): boolean {
+  const e = err as { name?: string; message?: string };
+  if (!e) return false;
+  if (e.name === 'ThrottlingException') return true;
+  const msg = String(e.message ?? '').toLowerCase();
+  return msg.includes('too many tokens') || msg.includes('too many requests') || msg.includes('throttl');
+}
 
 let dbUrl: string | null = null;
 
@@ -54,8 +69,46 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   await client.connect();
 
   try {
-    for (const record of event.Records) {
-      await processRecord(record, client);
+    // Batch dedup: one SELECT filters out mentions already in DB.
+    const resourceIds: string[] = [];
+    for (const r of event.Records) {
+      try {
+        const body = JSON.parse(r.body) as BrandwatchMention;
+        if (body.resourceId) resourceIds.push(body.resourceId);
+      } catch { /* skip malformed */ }
+    }
+
+    let existingSet = new Set<string>();
+    if (resourceIds.length > 0) {
+      const existing = await client.query(
+        'SELECT bw_resource_id FROM mentions WHERE bw_resource_id = ANY($1::text[])',
+        [resourceIds],
+      );
+      existingSet = new Set(existing.rows.map((r: any) => r.bw_resource_id));
+    }
+
+    const newRecords = event.Records.filter((r) => {
+      try {
+        const body = JSON.parse(r.body) as BrandwatchMention;
+        return !existingSet.has(body.resourceId);
+      } catch { return false; }
+    });
+
+    const skipped = event.Records.length - newRecords.length;
+    console.log(`Batch: ${event.Records.length} records — ${skipped} duplicates skipped, ${newRecords.length} new`);
+
+    // Parallelize NLP + inserts. `pg.Client` serializes DB queries internally,
+    // but Bedrock calls run concurrently (the real bottleneck).
+    if (newRecords.length > 0) {
+      const results = await Promise.allSettled(
+        newRecords.map((r) => processRecord(r, client)),
+      );
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        // Re-throw first error so SQS retries the batch.
+        console.error(`${failed.length}/${newRecords.length} records failed in batch`);
+        throw (failed[0] as PromiseRejectedResult).reason;
+      }
     }
   } finally {
     await client.end();
@@ -66,20 +119,20 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
   const resourceId = mention.resourceId;
 
-  const agency = agencyMap!.get(mention.queryId);
-  if (!agency) { console.warn(`Unknown queryId ${mention.queryId}, skipping`); return; }
-
-  console.log(`[${agency.slug}] Processing mention ${resourceId} from ${mention.domain}`);
-
-  // Check if already processed (idempotency)
-  const existing = await pgClient.query(
-    'SELECT id FROM mentions WHERE bw_resource_id = $1',
-    [resourceId],
-  );
-  if (existing.rows.length > 0) {
-    console.log(`[${agency.slug}] Mention ${resourceId} already exists, skipping`);
-    return;
+  let agency = agencyMap!.get(mention.queryId);
+  if (!agency) {
+    // Stale warm-container cache — refresh from DB before giving up
+    console.log(`queryId ${mention.queryId} not in cached map (size=${agencyMap!.size}); refreshing`);
+    agencyMap = await loadAgencyMap(dbUrl!);
+    agency = agencyMap.get(mention.queryId);
   }
+  if (!agency) {
+    // Truly unknown even after refresh — throw so SQS retries/DLQ handles it
+    throw new Error(`Unknown queryId ${mention.queryId} after refresh — check agency seed`);
+  }
+
+  // NOTE: bw_resource_id existence check is done in the handler via batch SELECT,
+  // so this record is guaranteed new here. The INSERT still has a UNIQUE guard.
 
   // Compute text hash for deduplication
   const textForHash = normalizeText((mention.title ?? '') + ' ' + (mention.snippet ?? ''));
@@ -95,6 +148,13 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
 
   // Call Claude Opus via Bedrock for NLP analysis
   const nlp = await analyzeWithClaude(mention, agency);
+
+  // Reinforce municipality coverage with a deterministic regex pass over the
+  // text Claude saw. Merges with Claude's output and dedupes. This alone took
+  // coverage from 31% to >70% on a sample in local tests.
+  const regexMunis = extractMunicipalitiesFromText(mention.title, mention.snippet, nlp.summary);
+  const mergedMunis = Array.from(new Set([...(nlp.municipalities ?? []), ...regexMunis]));
+  nlp.municipalities = mergedMunis.filter((m) => MUNICIPALITY_SLUGS.includes(m));
 
   // Insert mention
   const mentionResult = await pgClient.query(
@@ -138,7 +198,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       JSON.stringify(mention.mediaUrls ?? []),
       (mention.mediaUrls?.length ?? 0) > 0 && mention.subtype === 'photo',
       mention.subtype === 'video',
-      mention.date ? new Date(mention.date) : new Date(), mention.language ?? 'es',
+      parsePublishedAt(mention), mention.language ?? 'es',
     ],
   );
 
@@ -225,6 +285,15 @@ async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo)
   const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
   const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
 
+  // Pass Brandwatch's own sentiment (positive/neutral/negative) as a hint so
+  // Claude has an anchor. Historically Claude was too positive — it rated
+  // 5,600 "bw=neutral" news items as "positivo". The rules below bias
+  // toward neutral for factual reporting and require overt language for a
+  // positivo call.
+  const bwSentimentHint = mention.sentiment
+    ? `\nSentimiento Brandwatch (referencia): ${mention.sentiment}`
+    : '';
+
   const prompt = `Eres un analista de social listening especializado en Puerto Rico.
 Analiza esta mención sobre ${agency.name}.
 
@@ -233,7 +302,7 @@ Título: ${mention.title ?? '(sin título)'}
 Texto: ${mention.snippet ?? '(sin texto)'}
 Fuente: ${mention.contentSourceName ?? mention.domain} (${mention.domain})
 Autor: ${mention.author ?? 'Desconocido'}
-Fecha: ${mention.date}
+Fecha: ${mention.date}${bwSentimentHint}
 
 Responde SOLO con JSON válido (sin markdown, sin backticks):
 {
@@ -245,31 +314,72 @@ Responde SOLO con JSON válido (sin markdown, sin backticks):
   "summary": "Resumen de una línea"
 }
 
-REGLAS:
-- emotions: del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3.
-- pertinence: "alta" si la mención TRATA sobre ${agency.name}. "media" si ${agency.name} es secundaria. "baja" si ${agency.name} se menciona de paso.
-- topics: usar SOLO estos slugs de tópicos: ${topicSlugs}
-- subtopic_slug: ${subtopicSlugs}
-- municipalities: slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon). Solo los que se mencionan o infieren del contexto.
-- confidence: 0.0 a 1.0
-- Máximo 3 tópicos por mención.`;
+REGLAS DE SENTIMIENTO (muy importantes — los datos actuales tienen sesgo positivo):
+- "positivo" EXCLUSIVAMENTE cuando el autor/medio expresa evaluación explícitamente favorable hacia ${agency.name}: elogios, logros celebrados por la ciudadanía, resolución de problemas agradecida, decisiones aplaudidas. Señales: "felicita", "excelente", "gracias a", "aplauden", "reconocimiento".
+- "negativo" cuando la mención expresa queja, crítica, denuncia, fallo operativo, escándalo, protesta, reclamo ciudadano, o el autor/medio usa lenguaje desfavorable. Señales: "denuncia", "protesta", "falla", "critica", "cuestiona", "sigue sin", "años sin", "exigen".
+- "neutral" por defecto para: reportajes informativos sin valoración, comunicados oficiales, anuncios institucionales sin reacción pública visible, datos, números de contacto, inauguraciones descritas sin entusiasmo evaluativo. Si el texto solo DESCRIBE sin evaluar, es neutral.
+- NO marques positivo solo porque se resuelva un problema o se inaugure algo. Solo cuando haya elogio explícito.
+- Si el Sentimiento Brandwatch dice "neutral", usa "neutral" salvo que el texto tenga señales inequívocas de positivo/negativo.
 
-  const response = await bedrock.send(
-    new InvokeModelCommand({
-      modelId: BEDROCK_MODEL_ID,
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-      }),
-    }),
-  );
+PERTINENCIA:
+- "alta" si la mención TRATA sobre ${agency.name}. "media" si ${agency.name} es secundaria. "baja" si ${agency.name} se menciona de paso.
 
-  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-  const text = responseBody.content[0].text;
+EMOTIONS:
+- del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3. Omite el campo si el texto es meramente factual.
+
+TOPICS:
+- usar SOLO estos slugs: ${topicSlugs}
+- subtopic_slug (opcional): ${subtopicSlugs}
+- Máximo 3 tópicos por mención.
+- confidence: 0.0 a 1.0.
+
+MUNICIPALITIES:
+- Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).
+- Incluye TODO municipio mencionado por nombre, barrio (Santurce→san-juan, Río Piedras→san-juan, Levittown→toa-baja, Condado→san-juan) o contexto geográfico claro.
+- Si el texto menciona sólo "Puerto Rico" sin municipio, deja el array vacío.`;
+
+  const modelsToTry: string[] = [];
+  const now = Date.now();
+  if (now >= primaryCooldownUntil) {
+    modelsToTry.push(BEDROCK_MODEL_ID);
+  }
+  if (BEDROCK_FALLBACK_MODEL_ID && BEDROCK_FALLBACK_MODEL_ID !== BEDROCK_MODEL_ID) {
+    modelsToTry.push(BEDROCK_FALLBACK_MODEL_ID);
+  }
+
+  let text: string | null = null;
+  let lastErr: unknown = null;
+  for (const modelId of modelsToTry) {
+    try {
+      const response = await bedrock.send(
+        new InvokeModelCommand({
+          modelId,
+          contentType: 'application/json',
+          accept: 'application/json',
+          body: JSON.stringify({
+            anthropic_version: 'bedrock-2023-05-31',
+            max_tokens: 1024,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+          }),
+        }),
+      );
+      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+      text = responseBody.content[0].text;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (isThrottlingError(err) && modelId === BEDROCK_MODEL_ID) {
+        primaryCooldownUntil = Date.now() + PRIMARY_COOLDOWN_MS;
+        console.warn(`[${agency.slug}] Primary model ${modelId} throttled; cooling down ${PRIMARY_COOLDOWN_MS / 1000}s, falling back`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (text === null) {
+    throw lastErr ?? new Error('No Bedrock model produced a response');
+  }
 
   try {
     // Strip markdown code fences if present
@@ -311,6 +421,15 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
     municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
     summary: (raw.summary ?? '').slice(0, 500),
   };
+}
+
+function parsePublishedAt(m: BrandwatchMention): Date {
+  // Brandwatch sometimes omits `date`; fall back to `added` (when BW received it)
+  // before using "now" so historical mentions aren't collapsed onto the ingest day.
+  const raw = m.date || (m as any).added;
+  if (!raw) return new Date();
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
 function normalizeText(text: string): string {

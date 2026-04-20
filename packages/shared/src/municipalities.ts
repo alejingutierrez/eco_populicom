@@ -112,4 +112,68 @@ export function getMunicipalitiesByRegion(region: string): MunicipalityDef[] {
 
 /** Regions of Puerto Rico */
 export const REGIONS = ['Metro', 'Norte', 'Este', 'Oeste', 'Sur', 'Central'] as const;
+
+// ============================================================
+//  Regex-based municipality extraction
+// ============================================================
+// Claude sometimes omits obvious municipalities from free-form text. A cheap
+// post-pass scans the title + snippet + NLP summary for the 78 canonical
+// names and merges them with whatever the LLM returned. Ambiguous /
+// collision-prone matches (e.g. "Florida" — also a U.S. state; short
+// aliases) require a PR-context anchor word nearby.
+
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Manual aliases: alternate spellings, barrios, or nicknames that should
+// resolve to a canonical slug. Accent-insensitive match.
+const MANUAL_ALIASES: Record<string, string> = {
+  'rio piedras': 'san-juan',
+  'río piedras': 'san-juan',
+  'santurce': 'san-juan',
+  'hato rey': 'san-juan',
+  'condado': 'san-juan',
+  'viejo san juan': 'san-juan',
+  'old san juan': 'san-juan',
+  'levittown': 'toa-baja',
+  'isabela segunda': 'vieques',
+  'esperanza': 'vieques',
+  'la perla': 'san-juan',
+};
+
+// Names that collide with non-municipality senses (US states, common nouns).
+// Counted only when accompanied by a PR-context anchor in the same text.
+const AMBIGUOUS_NAMES = new Set<string>(['florida']);
+const PR_CONTEXT_ANCHORS = /\b(puerto\s*rico|municipio|barrio|isla\s*del\s*encanto)\b/i;
+
+/** Extract municipality slugs from free-form text (title + snippet + summary). */
+export function extractMunicipalitiesFromText(
+  ...parts: Array<string | null | undefined>
+): string[] {
+  const text = parts.filter((s): s is string => typeof s === 'string' && s.length > 0).join('  ');
+  if (!text) return [];
+  const normalized = stripAccents(text.toLowerCase());
+  const hasPrContext = PR_CONTEXT_ANCHORS.test(text);
+  const found = new Set<string>();
+
+  // 1) Canonical names (accent-insensitive, word-boundary)
+  for (const m of MUNICIPALITIES) {
+    const canon = stripAccents(m.name.toLowerCase());
+    const re = new RegExp('(?:^|[^a-z0-9])' + canon.replace(/[-.*+?^${}()|[\]\\]/g, '\\$&') + '(?=$|[^a-z0-9])');
+    if (re.test(normalized)) {
+      if (AMBIGUOUS_NAMES.has(canon) && !hasPrContext) continue;
+      found.add(m.slug);
+    }
+  }
+
+  // 2) Aliases / barrio mappings
+  for (const [alias, slug] of Object.entries(MANUAL_ALIASES)) {
+    const a = stripAccents(alias);
+    const re = new RegExp('(?:^|[^a-z0-9])' + a.replace(/\s+/g, '\\s+') + '(?=$|[^a-z0-9])');
+    if (re.test(normalized)) found.add(slug);
+  }
+
+  return [...found];
+}
 export type Region = (typeof REGIONS)[number];

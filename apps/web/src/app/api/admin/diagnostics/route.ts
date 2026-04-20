@@ -92,45 +92,47 @@ export async function GET(request: NextRequest) {
       SELECT COALESCE(nlp_pertinence, 'NULL') AS p, COUNT(*)::bigint AS c FROM mentions GROUP BY nlp_pertinence ORDER BY c DESC
     `));
 
-    // Per-agency stats
+    // Per-agency stats. Join-based aggregates used to cartesian-multiply the
+    // mentions count by the number of mention_topics/mention_municipalities
+    // rows. We now aggregate each join separately and combine with scalar
+    // subqueries to keep the counts accurate.
     const perAgency = rowsOf<{
       slug: string; name: string;
       total: number | string; processed: number | string; with_topic: number | string;
       with_muni: number | string; last_ingest: string | null; last_published: string | null;
       nlp_covered: number | string; agreement_rate: number | string | null;
     }>(await db.execute(sql`
-      WITH agg AS (
-        SELECT
-          m.agency_id,
-          COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE m.processed_at IS NOT NULL) AS processed,
-          COUNT(*) FILTER (WHERE m.nlp_sentiment IS NOT NULL) AS nlp_covered,
-          MAX(m.ingested_at) AS last_ingest,
-          MAX(m.published_at) AS last_published,
-          COUNT(DISTINCT CASE WHEN mt.mention_id IS NOT NULL THEN m.id END) AS with_topic,
-          COUNT(DISTINCT CASE WHEN mm.mention_id IS NOT NULL THEN m.id END) AS with_muni,
-          AVG(
+      SELECT
+        a.slug,
+        a.name,
+        (SELECT COUNT(*) FROM mentions m WHERE m.agency_id = a.id) AS total,
+        (SELECT COUNT(*) FROM mentions m WHERE m.agency_id = a.id AND m.processed_at IS NOT NULL) AS processed,
+        (SELECT COUNT(*) FROM mentions m WHERE m.agency_id = a.id AND m.nlp_sentiment IS NOT NULL) AS nlp_covered,
+        (SELECT COUNT(DISTINCT mt.mention_id)
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+           WHERE m.agency_id = a.id) AS with_topic,
+        (SELECT COUNT(DISTINCT mm.mention_id)
+           FROM mention_municipalities mm
+           JOIN mentions m ON m.id = mm.mention_id
+           WHERE m.agency_id = a.id) AS with_muni,
+        (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = a.id) AS last_ingest,
+        (SELECT MAX(published_at) FROM mentions WHERE agency_id = a.id) AS last_published,
+        (
+          SELECT AVG(
             CASE
-              WHEN m.bw_sentiment IS NULL OR m.nlp_sentiment IS NULL THEN NULL
-              WHEN (m.bw_sentiment='positive' AND m.nlp_sentiment='positivo')
-                OR (m.bw_sentiment='negative' AND m.nlp_sentiment='negativo')
-                OR (m.bw_sentiment='neutral'  AND m.nlp_sentiment='neutral')
+              WHEN bw_sentiment IS NULL OR nlp_sentiment IS NULL THEN NULL
+              WHEN (bw_sentiment='positive' AND nlp_sentiment='positivo')
+                OR (bw_sentiment='negative' AND nlp_sentiment='negativo')
+                OR (bw_sentiment='neutral'  AND nlp_sentiment='neutral')
                 THEN 1.0 ELSE 0.0
             END
-          )::numeric(10,3) AS agreement_rate
-        FROM mentions m
-        LEFT JOIN mention_topics mt ON mt.mention_id = m.id
-        LEFT JOIN mention_municipalities mm ON mm.mention_id = m.id
-        GROUP BY m.agency_id
-      )
-      SELECT a.slug, a.name,
-        agg.total, agg.processed, agg.nlp_covered,
-        agg.with_topic, agg.with_muni,
-        agg.last_ingest, agg.last_published, agg.agreement_rate
+          )::numeric(10,3)
+          FROM mentions WHERE agency_id = a.id
+        ) AS agreement_rate
       FROM agencies a
-      LEFT JOIN agg ON agg.agency_id = a.id
       WHERE a.is_active = true
-      ORDER BY agg.total DESC NULLS LAST
+      ORDER BY total DESC NULLS LAST
     `));
 
     // daily_metric_snapshots freshness per agency
