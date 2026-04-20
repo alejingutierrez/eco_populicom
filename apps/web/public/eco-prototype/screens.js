@@ -316,7 +316,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
           {D.MENTIONS.slice(0, 7).map((mn, idx) => {
             const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
             const SIcon = Icons[sourceIcon];
-            const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+            const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
             return (
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
@@ -651,7 +651,7 @@ function MentionsList({ mentions, onMentionClick }) {
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
         const SIcon = Icons[sourceIcon];
-        const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+        const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
             style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 80px 90px 80px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
@@ -681,7 +681,7 @@ function MentionsCards({ mentions, onMentionClick }) {
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
         const SIcon = Icons[sourceIcon];
-        const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+        const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         const accent = mn.sentiment === 'positivo' ? 'var(--pos)' : mn.sentiment === 'negativo' ? 'var(--neg)' : 'var(--warn)';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)}
@@ -750,7 +750,7 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
           {mentions.map(mn => {
             const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
             const SIcon = Icons[sourceIcon];
-            const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+            const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
             return (
               <tr key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover" style={{ borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}>
                 <td style={{ padding: '8px 10px' }}><SIcon size={12} color="var(--text-3)" /></td>

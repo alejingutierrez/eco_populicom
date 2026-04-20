@@ -907,7 +907,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
               {mentions.map(mn => {
                 const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
                 const SIcon = Icons[sourceIcon];
-                const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
+                const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
                 return (
                   <div key={mn.id} className="row-hover"
                     onClick={() => onMentionClick && onMentionClick(mn)}

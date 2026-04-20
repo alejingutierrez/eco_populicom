@@ -337,9 +337,27 @@
 
   .pill-pos { background: var(--pos-bg); color: var(--pos); }
   .pill-neg { background: var(--neg-bg); color: var(--neg); }
-  .pill-neu { background: var(--canvas-2); color: var(--text-2); border: 1px solid var(--hairline); }
+  /* pill-neu must read as classified, not as "empty". In dark mode the old
+     canvas-2 background blended into cards and looked unclassified. */
+  .pill-neu {
+    background: color-mix(in oklab, var(--text-2) 18%, transparent);
+    color: var(--text-2);
+    border: 1px solid color-mix(in oklab, var(--text-2) 35%, transparent);
+  }
+  [data-mode="dark"] .pill-neu {
+    background: color-mix(in oklab, var(--text-2) 22%, transparent);
+    color: var(--text);
+    border-color: color-mix(in oklab, var(--text-2) 45%, transparent);
+  }
   .pill-warn { background: var(--warn-bg); color: var(--warn); }
   .pill-info { background: var(--accent-fill); color: var(--accent); }
+  /* Fallback for unexpected sentiment values (should never hit in prod given
+     the DB constraint, but surfaces gracefully if it does). */
+  .pill-unknown {
+    background: repeating-linear-gradient(45deg, var(--canvas-2) 0 4px, transparent 4px 8px);
+    color: var(--text-3);
+    border: 1px dashed var(--hairline-strong);
+  }
 
   /* Chip button */
   .chip {
