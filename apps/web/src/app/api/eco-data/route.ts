@@ -40,12 +40,15 @@ const TZ = 'America/Puerto_Rico';
 
 function esShortDate(iso: string) {
   try {
-    // If we get a bare YYYY-MM-DD (e.g. the DATE column of daily_metric_snapshots),
-    // anchor it at noon UTC so converting to the AST calendar day doesn't roll
-    // it back one day. Otherwise `new Date("2026-04-14")` is midnight UTC,
-    // which is 20:00 AST on the 13th — and the timeline would label every
-    // snapshot a day earlier than it really is.
-    const anchored = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso;
+    // snapshot.date is a Postgres DATE column. Drizzle / node-postgres hands
+    // it to us as a Date object, which the route then stringifies via
+    // `new Date(s.date).toISOString()` to "2026-04-14T00:00:00.000Z" — midnight
+    // UTC = 20:00 AST on the 13th. A plain TZ conversion from that value
+    // renders every snapshot one day earlier than it really is.
+    // Match both the bare "YYYY-MM-DD" and midnight-UTC ISO forms and anchor
+    // to noon UTC so the AST calendar day matches the snapshot's actual date.
+    const bareMatch = iso.match(/^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/);
+    const anchored = bareMatch ? `${bareMatch[1]}T12:00:00Z` : iso;
     const d = new Date(anchored);
     return d.toLocaleDateString('es-PR', { month: 'short', day: 'numeric', timeZone: TZ });
   } catch {
