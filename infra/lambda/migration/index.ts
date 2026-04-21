@@ -59,6 +59,65 @@ export const handler = async (event: { action?: string; query?: string }): Promi
       );
       return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount }) };
     }
+    if (action === 'qa-date-alignment') {
+      // Side-by-side daily counts in AST vs UTC + flag mentions whose
+      // published_at ≈ ingested_at (candidates for the old NOW() fallback bug).
+      const days = (event as any).days ?? 20;
+
+      const ast = await client.query(
+        `SELECT (published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS d,
+                COUNT(*)::int AS c
+           FROM mentions
+          WHERE published_at > NOW() - ($1 || ' days')::interval
+          GROUP BY 1 ORDER BY 1 DESC`,
+        [String(days)],
+      );
+      const utc = await client.query(
+        `SELECT DATE(published_at)::text AS d, COUNT(*)::int AS c
+           FROM mentions
+          WHERE published_at > NOW() - ($1 || ' days')::interval
+          GROUP BY 1 ORDER BY 1 DESC`,
+        [String(days)],
+      );
+      const ingested = await client.query(
+        `SELECT (ingested_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS d,
+                COUNT(*)::int AS c
+           FROM mentions
+          WHERE ingested_at > NOW() - ($1 || ' days')::interval
+          GROUP BY 1 ORDER BY 1 DESC`,
+        [String(days)],
+      );
+      const suspicious = await client.query(
+        `SELECT (published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS d,
+                COUNT(*)::int AS c
+           FROM mentions
+          WHERE ABS(EXTRACT(EPOCH FROM (ingested_at - published_at))) < 30
+            AND published_at > NOW() - ($1 || ' days')::interval
+          GROUP BY 1 ORDER BY 1 DESC`,
+        [String(days)],
+      );
+      const snapshots = await client.query(
+        `SELECT a.slug, s.date::text AS d, s.total_mentions
+           FROM daily_metric_snapshots s
+           JOIN agencies a ON a.id = s.agency_id
+          WHERE s.date > (NOW() AT TIME ZONE 'America/Puerto_Rico')::date - ($1 || ' days')::interval
+          ORDER BY a.slug, s.date DESC`,
+        [String(days)],
+      );
+      return { statusCode: 200, body: JSON.stringify({
+        ast: ast.rows,
+        utc: utc.rows,
+        ingested: ingested.rows,
+        suspicious_now_fallback: suspicious.rows,
+        snapshots: snapshots.rows,
+      }, null, 2) };
+    }
+    if (action === 'reset-snapshots') {
+      // Wipe daily_metric_snapshots so the metrics-calculator backfill rebuilds
+      // them with the corrected AST-based date bucketing. Does NOT touch mentions.
+      const del = await client.query(`DELETE FROM daily_metric_snapshots RETURNING id`);
+      return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount }) };
+    }
 
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {

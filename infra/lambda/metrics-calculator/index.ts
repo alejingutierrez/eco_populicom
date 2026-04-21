@@ -56,11 +56,17 @@ export const handler = async (event?: { backfill?: boolean }): Promise<{ statusC
     );
 
     if (isBackfill) {
-      // Backfill: compute for every day that has mentions
+      // Backfill: compute for every AST (America/Puerto_Rico) calendar day that
+      // has mentions. Grouping in UTC would shift late-evening AST mentions
+      // into the next UTC day and create mismatched snapshot rows.
       const datesResult = await client.query(
-        "SELECT DISTINCT DATE(published_at) as d FROM mentions ORDER BY d ASC",
+        `SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS d
+         FROM mentions
+         ORDER BY d ASC`,
       );
-      const dates = datesResult.rows.map((r: any) => r.d.toISOString().split('T')[0]);
+      const dates = datesResult.rows.map((r: any) =>
+        typeof r.d === 'string' ? r.d : r.d.toISOString().split('T')[0],
+      );
 
       let computed = 0;
       for (const agency of agenciesResult.rows) {
@@ -74,8 +80,14 @@ export const handler = async (event?: { backfill?: boolean }): Promise<{ statusC
       return { statusCode: 200, body: `Backfilled ${computed} snapshots across ${dates.length} days` };
     }
 
-    // Normal mode: compute for today only
-    const today = new Date().toISOString().split('T')[0];
+    // Normal mode: compute for today only. "Today" is the AST calendar day
+    // (not UTC) so the running snapshot matches the frontend and Brandwatch.
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Puerto_Rico',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
 
     let computed = 0;
     for (const agency of agenciesResult.rows) {
@@ -146,6 +158,10 @@ async function computeForAgency(client: any, agencyId: string, today: string): P
 }
 
 async function getDailyAggregates(client: any, agencyId: string, date: string): Promise<DailyAggregates> {
+  // Group by the Puerto Rico calendar day (AST, UTC-4), not UTC. Otherwise
+  // mentions published 20:00–23:59 AST shift into the next UTC date and the
+  // daily snapshot no longer matches what Brandwatch (and our own AST frontend)
+  // reports for that day.
   const result = await client.query(
     `SELECT
       COUNT(*)::int AS total_mentions,
@@ -160,7 +176,8 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
       COALESCE(SUM(impact), 0)::float AS total_impact,
       COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
     FROM mentions
-    WHERE agency_id = $1 AND DATE(published_at) = $2`,
+    WHERE agency_id = $1
+      AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date`,
     [agencyId, date],
   );
 
