@@ -9,6 +9,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 
@@ -32,6 +33,15 @@ export class WorkersStack extends cdk.Stack {
 
     const privateSubnets = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
 
+    // Brandwatch API token — stored in Secrets Manager so rotation does not
+    // require a CDK redeploy. The secret itself is managed outside this stack
+    // (create once with `aws secretsmanager create-secret --name eco/brandwatch-token`).
+    const brandwatchTokenSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'BrandwatchTokenSecret',
+      'eco/brandwatch-token',
+    );
+
     const bundlingOptions = {
       minify: true,
       sourceMap: true,
@@ -49,7 +59,8 @@ export class WorkersStack extends cdk.Stack {
       entry: path.join(__dirname, '../lambda/ingestion/index.ts'),
       handler: 'handler',
       memorySize: 512,
-      timeout: cdk.Duration.minutes(5),
+      // Backfill mode (eeb22fe) can legitimately run long — 15 min matches prod.
+      timeout: cdk.Duration.minutes(15),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
@@ -57,7 +68,7 @@ export class WorkersStack extends cdk.Stack {
         RAW_BUCKET: props.rawBucket.bucketName,
         INGESTION_QUEUE_URL: props.ingestionQueue.queueUrl,
         DB_SECRET_ARN: props.dbSecret.secretArn,
-        BRANDWATCH_TOKEN: process.env.BRANDWATCH_TOKEN ?? '',
+        BRANDWATCH_TOKEN_SECRET_ARN: brandwatchTokenSecret.secretArn,
       },
       bundling: bundlingOptions,
     });
@@ -69,10 +80,11 @@ export class WorkersStack extends cdk.Stack {
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
     }));
+    brandwatchTokenSecret.grantRead(this.ingestionFunction);
 
-    // EventBridge schedule: every 5 minutes
+    // EventBridge schedule: every 1 minute
     const ingestionRule = new events.Rule(this, 'IngestionSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
     });
     ingestionRule.addTarget(new targets.LambdaFunction(this.ingestionFunction));
 
@@ -95,10 +107,10 @@ export class WorkersStack extends cdk.Stack {
       bundling: bundlingOptions,
     });
 
-    // SQS trigger for processor (batch 10, maxConcurrency 2)
+    // SQS trigger for processor (batch 10, maxConcurrency 10)
     this.processorFunction.addEventSource(new SqsEventSource(props.ingestionQueue, {
       batchSize: 10,
-      maxConcurrency: 2,
+      maxConcurrency: 10,
     }));
 
     // Grant permissions for processor
