@@ -3,8 +3,14 @@ import type { BrandwatchMention } from '@eco/shared';
 
 const DEFAULT_BASE_URL = 'https://api.brandwatch.com';
 const DEFAULT_PAGE_SIZE = 100;
-const MAX_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 1000;
+// Brandwatch's per-token quota is 30 requests per 10 minutes. Under load
+// (backfill windows, multiple query IDs, overlapping with the 1-min cron),
+// the 429s cluster together and a tiny retry budget drops mentions.
+// Retry generously with a capped exponential backoff so the Lambda can wait
+// out a full quota window if it has to.
+const MAX_RETRIES = 10;
+const RETRY_BASE_DELAY_MS = 2000;
+const RETRY_MAX_DELAY_MS = 45000;
 
 export class BrandwatchClient {
   private token: string;
@@ -95,9 +101,12 @@ export class BrandwatchClient {
       // Rate limited — wait and retry
       if (response.status === 429) {
         const retryAfter = response.headers.get('Retry-After');
-        const waitMs = retryAfter
-          ? parseInt(retryAfter, 10) * 1000
-          : RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        const waitMs = Math.min(
+          retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+          RETRY_MAX_DELAY_MS,
+        );
         console.warn(`Rate limited. Waiting ${waitMs}ms before retry ${attempt + 1}/${retries}`);
         await sleep(waitMs);
         continue;
@@ -110,7 +119,10 @@ export class BrandwatchClient {
 
       // Server error — retry with backoff
       if (response.status >= 500 && attempt < retries) {
-        const waitMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        const waitMs = Math.min(
+          RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+          RETRY_MAX_DELAY_MS,
+        );
         console.warn(`Server error ${response.status}. Retrying in ${waitMs}ms`);
         await sleep(waitMs);
         continue;

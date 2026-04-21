@@ -424,12 +424,20 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {
-  // Brandwatch sometimes omits `date`; fall back to `added` (when BW received it)
-  // before using "now" so historical mentions aren't collapsed onto the ingest day.
+  // Brandwatch sometimes omits `date`; fall back to `added` (when BW received it).
+  // We DO NOT fall back to `new Date()` anymore: a NOW() fallback silently
+  // collapses undated historical mentions onto the ingest day and inflates
+  // whichever AST day the cron happened to run on. Instead we throw so SQS
+  // retries and eventually routes the record to DLQ for manual inspection.
   const raw = m.date || (m as any).added;
-  if (!raw) return new Date();
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  if (raw) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    console.warn(`Mention ${m.resourceId}: invalid date value ${JSON.stringify(raw)} — rejecting`);
+  } else {
+    console.warn(`Mention ${m.resourceId}: no date/added field — rejecting`);
+  }
+  throw new Error(`Mention ${m.resourceId} missing usable published_at`);
 }
 
 function normalizeText(text: string): string {

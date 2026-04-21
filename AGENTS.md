@@ -182,3 +182,50 @@ eco_populicom/
   ```
   export AWS_ACCESS_KEY_ID=... && export AWS_SECRET_ACCESS_KEY=... && export AWS_REGION=us-east-1
   ```
+
+### Using `.env` credentials responsibly (AI agents)
+
+The `.env` at repo root holds long-lived AWS IAM keys + other secrets. They
+are NOT rotated automatically, so an agent that leaks or misuses them
+compromises the whole account until Alejandro notices. Treat them like
+production root keys.
+
+**Loading them into a Bash tool call** — one-liner, re-applied each command
+(shell state does not persist between tool calls):
+
+```
+export $(grep -E '^AWS_' /Volumes/MyApps/eco_populicom/.env | xargs) && <aws/cdk command>
+```
+
+Or, if a script needs the full env:
+
+```
+set -a; source /Volumes/MyApps/eco_populicom/.env; set +a
+```
+
+**Rules every agent must follow:**
+
+1. **Never print the raw values.** `echo $AWS_SECRET_ACCESS_KEY`, `env | grep AWS`,
+   or similar leak them to the transcript. If you need to confirm they loaded,
+   use `aws sts get-caller-identity` — that returns the account ID, not the key.
+2. **Never write them to a file that could be committed.** Do not `echo` them
+   into a Lambda payload JSON, a CDK config, or a debug log. The only file
+   they live in is `.env` (gitignored).
+3. **Never pass them via CLI args that get logged.** `--aws-access-key-id
+   AKIA…` ends up in shell history and process tables. Use env vars instead
+   (AWS CLI and CDK pick them up automatically).
+4. **Only use them for the task the user asked for.** Do not browse other
+   AWS resources "for context" — the blast radius of these keys is the entire
+   account.
+5. **Prefer read-only / diagnostic actions first** (`aws sts …`, Lambda
+   `Invoke` with read-only payloads like `qa-date-alignment`). Destructive
+   CLI commands (delete, force-deploy, reset-cursors) need explicit user
+   authorization in the conversation — the presence of keys is not blanket
+   consent.
+6. **Don't create new IAM users, policies, or access keys.** Those outlive
+   the session and are invisible to the user.
+7. **If a command fails with `InvalidClientTokenId` or `ExpiredToken`,**
+   stop and ask the user to refresh — do not retry with different keys or
+   dig through other profiles.
+
+When in doubt, ask before running the command.

@@ -40,7 +40,13 @@ const TZ = 'America/Puerto_Rico';
 
 function esShortDate(iso: string) {
   try {
-    const d = new Date(iso);
+    // If we get a bare YYYY-MM-DD (e.g. the DATE column of daily_metric_snapshots),
+    // anchor it at noon UTC so converting to the AST calendar day doesn't roll
+    // it back one day. Otherwise `new Date("2026-04-14")` is midnight UTC,
+    // which is 20:00 AST on the 13th — and the timeline would label every
+    // snapshot a day earlier than it really is.
+    const anchored = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso;
+    const d = new Date(anchored);
     return d.toLocaleDateString('es-PR', { month: 'short', day: 'numeric', timeZone: TZ });
   } catch {
     return iso;

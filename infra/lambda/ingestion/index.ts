@@ -31,11 +31,24 @@ async function loadActiveAgencies(client: any): Promise<AgencyRow[]> {
   return result.rows;
 }
 
+interface IngestEvent {
+  // Backfill mode: re-fetch a specific window WITHOUT touching the cursor.
+  // Brandwatch indexes some mentions retroactively (the publish_date is in the
+  // past but the mention surfaces days later), and our normal cursor-driven
+  // ingest only moves forward — so those late arrivals are silently missed.
+  // Invoke with { backfillStartDate, backfillEndDate } to catch them up.
+  backfillStartDate?: string;
+  backfillEndDate?: string;
+  backfillQueryIds?: number[];
+}
+
 export const handler = async (event: unknown): Promise<{ statusCode: number; body: string }> => {
   console.log('Ingestion handler invoked', JSON.stringify(event));
 
+  const evt = (event ?? {}) as IngestEvent;
+  const isBackfill = Boolean(evt.backfillStartDate);
   const now = new Date();
-  const endDate = now.toISOString();
+  const endDate = isBackfill ? (evt.backfillEndDate ?? now.toISOString()) : now.toISOString();
   const datePrefix = now.toISOString().split('T')[0];
 
   const dbUrl = await getDatabaseUrl();
@@ -47,7 +60,7 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
   try {
     const agencies = await loadActiveAgencies(client);
-    console.log(`Found ${agencies.length} active agencies`);
+    console.log(`Found ${agencies.length} active agencies${isBackfill ? ` (backfill ${evt.backfillStartDate} → ${endDate})` : ''}`);
 
     for (const agency of agencies) {
       const bw = new BrandwatchClient({
@@ -56,11 +69,20 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
       });
 
       for (const queryId of agency.brandwatch_query_ids) {
-        // Determine time window from cursor
-        let startDate: string;
-        const cursor = await readCursor(client, queryId);
+        // Skip queries not in the backfill whitelist (if one was provided).
+        if (isBackfill && evt.backfillQueryIds && !evt.backfillQueryIds.includes(queryId)) {
+          continue;
+        }
 
-        if (cursor) {
+        // Determine time window from cursor (normal mode) or from the event
+        // (backfill mode — cursor is left alone so the regular cron keeps
+        // advancing from wherever it was).
+        let startDate: string;
+        const cursor = isBackfill ? null : await readCursor(client, queryId);
+
+        if (isBackfill) {
+          startDate = evt.backfillStartDate!;
+        } else if (cursor) {
           const cursorDate = new Date(cursor.last_mention_date);
           cursorDate.setMinutes(cursorDate.getMinutes() - 1);
           startDate = cursorDate.toISOString();
@@ -119,12 +141,13 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
         }
 
-        // Update cursor if we got any mentions
-        if (totalMentions > 0) {
+        // Update cursor only in normal mode — backfill re-scans a past window
+        // and must not push the cursor backwards or count duplicates.
+        if (!isBackfill && totalMentions > 0) {
           await updateCursor(client, queryId, lastMentionDate, totalMentions);
         }
 
-        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages`;
+        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}`;
         console.log(summary);
         agencySummaries.push(summary);
       }
