@@ -9,6 +9,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 
@@ -26,11 +27,21 @@ export class WorkersStack extends cdk.Stack {
   public readonly processorFunction: NodejsFunction;
   public readonly alertsFunction: NodejsFunction;
   public readonly metricsCalculatorFunction: NodejsFunction;
+  public readonly weeklyReportFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
 
     const privateSubnets = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
+
+    // Brandwatch API token — stored in Secrets Manager so rotation does not
+    // require a CDK redeploy. The secret itself is managed outside this stack
+    // (create once with `aws secretsmanager create-secret --name eco/brandwatch-token`).
+    const brandwatchTokenSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'BrandwatchTokenSecret',
+      'eco/brandwatch-token',
+    );
 
     const bundlingOptions = {
       minify: true,
@@ -49,7 +60,8 @@ export class WorkersStack extends cdk.Stack {
       entry: path.join(__dirname, '../lambda/ingestion/index.ts'),
       handler: 'handler',
       memorySize: 512,
-      timeout: cdk.Duration.minutes(5),
+      // Backfill mode (eeb22fe) can legitimately run long — 15 min matches prod.
+      timeout: cdk.Duration.minutes(15),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
@@ -57,7 +69,7 @@ export class WorkersStack extends cdk.Stack {
         RAW_BUCKET: props.rawBucket.bucketName,
         INGESTION_QUEUE_URL: props.ingestionQueue.queueUrl,
         DB_SECRET_ARN: props.dbSecret.secretArn,
-        BRANDWATCH_TOKEN: process.env.BRANDWATCH_TOKEN ?? '',
+        BRANDWATCH_TOKEN_SECRET_ARN: brandwatchTokenSecret.secretArn,
       },
       bundling: bundlingOptions,
     });
@@ -69,12 +81,23 @@ export class WorkersStack extends cdk.Stack {
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
     }));
+    brandwatchTokenSecret.grantRead(this.ingestionFunction);
 
-    // EventBridge schedule: every 5 minutes
+    // EventBridge schedule: every 1 minute
     const ingestionRule = new events.Rule(this, 'IngestionSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
     });
     ingestionRule.addTarget(new targets.LambdaFunction(this.ingestionFunction));
+
+    // Daily late-arrival refresh (backfill last 48h) — Brandwatch indexa algunas
+    // menciones con retraso; este cron diario las recupera sin tocar el cursor.
+    const lateArrivalRule = new events.Rule(this, 'LateArrivalRefresh', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '7' }),
+      description: 'Daily backfill of last 48h to catch Brandwatch late-indexed mentions',
+    });
+    lateArrivalRule.addTarget(new targets.LambdaFunction(this.ingestionFunction, {
+      event: events.RuleTargetInput.fromObject({ refreshLastHours: 48 }),
+    }));
 
     // ---- eco-processor Lambda ----
     this.processorFunction = new NodejsFunction(this, 'ProcessorFunction', {
@@ -95,10 +118,10 @@ export class WorkersStack extends cdk.Stack {
       bundling: bundlingOptions,
     });
 
-    // SQS trigger for processor (batch 10, maxConcurrency 2)
+    // SQS trigger for processor (batch 10, maxConcurrency 10)
     this.processorFunction.addEventSource(new SqsEventSource(props.ingestionQueue, {
       batchSize: 10,
-      maxConcurrency: 2,
+      maxConcurrency: 10,
     }));
 
     // Grant permissions for processor
@@ -178,5 +201,53 @@ export class WorkersStack extends cdk.Stack {
       schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
     });
     metricsRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction));
+
+    // ---- eco-weekly-report Lambda ----
+    this.weeklyReportFunction = new NodejsFunction(this, 'WeeklyReportFunction', {
+      functionName: 'eco-weekly-report',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/weekly-report/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        SES_FROM_EMAIL: 'agutierrez@populicom.com',
+        SES_FROM_NAME: 'Populicom Radar',
+        REPORT_RECIPIENTS: 'agutierrez@populicom.com',
+        AGENCY_SLUG: 'ddecpr',
+      },
+      bundling: bundlingOptions,
+    });
+
+    // IAM permissions
+    this.weeklyReportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.weeklyReportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
+    }));
+    this.weeklyReportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // EventBridge schedule: cada hora en punto (UTC).
+    // La Lambda itera report_configs activos y envía solo a las agencias cuya
+    // hora local (según su timezone) coincide con send_hour_local en ese momento.
+    // Esto permite configurar hora y timezone por agencia desde el dashboard admin.
+    const weeklyReportRule = new events.Rule(this, 'WeeklyReportSchedule', {
+      ruleName: 'eco-weekly-report-hourly',
+      schedule: events.Schedule.cron({ minute: '0' }),
+      description: 'Scan horario — la Lambda compara hora local por agencia (report_configs) contra send_hour_local y envía si coincide.',
+    });
+    weeklyReportRule.addTarget(new targets.LambdaFunction(this.weeklyReportFunction));
   }
 }
