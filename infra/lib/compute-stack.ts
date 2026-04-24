@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -93,6 +94,14 @@ export class ComputeStack extends cdk.Stack {
     props.dbSecret.grantRead(taskDef.taskRole);
     props.rawBucket.grantRead(taskDef.taskRole);
     props.exportsBucket.grantReadWrite(taskDef.taskRole);
+
+    // Permite a la API /api/reports/send-test invocar la Lambda eco-weekly-report
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [
+        `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-weekly-report`,
+      ],
+    }));
 
     // Fargate Service
     this.ecsService = new ecs.FargateService(this, 'EcoWebService', {
