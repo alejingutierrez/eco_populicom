@@ -7,6 +7,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 export interface ComputeStackProps extends cdk.StackProps {
@@ -75,6 +76,16 @@ export class ComputeStack extends cdk.Stack {
       },
       secrets: {
         DB_SECRET: ecs.Secret.fromSecretsManager(props.dbSecret),
+        // Shared secret for cron-triggered admin endpoints
+        // (/api/admin/diagnostics, /api/admin/invited-users-cleanup). Without
+        // it those endpoints return 403 and the diagnostics tool — the only
+        // browser-accessible view into pipeline data quality — is silently
+        // disabled. Managed outside this stack:
+        //   aws secretsmanager create-secret --name eco/cron-secret \
+        //     --secret-string "$(openssl rand -hex 32)"
+        ECO_CRON_SECRET: ecs.Secret.fromSecretsManager(
+          secretsmanager.Secret.fromSecretNameV2(this, 'CronSecret', 'eco/cron-secret'),
+        ),
       },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'eco-web',

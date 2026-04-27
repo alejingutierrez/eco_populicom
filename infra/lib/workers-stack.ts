@@ -53,6 +53,13 @@ export class WorkersStack extends cdk.Stack {
     };
 
     // ---- eco-ingestion Lambda ----
+    // Reserved concurrency = 1: the EventBridge cron fires every minute, but a
+    // single invocation can take 5–10 min when Brandwatch rate-limits us (10
+    // retries × exponential backoff up to 45 s). Without serialization,
+    // concurrent lambdas pile up, every one hits 429s, and the pipeline
+    // collapses into a self-reinforcing failure cascade. With concurrency 1,
+    // surplus EventBridge invocations are throttled (cheap, expected) and
+    // Brandwatch sees one caller at a time.
     this.ingestionFunction = new NodejsFunction(this, 'IngestionFunction', {
       functionName: 'eco-ingestion',
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -61,6 +68,7 @@ export class WorkersStack extends cdk.Stack {
       memorySize: 512,
       // Backfill mode (eeb22fe) can legitimately run long — 15 min matches prod.
       timeout: cdk.Duration.minutes(15),
+      reservedConcurrentExecutions: 1,
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
@@ -185,10 +193,22 @@ export class WorkersStack extends cdk.Stack {
       resources: [props.dbSecret.secretArn],
     }));
 
-    // EventBridge schedule: every 10 minutes
+    // EventBridge schedule: every 10 minutes (computes today's snapshot only)
     const metricsRule = new events.Rule(this, 'MetricsCalculatorSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
     });
     metricsRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction));
+
+    // Daily backfill at 09:00 UTC (05:00 AST). Recomputes snapshots for ALL
+    // historical days that have mentions. Without this, late-arriving mentions
+    // (or any catch-up after an ingestion outage) silently leave the chart's
+    // historical bars at the value they had when first computed — exactly the
+    // bug that surfaced on 2026-04-27 when 25-26/04 snapshots stayed at 0.
+    const metricsBackfillRule = new events.Rule(this, 'MetricsCalculatorBackfillDaily', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '9' }),
+    });
+    metricsBackfillRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction, {
+      event: events.RuleTargetInput.fromObject({ backfill: true }),
+    }));
   }
 }
