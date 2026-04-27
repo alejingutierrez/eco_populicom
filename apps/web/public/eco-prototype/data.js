@@ -218,3 +218,7 @@ window.ECO_DATA = Object.assign({}, _mocks, Object.fromEntries(
   Object.entries(_remote).filter(([, v]) => v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0))
 ));
 if (_remote.AGENCIES_FULL) window.ECO_DATA.AGENCIES_FULL = _remote.AGENCIES_FULL;
+// USER_AGENCY_SLUG is the agency the JWT binds the user to. Surface it on
+// ECO_DATA so the prototype can use it as the default at first boot
+// (avoiding the "logged in as ddecpr but landed on aaa" desync).
+if (_remote.USER_AGENCY_SLUG) window.ECO_DATA.USER_AGENCY_SLUG = _remote.USER_AGENCY_SLUG;

@@ -178,6 +178,10 @@ function App() {
     const list = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES;
     const saved = localStorage.getItem('eco.agency');
     if (saved && list.some((a) => a.key === saved)) return saved;
+    // Honor the JWT-bound agency before falling back to the alphabetically
+    // first slug (otherwise a ddecpr user lands on aaa charts at first boot).
+    const jwtSlug = window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG;
+    if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
     return (list[0] && list[0].key) || 'aaa';
   });
   const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '1M');
