@@ -10,8 +10,12 @@ const sm = new SecretsManagerClient({});
 
 const RAW_BUCKET = process.env.RAW_BUCKET!;
 const INGESTION_QUEUE_URL = process.env.INGESTION_QUEUE_URL!;
-const BRANDWATCH_TOKEN = process.env.BRANDWATCH_TOKEN!;
+const BRANDWATCH_TOKEN_SECRET_ARN = process.env.BRANDWATCH_TOKEN_SECRET_ARN!;
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
+
+// Cache the Brandwatch token across warm invocations so rotation is picked up
+// on the next cold start (no redeploy needed) without hitting SM every run.
+let cachedBrandwatchToken: string | null = null;
 
 interface CursorRow {
   last_mention_date: string;
@@ -40,18 +44,29 @@ interface IngestEvent {
   backfillStartDate?: string;
   backfillEndDate?: string;
   backfillQueryIds?: number[];
+  // Convenience for the LateArrivalRefresh cron: backfill the last N hours
+  // ending at "now". Equivalent to setting backfillStartDate = now - hours.
+  // Ignored if backfillStartDate is also set.
+  refreshLastHours?: number;
 }
 
 export const handler = async (event: unknown): Promise<{ statusCode: number; body: string }> => {
   console.log('Ingestion handler invoked', JSON.stringify(event));
 
   const evt = (event ?? {}) as IngestEvent;
-  const isBackfill = Boolean(evt.backfillStartDate);
   const now = new Date();
+  // Translate refreshLastHours to a real backfill window so the cron of
+  // LateArrivalRefresh actually re-scans recent history.
+  if (evt.refreshLastHours && !evt.backfillStartDate) {
+    evt.backfillStartDate = new Date(now.getTime() - evt.refreshLastHours * 3600 * 1000).toISOString();
+    evt.backfillEndDate = evt.backfillEndDate ?? now.toISOString();
+  }
+  const isBackfill = Boolean(evt.backfillStartDate);
   const endDate = isBackfill ? (evt.backfillEndDate ?? now.toISOString()) : now.toISOString();
   const datePrefix = now.toISOString().split('T')[0];
 
   const dbUrl = await getDatabaseUrl();
+  const brandwatchToken = await getBrandwatchToken();
   const pg = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
@@ -64,7 +79,7 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
     for (const agency of agencies) {
       const bw = new BrandwatchClient({
-        token: BRANDWATCH_TOKEN,
+        token: brandwatchToken,
         projectId: agency.brandwatch_project_id,
       });
 
@@ -172,6 +187,24 @@ async function getDatabaseUrl(): Promise<string> {
   );
   const parsed = JSON.parse(secret.SecretString!);
   return `postgresql://${parsed.username}:${encodeURIComponent(parsed.password)}@${parsed.host}:${parsed.port}/${parsed.dbname}`;
+}
+
+async function getBrandwatchToken(): Promise<string> {
+  if (cachedBrandwatchToken) return cachedBrandwatchToken;
+  const secret = await sm.send(
+    new GetSecretValueCommand({ SecretId: BRANDWATCH_TOKEN_SECRET_ARN }),
+  );
+  const raw = secret.SecretString ?? '';
+  // Support both plain-string secrets and {"token":"..."} JSON blobs.
+  let token = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    token = typeof parsed === 'string' ? parsed : (parsed.token ?? raw);
+  } catch {
+    // raw is already a plain string — keep it.
+  }
+  cachedBrandwatchToken = token;
+  return token;
 }
 
 async function readCursor(client: any, queryId: number): Promise<CursorRow | null> {

@@ -172,9 +172,17 @@ function App() {
   }, []);
 
   const [agency, setAgency] = useState(() => {
+    // Prefer the live agency list from /api/eco-data over the seed mock — the
+    // mock has fictional slugs (dtop, salud) that aren't in the real DB, so
+    // falling back to AGENCIES[0] picked a slug the backend would never honor.
+    const list = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES;
     const saved = localStorage.getItem('eco.agency');
-    if (saved && AGENCIES.some((a) => a.key === saved)) return saved;
-    return (AGENCIES[0] && AGENCIES[0].key) || 'dtop';
+    if (saved && list.some((a) => a.key === saved)) return saved;
+    // Honor the JWT-bound agency before falling back to the alphabetically
+    // first slug (otherwise a ddecpr user lands on aaa charts at first boot).
+    const jwtSlug = window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG;
+    if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
+    return (list[0] && list[0].key) || 'aaa';
   });
   const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '1M');
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -249,7 +257,7 @@ function App() {
       <Sidebar
         active={active} onNav={setActive}
         collapsed={collapsed} setCollapsed={setCollapsed}
-        agency={AGENCIES.find(a => a.key === agency)}
+        agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         onOpenCommand={() => setCmdOpen(true)}
         theme={theme} mode={mode}
       />
@@ -257,7 +265,8 @@ function App() {
         <Header
           title={screenMeta.label} eyebrow={screenMeta.eyebrow}
           period={period} setPeriod={setPeriod}
-          agency={agency} setAgency={setAgency} agencies={AGENCIES}
+          agency={agency} setAgency={setAgency}
+          agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
           mode={mode} setMode={setMode} live={true}
         />

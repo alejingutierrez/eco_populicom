@@ -33,6 +33,16 @@ export class AuthStack extends cdk.Stack {
         otp: true,
       },
       selfSignUpEnabled: true,
+      // Routes the dashboard to the right tenant per-user. Without this the
+      // JWT lacks `custom:agency_slug`, the API falls back to the default
+      // agency, and different widgets can show different tenants — exactly
+      // the bug seen on 2026-04-27 (chart aaa, drilldown ddecpr). Mutable
+      // so an admin can move users between agencies without recreating the
+      // account. Already added to the deployed pool via add-custom-attributes
+      // on 2026-04-27; this declaration just makes future deploys idempotent.
+      customAttributes: {
+        agency_slug: new cognito.StringAttribute({ minLen: 1, maxLen: 50, mutable: true }),
+      },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 

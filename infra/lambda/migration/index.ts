@@ -7,7 +7,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 
-export const handler = async (event: { action?: string; query?: string }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string; queryIds?: number[] }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -42,7 +42,7 @@ export const handler = async (event: { action?: string; query?: string }): Promi
     }
     if (action === 'reset-cursors') {
       // Reset ingestion cursors for specified query IDs to re-ingest from scratch
-      const queryIds = event.queryIds as number[] | undefined;
+      const queryIds = event.queryIds;
       if (!queryIds || queryIds.length === 0) {
         return { statusCode: 400, body: 'queryIds required' };
       }
@@ -111,6 +111,64 @@ export const handler = async (event: { action?: string; query?: string }): Promi
         suspicious_now_fallback: suspicious.rows,
         snapshots: snapshots.rows,
       }, null, 2) };
+    }
+    if (action === 'create-reports-schema') {
+      // Crea report_configs + report_send_log si no existen, y siembra una
+      // config por defecto para cada agencia activa.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS report_configs (
+          agency_id UUID PRIMARY KEY REFERENCES agencies(id) ON DELETE CASCADE,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          send_hour_local INTEGER NOT NULL DEFAULT 16,
+          timezone VARCHAR(64) NOT NULL DEFAULT 'America/Bogota',
+          template_key VARCHAR(64) NOT NULL DEFAULT 'weekly-sentiment-summary',
+          recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
+          from_email VARCHAR(255) NOT NULL DEFAULT 'agutierrez@populicom.com',
+          from_name VARCHAR(255) NOT NULL DEFAULT 'Populicom Radar',
+          updated_by UUID REFERENCES users(id),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_report_configs_active ON report_configs(is_active);`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS report_send_log (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          recipients JSONB NOT NULL,
+          from_email VARCHAR(255) NOT NULL,
+          template_key VARCHAR(64) NOT NULL,
+          trigger VARCHAR(32) NOT NULL,
+          status VARCHAR(32) NOT NULL,
+          message_id VARCHAR(255),
+          error TEXT,
+          stats JSONB,
+          triggered_by UUID REFERENCES users(id)
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_agency_id ON report_send_log(agency_id);`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_sent_at ON report_send_log(sent_at);`);
+
+      // Seed: para DDEC, activar config con el destinatario y hora 16:00.
+      // Para otras agencias existentes, crear fila INACTIVA por defecto.
+      const seed = await client.query(`
+        INSERT INTO report_configs (agency_id, is_active, send_hour_local, timezone, recipients, from_email, from_name)
+        SELECT id,
+               CASE WHEN slug = 'ddecpr' THEN true ELSE false END,
+               16,
+               'America/Bogota',
+               CASE WHEN slug = 'ddecpr' THEN '["agutierrez@populicom.com"]'::jsonb ELSE '[]'::jsonb END,
+               'agutierrez@populicom.com',
+               'Populicom Radar'
+        FROM agencies
+        WHERE is_active = true
+        ON CONFLICT (agency_id) DO NOTHING
+        RETURNING agency_id, is_active, recipients
+      `);
+
+      return { statusCode: 200, body: JSON.stringify({ seeded: seed.rowCount, rows: seed.rows }) };
     }
     if (action === 'reset-snapshots') {
       // Wipe daily_metric_snapshots so the metrics-calculator backfill rebuilds

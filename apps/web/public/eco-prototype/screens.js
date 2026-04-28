@@ -197,7 +197,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · 30d" value={fmt(m.totalMentions)} delta={m.totalMentionsDelta} sub="%" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
+        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
         <KpiCard label="Brand Health" value={m.brandHealthIndex.toFixed(2)} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
           <BrandHealthMini value={m.brandHealthIndex} />
         </KpiCard>

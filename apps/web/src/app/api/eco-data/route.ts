@@ -671,8 +671,21 @@ export async function GET(request: NextRequest) {
         : `Monitorear ${dominantTopic.name} →`,
     } : null;
 
+    // Slug the user is bound to (resolved from Cognito custom:agency_slug
+    // header or the URL ?agency= param). Surface it so the dashboard can pick
+    // the right default when localStorage is empty — otherwise the prototype
+    // falls back to AGENCIES_FULL[0] (sorted by slug) and a ddecpr-bound user
+    // lands on aaa charts at first boot.
+    const [agencyRow] = await db
+      .select({ slug: agencies.slug })
+      .from(agencies)
+      .where(eq(agencies.id, agencyId))
+      .limit(1);
+    const USER_AGENCY_SLUG = agencyRow?.slug ?? null;
+
     const res = NextResponse.json({
       AGENCIES_FULL,
+      USER_AGENCY_SLUG,
       TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
       CURRENT_METRICS,
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,

@@ -5,7 +5,10 @@ const { useState, useEffect, useRef } = React;
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
   const D = window.ECO_DATA || {};
-  const totalMentions = (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
+  // CURRENT_METRICS.totalMentions is today's snapshot; for the sidebar badge
+  // we want the period total (matches the dashboard "Volumen · período" KPI).
+  const periodTotal = (D.TIMELINE && D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0)) || 0;
+  const totalMentions = periodTotal || (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
     { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
