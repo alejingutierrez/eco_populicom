@@ -210,7 +210,6 @@ export class WorkersStack extends cdk.Stack {
     });
     metricsRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction));
 
-<<<<<<< HEAD
     // Daily backfill at 09:00 UTC (05:00 AST). Recomputes snapshots for ALL
     // historical days that have mentions. Without this, late-arriving mentions
     // (or any catch-up after an ingestion outage) silently leave the chart's
@@ -222,7 +221,7 @@ export class WorkersStack extends cdk.Stack {
     metricsBackfillRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction, {
       event: events.RuleTargetInput.fromObject({ backfill: true }),
     }));
-=======
+
     // ---- eco-weekly-report Lambda ----
     this.weeklyReportFunction = new NodejsFunction(this, 'WeeklyReportFunction', {
       functionName: 'eco-weekly-report',
@@ -270,6 +269,5 @@ export class WorkersStack extends cdk.Stack {
       description: 'Scan horario — la Lambda compara hora local por agencia (report_configs) contra send_hour_local y envía si coincide.',
     });
     weeklyReportRule.addTarget(new targets.LambdaFunction(this.weeklyReportFunction));
->>>>>>> 5cec56b (feat(reports): daily sentiment report Lambda (5pm Bogotá) + pertinencia alta/media filter)
   }
 }

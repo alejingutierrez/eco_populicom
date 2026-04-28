@@ -44,14 +44,24 @@ interface IngestEvent {
   backfillStartDate?: string;
   backfillEndDate?: string;
   backfillQueryIds?: number[];
+  // Convenience for the LateArrivalRefresh cron: backfill the last N hours
+  // ending at "now". Equivalent to setting backfillStartDate = now - hours.
+  // Ignored if backfillStartDate is also set.
+  refreshLastHours?: number;
 }
 
 export const handler = async (event: unknown): Promise<{ statusCode: number; body: string }> => {
   console.log('Ingestion handler invoked', JSON.stringify(event));
 
   const evt = (event ?? {}) as IngestEvent;
-  const isBackfill = Boolean(evt.backfillStartDate);
   const now = new Date();
+  // Translate refreshLastHours to a real backfill window so the cron of
+  // LateArrivalRefresh actually re-scans recent history.
+  if (evt.refreshLastHours && !evt.backfillStartDate) {
+    evt.backfillStartDate = new Date(now.getTime() - evt.refreshLastHours * 3600 * 1000).toISOString();
+    evt.backfillEndDate = evt.backfillEndDate ?? now.toISOString();
+  }
+  const isBackfill = Boolean(evt.backfillStartDate);
   const endDate = isBackfill ? (evt.backfillEndDate ?? now.toISOString()) : now.toISOString();
   const datePrefix = now.toISOString().split('T')[0];
 

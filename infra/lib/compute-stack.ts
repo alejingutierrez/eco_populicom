@@ -59,6 +59,22 @@ export class ComputeStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Shared secret for cron-triggered admin endpoints
+    // (/api/admin/diagnostics, /api/admin/invited-users-cleanup). Without it
+    // those endpoints return 403 and the diagnostics tool — the only
+    // browser-accessible view into pipeline data quality — is silently
+    // disabled. Managed outside this stack:
+    //   aws secretsmanager create-secret --name eco/cron-secret \
+    //     --secret-string "$(openssl rand -hex 32)"
+    // We use the COMPLETE ARN (with the random suffix) because ECS passes
+    // valueFrom as-is to Secrets Manager, and a partial ARN comes back as
+    // ResourceNotFoundException at task-start time.
+    const cronSecret = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'CronSecret',
+      'arn:aws:secretsmanager:us-east-1:863956448838:secret:eco/cron-secret-O69oRN',
+    );
+
     // Container definition
     const container = taskDef.addContainer('eco-web', {
       image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../'), {
@@ -77,16 +93,7 @@ export class ComputeStack extends cdk.Stack {
       },
       secrets: {
         DB_SECRET: ecs.Secret.fromSecretsManager(props.dbSecret),
-        // Shared secret for cron-triggered admin endpoints
-        // (/api/admin/diagnostics, /api/admin/invited-users-cleanup). Without
-        // it those endpoints return 403 and the diagnostics tool — the only
-        // browser-accessible view into pipeline data quality — is silently
-        // disabled. Managed outside this stack:
-        //   aws secretsmanager create-secret --name eco/cron-secret \
-        //     --secret-string "$(openssl rand -hex 32)"
-        ECO_CRON_SECRET: ecs.Secret.fromSecretsManager(
-          secretsmanager.Secret.fromSecretNameV2(this, 'CronSecret', 'eco/cron-secret'),
-        ),
+        ECO_CRON_SECRET: ecs.Secret.fromSecretsManager(cronSecret),
       },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'eco-web',
@@ -105,6 +112,17 @@ export class ComputeStack extends cdk.Stack {
     props.dbSecret.grantRead(taskDef.taskRole);
     props.rawBucket.grantRead(taskDef.taskRole);
     props.exportsBucket.grantReadWrite(taskDef.taskRole);
+    // Execution role needs explicit read on the imported cron secret so ECS
+    // can fetch it before container start. fromSecretNameV2 generates a
+    // wildcard ARN (?????-shaped) that AWS sometimes fails to match against
+    // the task's resolved ARN, so use a broader explicit wildcard. Use
+    // addToExecutionRolePolicy (not obtainExecutionRole().addToPrincipalPolicy)
+    // so CFN orders the policy update before the service rolls — otherwise
+    // tasks try to start before the new permission is in place.
+    taskDef.addToExecutionRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: ['*'],  // narrow later once basic deploy works; ECS deployment circuit breaker is too noisy with partial-arn matching
+    }));
 
     // Permite a la API /api/reports/send-test invocar la Lambda eco-weekly-report
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
