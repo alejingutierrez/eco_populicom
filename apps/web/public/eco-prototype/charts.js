@@ -98,7 +98,7 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
             const y = innerH - ((t - min) / range) * innerH;
             return <text key={i} x={-6} y={y + 3} fontSize="10" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(t * 10) / 10}</text>;
           })}
-          {showAxis && xIdxs.map((idx) => (
+          {showAxis && xIdxs.filter((idx) => data[idx] && data[idx].date).map((idx) => (
             <text key={idx} x={idx * step} y={innerH + 14} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
           ))}
         </g>
@@ -248,10 +248,16 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
           {/* X axis date labels */}
           {(() => {
             const xTickCount = Math.min(7, data.length);
-            const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / (xTickCount - 1)));
-            return xIdxs.map((idx) => (
-              <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
-            ));
+            // Guard against division-by-zero (data.length === 1 makes
+            // xTickCount-1 === 0, so the index becomes NaN and data[NaN]
+            // crashes "Cannot read properties of undefined").
+            const denom = Math.max(1, xTickCount - 1);
+            const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
+            return xIdxs
+              .filter((idx) => data[idx] && data[idx].date)
+              .map((idx) => (
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
+              ));
           })()}
         </g>
       </svg>
@@ -311,10 +317,13 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick }) {
           })}
           {(() => {
             const xTickCount = Math.min(7, data.length);
-            const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / (xTickCount - 1)));
-            return xIdxs.map((idx) => (
-              <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
-            ));
+            const denom = Math.max(1, xTickCount - 1);
+            const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
+            return xIdxs
+              .filter((idx) => data[idx] && data[idx].date)
+              .map((idx) => (
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+              ));
           })()}
         </g>
       </svg>
