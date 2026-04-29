@@ -229,3 +229,129 @@ set -a; source /Volumes/MyApps/eco_populicom/.env; set +a
    dig through other profiles.
 
 When in doubt, ask before running the command.
+
+### Pushing changes & opening PRs (AI agents)
+
+The harness blocks `git push origin main` directly — every change, even
+a one-line tweak, must land via a feature branch + PR. Don't try to work
+around it. The flow below is what works end-to-end on this machine.
+
+**Important:** `gh` is **not installed** here. Use the GitHub REST API with
+`GITHUB_TOKEN` from `.env`. Repo is `alejingutierrez/eco_populicom`,
+default branch is `main`.
+
+#### 1. Always start work on a dedicated branch
+
+Pick a conventional prefix (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`)
+and a short slug. Branch from `origin/main`, not from the current worktree's
+`claude/*` branch:
+
+```bash
+MAIN=/Users/alegut/MyApps/eco_populicom    # main worktree
+git -C "$MAIN" fetch origin main
+git -C "$MAIN" checkout -b <type>/<slug> origin/main
+# ...edits...
+git -C "$MAIN" add <paths>
+git -C "$MAIN" commit -m "<conventional commit message>"
+git -C "$MAIN" push -u origin <type>/<slug>
+git -C "$MAIN" checkout main                        # leave main worktree clean
+```
+
+If you already committed to local `main` by mistake, recover without losing
+the commit:
+
+```bash
+git -C "$MAIN" branch <type>/<slug> main            # capture the commit on a new branch
+git -C "$MAIN" reset --hard origin/main             # clean main back to remote
+git -C "$MAIN" push -u origin <type>/<slug>
+```
+
+#### 2. Open the PR via the REST API
+
+Load `GITHUB_TOKEN` without printing it; verify with `/user` (returns only
+the login):
+
+```bash
+export GITHUB_TOKEN=$(grep '^GITHUB_TOKEN=' /Users/alegut/MyApps/eco_populicom/.env | cut -d= -f2- | tr -d '"')
+curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user \
+  | python3 -c "import json,sys; print('login:', json.load(sys.stdin).get('login'))"
+```
+
+Build the body with `python3` to avoid JSON-escape pain, then POST:
+
+```bash
+BODY=$(python3 -c '
+import json
+print(json.dumps({
+  "title": "<conventional title>",
+  "head": "<type>/<slug>",
+  "base": "main",
+  "body": "## Summary\n- ...\n\n## Test plan\n- [ ] ...\n",
+}))
+')
+
+curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  https://api.github.com/repos/alejingutierrez/eco_populicom/pulls \
+  -d "$BODY" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('html_url') or d)"
+```
+
+Check mergeability + checks before asking for merge:
+
+```bash
+curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+  "https://api.github.com/repos/alejingutierrez/eco_populicom/pulls/<N>" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('mergeable:', d.get('mergeable'), 'state:', d.get('mergeable_state'))"
+```
+
+#### 3. Wait for explicit user approval before merging
+
+Pushing a branch and opening a PR is autonomous. **Merging to `main` is not.**
+Even when `mergeable_state == clean` and CI passes, do not call the merge API
+without an unambiguous "merge"/"squash"/"yes mergea" from the user in the
+conversation. The harness will (and should) block silent merges.
+
+When approved, squash-merge:
+
+```bash
+curl -s -X PUT \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/alejingutierrez/eco_populicom/pulls/<N>/merge \
+  -d '{"merge_method":"squash"}' \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('merged:', d.get('merged'), 'sha:', d.get('sha'))"
+```
+
+#### 4. Clean up after merge
+
+```bash
+# Delete remote branch (expect HTTP 204)
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X DELETE \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://api.github.com/repos/alejingutierrez/eco_populicom/git/refs/heads/<type>/<slug>
+
+# Sync local main and drop the local branch
+git -C "$MAIN" fetch --prune origin
+git -C "$MAIN" pull --ff-only origin main
+git -C "$MAIN" branch -D <type>/<slug>
+```
+
+#### Common gotchas
+
+- **Worktrees vs main checkout.** `/Users/alegut/MyApps/eco_populicom` is the
+  main worktree (on `main`). Sub-paths under `.claude/worktrees/` are separate
+  worktrees on their own `claude/*` branches. Edits with absolute paths land
+  in whichever worktree owns that path. Pick the right one before editing —
+  always prefer the main worktree for ship-bound changes.
+- **Don't reuse the worktree's `claude/*` branch as the PR head.** Those
+  branches often point at `origin/main` exactly, so the diff is empty or
+  confusing. Always open a fresh `<type>/<slug>` from `origin/main`.
+- **Don't print the token.** `export GITHUB_TOKEN=$(...)` then let `curl`
+  pick it up from the environment. Never `echo $GITHUB_TOKEN` and never pass
+  it as a query string.
+- **CI may not run on every path.** The `deploy.yml` workflow only triggers
+  on changes under `apps/web/**`, `packages/**`, or `package-lock.json`.
+  A docs- or `.gitignore`-only PR will show 0 checks — that's fine, not a bug.
