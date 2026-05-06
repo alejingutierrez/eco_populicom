@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   App,
   Alert,
@@ -73,6 +74,12 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ReportsSettingsPage() {
   const { message } = App.useApp();
+  const searchParams = useSearchParams();
+  // Modo embebido: cuando esta página se carga dentro de un iframe (por
+  // ejemplo, desde la pestaña "Reportes" del AlertsScreen del prototype),
+  // ocultamos el header propio y dejamos que el contenedor padre maneje la
+  // navegación. Toggle vía ?embed=1.
+  const isEmbedded = searchParams?.get('embed') === '1';
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [selectedAgencySlug, setSelectedAgencySlug] = useState<string>('ddecpr');
   const [config, setConfig] = useState<ReportConfig | null>(null);
@@ -172,23 +179,34 @@ export default function ReportsSettingsPage() {
     }
   }, [config, selectedAgencySlug, message, loadConfigAndHistory]);
 
+  // Cuando viene embebido (?embed=1), eliminamos el header de página y los
+  // paddings exteriores para que el AlertsScreen del prototype pueda
+  // contenerlo sin dobles bordes ni encabezados duplicados.
+  const layoutBg = isEmbedded ? 'transparent' : '#F4F7FA';
+  const contentPadding = isEmbedded ? '12px 4px 4px 4px' : '28px';
+  const contentMaxWidth = isEmbedded ? '100%' : 960;
+
   return (
-    <Layout style={{ minHeight: '100vh', background: '#F4F7FA' }}>
-      <Header style={{ background: '#FFFFFF', borderBottom: '1px solid #EEF2F6', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <Link href="/dashboard" style={{ color: '#64748B', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <ArrowLeftOutlined /> Panel
-        </Link>
-        <Title level={4} style={{ margin: 0, color: '#0E1E2C' }}>Configuración · Reportes por correo</Title>
-      </Header>
-      <Content style={{ padding: '28px', maxWidth: 960, margin: '0 auto', width: '100%' }}>
-        <Space direction="vertical" size={24} style={{ width: '100%' }}>
-          <Alert
-            type="info"
-            showIcon
-            icon={<InfoCircleOutlined />}
-            message="Solo administradores pueden editar esta configuración"
-            description="La Lambda eco-weekly-report corre cada hora y envía únicamente a las agencias cuya hora local (según timezone) coincide con la hora configurada."
-          />
+    <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: layoutBg }}>
+      {!isEmbedded && (
+        <Header style={{ background: '#FFFFFF', borderBottom: '1px solid #EEF2F6', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Link href="/dashboard" style={{ color: '#64748B', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ArrowLeftOutlined /> Panel
+          </Link>
+          <Title level={4} style={{ margin: 0, color: '#0E1E2C' }}>Configuración · Reportes por correo</Title>
+        </Header>
+      )}
+      <Content style={{ padding: contentPadding, maxWidth: contentMaxWidth, margin: '0 auto', width: '100%' }}>
+        <Space direction="vertical" size={isEmbedded ? 16 : 24} style={{ width: '100%' }}>
+          {!isEmbedded && (
+            <Alert
+              type="info"
+              showIcon
+              icon={<InfoCircleOutlined />}
+              message="Solo administradores pueden editar esta configuración"
+              description="La Lambda eco-weekly-report corre cada hora y envía únicamente a las agencias cuya hora local (según timezone) coincide con la hora configurada."
+            />
+          )}
 
           <Card title="Agencia" size="small">
             <Select

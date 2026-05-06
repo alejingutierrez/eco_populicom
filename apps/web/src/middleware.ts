@@ -35,7 +35,10 @@ const CSP = [
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org",
   "connect-src 'self' https://cognito-idp.us-east-1.amazonaws.com",
-  "frame-ancestors 'none'",
+  // 'self' permite que páginas del mismo origen (p. ej. el prototype del
+  // dashboard) embeban /settings/reports en un iframe. Cross-origin sigue
+  // bloqueado, así que no abre vector de clickjacking.
+  "frame-ancestors 'self'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join('; ');
@@ -44,7 +47,9 @@ function addSecurityHeaders(response: NextResponse, request: NextRequest): NextR
   // Headers applied to every matched response (including redirects / 401s).
   response.headers.set('Content-Security-Policy', CSP);
   response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'DENY');
+  // SAMEORIGIN match con frame-ancestors 'self' arriba: permite embedding
+  // desde el prototype same-origin pero impide cross-origin clickjacking.
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   // Only advertise HSTS once the ALB is serving HTTPS — on plain HTTP browsers
