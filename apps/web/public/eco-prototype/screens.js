@@ -1619,6 +1619,126 @@ function GeographyScreen({ onMentionClick }) {
   );
 }
 
+// =============== REPORTS TAB (embed de /settings/reports) ===============
+// Esta pestaña vive dentro de Alertas y embebe la página real de configuración
+// de reportes (Next.js) vía iframe. Muestra KPIs operativos arriba (próximo
+// envío, destinatarios activos, último envío) y luego el form embebido.
+function ReportsTab() {
+  const [config, setConfig] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const iframeRef = useRef(null);
+
+  // Reload el iframe cuando guardamos config en otro lado, así los KPIs y el
+  // form se mantienen sincronizados. La carga inicial es cuando entras al tab.
+  const reloadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cfg, hist] = await Promise.all([
+        fetch('/api/reports/config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch('/api/reports/history?agencySlug=ddecpr&limit=14').then((r) => r.ok ? r.json() : { history: [] }),
+      ]);
+      setConfig(cfg.config ?? null);
+      setHistory(hist.history ?? []);
+    } catch (err) {
+      console.error('reports tab load failed', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { reloadAll(); }, [reloadAll]);
+
+  // Próximo envío estimado: hoy o mañana a sendHourLocal en el timezone local.
+  const nextSendLabel = useMemo(() => {
+    if (!config || !config.isActive) return '—';
+    const tz = config.timezone || 'America/Puerto_Rico';
+    const hour = config.sendHourLocal ?? 6;
+    const now = new Date();
+    // Hora actual en el TZ destino
+    const localHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit' }).format(now), 10);
+    const localMins = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, minute: '2-digit' }).format(now), 10);
+    let target = new Date(now);
+    target.setMinutes(0, 0, 0);
+    const isToday = localHour < hour;
+    target.setHours(target.getHours() + (isToday ? (hour - localHour) : (24 - localHour + hour)));
+    target.setMinutes(target.getMinutes() - localMins);
+    const diffMs = target - now;
+    const hrs = Math.floor(diffMs / 3600000);
+    const mins = Math.floor((diffMs % 3600000) / 60000);
+    const fmtTime = `${String(hour).padStart(2, '0')}:00`;
+    const dayLabel = isToday ? 'hoy' : 'mañana';
+    return `${dayLabel} ${fmtTime} · en ${hrs}h ${mins}m`;
+  }, [config]);
+
+  const lastSend = history[0] || null;
+  const lastSendLabel = lastSend ? new Date(lastSend.sentAt).toLocaleString('es-PR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  const lastSendStatus = lastSend ? lastSend.status : null;
+  const recipientsCount = config?.recipients?.length ?? 0;
+  const tzLabel = config?.timezone === 'America/Puerto_Rico' ? 'San Juan (AST)' : (config?.timezone ?? '—');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* KPI strip propio del tab */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <KpiCard
+          label="Estado del envío"
+          value={loading ? '…' : (config?.isActive ? 'Activo' : 'Pausado')}
+          icon={config?.isActive ? 'Check' : 'Pause'}
+          accent={config?.isActive ? 'var(--pos)' : 'var(--text-3)'}
+          sub={tzLabel}
+        />
+        <KpiCard
+          label="Próximo envío"
+          value={loading ? '…' : nextSendLabel.split(' · ')[0]}
+          sub={loading ? '' : (nextSendLabel.split(' · ')[1] || '')}
+          icon="Calendar"
+          accent="var(--accent)"
+        />
+        <KpiCard
+          label="Destinatarios"
+          value={loading ? '…' : String(recipientsCount)}
+          icon="Mail"
+          accent="var(--text-2)"
+          sub="agencia DDEC"
+        />
+        <KpiCard
+          label="Último envío"
+          value={lastSend ? lastSendLabel.split(',')[0] : '—'}
+          sub={lastSendStatus ? `estado: ${lastSendStatus}` : 'sin envíos aún'}
+          icon="Eye"
+          accent={lastSendStatus === 'sent' ? 'var(--pos)' : (lastSendStatus === 'failed' ? 'var(--neg)' : 'var(--text-3)')}
+        />
+      </div>
+
+      {/* Form embebido vía iframe */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Configuración del correo semanal</div>
+            <div className="card-hd-sub">Edita destinatarios, hora de envío, zona horaria y plantilla. Los cambios se guardan vía “Guardar cambios”.</div>
+          </div>
+          <button className="chip" onClick={() => { reloadAll(); if (iframeRef.current) iframeRef.current.src = iframeRef.current.src; }}>
+            Recargar
+          </button>
+        </div>
+        <iframe
+          ref={iframeRef}
+          src="/settings/reports?embed=1"
+          title="Configuración de reportes por correo"
+          style={{
+            width: '100%',
+            height: 1200,
+            border: 'none',
+            background: 'transparent',
+            display: 'block',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // =============== ALERTS ===============
 function AlertsScreen({ onMentionClick }) {
   const [tab, setTab] = useState('feed');
@@ -1673,8 +1793,11 @@ function AlertsScreen({ onMentionClick }) {
         <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
+        <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
+        {tab !== 'reports' && (
+          <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
+        )}
       </div>
 
       {tab === 'feed' && (
@@ -1746,6 +1869,8 @@ function AlertsScreen({ onMentionClick }) {
       )}
 
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
+
+      {tab === 'reports' && <ReportsTab />}
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
       {editorOpen && (
