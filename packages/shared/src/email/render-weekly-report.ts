@@ -1,14 +1,17 @@
 /**
  * Renderiza el template HTML del reporte semanal con datos reales.
- * El HTML está pensado para clientes de correo: tablas, estilos inline,
- * SVG inline para el gráfico, máximo 600px de ancho.
+ *
+ * Diseño: minimalista, fondo claro, marca Populicom (azul + amarillo) usada
+ * con moderación. Sin gradients oscuros ni elementos decorativos. Tablas e
+ * inline styles para compatibilidad con Gmail / Outlook / Apple Mail.
+ * Imagen PNG externa (QuickChart) para el gráfico de tendencia.
  */
 
 export interface WeeklyReportRenderData {
-  agencyName: string;              // "Departamento de Desarrollo Económico y Comercio"
-  agencyKicker: string;            // "DDEC · Departamento de Desarrollo Económico y Comercio"
-  periodLabel: string;             // "15 – 21 abr 2026"
-  updatedAtLabel: string;          // "21 abr, 4:00 p.m. AST"
+  agencyName: string;
+  agencyKicker: string;
+  periodLabel: string;
+  updatedAtLabel: string;
   totals: {
     negative: number;
     neutral: number;
@@ -16,22 +19,22 @@ export interface WeeklyReportRenderData {
     total: number;
   };
   deltaVsPrev: {
-    negative: number;              // porcentaje, e.g. 18 = +18%
+    negative: number;
     neutral: number;
     positive: number;
   };
-  /** URL absoluta de la imagen PNG del gráfico de tendencia (generada vía QuickChart u otro servicio). Requerida para clientes como Gmail que no soportan SVG. */
+  /** URL absoluta del PNG del gráfico de tendencia (QuickChart u otro). */
   chartImageUrl: string;
   dailySeries: Array<{
-    date: string;                  // YYYY-MM-DD
-    dayLabel: string;              // "mar 15"
+    date: string;
+    dayLabel: string;
     negative: number;
     neutral: number;
     positive: number;
   }>;
   topicsTable: Array<{
-    topic: string;                 // "Desarrollo económico"
-    subtopics: string;             // "Incentivos · Permisos"
+    topic: string;
+    subtopics: string;
     total: number;
     negative: number;
     neutral: number;
@@ -43,10 +46,41 @@ export interface WeeklyReportRenderData {
     positive: string[];
   };
   dailySummary: {
-    label: string;                 // "Resumen del día · 21 abr"
-    paragraph: string;             // HTML-safe; puede contener <strong>
+    label: string;
+    paragraph: string;
   };
 }
+
+// ------------------------------------------------------------
+// Paleta — sobria, light-first
+// ------------------------------------------------------------
+
+const COLORS = {
+  // Estructura
+  page: '#F5F6F8',          // gris muy claro detrás del email
+  surface: '#FFFFFF',       // tarjetas y secciones
+  border: '#E6E8EC',        // bordes sutiles
+  borderSoft: '#EEF0F4',    // separadores internos
+
+  // Tipografía
+  ink: '#0E1E2C',           // texto principal (azul muy oscuro Populicom)
+  inkSoft: '#4A5563',       // texto secundario
+  inkMute: '#8A93A0',       // texto terciario, labels
+
+  // Marca Populicom
+  brand: '#0A7EA4',         // azul Populicom
+  brandSoft: '#E6F1F7',     // azul muy claro para acentos
+  accent: '#F4C300',        // amarillo Populicom
+  accentSoft: '#FFF8DB',    // amarillo crema para destacar
+
+  // Semánticos
+  neg: '#C8462F',           // rojo, ligeramente más oscuro/serio
+  negSoft: '#FBE9E5',
+  neu: '#6B7280',
+  neuSoft: '#EEF0F3',
+  pos: '#1F8A47',
+  posSoft: '#E6F4EC',
+};
 
 // ------------------------------------------------------------
 // Helpers
@@ -68,66 +102,57 @@ function pct(n: number, total: number): number {
 function signedPct(n: number): string {
   const rounded = Math.round(n);
   if (rounded > 0) return `+${rounded}%`;
-  if (rounded < 0) return `${rounded}%`;
+  if (rounded < 0) return `${rounded}%`;  // ya viene con −
   return '0%';
 }
 
-function arrow(n: number): string {
-  if (n > 0) return '▲';
-  if (n < 0) return '▼';
-  return '■';
+function fmtInt(n: number): string {
+  return n.toLocaleString('es-PR');
+}
+
+function deltaWord(n: number): string {
+  if (n > 0) return 'sube';
+  if (n < 0) return 'baja';
+  return 'estable';
 }
 
 // ------------------------------------------------------------
-// Gráfico de serie de tiempo — imagen PNG externa (ej. QuickChart).
-// La URL se pasa en data.chartImageUrl. Gmail/Outlook/Apple Mail
-// cargan la imagen y la muestran. Hay un <table> fallback con un
-// alt text por si el cliente bloquea imágenes.
+// Gráfico — PNG externo (QuickChart) con alt-text descriptivo
 // ------------------------------------------------------------
 
 function renderChart(data: WeeklyReportRenderData): string {
   if (!data.dailySeries.length) {
-    return '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:13px;">Sin datos para el periodo.</div>';
+    return `<div style="padding:32px;text-align:center;color:${COLORS.inkMute};font-size:13px;">Sin datos en el periodo.</div>`;
   }
   if (!data.chartImageUrl) {
-    return '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:13px;">Gráfico no disponible.</div>';
+    return `<div style="padding:32px;text-align:center;color:${COLORS.inkMute};font-size:13px;">Gráfico no disponible.</div>`;
   }
-
-  const altText = `Tendencia de sentimiento últimos 7 días · ` +
+  const altText = `Tendencia diaria del sentimiento — ` +
     data.dailySeries
-      .map((d) => `${d.dayLabel}: neg ${d.negative} · neu ${d.neutral} · pos ${d.positive}`)
-      .join(' | ');
+      .map((d) => `${d.dayLabel}: ${d.negative} neg, ${d.neutral} neu, ${d.positive} pos`)
+      .join('; ');
 
-  return `
-  <img src="${esc(data.chartImageUrl)}" alt="${esc(altText)}" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
-  `;
-}
-
-function niceCeil(n: number): number {
-  if (n <= 10) return Math.max(10, Math.ceil(n));
-  const pow = Math.pow(10, Math.floor(Math.log10(n)));
-  const d = n / pow;
-  let nice: number;
-  if (d <= 1) nice = 1;
-  else if (d <= 2) nice = 2;
-  else if (d <= 5) nice = 5;
-  else nice = 10;
-  return Math.ceil(nice * pow);
+  return `<img src="${esc(data.chartImageUrl)}" alt="${esc(altText)}" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">`;
 }
 
 // ------------------------------------------------------------
-// Insight lists
+// Insights list
 // ------------------------------------------------------------
 
 function renderInsights(items: string[], color: string): string {
   const clean = items.filter((s) => s && s.trim().length > 0);
   if (clean.length === 0) {
-    return `<li class="force-text-soft" style="padding:8px 0;border-top:1px solid #F1F5F9;font-size:13px;line-height:1.55;color:#94A3B8;font-style:italic;">Sin señal suficiente en los datos de la semana.</li>`;
+    return `<li class="force-text-soft" style="padding:10px 0;font-size:13px;line-height:1.6;color:${COLORS.inkMute};font-style:italic;">No hay señal suficiente en los datos del periodo.</li>`;
   }
   return clean
     .map(
-      (s, i) =>
-        `<li class="force-text-dark" style="padding:8px 0;border-top:1px solid #F1F5F9;font-size:13px;line-height:1.55;color:#0E1E2C;"><strong style="color:${color};">${i + 1}.</strong> ${s}</li>`,
+      (s, i, arr) => {
+        const borderTop = i === 0 ? '' : `border-top:1px solid ${COLORS.borderSoft};`;
+        return `<li class="force-text-dark" style="padding:12px 0 12px 28px;${borderTop}font-size:13.5px;line-height:1.6;color:${COLORS.ink};position:relative;">
+          <span style="position:absolute;left:0;top:12px;color:${color};font-weight:700;font-size:13px;">${i + 1}.</span>
+          ${s}
+        </li>`;
+      },
     )
     .join('');
 }
@@ -141,25 +166,33 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
 
   const topicsRows = data.topicsTable
     .slice(0, 8)
-    .map((t) => {
-      const subs = t.subtopics ? `<div class="force-text-soft" style="font-size:11px;color:#94A3B8;font-weight:500;margin-top:2px;">${esc(t.subtopics)}</div>` : '';
+    .map((t, idx) => {
+      const isLast = idx === Math.min(data.topicsTable.length, 8) - 1;
+      const rowBorder = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
+      const subs = t.subtopics
+        ? `<div class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};font-weight:400;margin-top:3px;">${esc(t.subtopics)}</div>`
+        : '';
       return `
       <tr>
-        <td class="force-text-dark" style="padding:12px 14px;font-size:13px;color:#0E1E2C;font-weight:600;border-bottom:1px solid #EEF2F6;">
+        <td class="force-text-dark" style="padding:14px 16px;font-size:13.5px;color:${COLORS.ink};font-weight:600;${rowBorder}">
           ${esc(t.topic)}
           ${subs}
         </td>
-        <td align="right" class="force-text-dark" style="padding:12px 14px;font-size:13px;color:#0E1E2C;font-weight:700;border-bottom:1px solid #EEF2F6;">${t.total}</td>
-        <td align="right" style="padding:12px 14px;font-size:13px;color:#E86452;font-weight:700;border-bottom:1px solid #EEF2F6;">${t.negative}</td>
-        <td align="right" class="force-text-mute" style="padding:12px 14px;font-size:13px;color:#64748B;border-bottom:1px solid #EEF2F6;">${t.neutral}</td>
-        <td align="right" style="padding:12px 14px;font-size:13px;color:#52C47A;border-bottom:1px solid #EEF2F6;">${t.positive}</td>
+        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:13.5px;color:${COLORS.ink};font-weight:700;${rowBorder}">${fmtInt(t.total)}</td>
+        <td align="right" style="padding:14px 12px;font-size:13.5px;color:${COLORS.neg};font-weight:600;${rowBorder}">${fmtInt(t.negative)}</td>
+        <td align="right" class="force-text-mute" style="padding:14px 12px;font-size:13.5px;color:${COLORS.neu};${rowBorder}">${fmtInt(t.neutral)}</td>
+        <td align="right" style="padding:14px 12px;font-size:13.5px;color:${COLORS.pos};font-weight:600;${rowBorder}">${fmtInt(t.positive)}</td>
       </tr>`;
     })
     .join('');
 
   const topicsEmpty = data.topicsTable.length === 0
-    ? `<tr><td colspan="5" style="padding:16px;text-align:center;font-size:13px;color:#94A3B8;">Sin menciones clasificadas por tópico en el periodo.</td></tr>`
+    ? `<tr><td colspan="5" style="padding:18px;text-align:center;font-size:13px;color:${COLORS.inkMute};">Sin menciones clasificadas por tópico en este periodo.</td></tr>`
     : '';
+
+  const negPct = pct(totals.negative, totals.total);
+  const neuPct = pct(totals.neutral, totals.total);
+  const posPct = pct(totals.positive, totals.total);
 
   return `<!doctype html>
 <html lang="es" style="color-scheme:light only;supported-color-schemes:light only;">
@@ -169,7 +202,7 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   <meta name="x-apple-disable-message-reformatting">
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light only">
-  <title>Resumen semanal · últimos 7 días</title>
+  <title>Resumen semanal Populicom · ${esc(data.periodLabel)}</title>
   <!--[if mso]>
   <style type="text/css">
     table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
@@ -177,105 +210,119 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   <![endif]-->
   <style>
     :root { color-scheme: light only; supported-color-schemes: light only; }
-    body { margin: 0; padding: 0; background: #0E1E2C; }
+    body { margin: 0; padding: 0; background: ${COLORS.page}; }
     a { text-decoration: none; }
     img { -ms-interpolation-mode: bicubic; }
-    /* Impide que iOS / Apple Mail auto-detecte y recolore fechas, direcciones, teléfonos */
+    /* iOS / Apple Mail: evita auto-detección coloreada de fechas y direcciones */
     .appleLinks a { color: inherit !important; text-decoration: none !important; }
-    /* Outlook.com / Office 365 dark mode: fuerza los colores claros definidos */
-    [data-ogsc] .force-bg-white { background-color: #FFFFFF !important; }
-    [data-ogsc] .force-bg-surface { background-color: #F4F7FA !important; }
-    [data-ogsc] .force-text-dark { color: #0E1E2C !important; }
-    [data-ogsc] .force-text-mute { color: #64748B !important; }
-    [data-ogsc] .force-text-soft { color: #94A3B8 !important; }
-    [data-ogsc] .force-border { border-color: #EEF2F6 !important; }
-    /* Gmail iOS dark mode: evita que invierta backgrounds claros */
-    u + .body .gmail-dark-fix { background: #F4F7FA !important; }
+    /* Outlook.com / Office 365 dark mode override — fuerza colores claros */
+    [data-ogsc] .force-bg-page { background-color: ${COLORS.page} !important; }
+    [data-ogsc] .force-bg-white { background-color: ${COLORS.surface} !important; }
+    [data-ogsc] .force-text-dark { color: ${COLORS.ink} !important; }
+    [data-ogsc] .force-text-mute { color: ${COLORS.inkSoft} !important; }
+    [data-ogsc] .force-text-soft { color: ${COLORS.inkMute} !important; }
+    [data-ogsc] .force-border { border-color: ${COLORS.border} !important; }
+    /* Gmail iOS: no invertir backgrounds claros */
+    u + .body .gmail-dark-fix { background: ${COLORS.page} !important; }
     @media (prefers-color-scheme: dark) {
-      /* Forzamos modo claro siempre en dark mode del cliente */
       .container, .container td, .container div, .container p, .container h1, .container h2, .container h3, .container span, .container strong {
         color-scheme: light only !important;
       }
     }
     @media (max-width: 620px) {
-      .container { width: 100% !important; }
-      .px-24 { padding-left: 16px !important; padding-right: 16px !important; }
+      .container { width: 100% !important; border-radius: 0 !important; }
+      .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
       .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding-bottom: 12px !important; }
-      .kpi-value { font-size: 28px !important; }
-      h1.title { font-size: 20px !important; }
+      .stack-pad { padding-bottom: 10px !important; padding-left: 0 !important; padding-right: 0 !important; }
+      .kpi-value { font-size: 30px !important; }
+      h1.title { font-size: 22px !important; }
+      h2.section-title { font-size: 16px !important; }
     }
   </style>
 </head>
-<body class="body" style="margin:0;padding:0;background:#0E1E2C;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#0E1E2C;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#0E1E2C;opacity:0;">
-    ${esc(data.agencyKicker)} · ${totals.negative} menciones negativas (${pct(totals.negative, totals.total)}%) · últimos 7 días
+<body class="body" style="margin:0;padding:0;background:${COLORS.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${COLORS.ink};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${COLORS.page};opacity:0;">
+    ${esc(data.agencyKicker)} — ${fmtInt(totals.total)} menciones · periodo ${esc(data.periodLabel)}
   </div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0E1E2C;">
-    <tr>
-      <td align="center" style="padding:24px 12px;">
-        <table role="presentation" class="container force-bg-surface gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#F4F7FA" style="width:600px;max-width:600px;background:#F4F7FA;background-color:#F4F7FA;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.35);">
 
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:${COLORS.page};">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="width:600px;max-width:600px;background:${COLORS.surface};background-color:${COLORS.surface};border-radius:10px;overflow:hidden;border:1px solid ${COLORS.border};">
+
+          <!-- HEADER -->
           <tr>
-            <td style="background:#0E1E2C;padding:20px 28px;" class="px-24">
+            <td class="px-32" style="padding:22px 32px 18px 32px;border-bottom:1px solid ${COLORS.borderSoft};">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td align="left" valign="middle">
-                    <img src="https://www.populicom.com/wp-content/themes/populicom/img/logo-populicom-white.svg" alt="Populicom" width="130" style="display:block;border:0;outline:none;text-decoration:none;height:auto;">
+                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${COLORS.ink};">Populicom <span style="color:${COLORS.brand};">Radar</span></span>
                   </td>
-                  <td align="right" valign="middle" style="color:#94A3B8;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;">
-                    Radar semanal
+                  <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};letter-spacing:0.02em;">
+                    Reporte semanal
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
+          <!-- HERO -->
           <tr>
-            <td style="background:linear-gradient(135deg,#0A7EA4 0%,#0E1E2C 100%);padding:28px 28px 22px 28px;" class="px-24">
-              <div style="color:#FFD100;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;margin-bottom:8px;">
+            <td class="px-32" style="padding:28px 32px 24px 32px;">
+              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
                 ${esc(data.agencyKicker)}
               </div>
-              <h1 class="title" style="margin:0 0 6px 0;color:#FFFFFF;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.01em;">
-                Resumen de conversación pública · últimos 7 días
+              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
+                Conversación pública<br>de los últimos 7 días
               </h1>
-              <div style="color:#CBD5E1;font-size:13px;line-height:1.5;">
-                Periodo: <strong style="color:#FFFFFF;">${esc(data.periodLabel)}</strong> &nbsp;·&nbsp; Actualizado: ${esc(data.updatedAtLabel)}
+              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
+                ${esc(data.periodLabel)} &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
               </div>
             </td>
           </tr>
 
+          <!-- 01 · TERMÓMETRO -->
           <tr>
-            <td style="padding:28px 28px 8px 28px;" class="px-24">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#0A7EA4;margin-bottom:4px;">01 · Termómetro de sentimiento</div>
-              <h2 class="force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.3;color:#0E1E2C;font-weight:700;">Cómo se sintió la conversación esta semana</h2>
+            <td class="px-32" style="padding:6px 32px 8px 32px;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">01 · Termómetro</div>
+              <h2 class="section-title force-text-dark" style="margin:0 0 18px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+                Cómo se sintió la conversación
+              </h2>
 
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:4px;table-layout:fixed;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 <tr>
-                  ${kpiCard('Negativo', '#FDECE8', '#B94030', '#E86452', totals.negative, pct(totals.negative, totals.total), arrow(deltaVsPrev.negative), signedPct(deltaVsPrev.negative), 'right')}
-                  ${kpiCard('Neutral', '#EEF2F6', '#475569', '#64748B', totals.neutral, pct(totals.neutral, totals.total), arrow(deltaVsPrev.neutral), signedPct(deltaVsPrev.neutral), 'both')}
-                  ${kpiCard('Positivo', '#E6F6EC', '#1F8A47', '#52C47A', totals.positive, pct(totals.positive, totals.total), arrow(deltaVsPrev.positive), signedPct(deltaVsPrev.positive), 'left')}
+                  ${kpiCard('Negativo', COLORS.neg, COLORS.negSoft, totals.negative, negPct, deltaVsPrev.negative, 'right')}
+                  ${kpiCard('Neutral', COLORS.neu, COLORS.neuSoft, totals.neutral, neuPct, deltaVsPrev.neutral, 'both')}
+                  ${kpiCard('Positivo', COLORS.pos, COLORS.posSoft, totals.positive, posPct, deltaVsPrev.positive, 'left')}
                 </tr>
               </table>
+
+              <div class="force-text-soft" style="margin-top:14px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
+                Total del periodo: <strong style="color:${COLORS.ink};">${fmtInt(totals.total)}</strong> menciones &nbsp;·&nbsp; comparado con la semana previa
+              </div>
             </td>
           </tr>
 
+          <!-- 02 · TENDENCIA -->
           <tr>
-            <td style="padding:22px 28px 8px 28px;" class="px-24">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#0A7EA4;margin-bottom:4px;">02 · Tendencia diaria</div>
-              <h2 class="force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.3;color:#0E1E2C;font-weight:700;">Evolución del sentimiento, día a día</h2>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #EEF2F6;border-radius:14px;">
+            <td class="px-32" style="padding:24px 32px 8px 32px;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">02 · Tendencia</div>
+              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+                Día a día
+              </h2>
+
+              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
                 <tr>
-                  <td bgcolor="#FFFFFF" style="padding:20px 20px 16px 20px;background:#FFFFFF;background-color:#FFFFFF;">
+                  <td bgcolor="${COLORS.surface}" style="padding:18px 18px 14px 18px;background:${COLORS.surface};background-color:${COLORS.surface};">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
                       <tr>
-                        <td align="left" class="force-text-mute" style="font-size:12px;color:#475569;font-weight:600;">
-                          <span style="display:inline-block;width:10px;height:10px;background:#E86452;border-radius:2px;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;margin-right:18px;">Negativo <span class="force-text-soft" style="color:#94A3B8;font-weight:500;">${totals.negative}</span></span>
-                          <span style="display:inline-block;width:10px;height:10px;background:#94A3B8;border-radius:2px;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;margin-right:18px;">Neutral <span class="force-text-soft" style="color:#94A3B8;font-weight:500;">${totals.neutral}</span></span>
-                          <span style="display:inline-block;width:10px;height:10px;background:#52C47A;border-radius:2px;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;">Positivo <span class="force-text-soft" style="color:#94A3B8;font-weight:500;">${totals.positive}</span></span>
+                        <td align="left" class="force-text-mute" style="font-size:12px;color:${COLORS.inkSoft};">
+                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.neg};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
+                          <span style="vertical-align:middle;margin-right:14px;">Negativo</span>
+                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.neu};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
+                          <span style="vertical-align:middle;margin-right:14px;">Neutral</span>
+                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.pos};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
+                          <span style="vertical-align:middle;">Positivo</span>
                         </td>
                       </tr>
                     </table>
@@ -288,17 +335,21 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
             </td>
           </tr>
 
+          <!-- 03 · TÓPICOS -->
           <tr>
-            <td style="padding:22px 28px 8px 28px;" class="px-24">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#0A7EA4;margin-bottom:4px;">03 · Tópicos y subtópicos</div>
-              <h2 class="force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.3;color:#0E1E2C;font-weight:700;">Dónde se concentra la conversación</h2>
-              <table role="presentation" class="force-bg-white" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #EEF2F6;border-radius:14px;overflow:hidden;">
+            <td class="px-32" style="padding:24px 32px 8px 32px;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">03 · Tópicos</div>
+              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+                Dónde se concentra la conversación
+              </h2>
+
+              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
                 <tr>
-                  <th align="left" bgcolor="#FAFBFD" style="background:#FAFBFD;background-color:#FAFBFD;padding:10px 14px;font-size:11px;font-weight:700;color:#475569;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid #EEF2F6;">Tópico</th>
-                  <th align="right" bgcolor="#FAFBFD" style="background:#FAFBFD;background-color:#FAFBFD;padding:10px 14px;font-size:11px;font-weight:700;color:#475569;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid #EEF2F6;width:64px;">Total</th>
-                  <th align="right" bgcolor="#FAFBFD" style="background:#FAFBFD;background-color:#FAFBFD;padding:10px 14px;font-size:11px;font-weight:700;color:#E86452;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid #EEF2F6;width:58px;">Neg</th>
-                  <th align="right" bgcolor="#FAFBFD" style="background:#FAFBFD;background-color:#FAFBFD;padding:10px 14px;font-size:11px;font-weight:700;color:#64748B;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid #EEF2F6;width:58px;">Neu</th>
-                  <th align="right" bgcolor="#FAFBFD" style="background:#FAFBFD;background-color:#FAFBFD;padding:10px 14px;font-size:11px;font-weight:700;color:#52C47A;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid #EEF2F6;width:58px;">Pos</th>
+                  <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
+                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:64px;">Total</th>
+                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.neg};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Neg</th>
+                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.neu};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Neu</th>
+                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.pos};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Pos</th>
                 </tr>
                 ${topicsRows}
                 ${topicsEmpty}
@@ -306,54 +357,45 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
             </td>
           </tr>
 
+          <!-- 04 · INSIGHTS -->
           <tr>
-            <td style="padding:22px 28px 8px 28px;" class="px-24">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#0A7EA4;margin-bottom:4px;">04 · Insights de la semana</div>
-              <h2 class="force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.3;color:#0E1E2C;font-weight:700;">Lo que está diciendo la audiencia</h2>
+            <td class="px-32" style="padding:24px 32px 8px 32px;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">04 · Insights</div>
+              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+                Lo que está diciendo la audiencia
+              </h2>
 
-              <table role="presentation" class="force-bg-white" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #EEF2F6;border-radius:14px;margin-bottom:12px;">
-                <tr>
-                  <td style="padding:16px 18px;">
-                    <div style="display:inline-block;background:#FDECE8;color:#B94030;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;border-radius:999px;margin-bottom:10px;">Negativo · ${pct(totals.negative, totals.total)}% del total</div>
-                    <ul style="margin:0;padding:0;list-style:none;">${renderInsights(data.insights.negative, '#E86452')}</ul>
-                  </td>
-                </tr>
-              </table>
+              ${insightBlock('Negativo', `${negPct}% del total`, COLORS.neg, COLORS.negSoft, renderInsights(data.insights.negative, COLORS.neg))}
+              ${insightBlock('Neutral', `${neuPct}% del total`, COLORS.neu, COLORS.neuSoft, renderInsights(data.insights.neutral, COLORS.neu))}
+              ${insightBlock('Positivo', `${posPct}% del total`, COLORS.pos, COLORS.posSoft, renderInsights(data.insights.positive, COLORS.pos))}
+            </td>
+          </tr>
 
-              <table role="presentation" class="force-bg-white" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #EEF2F6;border-radius:14px;margin-bottom:12px;">
+          <!-- RESUMEN DEL DÍA -->
+          <tr>
+            <td class="px-32" style="padding:14px 32px 28px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
                 <tr>
-                  <td style="padding:16px 18px;">
-                    <div style="display:inline-block;background:#EEF2F6;color:#475569;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;border-radius:999px;margin-bottom:10px;">Neutral · ${pct(totals.neutral, totals.total)}% del total</div>
-                    <ul style="margin:0;padding:0;list-style:none;">${renderInsights(data.insights.neutral, '#64748B')}</ul>
-                  </td>
-                </tr>
-              </table>
-
-              <table role="presentation" class="force-bg-white" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #EEF2F6;border-radius:14px;margin-bottom:12px;">
-                <tr>
-                  <td style="padding:16px 18px;">
-                    <div style="display:inline-block;background:#E6F6EC;color:#1F8A47;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;border-radius:999px;margin-bottom:10px;">Positivo · ${pct(totals.positive, totals.total)}% del total</div>
-                    <ul style="margin:0;padding:0;list-style:none;">${renderInsights(data.insights.positive, '#52C47A')}</ul>
-                  </td>
-                </tr>
-              </table>
-
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0E1E2C 0%,#0A7EA4 100%);border-radius:14px;margin-top:4px;">
-                <tr>
-                  <td style="padding:18px 20px;">
-                    <div style="display:inline-block;background:#FFD100;color:#0E1E2C;font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;padding:5px 10px;border-radius:999px;margin-bottom:12px;">${esc(data.dailySummary.label)}</div>
-                    <p style="margin:0;color:#F4F7FA;font-size:14px;line-height:1.6;">${data.dailySummary.paragraph}</p>
+                  <td style="padding:18px 22px;">
+                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
+                      ${esc(data.dailySummary.label)}
+                    </div>
+                    <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.dailySummary.paragraph}</p>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <tr><td style="padding:8px 28px 22px 28px;" class="px-24">&nbsp;</td></tr>
-
+          <!-- FOOTER -->
           <tr>
-            <td style="background:#0E1E2C;padding:18px 28px;" class="px-24" align="center">
-              <div style="color:#64748B;font-size:11px;line-height:1.6;">© ${new Date().getFullYear()} Populicom · San Juan, Puerto Rico</div>
+            <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid ${COLORS.borderSoft};" align="center">
+              <div class="force-text-soft" style="color:${COLORS.inkMute};font-size:11.5px;line-height:1.6;">
+                Populicom · San Juan, Puerto Rico &nbsp;·&nbsp; <a href="https://www.populicom.com" style="color:${COLORS.brand};text-decoration:none;">populicom.com</a>
+              </div>
+              <div class="force-text-soft" style="margin-top:6px;color:${COLORS.inkMute};font-size:11px;line-height:1.5;">
+                Recibes este correo porque eres administrador del Radar de tu agencia.
+              </div>
             </td>
           </tr>
 
@@ -365,33 +407,56 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
 </html>`;
 }
 
+// ------------------------------------------------------------
+// KPI Card — sin flechas, sin sombras. Pill arriba + número grande
+// + delta abajo en línea sutil.
+// ------------------------------------------------------------
+
 function kpiCard(
   label: string,
+  color: string,
   pillBg: string,
-  pillColor: string,
-  valueColor: string,
   value: number,
   percentOfTotal: number,
-  arrowChar: string,
-  deltaLabel: string,
+  delta: number,
   side: 'left' | 'right' | 'both',
 ): string {
-  const paddingL = side === 'right' ? 0 : 3;
-  const paddingR = side === 'left' ? 0 : 3;
-  const padLStyle = side === 'right' ? '' : `padding-left:${paddingL}px;`;
-  const padRStyle = side === 'left' ? '' : `padding-right:${paddingR}px;`;
-  const leftPad = side === 'right' ? 'padding-right:6px;' : side === 'left' ? 'padding-left:6px;' : 'padding-left:3px;padding-right:3px;';
+  const padCss = side === 'right'
+    ? 'padding-right:5px;'
+    : side === 'left'
+    ? 'padding-left:5px;'
+    : 'padding-left:5px;padding-right:5px;';
 
-  return `<td class="stack stack-pad" valign="top" width="33.33%" style="${leftPad}">
-    <table role="presentation" class="force-bg-white force-border" width="100%" height="168" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:14px;border:1px solid #EEF2F6;height:168px;">
+  return `<td class="stack stack-pad" valign="top" width="33.33%" style="${padCss}">
+    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
       <tr>
-        <td valign="top" style="padding:16px;height:168px;">
-          <div style="display:inline-block;background:${pillBg};background-color:${pillBg};color:${pillColor};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;border-radius:999px;">${label}</div>
-          <div class="kpi-value" style="font-size:30px;line-height:1;font-weight:800;color:${valueColor};margin-top:14px;letter-spacing:-0.02em;">${value}</div>
-          <div class="force-text-mute" style="font-size:13px;color:#64748B;margin-top:6px;font-weight:600;">${percentOfTotal}% del total</div>
-          <div style="margin-top:12px;font-size:12px;color:${pillColor};font-weight:600;">${arrowChar} ${deltaLabel} <span class="force-text-soft" style="color:#94A3B8;font-weight:500;">vs 7 días previos</span></div>
+        <td valign="top" style="padding:16px 16px 14px 16px;">
+          <div style="display:inline-block;background:${pillBg};color:${color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;">${label}</div>
+          <div class="kpi-value force-text-dark" style="font-size:32px;line-height:1;font-weight:700;color:${COLORS.ink};margin-top:14px;letter-spacing:-0.025em;">${fmtInt(value)}</div>
+          <div class="force-text-mute" style="font-size:12.5px;color:${COLORS.inkSoft};margin-top:4px;font-weight:500;">${percentOfTotal}% del total</div>
+          <div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.4;">
+            <span style="color:${color};font-weight:600;">${signedPct(delta)}</span> ${deltaWord(delta)} vs. semana previa
+          </div>
         </td>
       </tr>
     </table>
   </td>`;
+}
+
+// ------------------------------------------------------------
+// Insight block — tarjeta suave con etiqueta y lista numerada
+// ------------------------------------------------------------
+
+function insightBlock(label: string, sub: string, color: string, pillBg: string, listHtml: string): string {
+  return `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:10px;">
+    <tr>
+      <td style="padding:14px 18px 6px 18px;">
+        <div style="margin-bottom:4px;">
+          <span style="display:inline-block;background:${pillBg};color:${color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;vertical-align:middle;">${label}</span>
+          <span class="force-text-soft" style="margin-left:8px;font-size:11.5px;color:${COLORS.inkMute};vertical-align:middle;">${sub}</span>
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;">${listHtml}</ul>
+      </td>
+    </tr>
+  </table>`;
 }
