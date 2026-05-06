@@ -515,20 +515,33 @@ async function buildAggregates(
   }
   const dailySeries = Array.from(daily.entries()).map(([date, v]) => ({ date, ...v }));
 
+  // Cada mención cuenta UNA sola vez bajo su tópico principal (el de mayor
+  // confidence en mention_topics). Esto evita inflación por multi-clasificación
+  // y hace que la suma de "Total" cuadre con el universo del termómetro.
+  // Para menciones con empate de confidence, desempata por topic_id (estable).
   const byTopicRows = await client.query(
     `SELECT t.name AS topic,
             ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(DISTINCT m.id)::int AS total,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'neutral')::int AS neutral,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'positivo')::int AS positive
-       FROM mentions m
-       JOIN mention_topics mt ON mt.mention_id = m.id
-       JOIN topics t ON t.id = mt.topic_id
-       LEFT JOIN subtopics s ON s.id = mt.subtopic_id
-      WHERE m.agency_id = $1
-        AND m.published_at >= ($2::date)
-        AND m.published_at <  (($3::date) + INTERVAL '1 day')
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+       FROM (
+         SELECT m.id AS mention_id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                (SELECT topic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
+                (SELECT subtopic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.published_at >= ($2::date)
+            AND m.published_at <  (($3::date) + INTERVAL '1 day')
+       ) pt
+       JOIN topics t ON t.id = pt.topic_id
+       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
       GROUP BY t.id, t.name
       ORDER BY total DESC
       LIMIT 10`,
@@ -724,33 +737,89 @@ async function loadTopicsTable(
   startDate: string,
   endDate: string,
 ): Promise<WeeklyReportRenderData['topicsTable']> {
+  // Estrategia: cada mención cuenta UNA vez bajo su "tópico principal" (el de
+  // mayor confidence). Devolvemos top 7 tópicos + fila "Otros" (resto agrupado)
+  // + fila "Sin clasificar" (menciones sin tópico aún). La suma de Total
+  // cuadra con el universo del termómetro. Hace al correo más simple para una
+  // audiencia ejecutiva que no necesita razonar sobre multi-clasificación.
   const r = await client.query(
-    `SELECT t.name AS topic,
+    `SELECT COALESCE(t.id, -1) AS topic_id_key,
+            COALESCE(t.name, 'Sin clasificar') AS topic,
             ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(DISTINCT m.id)::int AS total,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'neutral')::int AS neutral,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'positivo')::int AS positive
-       FROM mentions m
-       JOIN mention_topics mt ON mt.mention_id = m.id
-       JOIN topics t ON t.id = mt.topic_id
-       LEFT JOIN subtopics s ON s.id = mt.subtopic_id
-      WHERE m.agency_id = $1
-        AND m.published_at >= ($2::date)
-        AND m.published_at <  (($3::date) + INTERVAL '1 day')
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+       FROM (
+         SELECT m.id AS mention_id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                (SELECT topic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
+                (SELECT subtopic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.published_at >= ($2::date)
+            AND m.published_at <  (($3::date) + INTERVAL '1 day')
+       ) pt
+       LEFT JOIN topics t ON t.id = pt.topic_id
+       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
       GROUP BY t.id, t.name
-      ORDER BY total DESC
-      LIMIT 8`,
+      ORDER BY total DESC`,
     [agencyId, startDate, endDate],
   );
-  return r.rows.map((row: any) => ({
+
+  type Row = {
+    topic: string;
+    subtopics: string;
+    total: number;
+    negative: number;
+    neutral: number;
+    positive: number;
+    isUnclassified?: boolean;
+    isOther?: boolean;
+  };
+
+  const allRows: Row[] = r.rows.map((row: any): Row => ({
     topic: row.topic,
     subtopics: (row.subtopics ?? []).slice(0, 3).join(' · '),
     total: row.total,
     negative: row.negative,
     neutral: row.neutral,
     positive: row.positive,
+    isUnclassified: row.topic === 'Sin clasificar',
   }));
+
+  const classified = allRows.filter((r) => !r.isUnclassified);
+  const unclassified = allRows.find((r) => r.isUnclassified);
+
+  // Top 7 tópicos clasificados; el resto se colapsa en "Otros tópicos".
+  const TOP_N = 7;
+  const top = classified.slice(0, TOP_N);
+  const rest = classified.slice(TOP_N);
+
+  const result: Row[] = [...top];
+  if (rest.length > 0) {
+    const others: Row = {
+      topic: `Otros tópicos (${rest.length})`,
+      subtopics: '',
+      total: rest.reduce((s, r) => s + r.total, 0),
+      negative: rest.reduce((s, r) => s + r.negative, 0),
+      neutral: rest.reduce((s, r) => s + r.neutral, 0),
+      positive: rest.reduce((s, r) => s + r.positive, 0),
+      isOther: true,
+    };
+    result.push(others);
+  }
+  if (unclassified && unclassified.total > 0) {
+    result.push({
+      ...unclassified,
+      subtopics: 'En proceso de clasificación',
+    });
+  }
+  return result;
 }
 
 // ============================================================

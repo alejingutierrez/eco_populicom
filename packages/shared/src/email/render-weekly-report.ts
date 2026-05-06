@@ -39,6 +39,10 @@ export interface WeeklyReportRenderData {
     negative: number;
     neutral: number;
     positive: number;
+    /** Fila agregada de tópicos que no entraron al top — se renderiza en gris */
+    isOther?: boolean;
+    /** Menciones sin tópico (aún en proceso) — se renderiza en gris suave */
+    isUnclassified?: boolean;
   }>;
   insights: {
     negative: string[];
@@ -164,30 +168,50 @@ function renderInsights(items: string[], color: string): string {
 export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   const { totals, deltaVsPrev } = data;
 
-  const topicsRows = data.topicsTable
-    .slice(0, 8)
+  const topicsList = data.topicsTable.slice(0, 9);
+  const topicsRows = topicsList
     .map((t, idx) => {
-      const isLast = idx === Math.min(data.topicsTable.length, 8) - 1;
+      const isLast = idx === topicsList.length - 1;
       const rowBorder = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
+      const isMuted = t.isOther || t.isUnclassified;
+      const labelColor = isMuted ? COLORS.inkSoft : COLORS.ink;
+      const totalColor = isMuted ? COLORS.inkSoft : COLORS.ink;
+      const totalWeight = isMuted ? 600 : 700;
+      const totalPct = totals.total > 0 ? Math.round((t.total / totals.total) * 100) : 0;
       const subs = t.subtopics
-        ? `<div class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};font-weight:400;margin-top:3px;">${esc(t.subtopics)}</div>`
+        ? `<div class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};font-weight:400;margin-top:3px;font-style:${t.isUnclassified ? 'italic' : 'normal'};">${esc(t.subtopics)}</div>`
         : '';
       return `
       <tr>
-        <td class="force-text-dark" style="padding:14px 16px;font-size:13.5px;color:${COLORS.ink};font-weight:600;${rowBorder}">
+        <td class="force-text-dark" style="padding:14px 16px;font-size:13.5px;color:${labelColor};font-weight:${isMuted ? 500 : 600};${rowBorder}">
           ${esc(t.topic)}
           ${subs}
         </td>
-        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:13.5px;color:${COLORS.ink};font-weight:700;${rowBorder}">${fmtInt(t.total)}</td>
-        <td align="right" style="padding:14px 12px;font-size:13.5px;color:${COLORS.neg};font-weight:600;${rowBorder}">${fmtInt(t.negative)}</td>
-        <td align="right" class="force-text-mute" style="padding:14px 12px;font-size:13.5px;color:${COLORS.neu};${rowBorder}">${fmtInt(t.neutral)}</td>
-        <td align="right" style="padding:14px 12px;font-size:13.5px;color:${COLORS.pos};font-weight:600;${rowBorder}">${fmtInt(t.positive)}</td>
+        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:13.5px;color:${totalColor};font-weight:${totalWeight};${rowBorder};white-space:nowrap;">
+          ${fmtInt(t.total)}
+          <span class="force-text-soft" style="display:block;font-size:10.5px;color:${COLORS.inkMute};font-weight:500;margin-top:2px;">${totalPct}%</span>
+        </td>
+        <td style="padding:14px 16px 14px 12px;${rowBorder}">
+          ${distributionBar(t.negative, t.neutral, t.positive, t.total, isMuted)}
+        </td>
       </tr>`;
     })
     .join('');
 
+  // Total al pie de la tabla — debe cuadrar con el universo del termómetro.
+  const topicsFooter = data.topicsTable.length > 0
+    ? `
+      <tr>
+        <td style="padding:14px 16px;font-size:11px;color:${COLORS.inkMute};font-weight:700;letter-spacing:0.06em;text-transform:uppercase;border-top:1px solid ${COLORS.border};background:${COLORS.page};">Total del periodo</td>
+        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:14px;color:${COLORS.ink};font-weight:800;border-top:1px solid ${COLORS.border};background:${COLORS.page};white-space:nowrap;">${fmtInt(totals.total)}</td>
+        <td style="padding:14px 16px 14px 12px;border-top:1px solid ${COLORS.border};background:${COLORS.page};">
+          ${distributionBar(totals.negative, totals.neutral, totals.positive, totals.total, false)}
+        </td>
+      </tr>`
+    : '';
+
   const topicsEmpty = data.topicsTable.length === 0
-    ? `<tr><td colspan="5" style="padding:18px;text-align:center;font-size:13px;color:${COLORS.inkMute};">Sin menciones clasificadas por tópico en este periodo.</td></tr>`
+    ? `<tr><td colspan="3" style="padding:18px;text-align:center;font-size:13px;color:${COLORS.inkMute};">Sin menciones clasificadas por tópico en este periodo.</td></tr>`
     : '';
 
   const negPct = pct(totals.negative, totals.total);
@@ -335,24 +359,26 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
             </td>
           </tr>
 
-          <!-- 03 · TÓPICOS -->
+          <!-- 03 · TÓPICO PRINCIPAL -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">03 · Tópicos</div>
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">03 · Tópico principal</div>
+              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Dónde se concentra la conversación
               </h2>
+              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
+                Cada mención se cuenta una sola vez bajo su tópico principal. Las menciones aún sin clasificar se agrupan al final.
+              </div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
                 <tr>
                   <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:64px;">Total</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.neg};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Neg</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.neu};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Neu</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.pos};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:54px;">Pos</th>
+                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:78px;">Total</th>
+                  <th align="left" style="padding:11px 16px 11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Distribución <span style="font-weight:500;text-transform:none;letter-spacing:0;color:${COLORS.inkMute};">(neg · neu · pos)</span></th>
                 </tr>
                 ${topicsRows}
                 ${topicsEmpty}
+                ${topicsFooter}
               </table>
             </td>
           </tr>
@@ -441,6 +467,47 @@ function kpiCard(
       </tr>
     </table>
   </td>`;
+}
+
+// ------------------------------------------------------------
+// Distribution bar — barra horizontal stacked con los 3 sentimientos +
+// porcentajes inline. Usa <table> con widths en % para máxima compatibilidad
+// con clientes de email (Outlook 2016 no soporta flexbox; sí soporta tables
+// con widths fraccionarios). Si total = 0, renderiza una barra vacía gris.
+// ------------------------------------------------------------
+
+function distributionBar(neg: number, neu: number, pos: number, total: number, isMuted: boolean): string {
+  if (total === 0) {
+    return `<div style="height:6px;background:${COLORS.borderSoft};border-radius:3px;"></div>
+            <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};">—</div>`;
+  }
+  const negPct = Math.round((neg / total) * 100);
+  const neuPct = Math.round((neu / total) * 100);
+  const posPct = Math.max(0, 100 - negPct - neuPct);
+
+  // Colores: cuando isMuted (filas "Otros" o "Sin clasificar"), bajamos
+  // saturación para no llamar la atención.
+  const negC = isMuted ? '#D89B92' : COLORS.neg;
+  const neuC = isMuted ? '#B5BBC4' : COLORS.neu;
+  const posC = isMuted ? '#9DC9AC' : COLORS.pos;
+
+  // Cada segmento es un <td> con width fraccional. Si un sentimiento es 0,
+  // omitimos el <td> para que no genere un pixel residual.
+  const segs: string[] = [];
+  if (neg > 0) segs.push(`<td bgcolor="${negC}" style="background:${negC};background-color:${negC};width:${negPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
+  if (neu > 0) segs.push(`<td bgcolor="${neuC}" style="background:${neuC};background-color:${neuC};width:${neuPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
+  if (pos > 0) segs.push(`<td bgcolor="${posC}" style="background:${posC};background-color:${posC};width:${posPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-radius:3px;overflow:hidden;background:${COLORS.borderSoft};">
+    <tr>${segs.join('')}</tr>
+  </table>
+  <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};line-height:1.4;">
+    <span style="color:${negC};font-weight:600;">${negPct}%</span>
+    <span style="color:${COLORS.inkMute};">·</span>
+    <span style="color:${neuC};font-weight:600;">${neuPct}%</span>
+    <span style="color:${COLORS.inkMute};">·</span>
+    <span style="color:${posC};font-weight:600;">${posPct}%</span>
+  </div>`;
 }
 
 // ------------------------------------------------------------
