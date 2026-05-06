@@ -14,9 +14,9 @@ export const reportConfigs = pgTable(
     agencyId: uuid('agency_id').primaryKey().references(() => agencies.id, { onDelete: 'cascade' }),
     isActive: boolean('is_active').notNull().default(true),
     /** Hora local (0–23) en la que se dispara el envío. Minuto siempre = 0. */
-    sendHourLocal: integer('send_hour_local').notNull().default(16),
-    /** IANA timezone, default America/Bogota. */
-    timezone: varchar('timezone', { length: 64 }).notNull().default('America/Bogota'),
+    sendHourLocal: integer('send_hour_local').notNull().default(6),
+    /** IANA timezone, default America/Puerto_Rico (AST, UTC-4 sin DST). */
+    timezone: varchar('timezone', { length: 64 }).notNull().default('America/Puerto_Rico'),
     /** Clave del template. Por ahora solo "weekly-sentiment-summary". */
     templateKey: varchar('template_key', { length: 64 }).notNull().default('weekly-sentiment-summary'),
     recipients: jsonb('recipients').notNull().$type<string[]>().default([]),

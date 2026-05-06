@@ -55,8 +55,8 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => ({
 }));
 
 const TIMEZONE_OPTIONS = [
+  { value: 'America/Puerto_Rico', label: 'San Juan · Puerto Rico (AST, UTC-4 sin DST)' },
   { value: 'America/Bogota', label: 'Bogotá · Colombia (UTC-5, sin DST)' },
-  { value: 'America/Puerto_Rico', label: 'San Juan · Puerto Rico (UTC-4, sin DST)' },
   { value: 'America/New_York', label: 'New York (UTC-5/-4 con DST)' },
   { value: 'America/Mexico_City', label: 'Ciudad de México (UTC-6/-5 con DST)' },
   { value: 'America/Lima', label: 'Lima · Perú (UTC-5, sin DST)' },
@@ -238,8 +238,8 @@ function ConfigForm({
   const defaults: ReportConfig = useMemo(() => (initial ?? {
     agencyId: '',
     isActive: true,
-    sendHourLocal: 16,
-    timezone: 'America/Bogota',
+    sendHourLocal: 6,
+    timezone: 'America/Puerto_Rico',
     templateKey: 'weekly-sentiment-summary',
     recipients: [],
     fromEmail: 'agutierrez@populicom.com',

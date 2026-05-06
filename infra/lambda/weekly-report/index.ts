@@ -32,6 +32,14 @@ const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
 const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
 
+/**
+ * TZ para todo cálculo de "día calendario" del reporte. Puerto Rico es AST
+ * (UTC-4) sin DST. La config por agencia (report_configs.timezone) sigue
+ * siendo configurable; esta constante es solo el default usado cuando un
+ * cálculo necesita "el día PR" sin pasar por la fila de config.
+ */
+const REPORT_TIMEZONE = 'America/Puerto_Rico';
+
 let dbUrl: string | null = null;
 let schemaEnsured = false;
 
@@ -276,12 +284,15 @@ async function buildReport(
   client: any,
   agency: { id: string; slug: string; name: string },
 ): Promise<BuiltReport> {
-  // Periodo: últimos 7 días naturales en America/Bogota, cerrando HOY.
-  const nowLocal = new Date(Date.now() - 5 * 3600 * 1000); // Bogotá = UTC-5 sin DST
-  const endDate = toYmd(nowLocal);
-  const startDate = toYmd(new Date(nowLocal.getTime() - 6 * 86400 * 1000));
-  const prevEndDate = toYmd(new Date(nowLocal.getTime() - 7 * 86400 * 1000));
-  const prevStartDate = toYmd(new Date(nowLocal.getTime() - 13 * 86400 * 1000));
+  // Periodo: últimos 7 días CERRADOS (terminando AYER) en America/Puerto_Rico.
+  // El correo se envía 6 AM PR; ayer ya es un día completo. No incluimos hoy
+  // parcial — eso sesgaría el termómetro y el delta vs. semana previa.
+  const nowUtc = new Date();
+  const todayPR = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
+  const endDate = addDaysYmd(todayPR, -1);                  // ayer cerrado
+  const startDate = addDaysYmd(endDate, -6);                // 7 días cerrados
+  const prevEndDate = addDaysYmd(startDate, -1);            // semana previa también 7 días
+  const prevStartDate = addDaysYmd(prevEndDate, -6);
 
   const aggregates = await buildAggregates(client, agency, startDate, endDate, prevStartDate, prevEndDate);
   const samples = await loadSamples(client, agency.id, startDate, endDate);
@@ -303,7 +314,7 @@ async function buildReport(
     agencyName: agency.name,
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
     periodLabel: formatPeriodLabel(startDate, endDate),
-    updatedAtLabel: formatUpdatedAtLabel(nowLocal),
+    updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
     totals: aggregates.totals,
     deltaVsPrev: aggregates.deltaVsPrevWeek,
     chartImageUrl: buildChartImageUrl(dailySeriesLabeled),
@@ -328,8 +339,8 @@ async function ensureReportsSchema(client: any): Promise<void> {
     CREATE TABLE IF NOT EXISTS report_configs (
       agency_id UUID PRIMARY KEY REFERENCES agencies(id) ON DELETE CASCADE,
       is_active BOOLEAN NOT NULL DEFAULT true,
-      send_hour_local INTEGER NOT NULL DEFAULT 16,
-      timezone VARCHAR(64) NOT NULL DEFAULT 'America/Bogota',
+      send_hour_local INTEGER NOT NULL DEFAULT 6,
+      timezone VARCHAR(64) NOT NULL DEFAULT 'America/Puerto_Rico',
       template_key VARCHAR(64) NOT NULL DEFAULT 'weekly-sentiment-summary',
       recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
       from_email VARCHAR(255) NOT NULL DEFAULT 'agutierrez@populicom.com',
@@ -360,20 +371,23 @@ async function ensureReportsSchema(client: any): Promise<void> {
   await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_agency_id ON report_send_log(agency_id);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_sent_at ON report_send_log(sent_at);`);
 
-  // Seed default config: DDEC activo con destinatarios Populicom a las 5pm
-  // (America/Bogota). Otras agencias inactivas. Solo inserta si la fila no existe.
+  // Seed default config: DDEC activo con destinatarios Populicom a las 6 AM
+  // (America/Puerto_Rico). Otras agencias inactivas. El ON CONFLICT solo
+  // sobreescribe si nadie ha editado la fila desde la UI (updated_by IS NULL).
   const DDEC_RECIPIENTS = [
     'agutierrez@populicom.com',
     'gpaz@populicom.com',
     'csanchez@populicom.com',
     'asoto@populicom.com',
+    'lquinones@populicom.com',
+    'grosado@populicom.com',
   ];
   await client.query(`
     INSERT INTO report_configs (agency_id, is_active, send_hour_local, timezone, recipients, from_email, from_name)
     SELECT id,
            CASE WHEN slug = 'ddecpr' THEN true ELSE false END,
-           17,
-           'America/Bogota',
+           6,
+           'America/Puerto_Rico',
            CASE WHEN slug = 'ddecpr' THEN $1::jsonb ELSE '[]'::jsonb END,
            'agutierrez@populicom.com',
            'Populicom Radar'
@@ -387,6 +401,46 @@ async function ensureReportsSchema(client: any): Promise<void> {
       updated_at = NOW()
     WHERE report_configs.updated_by IS NULL;
   `, [JSON.stringify(DDEC_RECIPIENTS)]);
+
+  // Self-heal: una sola vez, migra la config DDEC de Bogotá a Puerto Rico aun
+  // si la UI ya tocó la fila (updated_by NOT NULL). Detectamos el estado
+  // antiguo por la timezone — si ya es 'America/Puerto_Rico', no hace nada.
+  // Esto es necesario porque el ON CONFLICT de arriba respeta filas tocadas
+  // por la UI, pero el cambio Bogotá→PR es estructural y aplica para todos.
+  await client.query(`
+    UPDATE report_configs rc
+       SET timezone = 'America/Puerto_Rico',
+           send_hour_local = CASE
+             WHEN rc.send_hour_local IN (16, 17) THEN 6
+             ELSE rc.send_hour_local
+           END,
+           updated_at = NOW()
+      FROM agencies a
+     WHERE rc.agency_id = a.id
+       AND a.slug = 'ddecpr'
+       AND rc.timezone = 'America/Bogota';
+  `);
+
+  // Self-heal recipients de DDEC: añade lquinones y grosado si faltan, sin
+  // duplicar y sin tocar otros emails que el usuario haya configurado.
+  await client.query(`
+    UPDATE report_configs rc
+       SET recipients = (
+             SELECT COALESCE(jsonb_agg(DISTINCT email), '[]'::jsonb)
+               FROM jsonb_array_elements_text(
+                 COALESCE(rc.recipients, '[]'::jsonb)
+                 || '["lquinones@populicom.com","grosado@populicom.com"]'::jsonb
+               ) AS email
+           ),
+           updated_at = NOW()
+      FROM agencies a
+     WHERE rc.agency_id = a.id
+       AND a.slug = 'ddecpr'
+       AND NOT (
+         rc.recipients @> '["lquinones@populicom.com"]'::jsonb
+         AND rc.recipients @> '["grosado@populicom.com"]'::jsonb
+       );
+  `);
 
   console.log('[weekly-report] reports schema ensured');
 }
@@ -403,11 +457,14 @@ async function buildAggregates(
   prevStartDate: string,
   prevEndDate: string,
 ): Promise<WeeklyAggregates> {
+  // NOTA: las queries de métricas NO filtran por nlp_pertinence — cuentan todas
+  // las menciones para mantener paridad con el dashboard. El filtro de pertinencia
+  // se aplica solo en loadSamples()/loadTodaySamples() porque esas muestras van al
+  // LLM, y queremos que el LLM solo describa señal de calidad.
   const totalsRow = await client.query(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND nlp_pertinence IN ('alta','media')
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY 1`,
@@ -419,7 +476,6 @@ async function buildAggregates(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND nlp_pertinence IN ('alta','media')
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY 1`,
@@ -434,12 +490,11 @@ async function buildAggregates(
   };
 
   const dailyRows = await client.query(
-    `SELECT to_char(published_at AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD') AS d,
+    `SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
             COALESCE(nlp_sentiment, bw_sentiment) AS s,
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND nlp_pertinence IN ('alta','media')
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY 1, 2
@@ -460,21 +515,33 @@ async function buildAggregates(
   }
   const dailySeries = Array.from(daily.entries()).map(([date, v]) => ({ date, ...v }));
 
+  // Cada mención cuenta UNA sola vez bajo su tópico principal (el de mayor
+  // confidence en mention_topics). Esto evita inflación por multi-clasificación
+  // y hace que la suma de "Total" cuadre con el universo del termómetro.
+  // Para menciones con empate de confidence, desempata por topic_id (estable).
   const byTopicRows = await client.query(
     `SELECT t.name AS topic,
             ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(DISTINCT m.id)::int AS total,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'neutral')::int AS neutral,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'positivo')::int AS positive
-       FROM mentions m
-       JOIN mention_topics mt ON mt.mention_id = m.id
-       JOIN topics t ON t.id = mt.topic_id
-       LEFT JOIN subtopics s ON s.id = mt.subtopic_id
-      WHERE m.agency_id = $1
-        AND m.nlp_pertinence IN ('alta','media')
-        AND m.published_at >= ($2::date)
-        AND m.published_at <  (($3::date) + INTERVAL '1 day')
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+       FROM (
+         SELECT m.id AS mention_id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                (SELECT topic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
+                (SELECT subtopic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.published_at >= ($2::date)
+            AND m.published_at <  (($3::date) + INTERVAL '1 day')
+       ) pt
+       JOIN topics t ON t.id = pt.topic_id
+       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
       GROUP BY t.id, t.name
       ORDER BY total DESC
       LIMIT 10`,
@@ -493,7 +560,6 @@ async function buildAggregates(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
-        AND m.nlp_pertinence IN ('alta','media')
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY mu.id, mu.name
@@ -510,7 +576,6 @@ async function buildAggregates(
             (SELECT COALESCE(m2.nlp_sentiment, m2.bw_sentiment)
                FROM mentions m2
               WHERE m2.agency_id = $1 AND m2.author = m.author
-                AND m2.nlp_pertinence IN ('alta','media')
                 AND m2.published_at >= ($2::date)
                 AND m2.published_at <  (($3::date) + INTERVAL '1 day')
               GROUP BY 1
@@ -518,7 +583,6 @@ async function buildAggregates(
               LIMIT 1) AS dominant_sentiment
        FROM mentions m
       WHERE agency_id = $1
-        AND nlp_pertinence IN ('alta','media')
         AND author IS NOT NULL AND author <> ''
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
@@ -537,7 +601,6 @@ async function buildAggregates(
     `SELECT COALESCE(content_source_name, domain) AS source, COUNT(*)::int AS mentions
        FROM mentions
       WHERE agency_id = $1
-        AND nlp_pertinence IN ('alta','media')
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
         AND COALESCE(content_source_name, domain) IS NOT NULL
@@ -552,7 +615,6 @@ async function buildAggregates(
     `SELECT emo::text AS emotion, COUNT(*)::int AS cnt
        FROM mentions m, jsonb_array_elements_text(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS emo
       WHERE m.agency_id = $1
-        AND m.nlp_pertinence IN ('alta','media')
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY emo
@@ -675,34 +737,89 @@ async function loadTopicsTable(
   startDate: string,
   endDate: string,
 ): Promise<WeeklyReportRenderData['topicsTable']> {
+  // Estrategia: cada mención cuenta UNA vez bajo su "tópico principal" (el de
+  // mayor confidence). Devolvemos top 7 tópicos + fila "Otros" (resto agrupado)
+  // + fila "Sin clasificar" (menciones sin tópico aún). La suma de Total
+  // cuadra con el universo del termómetro. Hace al correo más simple para una
+  // audiencia ejecutiva que no necesita razonar sobre multi-clasificación.
   const r = await client.query(
-    `SELECT t.name AS topic,
+    `SELECT COALESCE(t.id, -1) AS topic_id_key,
+            COALESCE(t.name, 'Sin clasificar') AS topic,
             ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(DISTINCT m.id)::int AS total,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'neutral')::int AS neutral,
-            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'positivo')::int AS positive
-       FROM mentions m
-       JOIN mention_topics mt ON mt.mention_id = m.id
-       JOIN topics t ON t.id = mt.topic_id
-       LEFT JOIN subtopics s ON s.id = mt.subtopic_id
-      WHERE m.agency_id = $1
-        AND m.nlp_pertinence IN ('alta','media')
-        AND m.published_at >= ($2::date)
-        AND m.published_at <  (($3::date) + INTERVAL '1 day')
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+       FROM (
+         SELECT m.id AS mention_id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                (SELECT topic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
+                (SELECT subtopic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.published_at >= ($2::date)
+            AND m.published_at <  (($3::date) + INTERVAL '1 day')
+       ) pt
+       LEFT JOIN topics t ON t.id = pt.topic_id
+       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
       GROUP BY t.id, t.name
-      ORDER BY total DESC
-      LIMIT 8`,
+      ORDER BY total DESC`,
     [agencyId, startDate, endDate],
   );
-  return r.rows.map((row: any) => ({
+
+  type Row = {
+    topic: string;
+    subtopics: string;
+    total: number;
+    negative: number;
+    neutral: number;
+    positive: number;
+    isUnclassified?: boolean;
+    isOther?: boolean;
+  };
+
+  const allRows: Row[] = r.rows.map((row: any): Row => ({
     topic: row.topic,
     subtopics: (row.subtopics ?? []).slice(0, 3).join(' · '),
     total: row.total,
     negative: row.negative,
     neutral: row.neutral,
     positive: row.positive,
+    isUnclassified: row.topic === 'Sin clasificar',
   }));
+
+  const classified = allRows.filter((r) => !r.isUnclassified);
+  const unclassified = allRows.find((r) => r.isUnclassified);
+
+  // Top 7 tópicos clasificados; el resto se colapsa en "Otros tópicos".
+  const TOP_N = 7;
+  const top = classified.slice(0, TOP_N);
+  const rest = classified.slice(TOP_N);
+
+  const result: Row[] = [...top];
+  if (rest.length > 0) {
+    const others: Row = {
+      topic: `Otros tópicos (${rest.length})`,
+      subtopics: '',
+      total: rest.reduce((s, r) => s + r.total, 0),
+      negative: rest.reduce((s, r) => s + r.negative, 0),
+      neutral: rest.reduce((s, r) => s + r.neutral, 0),
+      positive: rest.reduce((s, r) => s + r.positive, 0),
+      isOther: true,
+    };
+    result.push(others);
+  }
+  if (unclassified && unclassified.total > 0) {
+    result.push({
+      ...unclassified,
+      subtopics: 'En proceso de clasificación',
+    });
+  }
+  return result;
 }
 
 // ============================================================
@@ -830,40 +947,41 @@ function buildChartImageUrl(
   const neu = series.map((d) => d.neutral);
   const pos = series.map((d) => d.positive);
 
+  // El template HTML del correo ya muestra su propia leyenda; aquí desactivamos
+  // la del chart para no duplicar. Paleta alineada con render-weekly-report.
   const config = {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'Negativo', data: neg, borderColor: '#E86452', backgroundColor: 'rgba(232,100,82,0.15)',
-          borderWidth: 3, pointRadius: 4, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#E86452',
-          pointBorderWidth: 2, tension: 0.35, fill: true },
-        { label: 'Neutral', data: neu, borderColor: '#94A3B8', backgroundColor: 'rgba(148,163,184,0.10)',
-          borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#94A3B8',
-          pointBorderWidth: 1.5, tension: 0.35, fill: true },
-        { label: 'Positivo', data: pos, borderColor: '#52C47A', backgroundColor: 'rgba(82,196,122,0)',
-          borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#52C47A',
-          pointBorderWidth: 1.5, tension: 0.35, fill: false },
+        { label: 'Negativo', data: neg, borderColor: '#C8462F', backgroundColor: 'rgba(200,70,47,0.10)',
+          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#C8462F',
+          pointBorderWidth: 1.5, tension: 0.3, fill: true },
+        { label: 'Neutral', data: neu, borderColor: '#6B7280', backgroundColor: 'rgba(107,114,128,0.06)',
+          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#6B7280',
+          pointBorderWidth: 1.5, tension: 0.3, fill: false },
+        { label: 'Positivo', data: pos, borderColor: '#1F8A47', backgroundColor: 'rgba(31,138,71,0)',
+          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#1F8A47',
+          pointBorderWidth: 1.5, tension: 0.3, fill: false },
       ],
     },
     options: {
-      layout: { padding: { top: 12, right: 12, bottom: 4, left: 4 } },
+      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
       plugins: {
-        legend: { position: 'top', align: 'start',
-          labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true,
-            font: { size: 12, family: "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif", weight: '600' },
-            color: '#475569' } },
+        legend: { display: false },
         title: { display: false },
       },
       scales: {
-        y: { beginAtZero: true, grid: { color: '#F1F5F9', drawBorder: false },
-          ticks: { font: { size: 11, family: "-apple-system, Arial, sans-serif" }, color: '#94A3B8', padding: 6, maxTicksLimit: 5 } },
+        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
+          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
         x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: "-apple-system, Arial, sans-serif", weight: '500' }, color: '#64748B', padding: 6 } },
+          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
       },
     },
   };
-  return `https://quickchart.io/chart?w=580&h=260&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
+  // version=4 fuerza Chart.js v4 en QuickChart; en v2 (default) los toggles
+  // de plugins.legend no se respetan y la leyenda se renderiza igual.
+  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
 function agencyShortName(slug: string): string {
@@ -875,17 +993,30 @@ function agencyShortName(slug: string): string {
 // Date / string helpers
 // ============================================================
 
-function toYmd(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/**
+ * Devuelve YYYY-MM-DD del día calendario en la timezone IANA dada.
+ * Usa Intl.DateTimeFormat para no depender de offsets manuales (sin DST issues).
+ */
+function ymdInTimeZone(utc: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(utc).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function addDaysYmd(ymd: string, days: number): string {
   const [y, m, d] = ymd.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d + days));
-  return toYmd(date);
+  const yy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
 }
 
 const ES_MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -911,14 +1042,27 @@ function formatDayLabel(ymd: string): string {
   return `${ES_DOW_SHORT[dt.getUTCDay()]} ${d}`;
 }
 
-function formatUpdatedAtLabel(nowLocal: Date): string {
-  const day = nowLocal.getUTCDate();
-  const month = ES_MONTH_SHORT[nowLocal.getUTCMonth()];
-  let h = nowLocal.getUTCHours();
-  const m = String(nowLocal.getUTCMinutes()).padStart(2, '0');
-  const ampm = h >= 12 ? 'p.m.' : 'a.m.';
-  h = h % 12 || 12;
-  return `${day} ${month}, ${h}:${m} ${ampm} (Bogotá)`;
+function formatUpdatedAtLabel(nowUtc: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(nowUtc).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const day = Number(parts.day);
+  const monthIdx = Number(parts.month) - 1;
+  const month = ES_MONTH_SHORT[monthIdx] ?? '';
+  const hour = Number(parts.hour);
+  const minute = parts.minute ?? '00';
+  const ampm = (parts.dayPeriod ?? '').toLowerCase().startsWith('p') ? 'p.m.' : 'a.m.';
+  const tzLabel = timeZone === 'America/Puerto_Rico' ? 'AST' : timeZone.split('/').pop() ?? timeZone;
+  return `${day} ${month}, ${hour}:${minute} ${ampm} ${tzLabel}`;
 }
 
 // ============================================================

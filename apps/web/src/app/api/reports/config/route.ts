@@ -141,8 +141,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     await db.insert(reportConfigs).values({
       agencyId: agency.id,
       isActive: body.isActive ?? true,
-      sendHourLocal: body.sendHourLocal ?? 16,
-      timezone: body.timezone ?? 'America/Bogota',
+      sendHourLocal: body.sendHourLocal ?? 6,
+      timezone: body.timezone ?? 'America/Puerto_Rico',
       templateKey: body.templateKey ?? 'weekly-sentiment-summary',
       recipients: body.recipients ?? [],
       fromEmail: body.fromEmail ?? 'agutierrez@populicom.com',

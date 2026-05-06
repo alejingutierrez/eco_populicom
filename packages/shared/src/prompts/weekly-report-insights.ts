@@ -136,7 +136,9 @@ export function buildSentimentInsightsPrompt(
 
   return `
 AGENCIA: ${agencyName} (abreviada: ${agencyShortName})
-PERIODO ANALIZADO: ${periodStart} al ${periodEnd} (7 días naturales, zona horaria America/Bogota).
+PERIODO ANALIZADO: ${periodStart} al ${periodEnd} (7 días naturales cerrados, zona horaria America/Puerto_Rico — AST, UTC-4 sin DST). El reporte se envía a las 6:00 a.m. AST y NO incluye el día actual; el día más reciente del periodo es el de ayer cerrado completo.
+
+NOTA SOBRE PERTINENCIA: las muestras de menciones que recibes a continuación están pre-filtradas a pertinencia 'alta' o 'media' por el NLP — son las relevantes para la agencia. Las menciones de pertinencia 'baja' SÍ están contadas en los totales del termómetro y la tendencia diaria (para mantener paridad con el dashboard), pero NO debes inventar insights sobre ellas porque no son señal — son ruido. Si describes el volumen total, descríbelo tal cual; no especules sobre lo que dicen las de baja pertinencia.
 
 TOTALES DEL PERIODO:
 - Negativo: ${totals.negative} menciones (${pct(totals.negative, totals.total)}% del total, ${signed(deltaVsPrevWeek.negative)}% vs. los 7 días previos)
@@ -162,7 +164,7 @@ ${sourceBlock}
 EMOCIONES AGREGADAS DEL PERIODO (detectadas por análisis NLP):
 ${emotionBlock}
 
-MUESTRAS DE MENCIONES (seleccionadas por relevancia y engagement; hay más menciones en los agregados de arriba):
+MUESTRAS DE MENCIONES (pre-filtradas a pertinencia 'alta' o 'media' — solo señal, sin ruido. Hay más menciones contadas en los agregados de arriba que NO aparecen aquí porque su pertinencia es baja o aún no fue evaluada; ignóralas para insights):
 
 --- MUESTRAS NEGATIVAS (${samples.negative.length}) ---
 ${samples.negative.map((m, i) => formatSample(i + 1, m)).join('\n')}
@@ -215,17 +217,16 @@ export function buildDailySummaryPrompt(
 
   return `
 AGENCIA: ${aggregates.agencyName}
-FECHA DEL RESUMEN: ${todayDate}
-ZONA HORARIA: America/Bogota
+FECHA DEL RESUMEN: ${todayDate} (día calendario completo en America/Puerto_Rico — AST, UTC-4 sin DST). Este es el último día cerrado del periodo de 7 días. El correo se entrega la mañana siguiente a las 6:00 a.m. AST.
 
-VOLUMEN DE HOY (${todayDate}):
+VOLUMEN DEL DÍA REPORTADO (${todayDate}):
 - Total: ${totalToday} menciones
 - Negativo: ${today?.negative ?? 0}
 - Neutral:  ${today?.neutral ?? 0}
 - Positivo: ${today?.positive ?? 0}
 
-COMPARACIÓN CON AYER:
-- Ayer (${prevDay?.date ?? 'n/d'}): ${prevTotal} menciones
+COMPARACIÓN CON EL DÍA ANTERIOR:
+- Día anterior (${prevDay?.date ?? 'n/d'}): ${prevTotal} menciones
 - Variación absoluta: ${totalToday - prevTotal}
 - Variación porcentual: ${signed(diffPct)}%
 - Posición del día dentro de los últimos 7 días: ${rankInWeek(aggregates, todayDate)}
@@ -236,18 +237,18 @@ ${aggregates.dailySeries.map((d) => `- ${d.date}: total=${d.negative + d.neutral
 TOP TÓPICOS DE LA SEMANA (para identificar lo estructural vs. lo coyuntural):
 ${aggregates.byTopic.slice(0, 5).map((t) => `- ${t.topic}: ${t.total} (neg ${t.negative})`).join('\n') || '- (sin datos)'}
 
-MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement):
+MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement; pre-filtradas a pertinencia alta/media):
 ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
 TAREA:
-Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo la jornada de hoy (${todayDate}) para ${aggregates.agencyName}. Debe:
+Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. Debe:
 1. Indicar el volumen total de menciones del día y qué sentimiento dominó (con % explícito).
 2. Señalar en qué **1–3 tópicos de conversación concretos** se concentró el día, citando el número de menciones por tópico. Menciona municipios SOLO si un tópico específico se concentra claramente en 1–2 municipios; no fuerces geografía.
-3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. ayer.
+3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. el día anterior.
 4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
 5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
 
-PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias.
+PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 {

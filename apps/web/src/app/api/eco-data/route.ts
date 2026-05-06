@@ -77,6 +77,14 @@ function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo
   return 'neutral';
 }
 
+/**
+ * Sentimiento efectivo: NLP propio si está clasificado, fallback al de
+ * Brandwatch para no perder señal cuando el clasificador aún no procesó la
+ * mención. Este es el mismo COALESCE que aplica el correo semanal — así las
+ * cifras del dashboard y del correo cuadran.
+ */
+const effectiveSentimentSql = sql<string | null>`COALESCE(${mentions.nlpSentiment}, ${mentions.bwSentiment})`;
+
 function sourceKey(pageType: string | null): string {
   const t = (pageType ?? '').toLowerCase();
   if (t.includes('facebook')) return 'facebook';
@@ -218,10 +226,10 @@ export async function GET(request: NextRequest) {
 
     // ---- SENTIMENT_BREAKDOWN ----
     const sentimentAgg = await db
-      .select({ s: mentions.nlpSentiment, c: count() })
+      .select({ s: effectiveSentimentSql, c: count() })
       .from(mentions)
       .where(baseWhere)
-      .groupBy(mentions.nlpSentiment);
+      .groupBy(effectiveSentimentSql);
 
     const sentCounts = { positivo: 0, neutral: 0, negativo: 0 };
     for (const r of sentimentAgg) {
@@ -311,10 +319,10 @@ export async function GET(request: NextRequest) {
 
     // ---- SENTIMENT_BY_SOURCE ----
     const sBySrcAgg = await db
-      .select({ pageType: mentions.pageType, s: mentions.nlpSentiment, c: count() })
+      .select({ pageType: mentions.pageType, s: effectiveSentimentSql, c: count() })
       .from(mentions)
       .where(baseWhere)
-      .groupBy(mentions.pageType, mentions.nlpSentiment);
+      .groupBy(mentions.pageType, effectiveSentimentSql);
 
     const bySrc = new Map<string, { source: string; positivo: number; neutral: number; negativo: number }>();
     for (const r of sBySrcAgg) {
@@ -333,14 +341,14 @@ export async function GET(request: NextRequest) {
       .select({
         slug: topics.slug,
         name: topics.name,
-        s: mentions.nlpSentiment,
+        s: effectiveSentimentSql,
         c: count(),
       })
       .from(mentionTopics)
       .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
       .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
       .where(baseWhere)
-      .groupBy(topics.slug, topics.name, mentions.nlpSentiment);
+      .groupBy(topics.slug, topics.name, effectiveSentimentSql);
 
     const tMap = new Map<string, { slug: string; name: string; total: number; positivo: number; neutral: number; negativo: number }>();
     for (const r of topicRows) {
@@ -403,14 +411,14 @@ export async function GET(request: NextRequest) {
         region: municipalities.region,
         lat: municipalities.latitude,
         lon: municipalities.longitude,
-        s: mentions.nlpSentiment,
+        s: effectiveSentimentSql,
         c: count(),
       })
       .from(mentionMunicipalities)
       .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
       .innerJoin(mentions, eq(mentions.id, mentionMunicipalities.mentionId))
       .where(baseWhere)
-      .groupBy(municipalities.slug, municipalities.name, municipalities.region, municipalities.latitude, municipalities.longitude, mentions.nlpSentiment);
+      .groupBy(municipalities.slug, municipalities.name, municipalities.region, municipalities.latitude, municipalities.longitude, effectiveSentimentSql);
 
     const mMap = new Map<string, {
       slug: string; name: string; region: string;
@@ -492,6 +500,7 @@ export async function GET(request: NextRequest) {
         author: mentions.author,
         authorFullname: mentions.authorFullname,
         nlpSentiment: mentions.nlpSentiment,
+        bwSentiment: mentions.bwSentiment,
         nlpPertinence: mentions.nlpPertinence,
         nlpEmotions: mentions.nlpEmotions,
         engagementScore: mentions.engagementScore,
@@ -559,7 +568,7 @@ export async function GET(request: NextRequest) {
         domain: m.domain ?? '',
         source: sourceKey(m.pageType),
         author: m.authorFullname ?? m.author ?? '',
-        sentiment: pillFromSentiment(m.nlpSentiment),
+        sentiment: pillFromSentiment(m.nlpSentiment ?? m.bwSentiment),
         pertinence: m.nlpPertinence ?? 'media',
         engagement: Number(m.engagementScore ?? 0),
         likes: Number(m.likes ?? 0),
