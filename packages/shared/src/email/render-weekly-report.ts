@@ -173,7 +173,7 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
     .map((t, idx) => {
       const isLast = idx === topicsList.length - 1;
       const rowBorder = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-      const isMuted = t.isOther || t.isUnclassified;
+      const isMuted = Boolean(t.isOther || t.isUnclassified);
       const labelColor = isMuted ? COLORS.inkSoft : COLORS.ink;
       const totalColor = isMuted ? COLORS.inkSoft : COLORS.ink;
       const totalWeight = isMuted ? 600 : 700;
