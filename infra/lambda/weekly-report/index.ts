@@ -402,6 +402,46 @@ async function ensureReportsSchema(client: any): Promise<void> {
     WHERE report_configs.updated_by IS NULL;
   `, [JSON.stringify(DDEC_RECIPIENTS)]);
 
+  // Self-heal: una sola vez, migra la config DDEC de Bogotá a Puerto Rico aun
+  // si la UI ya tocó la fila (updated_by NOT NULL). Detectamos el estado
+  // antiguo por la timezone — si ya es 'America/Puerto_Rico', no hace nada.
+  // Esto es necesario porque el ON CONFLICT de arriba respeta filas tocadas
+  // por la UI, pero el cambio Bogotá→PR es estructural y aplica para todos.
+  await client.query(`
+    UPDATE report_configs rc
+       SET timezone = 'America/Puerto_Rico',
+           send_hour_local = CASE
+             WHEN rc.send_hour_local IN (16, 17) THEN 6
+             ELSE rc.send_hour_local
+           END,
+           updated_at = NOW()
+      FROM agencies a
+     WHERE rc.agency_id = a.id
+       AND a.slug = 'ddecpr'
+       AND rc.timezone = 'America/Bogota';
+  `);
+
+  // Self-heal recipients de DDEC: añade lquinones y grosado si faltan, sin
+  // duplicar y sin tocar otros emails que el usuario haya configurado.
+  await client.query(`
+    UPDATE report_configs rc
+       SET recipients = (
+             SELECT COALESCE(jsonb_agg(DISTINCT email), '[]'::jsonb)
+               FROM jsonb_array_elements_text(
+                 COALESCE(rc.recipients, '[]'::jsonb)
+                 || '["lquinones@populicom.com","grosado@populicom.com"]'::jsonb
+               ) AS email
+           ),
+           updated_at = NOW()
+      FROM agencies a
+     WHERE rc.agency_id = a.id
+       AND a.slug = 'ddecpr'
+       AND NOT (
+         rc.recipients @> '["lquinones@populicom.com"]'::jsonb
+         AND rc.recipients @> '["grosado@populicom.com"]'::jsonb
+       );
+  `);
+
   console.log('[weekly-report] reports schema ensured');
 }
 
