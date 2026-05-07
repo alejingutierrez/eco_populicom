@@ -36,6 +36,13 @@ export interface WeeklyReportRenderData {
     topic: string;
     subtopics: string;
     total: number;
+    /**
+     * Menciones donde este tópico aparece pero no como su top-confidence.
+     * El correo no lo renderiza (la audiencia ejecutiva ya tiene suficiente
+     * con el conteo principal); el dashboard sí lo muestra como "+N también
+     * lo tocan" para que el usuario entienda que hay multi-clasificación.
+     */
+    secondaryCount: number;
     negative: number;
     neutral: number;
     positive: number;

@@ -1,7 +1,7 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
-const { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
+const { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
 // Shared state stored on window and observed by the React <ToastHost>.
@@ -72,9 +72,12 @@ function ToastHost() {
 }
 
 // Map URL path <-> active screen so deep links, browser back/forward and
-// bookmarks all work. `/` and unknown paths resolve to the dashboard.
+// bookmarks all work. `/` y rutas desconocidas resuelven a Overview (vista
+// diaria, espejo del correo). El path `/dashboard` sigue funcionando para no
+// romper bookmarks; ahora muestra el Scorecard táctico.
 const PATH_TO_SCREEN = {
-  '/': 'dashboard',
+  '/': 'overview',
+  '/overview': 'overview',
   '/dashboard': 'dashboard',
   '/mentions': 'mentions',
   '/sentiment': 'sentiment',
@@ -84,6 +87,7 @@ const PATH_TO_SCREEN = {
   '/settings': 'settings',
 };
 const SCREEN_TO_PATH = {
+  overview: '/overview',
   dashboard: '/dashboard',
   mentions: '/mentions',
   sentiment: '/sentiment',
@@ -122,7 +126,8 @@ class EcoErrorBoundary extends React.Component {
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
-  dashboard: { label: 'Dashboard',     eyebrow: 'Monitoreo · tiempo real' },
+  overview:  { label: 'Overview',      eyebrow: 'Vista diaria · espejo del correo' },
+  dashboard: { label: 'Scorecard',     eyebrow: 'Scorecard táctico · tiempo real' },
   mentions:  { label: 'Menciones',     eyebrow: 'Flujo de conversación' },
   sentiment: { label: 'Sentimiento',   eyebrow: 'Análisis emocional' },
   topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
@@ -148,7 +153,7 @@ function App() {
   // deep links like /mentions or /geography work from a fresh browser.
   const [active, setActiveRaw] = useState(() => {
     const fromPath = PATH_TO_SCREEN[location.pathname];
-    return fromPath || localStorage.getItem('eco.active') || 'dashboard';
+    return fromPath || localStorage.getItem('eco.active') || 'overview';
   });
   const setActive = useCallback((next) => {
     setActiveRaw((prev) => {
@@ -184,7 +189,7 @@ function App() {
     if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
     return (list[0] && list[0].key) || 'aaa';
   });
-  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '1M');
+  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '7D');
   const [cmdOpen, setCmdOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
   const [mentionsFilter, setMentionsFilter] = useState(null);
@@ -231,7 +236,7 @@ function App() {
       if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (!metaKey && !e.altKey) {
-        const map = { d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts' };
+        const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts' };
         const k = e.key.toLowerCase();
         if (map[k]) { setActive(map[k]); return; }
         if (e.key === '[' || e.key === ']') { setCollapsed(!collapsed); return; }
@@ -243,6 +248,7 @@ function App() {
 
   const screenMeta = SCREEN_META[active];
   const ScreenComponent = {
+    overview: OverviewScreen,
     dashboard: DashboardScreen,
     mentions: MentionsScreen,
     sentiment: SentimentScreen,
