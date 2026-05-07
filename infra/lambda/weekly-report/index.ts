@@ -19,9 +19,18 @@ import {
   buildSentimentInsightsPrompt,
   buildDailySummaryPrompt,
   renderWeeklyReportHtml,
+  buildSentimentReport,
+  closedWindowYmdInTZ,
+  ymdInTimeZone,
+  hourInTimeZone,
+  formatPeriodLabel,
+  formatShortDay,
+  formatUpdatedAtLabel,
   type MentionSample,
   type WeeklyAggregates,
   type WeeklyReportRenderData,
+  type PgClientLike,
+  type SentimentReport,
 } from '@eco/shared';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -288,38 +297,35 @@ async function buildReport(
   // El correo se envía 6 AM PR; ayer ya es un día completo. No incluimos hoy
   // parcial — eso sesgaría el termómetro y el delta vs. semana previa.
   const nowUtc = new Date();
-  const todayPR = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
-  const endDate = addDaysYmd(todayPR, -1);                  // ayer cerrado
-  const startDate = addDaysYmd(endDate, -6);                // 7 días cerrados
-  const prevEndDate = addDaysYmd(startDate, -1);            // semana previa también 7 días
-  const prevStartDate = addDaysYmd(prevEndDate, -6);
+  const window = closedWindowYmdInTZ(7, nowUtc, REPORT_TIMEZONE);
+  const { startYmd: startDate, endYmd: endDate, prevStartYmd: prevStartDate, prevEndYmd: prevEndDate } = window;
 
-  const aggregates = await buildAggregates(client, agency, startDate, endDate, prevStartDate, prevEndDate);
+  // 1) Agregados base (totales, daily series, tabla de tópicos) — fuente de
+  //    verdad compartida con /api/overview a través de @eco/shared.
+  const sentimentReport = await buildSentimentReport(
+    client as PgClientLike, agency.id, startDate, endDate, prevStartDate, prevEndDate,
+  );
+
+  // 2) Contexto extra para el LLM (top tópicos, municipios, autores, fuentes,
+  //    emociones). Estas queries son específicas del prompt — no las usa el
+  //    dashboard.
+  const aggregates = await buildAggregates(client, agency, startDate, endDate, sentimentReport);
   const samples = await loadSamples(client, agency.id, startDate, endDate);
   const todaySamples = await loadTodaySamples(client, agency.id, endDate);
 
   const insights = await generateInsights(aggregates, samples);
   const dailySummary = await generateDailySummary(aggregates, todaySamples, endDate);
-  const topicsTable = await loadTopicsTable(client, agency.id, startDate, endDate);
-
-  const dailySeriesLabeled = aggregates.dailySeries.map((d) => ({
-    date: d.date,
-    dayLabel: formatDayLabel(d.date),
-    negative: d.negative,
-    neutral: d.neutral,
-    positive: d.positive,
-  }));
 
   const renderData: WeeklyReportRenderData = {
     agencyName: agency.name,
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
     periodLabel: formatPeriodLabel(startDate, endDate),
     updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
-    totals: aggregates.totals,
-    deltaVsPrev: aggregates.deltaVsPrevWeek,
-    chartImageUrl: buildChartImageUrl(dailySeriesLabeled),
-    dailySeries: dailySeriesLabeled,
-    topicsTable,
+    totals: sentimentReport.totals,
+    deltaVsPrev: sentimentReport.deltaVsPrev,
+    chartImageUrl: buildChartImageUrl(sentimentReport.dailySeries),
+    dailySeries: sentimentReport.dailySeries,
+    topicsTable: sentimentReport.topicsTable,
     insights,
     dailySummary: {
       label: `Resumen del día · ${formatShortDay(endDate)}`,
@@ -454,103 +460,29 @@ async function buildAggregates(
   agency: { id: string; slug: string; name: string },
   startDate: string,
   endDate: string,
-  prevStartDate: string,
-  prevEndDate: string,
+  sentimentReport: SentimentReport,
 ): Promise<WeeklyAggregates> {
   // NOTA: las queries de métricas NO filtran por nlp_pertinence — cuentan todas
   // las menciones para mantener paridad con el dashboard. El filtro de pertinencia
   // se aplica solo en loadSamples()/loadTodaySamples() porque esas muestras van al
   // LLM, y queremos que el LLM solo describa señal de calidad.
-  const totalsRow = await client.query(
-    `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
-       FROM mentions
-      WHERE agency_id = $1
-        AND published_at >= ($2::date)
-        AND published_at <  (($3::date) + INTERVAL '1 day')
-      GROUP BY 1`,
-    [agency.id, startDate, endDate],
-  );
-  const totals = foldSentiments(totalsRow.rows);
-
-  const prevTotalsRow = await client.query(
-    `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
-       FROM mentions
-      WHERE agency_id = $1
-        AND published_at >= ($2::date)
-        AND published_at <  (($3::date) + INTERVAL '1 day')
-      GROUP BY 1`,
-    [agency.id, prevStartDate, prevEndDate],
-  );
-  const prevTotals = foldSentiments(prevTotalsRow.rows);
-
-  const deltaVsPrevWeek = {
-    negative: deltaPct(totals.negative, prevTotals.negative),
-    neutral: deltaPct(totals.neutral, prevTotals.neutral),
-    positive: deltaPct(totals.positive, prevTotals.positive),
-  };
-
-  const dailyRows = await client.query(
-    `SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
-            COALESCE(nlp_sentiment, bw_sentiment) AS s,
-            COUNT(*)::int AS c
-       FROM mentions
-      WHERE agency_id = $1
-        AND published_at >= ($2::date)
-        AND published_at <  (($3::date) + INTERVAL '1 day')
-      GROUP BY 1, 2
-      ORDER BY 1`,
-    [agency.id, startDate, endDate],
-  );
-
-  const daily = new Map<string, { negative: number; neutral: number; positive: number }>();
-  for (let i = 0; i < 7; i++) {
-    const d = addDaysYmd(startDate, i);
-    daily.set(d, { negative: 0, neutral: 0, positive: 0 });
-  }
-  for (const row of dailyRows.rows) {
-    const bucket = daily.get(row.d);
-    if (!bucket) continue;
-    const s = normalizeSentiment(row.s);
-    if (s) bucket[s] += row.c;
-  }
-  const dailySeries = Array.from(daily.entries()).map(([date, v]) => ({ date, ...v }));
-
-  // Cada mención cuenta UNA sola vez bajo su tópico principal (el de mayor
-  // confidence en mention_topics). Esto evita inflación por multi-clasificación
-  // y hace que la suma de "Total" cuadre con el universo del termómetro.
-  // Para menciones con empate de confidence, desempata por topic_id (estable).
-  const byTopicRows = await client.query(
-    `SELECT t.name AS topic,
-            ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-       FROM (
-         SELECT m.id AS mention_id,
-                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                (SELECT topic_id FROM mention_topics
-                  WHERE mention_id = m.id
-                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
-                (SELECT subtopic_id FROM mention_topics
-                  WHERE mention_id = m.id
-                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
-           FROM mentions m
-          WHERE m.agency_id = $1
-            AND m.published_at >= ($2::date)
-            AND m.published_at <  (($3::date) + INTERVAL '1 day')
-       ) pt
-       JOIN topics t ON t.id = pt.topic_id
-       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
-      GROUP BY t.id, t.name
-      ORDER BY total DESC
-      LIMIT 10`,
-    [agency.id, startDate, endDate],
-  );
-  const byTopic = byTopicRows.rows.map((r: any) => ({
-    topic: r.topic, subtopics: (r.subtopics ?? []) as string[],
-    total: r.total, negative: r.negative, neutral: r.neutral, positive: r.positive,
-  }));
+  //
+  // Totales, deltas, daily series y la tabla de tópicos vienen de
+  // sentimentReport (ya computado por @eco/shared/buildSentimentReport — la
+  // misma función que consume /api/overview). Aquí solo agregamos el contexto
+  // que el LLM necesita y que NO se renderiza en el correo: top 10 tópicos
+  // como array de subtopics, municipios, autores, fuentes, emociones.
+  const byTopic = sentimentReport.topicsTable
+    .filter((t) => !t.isOther && !t.isUnclassified)
+    .slice(0, 10)
+    .map((t) => ({
+      topic: t.topic,
+      subtopics: t.subtopics ? t.subtopics.split(' · ') : [],
+      total: t.total,
+      negative: t.negative,
+      neutral: t.neutral,
+      positive: t.positive,
+    }));
 
   const byMuniRows = await client.query(
     `SELECT mu.name AS municipality,
@@ -632,9 +564,14 @@ async function buildAggregates(
     periodEnd: endDate,
     agencyName: agency.name,
     agencyShortName: agencyShortName(agency.slug),
-    totals: { ...totals, total: totals.negative + totals.neutral + totals.positive },
-    deltaVsPrevWeek,
-    dailySeries,
+    totals: sentimentReport.totals,
+    deltaVsPrevWeek: sentimentReport.deltaVsPrev,
+    dailySeries: sentimentReport.dailySeries.map((d) => ({
+      date: d.date,
+      negative: d.negative,
+      neutral: d.neutral,
+      positive: d.positive,
+    })),
     byTopic,
     byMunicipality,
     topAuthors,
@@ -729,97 +666,6 @@ async function loadTodaySamples(client: any, agencyId: string, todayYmd: string)
     municipality: row.municipality,
     source: row.content_source_name,
   }));
-}
-
-async function loadTopicsTable(
-  client: any,
-  agencyId: string,
-  startDate: string,
-  endDate: string,
-): Promise<WeeklyReportRenderData['topicsTable']> {
-  // Estrategia: cada mención cuenta UNA vez bajo su "tópico principal" (el de
-  // mayor confidence). Devolvemos top 7 tópicos + fila "Otros" (resto agrupado)
-  // + fila "Sin clasificar" (menciones sin tópico aún). La suma de Total
-  // cuadra con el universo del termómetro. Hace al correo más simple para una
-  // audiencia ejecutiva que no necesita razonar sobre multi-clasificación.
-  const r = await client.query(
-    `SELECT COALESCE(t.id, -1) AS topic_id_key,
-            COALESCE(t.name, 'Sin clasificar') AS topic,
-            ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics,
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-            COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-       FROM (
-         SELECT m.id AS mention_id,
-                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                (SELECT topic_id FROM mention_topics
-                  WHERE mention_id = m.id
-                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id,
-                (SELECT subtopic_id FROM mention_topics
-                  WHERE mention_id = m.id
-                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
-           FROM mentions m
-          WHERE m.agency_id = $1
-            AND m.published_at >= ($2::date)
-            AND m.published_at <  (($3::date) + INTERVAL '1 day')
-       ) pt
-       LEFT JOIN topics t ON t.id = pt.topic_id
-       LEFT JOIN subtopics s ON s.id = pt.subtopic_id
-      GROUP BY t.id, t.name
-      ORDER BY total DESC`,
-    [agencyId, startDate, endDate],
-  );
-
-  type Row = {
-    topic: string;
-    subtopics: string;
-    total: number;
-    negative: number;
-    neutral: number;
-    positive: number;
-    isUnclassified?: boolean;
-    isOther?: boolean;
-  };
-
-  const allRows: Row[] = r.rows.map((row: any): Row => ({
-    topic: row.topic,
-    subtopics: (row.subtopics ?? []).slice(0, 3).join(' · '),
-    total: row.total,
-    negative: row.negative,
-    neutral: row.neutral,
-    positive: row.positive,
-    isUnclassified: row.topic === 'Sin clasificar',
-  }));
-
-  const classified = allRows.filter((r) => !r.isUnclassified);
-  const unclassified = allRows.find((r) => r.isUnclassified);
-
-  // Top 7 tópicos clasificados; el resto se colapsa en "Otros tópicos".
-  const TOP_N = 7;
-  const top = classified.slice(0, TOP_N);
-  const rest = classified.slice(TOP_N);
-
-  const result: Row[] = [...top];
-  if (rest.length > 0) {
-    const others: Row = {
-      topic: `Otros tópicos (${rest.length})`,
-      subtopics: '',
-      total: rest.reduce((s, r) => s + r.total, 0),
-      negative: rest.reduce((s, r) => s + r.negative, 0),
-      neutral: rest.reduce((s, r) => s + r.neutral, 0),
-      positive: rest.reduce((s, r) => s + r.positive, 0),
-      isOther: true,
-    };
-    result.push(others);
-  }
-  if (unclassified && unclassified.total > 0) {
-    result.push({
-      ...unclassified,
-      subtopics: 'En proceso de clasificación',
-    });
-  }
-  return result;
 }
 
 // ============================================================
@@ -990,112 +836,8 @@ function agencyShortName(slug: string): string {
 }
 
 // ============================================================
-// Date / string helpers
-// ============================================================
-
-/**
- * Devuelve YYYY-MM-DD del día calendario en la timezone IANA dada.
- * Usa Intl.DateTimeFormat para no depender de offsets manuales (sin DST issues).
- */
-function ymdInTimeZone(utc: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(utc).reduce<Record<string, string>>((acc, p) => {
-    if (p.type !== 'literal') acc[p.type] = p.value;
-    return acc;
-  }, {});
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function addDaysYmd(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d + days));
-  const yy = date.getUTCFullYear();
-  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(date.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}`;
-}
-
-const ES_MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const ES_DOW_SHORT = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-
-function formatPeriodLabel(startYmd: string, endYmd: string): string {
-  const [sy, sm, sd] = startYmd.split('-').map(Number);
-  const [ey, em, ed] = endYmd.split('-').map(Number);
-  const startMonth = ES_MONTH_SHORT[sm - 1];
-  const endMonth = ES_MONTH_SHORT[em - 1];
-  if (sm === em && sy === ey) return `${sd} – ${ed} ${endMonth} ${ey}`;
-  return `${sd} ${startMonth} – ${ed} ${endMonth} ${ey}`;
-}
-
-function formatShortDay(ymd: string): string {
-  const [, m, d] = ymd.split('-').map(Number);
-  return `${d} ${ES_MONTH_SHORT[m - 1]}`;
-}
-
-function formatDayLabel(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return `${ES_DOW_SHORT[dt.getUTCDay()]} ${d}`;
-}
-
-function formatUpdatedAtLabel(nowUtc: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).formatToParts(nowUtc).reduce<Record<string, string>>((acc, p) => {
-    if (p.type !== 'literal') acc[p.type] = p.value;
-    return acc;
-  }, {});
-  const day = Number(parts.day);
-  const monthIdx = Number(parts.month) - 1;
-  const month = ES_MONTH_SHORT[monthIdx] ?? '';
-  const hour = Number(parts.hour);
-  const minute = parts.minute ?? '00';
-  const ampm = (parts.dayPeriod ?? '').toLowerCase().startsWith('p') ? 'p.m.' : 'a.m.';
-  const tzLabel = timeZone === 'America/Puerto_Rico' ? 'AST' : timeZone.split('/').pop() ?? timeZone;
-  return `${day} ${month}, ${hour}:${minute} ${ampm} ${tzLabel}`;
-}
-
-// ============================================================
-// Time zone arithmetic
-// ============================================================
-
-/** Devuelve la hora local (0–23) en la timezone IANA dada. */
-function hourInTimeZone(utc: Date, timeZone: string): number {
-  // Intl.DateTimeFormat con hour12: false devuelve "00" – "23"
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    hour: '2-digit',
-  }).formatToParts(utc);
-  const hourPart = parts.find((p) => p.type === 'hour');
-  const h = Number(hourPart?.value ?? '-1');
-  if (Number.isNaN(h)) return -1;
-  // Intl a veces devuelve "24" para media noche — lo normalizamos a 0.
-  return h === 24 ? 0 : h;
-}
-
-// ============================================================
 // Misc
 // ============================================================
-
-function foldSentiments(rows: Array<{ s: string | null; c: number }>): { negative: number; neutral: number; positive: number } {
-  const out = { negative: 0, neutral: 0, positive: 0 };
-  for (const row of rows) {
-    const s = normalizeSentiment(row.s);
-    if (s) out[s] += row.c;
-  }
-  return out;
-}
 
 function normalizeSentiment(s: string | null): 'negative' | 'neutral' | 'positive' | null {
   if (!s) return null;
@@ -1104,14 +846,6 @@ function normalizeSentiment(s: string | null): 'negative' | 'neutral' | 'positiv
   if (v.startsWith('pos')) return 'positive';
   if (v.startsWith('neu')) return 'neutral';
   return null;
-}
-
-function deltaPct(curr: number, prev: number): number {
-  if (prev === 0) {
-    if (curr === 0) return 0;
-    return 100;
-  }
-  return ((curr - prev) / prev) * 100;
 }
 
 async function getDatabaseUrl(): Promise<string> {
