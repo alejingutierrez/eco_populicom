@@ -11,7 +11,8 @@ function getNav() {
   const totalMentions = periodTotal || (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
-    { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
+    { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },
+    { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D' },
     { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
     { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
     { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
@@ -240,7 +241,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 }
 
 function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
-  const PERIODS = ['1D', '5D', '1M', '3M', '6M', '1A', 'Max'];
+  const PERIODS = ['1D', '5D', '7D', '1M', '3M', '6M', '1A', 'Max'];
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -343,6 +344,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Últimos 7 días cerrados (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Último mes (1M)', action: () => onSetPeriod('1M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 3 meses (3M)', action: () => onSetPeriod('3M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 6 meses (6M)', action: () => onSetPeriod('6M'), icon: 'Calendar' },

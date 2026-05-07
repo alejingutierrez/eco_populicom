@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/session';
 // Dashboard UI + dashboard-private API routes. Everything else (public assets,
 // auth pages, auth API, health check, Leaflet tiles) passes through.
 const PROTECTED_PATHS = [
+  /^\/overview(\/.*)?$/,
   /^\/dashboard(\/.*)?$/,
   /^\/mentions(\/.*)?$/,
   /^\/sentiment(\/.*)?$/,
@@ -11,6 +12,7 @@ const PROTECTED_PATHS = [
   /^\/geography(\/.*)?$/,
   /^\/alerts(\/.*)?$/,
   /^\/settings(\/.*)?$/,
+  /^\/api\/overview(\/.*)?$/,
   /^\/api\/eco-data(\/.*)?$/,
   /^\/api\/eco-mentions(\/.*)?$/,
   /^\/api\/alerts(\/.*)?$/,
@@ -89,6 +91,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/overview/:path*',
     '/dashboard/:path*',
     '/mentions/:path*',
     '/sentiment/:path*',
@@ -96,6 +99,7 @@ export const config = {
     '/geography/:path*',
     '/alerts/:path*',
     '/settings/:path*',
+    '/overview',
     '/dashboard',
     '/mentions',
     '/sentiment',
@@ -103,6 +107,7 @@ export const config = {
     '/geography',
     '/alerts',
     '/settings',
+    '/api/overview/:path*',
     '/api/eco-data/:path*',
     '/api/eco-mentions/:path*',
     '/api/alerts/:path*',

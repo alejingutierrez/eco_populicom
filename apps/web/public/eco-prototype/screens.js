@@ -2613,4 +2613,355 @@ function AlertsPrefs() {
   );
 }
 
-window.ECO_SCREENS = { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen };
+// =============== OVERVIEW ===============
+// Espejo del correo diario (eco-weekly-report) sin LLM. Consume /api/overview
+// que internamente usa el mismo @eco/shared/buildSentimentReport que el
+// lambda — totales, deltas, daily series y la tabla de tópicos coinciden
+// byte-por-byte con el correo de las 6 AM cuando period=7D.
+//
+// Layout (top a bottom):
+//   1. Hero — período + total
+//   2. Termómetro — 3 KPIs neg/neu/pos con Δ vs ventana previa
+//   3. Highlights — NSS+Riesgo · Volúmenes · Brand Health
+//   4. Tendencia — multi-line chart con neg/neu/pos
+//   5. Tópico principal — top-7 + Otros + Sin clasificar
+//
+// Las cards de tópico no son clickeables todavía (Phase 4 agrega el toggle
+// de "incluir secundarias" en el modal cuando topicMode=primary esté
+// implementado en /api/eco-mentions).
+function OverviewScreen({ period, agency }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setData(null); setError(null);
+    const params = new URLSearchParams({ period: period || '7D' });
+    if (agency) params.set('agency', agency);
+    const ctrl = new AbortController();
+    fetch('/api/overview?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then(setData)
+      .catch((e) => { if (e?.name !== 'AbortError') setError(String(e?.message || e)); });
+    return () => ctrl.abort();
+  }, [period, agency]);
+
+  if (error) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+        <div className="section-eyebrow" style={{ color: 'var(--neg)', marginBottom: 6 }}>Error</div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No se pudo cargar el Overview: {error}</div>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+        Cargando…
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <OverviewHero data={data} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} />
+      <OverviewHighlights metrics={data.currentMetrics} />
+      <OverviewTendencia dailySeries={data.dailySeries} />
+      <OverviewTopicos rows={data.topicsTable} totals={data.totals} />
+    </div>
+  );
+}
+
+function OverviewHero({ data }) {
+  const total = data.totals.total || 0;
+  return (
+    <div style={{ padding: '4px 4px 0' }}>
+      <div className="section-eyebrow">Overview · espejo del correo diario · {data.periodLabel}</div>
+      <h1 style={{
+        fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
+        lineHeight: 1.2, margin: '6px 0 4px', letterSpacing: 'var(--letter-display)',
+        color: 'var(--text)',
+      }}>
+        Conversación pública de los últimos {data.dailySeries.length} días
+      </h1>
+      <div style={{ color: 'var(--text-2)', fontSize: 13 }}>
+        {total > 0
+          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {data.periodStart} → {data.periodEnd}</>
+          : <>Sin menciones registradas en la ventana seleccionada.</>}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTermometro({ totals, deltas }) {
+  const t = totals.total || 1;
+  const cards = [
+    { name: 'Negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
+    { name: 'Neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
+    { name: 'Positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
+  ];
+  return (
+    <div>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>01 · Termómetro · vs ventana previa</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        {cards.map((c) => {
+          const pct = totals.total > 0 ? Math.round((c.value / t) * 100) : 0;
+          // Negativo: subir es malo (rojo); bajar es bueno (verde).
+          // Positivo: subir es bueno (verde); bajar es malo (rojo).
+          // Neutral: sin color especial.
+          const dColor = c.name === 'Neutral'
+            ? 'var(--text-3)'
+            : c.invert
+              ? (c.delta > 0 ? 'var(--neg)' : c.delta < 0 ? 'var(--pos)' : 'var(--text-3)')
+              : (c.delta > 0 ? 'var(--pos)' : c.delta < 0 ? 'var(--neg)' : 'var(--text-3)');
+          return (
+            <div key={c.name} className="card" style={{ padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {c.name}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div className="num" style={{ fontSize: 32, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                  {fmt(c.value)}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: dColor, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
+                {Math.abs(Math.round(c.delta))}% vs ventana previa
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OverviewHighlights({ metrics }) {
+  const m = metrics || {};
+  const fmtSigned = (v) => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(1);
+  return (
+    <div>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Highlights estratégicos</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        {/* NSS + Riesgo combinada */}
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icons.Activity size={14} color="var(--accent)" />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              NSS · Riesgo
+            </div>
+          </div>
+          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {fmtSigned(m.nss)}
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 10, color: 'var(--text-3)' }}>
+            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss7d)}</strong></span>
+            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss30d)}</strong></span>
+          </div>
+          {m.crisisRiskScore != null && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                <span>Riesgo · {m.crisisRiskScore.toFixed(1)}/3</span>
+                <span style={{ color: m.crisisRiskScore >= 1.5 ? 'var(--neg)' : m.crisisRiskScore >= 0.75 ? 'var(--warn)' : 'var(--pos)' }}>
+                  {m.crisisRiskScore >= 2.25 ? 'CRISIS' : m.crisisRiskScore >= 1.5 ? 'ALERTA' : m.crisisRiskScore >= 0.75 ? 'ELEVADO' : 'NORMAL'}
+                </span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 50%, var(--neg) 50%, var(--neg) 75%, var(--neg) 100%)', position: 'relative' }}>
+                <div style={{ position: 'absolute', left: `${Math.min((m.crisisRiskScore / 3) * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
+                <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Volúmenes */}
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icons.MessageSquare size={14} color="var(--text-2)" />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Volúmenes
+            </div>
+          </div>
+          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {fmt(m.totalMentions ?? 0)}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>menciones</div>
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)' }}>
+            Alcance · <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(m.totalReach ?? 0)}</span> impresiones
+          </div>
+          {m.totalMentionsDelta != null && (
+            <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: m.totalMentionsDelta > 0 ? 'var(--neg)' : m.totalMentionsDelta < 0 ? 'var(--pos)' : 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {m.totalMentionsDelta > 0 ? '▲' : m.totalMentionsDelta < 0 ? '▼' : '·'}
+              {Math.abs(m.totalMentionsDelta).toFixed(1)}% vs ventana previa
+            </div>
+          )}
+        </div>
+
+        {/* Brand Health */}
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icons.Heart size={14} color="var(--pos)" />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Brand Health
+            </div>
+          </div>
+          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>BHI · 0–1</div>
+          {m.brandHealthIndex != null && (
+            <div style={{ marginTop: 12 }}>
+              <BrandHealthMini value={m.brandHealthIndex} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverviewTendencia({ dailySeries }) {
+  // Adapta dailySeries del API al shape que MultiLineChart espera (`date` + keys de las series).
+  const chartData = (dailySeries || []).map((d) => ({
+    date: d.dayLabel,
+    negative: d.negative,
+    neutral: d.neutral,
+    positive: d.positive,
+  }));
+  const series = [
+    { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
+    { key: 'neutral',  label: 'Neutral',  color: 'var(--text-3)' },
+    { key: 'positive', label: 'Positivo', color: 'var(--pos)' },
+  ];
+  if (chartData.length === 0) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        Sin datos de tendencia en el periodo.
+      </div>
+    );
+  }
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">02 · Tendencia · Día a día</div>
+          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico)</div>
+        </div>
+      </div>
+      <div className="card-bd">
+        <MultiLineChart data={chartData} series={series} height={240} />
+      </div>
+    </div>
+  );
+}
+
+function OverviewTopicos({ rows, totals }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        Sin tópicos clasificados en el periodo.
+      </div>
+    );
+  }
+  const universe = totals.total || 1;
+
+  function DistributionBar({ neg, neu, pos, t }) {
+    const td = t || 1;
+    const negPct = (neg / td) * 100;
+    const neuPct = (neu / td) * 100;
+    const posPct = Math.max(0, 100 - negPct - neuPct);
+    return (
+      <div style={{ display: 'flex', height: 8, borderRadius: 2, overflow: 'hidden', background: 'var(--canvas-2)' }}>
+        <div title={`negativo · ${neg}`} style={{ width: `${negPct}%`, background: 'var(--neg)' }} />
+        <div title={`neutral · ${neu}`}  style={{ width: `${neuPct}%`, background: 'var(--text-3)' }} />
+        <div title={`positivo · ${pos}`} style={{ width: `${posPct}%`, background: 'var(--pos)' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">03 · Tópico principal</div>
+          <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
+        </div>
+      </div>
+      <div>
+        {rows.map((row, idx) => {
+          const pctOfTotal = universe > 0 ? Math.round((row.total / universe) * 100) : 0;
+          const muted = !!(row.isOther || row.isUnclassified);
+          return (
+            <div key={idx} style={{
+              display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
+              padding: '14px 16px', alignItems: 'center',
+              borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
+              opacity: muted ? 0.78 : 1,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13.5, fontWeight: muted ? 500 : 600,
+                  color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{row.topic}</div>
+                {(row.subtopics || row.secondaryCount > 0) && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3, fontStyle: row.isUnclassified ? 'italic' : 'normal' }}>
+                    {row.subtopics}
+                    {row.subtopics && row.secondaryCount > 0 ? ' · ' : ''}
+                    {row.secondaryCount > 0 && (
+                      <span>+{row.secondaryCount} también lo tocan</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="num" style={{ fontSize: 14, fontWeight: muted ? 600 : 700, color: 'var(--text)' }}>
+                  {fmt(row.total)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>{pctOfTotal}%</div>
+              </div>
+              <DistributionBar neg={row.negative} neu={row.neutral} pos={row.positive} t={row.total} />
+            </div>
+          );
+        })}
+        {/* Footer "Total del periodo" — debe cuadrar con el termómetro */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
+          padding: '14px 16px', alignItems: 'center',
+          borderTop: '1px solid var(--hairline-strong)',
+          background: 'var(--canvas-2)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Total del periodo
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>{fmt(totals.total)}</div>
+          </div>
+          <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} />
+        </div>
+      </div>
+      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
+          criterio del correo diario). El "+N también lo tocan" indica
+          menciones donde el tópico aparece como tema secundario — verás
+          conteos más altos en la pestaña Tópicos por esa razón.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen };

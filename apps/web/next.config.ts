@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@eco/database', '@eco/shared'],
   async rewrites() {
     return [
+      { source: '/overview', destination: '/eco-prototype/index.html' },
+      { source: '/overview/:path*', destination: '/eco-prototype/index.html' },
       { source: '/dashboard', destination: '/eco-prototype/index.html' },
       { source: '/dashboard/:path*', destination: '/eco-prototype/index.html' },
       { source: '/mentions', destination: '/eco-prototype/index.html' },
