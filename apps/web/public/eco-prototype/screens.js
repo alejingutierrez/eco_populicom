@@ -49,6 +49,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
     { key: 'brandHealthIndex', label: 'Brand Health', color: 'var(--pos)' },
     { key: 'totalMentions', label: 'Menciones', color: 'var(--text-2)' },
     { key: 'crisisRiskScore', label: 'Crisis', color: 'var(--neg)' },
+    { key: 'polarizationIndex', label: 'Polarización', color: '#8B5CF6' },
     { key: 'engagementRate', label: 'Engagement', color: 'var(--warn)' },
   ];
 
@@ -180,17 +181,18 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
       </div>
 
       {/* ── Hero KPIs: NSS + Crisis prominent ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={`${m.nss > 0 ? '+' : ''}${m.nss}`} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
+        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
-            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d > 0 ? '+' : ''}{m.nss7d}</strong></span>
-            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d > 0 ? '+' : ''}{m.nss30d}</strong></span>
+            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
+            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore.toFixed(1)} delta={m.crisisDelta} sub="vs ayer" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>
+          {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 16%, var(--warn) 16%, var(--warn) 50%, var(--neg) 50%, var(--neg) 100%)', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: `${Math.min((m.crisisRiskScore/3)*100,100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
+            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+              <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
               <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
@@ -198,8 +200,20 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
           </div>
         </KpiCard>
         <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
-        <KpiCard label="Brand Health" value={m.brandHealthIndex.toFixed(2)} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
-          <BrandHealthMini value={m.brandHealthIndex} />
+        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
+          <BrandHealthMini value={m.brandHealthIndex ?? 0} />
+        </KpiCard>
+        {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
+            Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
+        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}>
+          <div style={{ marginTop: -2 }}>
+            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
+              <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
+              <span>APÁTICA</span><span>MODERADA</span><span>ALTA</span><span>EXTREMA</span>
+            </div>
+          </div>
         </KpiCard>
       </div>
 
