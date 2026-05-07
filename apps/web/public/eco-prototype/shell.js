@@ -786,6 +786,13 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  // Cuando el slice filtra por tópico, default a "primary" (top-confidence) —
+  // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Toggle
+  // permite incluir secundarias y ver el total multi-clasificación.
+  const hasTopicFilter = !!(slice && slice._filter && slice._filter.topic);
+  const [topicMode, setTopicMode] = React.useState('primary');
+  // Reset cuando cambia el slice (otro tópico, otro filtro).
+  React.useEffect(() => { setTopicMode('primary'); }, [slice]);
 
   // If a slice carries a structured filter, fetch real matching mentions from
   // /api/eco-mentions and replace the placeholder list + counts. The slice
@@ -793,19 +800,23 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   React.useEffect(() => {
     if (!slice || !slice._filter) { setLiveSlice(null); return; }
     setLoading(true);
+    const filter = { ...slice._filter };
+    // Solo enviamos topicMode cuando hay filtro de tópico — para otros filtros
+    // (heatmap, source, day) el parámetro no aplica.
+    if (filter.topic) filter.topicMode = topicMode;
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
         period: localStorage.getItem('eco.period') || '1M',
         limit: '20',
-        ...slice._filter,
+        ...filter,
       }).filter(([, v]) => v != null && v !== '')
     )).toString(), { cache: 'no-store' })
       .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
       .then((j) => setLiveSlice(j))
       .catch(() => setLiveSlice({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }))
       .finally(() => setLoading(false));
-  }, [slice]);
+  }, [slice, topicMode]);
 
   if (!slice) return null;
   const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
@@ -861,6 +872,22 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   <span className="dot" style={{ background: 'var(--neg)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neg.toLocaleString('es-PR')}</span> negativas
                 </span>
+              </div>
+            )}
+            {hasTopicFilter && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-2)' }}>
+                <span style={{ color: 'var(--text-3)' }}>
+                  {topicMode === 'primary'
+                    ? 'Mostrando solo menciones donde este tópico es el principal'
+                    : 'Mostrando todas las menciones que tocan este tópico (principal + secundario)'}
+                </span>
+                <button
+                  className="chip"
+                  onClick={() => setTopicMode((m) => (m === 'primary' ? 'all' : 'primary'))}
+                  style={{ fontSize: 10, padding: '3px 8px' }}
+                >
+                  {topicMode === 'primary' ? '+ Incluir secundarias' : '— Solo principales'}
+                </button>
               </div>
             )}
           </div>

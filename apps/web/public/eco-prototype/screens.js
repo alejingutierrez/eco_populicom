@@ -1112,6 +1112,21 @@ function TopicsScreen({ onMentionClick }) {
           />
         );
       })()}
+
+      {/* Nota explicativa: la pestaña Tópicos usa el MISMO conteo que el correo
+          y el Overview (top-confidence). Si una mención toca varios tópicos,
+          cuenta una vez en su tópico principal — el "+N también lo tocan"
+          señala las menciones donde ese tópico es secundario. */}
+      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
+          criterio del correo y del Overview). El "+N también lo tocan"
+          indica menciones donde el tópico aparece como tema secundario. Al
+          hacer clic en un tópico verás las primarias por defecto, con un
+          toggle para incluir las secundarias.
+        </span>
+      </div>
     </div>
   );
 }
@@ -1141,6 +1156,9 @@ function TopicTreemap({ topics, onSelect }) {
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.name}</div>
               <div className="num" style={{ fontSize: i < 2 ? 30 : 18, fontWeight: 600, color: 'var(--text)', marginTop: 4, fontFamily: 'var(--ff-display)' }}>{fmt(t.count)}</div>
+              {t.secondaryCount > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>+{t.secondaryCount} también lo tocan</div>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', height: 3, width: 60, borderRadius: 2, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
@@ -1241,7 +1259,12 @@ function TopicList({ topics, onSelect }) {
             width: '100%',
           }}>
           <span className="mono" style={{ color: 'var(--text-3)', fontSize: 11 }}>{String(i+1).padStart(2,'0')}</span>
-          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{t.name}</span>
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+            {t.secondaryCount > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>+{t.secondaryCount} también lo tocan</span>
+            )}
+          </span>
           <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(t.count)}</span>
           <span className={`pill ${t.dominantSentiment === 'positivo' ? 'pill-pos' : t.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn'}`} style={{ justifySelf: 'start' }}>{t.dominantSentiment}</span>
           <div style={{ position: 'relative', height: 14 }}>
@@ -2626,12 +2649,13 @@ function AlertsPrefs() {
 //   4. Tendencia — multi-line chart con neg/neu/pos
 //   5. Tópico principal — top-7 + Otros + Sin clasificar
 //
-// Las cards de tópico no son clickeables todavía (Phase 4 agrega el toggle
-// de "incluir secundarias" en el modal cuando topicMode=primary esté
-// implementado en /api/eco-mentions).
-function OverviewScreen({ period, agency }) {
+// Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
+// (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
+// el conteo multi-clasificación.
+function OverviewScreen({ period, agency, onMentionClick }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [slice, setSlice] = useState(null);
 
   useEffect(() => {
     setData(null); setError(null);
@@ -2667,7 +2691,29 @@ function OverviewScreen({ period, agency }) {
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} />
       <OverviewHighlights metrics={data.currentMetrics} />
       <OverviewTendencia dailySeries={data.dailySeries} />
-      <OverviewTopicos rows={data.topicsTable} totals={data.totals} />
+      <OverviewTopicos
+        rows={data.topicsTable}
+        totals={data.totals}
+        onTopicClick={(row) => {
+          // Buscar el slug del tópico en D.TOPICS (eco-data) para que el modal
+          // pueda filtrar. La tabla del Overview viene de buildSentimentReport
+          // (matchea correo) que solo expone el name; resolvemos el slug aquí.
+          const topic = (D.TOPICS || []).find((t) => t.name === row.topic);
+          if (!topic) return;
+          const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+          const slugIdx = {};
+          (D.TOPICS || []).forEach((tp, i) => { slugIdx[tp.slug] = i; });
+          const accent = palette[(slugIdx[topic.slug] || 0) % palette.length] || 'var(--accent)';
+          setSlice({
+            eyebrow: 'Tópico',
+            title: topic.name,
+            accent,
+            mentions: [],
+            _filter: { topic: topic.slug },
+          });
+        }}
+      />
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
 }
@@ -2867,7 +2913,7 @@ function OverviewTendencia({ dailySeries }) {
   );
 }
 
-function OverviewTopicos({ rows, totals }) {
+function OverviewTopicos({ rows, totals, onTopicClick }) {
   if (!rows || rows.length === 0) {
     return (
       <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
@@ -2903,13 +2949,21 @@ function OverviewTopicos({ rows, totals }) {
         {rows.map((row, idx) => {
           const pctOfTotal = universe > 0 ? Math.round((row.total / universe) * 100) : 0;
           const muted = !!(row.isOther || row.isUnclassified);
+          // Solo las filas clasificadas (top-7) son clickeables. "Otros" y
+          // "Sin clasificar" agregan tópicos heterogéneos / sin clasificar
+          // y no tienen un slug único al cual filtrar.
+          const clickable = !muted && !!onTopicClick;
           return (
-            <div key={idx} style={{
-              display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
-              padding: '14px 16px', alignItems: 'center',
-              borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
-              opacity: muted ? 0.78 : 1,
-            }}>
+            <div key={idx}
+              onClick={clickable ? () => onTopicClick(row) : undefined}
+              className={clickable ? 'row-hover' : undefined}
+              style={{
+                display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
+                padding: '14px 16px', alignItems: 'center',
+                borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
+                opacity: muted ? 0.78 : 1,
+                cursor: clickable ? 'pointer' : 'default',
+              }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{
                   fontSize: 13.5, fontWeight: muted ? 500 : 600,

@@ -191,12 +191,44 @@ export async function GET(request: NextRequest) {
   }
 
   if (topicSlug) {
-    const tRows = await db
-      .select({ id: mentionTopics.mentionId })
-      .from(mentionTopics)
-      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
-      .where(eq(topics.slug, topicSlug));
-    await intersect(tRows.map((r) => r.id));
+    // topicMode=primary: solo menciones cuyo TOP-CONFIDENCE topic = topicSlug.
+    // Hace que el conteo del modal coincida con el "count" mostrado en el
+    // Overview, Scorecard y TopicsScreen (que también es top-confidence).
+    // topicMode=all (default): cualquier mención que toque ese tópico, sin
+    // importar la confianza — comportamiento histórico, útil para ver TODA
+    // la cobertura de un tópico aunque sea secundario.
+    const topicMode = searchParams.get('topicMode') === 'primary' ? 'primary' : 'all';
+    if (topicMode === 'primary') {
+      const tRowsRaw = await db.execute(sql`
+        SELECT m.id::text AS id
+          FROM mentions m
+         WHERE m.id IN (
+           SELECT mention_id FROM (
+             SELECT mention_id,
+                    topic_id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY mention_id
+                      ORDER BY confidence DESC NULLS LAST, topic_id ASC
+                    ) AS rn
+               FROM mention_topics
+           ) ranked
+           WHERE ranked.rn = 1
+             AND ranked.topic_id = (SELECT id FROM topics WHERE slug = ${topicSlug})
+         )
+      `);
+      // Drizzle's db.execute devuelve QueryResult con .rows (pg driver) o el
+      // array directamente. Normalizamos antes de leer .id.
+      const raw = tRowsRaw as unknown as Array<{ id: string }> | { rows?: Array<{ id: string }> };
+      const rows = Array.isArray(raw) ? raw : (raw.rows ?? []);
+      await intersect(rows.map((r) => r.id));
+    } else {
+      const tRows = await db
+        .select({ id: mentionTopics.mentionId })
+        .from(mentionTopics)
+        .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
+        .where(eq(topics.slug, topicSlug));
+      await intersect(tRows.map((r) => r.id));
+    }
   }
 
   if (subtopicName) {
