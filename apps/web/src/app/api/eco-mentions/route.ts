@@ -259,6 +259,7 @@ export async function GET(request: NextRequest) {
     .select({
       id: mentions.id,
       title: mentions.title,
+      snippet: mentions.snippet,
       domain: mentions.domain,
       pageType: mentions.pageType,
       author: mentions.author,
@@ -327,9 +328,14 @@ export async function GET(request: NextRequest) {
   const out = rows.map((m) => {
     const tp = topicByMention.get(m.id);
     const mu = muniByMention.get(m.id);
+    // Igual que en /api/eco-data: cuando title está vacío (LinkedIn/Tumblr/
+    // tweets), el contenido real vive en snippet. Sin este fallback el feed
+    // renderiza filas en blanco. La búsqueda full-text ya cubre ambos campos.
+    const title = (m.title && m.title.trim()) || (m.snippet && m.snippet.trim()) || '';
     return {
       id: m.id,
-      title: m.title ?? '',
+      title,
+      snippet: m.snippet ?? '',
       domain: m.domain ?? '',
       source: sourceKey(m.pageType),
       author: m.authorFullname ?? m.author ?? '',

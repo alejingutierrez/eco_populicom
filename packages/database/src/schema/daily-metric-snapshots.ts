@@ -41,6 +41,17 @@ export const dailyMetricSnapshots = pgTable(
     crisisRiskScore: doublePrecision('crisis_risk_score'),
     volumeAnomalyZscore: doublePrecision('volume_anomaly_zscore'),
 
+    // Crisis Risk drilldown (subcomponentes de la fórmula compuesta).
+    // No se exponen en UI; sirven para auditoría y para el material de presentación.
+    crisisSeverity: doublePrecision('crisis_severity'),
+    crisisVelocity: doublePrecision('crisis_velocity'),
+    crisisRelevance: doublePrecision('crisis_relevance'),
+    crisisConfidence: doublePrecision('crisis_confidence'),
+
+    // Polarization Index: (pos+neg)/total*100. Distingue polarización de apatía
+    // cuando NSS≈0.
+    polarizationIndex: doublePrecision('polarization_index'),
+
     // Rolling window caches
     nss7d: doublePrecision('nss_7d'),
     nss30d: doublePrecision('nss_30d'),

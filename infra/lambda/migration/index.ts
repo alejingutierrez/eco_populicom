@@ -176,6 +176,27 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       const del = await client.query(`DELETE FROM daily_metric_snapshots RETURNING id`);
       return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount }) };
     }
+    if (action === 'add-formula-columns') {
+      // Idempotente: añade columnas para Polarization Index y los subcomponentes
+      // del nuevo Crisis Risk (severity/velocity/relevance/confidence) que sirven
+      // como drilldown auditable. Crisis Risk Score y Brand Health Index ahora
+      // usan fórmulas nuevas; los valores se regeneran en backfill (mismas
+      // columnas, fórmulas distintas).
+      const stmts = [
+        `ALTER TABLE daily_metric_snapshots ADD COLUMN IF NOT EXISTS polarization_index DOUBLE PRECISION`,
+        `ALTER TABLE daily_metric_snapshots ADD COLUMN IF NOT EXISTS crisis_severity DOUBLE PRECISION`,
+        `ALTER TABLE daily_metric_snapshots ADD COLUMN IF NOT EXISTS crisis_velocity DOUBLE PRECISION`,
+        `ALTER TABLE daily_metric_snapshots ADD COLUMN IF NOT EXISTS crisis_relevance DOUBLE PRECISION`,
+        `ALTER TABLE daily_metric_snapshots ADD COLUMN IF NOT EXISTS crisis_confidence DOUBLE PRECISION`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) { await client.query(s); applied.push(s); }
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'daily_metric_snapshots' ORDER BY column_name`,
+      );
+      return { statusCode: 200, body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name) }, null, 2) };
+    }
 
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {

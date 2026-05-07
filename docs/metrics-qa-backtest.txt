@@ -1,0 +1,66 @@
+Loaded 482 daily snapshots 2025-01-01 → 2026-05-06
+Ground truth: 15 días de crisis (3.1%)
+
+================================================================================
+BHI — Detección de crisis usando BHI bajo como señal
+================================================================================
+Variant                                    thr   TP   FP   FN   Prec    Rec     F1   rNSS
+V0_buggy_40_25_20_15                      0.44    3   39   12   0.07   0.20   0.11  +0.20
+V1a_fix30_40_25_20_15                     0.68    7  109    8   0.06   0.47   0.11  +0.29
+V1b_fix7_40_25_20_15                      0.58    6   60    9   0.09   0.40   0.15  +0.33
+V1c_fixToday_40_25_20_15                  0.52    7   34    8   0.17   0.47   0.25  +0.53
+V2a_client_fix30                          0.64    6   89    9   0.06   0.40   0.11  +0.29
+V2b_client_fix7                           0.56    6   59    9   0.09   0.40   0.15  +0.33
+V2c_client_fixToday                       0.52    8   45    7   0.15   0.53   0.24  +0.51
+V3_pert_fix7_35_20_15_30                  0.54    6   63    9   0.09   0.40   0.14  +0.33
+V4_signal_fix7_45_15_15_25                0.56    6   64    9   0.09   0.40   0.14  +0.34
+V5_nss_fixToday_50_20_20_10               0.54    7   29    8   0.19   0.47   0.27  +0.54
+
+14-abril 2026 (crisis Proyecto 1183) — BHI por variante:
+  V0_buggy_40_25_20_15: BHI=0.714  NSS=-57.5  total=318  neg=203
+  V1a_fix30_40_25_20_15: BHI=0.702  NSS=-57.5  total=318  neg=203
+  V1b_fix7_40_25_20_15: BHI=0.702  NSS=-57.5  total=318  neg=203
+  V1c_fixToday_40_25_20_15: BHI=0.527  NSS=-57.5  total=318  neg=203
+  V2a_client_fix30: BHI=0.686  NSS=-57.5  total=318  neg=203
+  V2b_client_fix7: BHI=0.686  NSS=-57.5  total=318  neg=203
+  V2c_client_fixToday: BHI=0.511  NSS=-57.5  total=318  neg=203
+  V3_pert_fix7_35_20_15_30: BHI=0.655  NSS=-57.5  total=318  neg=203
+  V4_signal_fix7_45_15_15_25: BHI=0.670  NSS=-57.5  total=318  neg=203
+  V5_nss_fixToday_50_20_20_10: BHI=0.542  NSS=-57.5  total=318  neg=203
+
+13-enero 2026 (FALSO POSITIVO histórico — día súper positivo):
+  V0_buggy_40_25_20_15: BHI=0.593  NSS=77.8  total=45
+  V1a_fix30_40_25_20_15: BHI=0.745  NSS=77.8  total=45
+  V1b_fix7_40_25_20_15: BHI=0.745  NSS=77.8  total=45
+  V1c_fixToday_40_25_20_15: BHI=0.745  NSS=77.8  total=45
+  V2a_client_fix30: BHI=0.747  NSS=77.8  total=45
+  V2b_client_fix7: BHI=0.747  NSS=77.8  total=45
+  V2c_client_fixToday: BHI=0.747  NSS=77.8  total=45
+  V3_pert_fix7_35_20_15_30: BHI=0.761  NSS=77.8  total=45
+  V4_signal_fix7_45_15_15_25: BHI=0.759  NSS=77.8  total=45
+  V5_nss_fixToday_50_20_20_10: BHI=0.744  NSS=77.8  total=45
+
+================================================================================
+CRISIS RISK — Detección de crisis directa
+================================================================================
+Variant                           thr   TP   FP   FN   Prec    Rec     F1
+V1_current                       1.50    9   25    6   0.26   0.60   0.37
+V2_pptx_50_30_20                 0.25   15    8    0   0.65   1.00   0.79
+V2_60_25_15                      0.30   15    8    0   0.65   1.00   0.79
+V2_50_35_15                      0.25   15    8    0   0.65   1.00   0.79
+V2_40_40_20                      0.25   15    8    0   0.65   1.00   0.79
+V2_55_30_15                      0.25   15    8    0   0.65   1.00   0.79
+
+================================================================================
+ENGAGEMENT VELOCITY — distribución comparada
+================================================================================
+  current_avg7d       n= 479  min=  -100.00  p1= -100.00  mean=  56.83  std= 482.90  p99= 2010.89  max=  8087.93
+  zscore_30d          n= 474  min=    -1.40  p1=   -1.06  mean=   0.09  std=   1.99  p99=    6.26  max=    33.96
+  robust_z_30d        n= 474  min=    -1.42  p1=   -1.14  mean=   3.79  std=  32.79  p99=   84.54  max=   666.06
+
+================================================================================
+POLARIZATION INDEX — validación 13-abril 2026 (PPTX claim: 65.5%)
+================================================================================
+  2026-04-13  pol=44.7%  NSS=-9.7  total=103  pos+neg=46
+  2026-04-14  pol=70.1%  NSS=-57.5  total=318  pos+neg=223
+  2026-04-15  pol=65.0%  NSS=-48.9  total=137  pos+neg=89

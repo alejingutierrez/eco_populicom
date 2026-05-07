@@ -31,6 +31,7 @@ type TimelineRow = {
   totalMentions: number;
   crisisRiskScore: number;
   engagementRate: number;
+  polarizationIndex: number | null;
   positivo: number;
   neutral: number;
   negativo: number;
@@ -185,6 +186,7 @@ export async function GET(request: NextRequest) {
         totalMentions: Number(s.totalMentions ?? 0),
         crisisRiskScore: Number(s.crisisRiskScore ?? 0),
         engagementRate: Number(s.engagementRate ?? 0),
+        polarizationIndex: s.polarizationIndex != null ? Number(s.polarizationIndex) : null,
         positivo: Number(s.positiveCount ?? 0),
         neutral: Number(s.neutralCount ?? 0),
         negativo: Number(s.negativeCount ?? 0),
@@ -199,15 +201,16 @@ export async function GET(request: NextRequest) {
     // aggregates below when they come back empty.
     const snapMetrics = last ? {
       nss: Number(last.nss ?? 0),
-      nss7d: Number(last.nss7d ?? 0),
-      nss30d: Number(last.nss30d ?? 0),
-      brandHealthIndex: Number(last.brandHealthIndex ?? 0),
-      crisisRiskScore: Number(last.crisisRiskScore ?? 0),
-      engagementRate: Number(last.engagementRate ?? 0),
-      amplificationRate: Number(last.amplificationRate ?? 0),
-      reputationMomentum: Number(last.reputationMomentum ?? 0),
-      engagementVelocity: Number(last.engagementVelocity ?? 0),
-      volumeAnomalyZscore: Number(last.volumeAnomalyZscore ?? 0),
+      nss7d: last.nss7d != null ? Number(last.nss7d) : null,
+      nss30d: last.nss30d != null ? Number(last.nss30d) : null,
+      brandHealthIndex: last.brandHealthIndex != null ? Number(last.brandHealthIndex) : null,
+      crisisRiskScore: last.crisisRiskScore != null ? Number(last.crisisRiskScore) : null,
+      engagementRate: last.engagementRate != null ? Number(last.engagementRate) : null,
+      amplificationRate: last.amplificationRate != null ? Number(last.amplificationRate) : null,
+      reputationMomentum: last.reputationMomentum != null ? Number(last.reputationMomentum) : null,
+      engagementVelocity: last.engagementVelocity != null ? Number(last.engagementVelocity) : null,
+      volumeAnomalyZscore: last.volumeAnomalyZscore != null ? Number(last.volumeAnomalyZscore) : null,
+      polarizationIndex: last.polarizationIndex != null ? Number(last.polarizationIndex) : null,
       totalMentions: Number(last.totalMentions ?? 0),
       positiveCount: Number(last.positiveCount ?? 0),
       neutralCount: Number(last.neutralCount ?? 0),
@@ -242,20 +245,17 @@ export async function GET(request: NextRequest) {
       { name: 'negativo', value: sentCounts.negativo, label: 'Negativo' },
     ];
 
-    // Live-aggregate metrics from mentions — used when daily snapshots are
-    // missing or zero. Also drive the hero KPIs until the metrics-calculator
-    // Lambda catches up.
+    // Live counts respetan el filtro del usuario (date range / agency / topic)
+    // y se usan para los conteos directos (totalMentions, conteo por sentimiento,
+    // engagement rate observado en la ventana). Las métricas COMPUESTAS (BHI,
+    // CrisisRisk, EngagementVelocity, PolarizationIndex, ReputationMomentum,
+    // VolumeAnomalyZ) vienen EXCLUSIVAMENTE del snapshot diario calculado por
+    // eco-metrics-calculator — una sola fórmula, una sola fuente de verdad.
+    // Si no hay snapshot todavía (lambda corre cada 10 min), las compuestas
+    // muestran null y la UI las renderiza como "—".
     const liveTotal = sentCounts.positivo + sentCounts.neutral + sentCounts.negativo;
     const liveNss = liveTotal > 0
       ? Number((((sentCounts.positivo - sentCounts.negativo) / liveTotal) * 100).toFixed(1))
-      : 0;
-    // Brand Health Index: 0.5 neutral baseline, shifts with positivity
-    const liveBhi = liveTotal > 0
-      ? Number((0.5 + ((sentCounts.positivo - sentCounts.negativo) / liveTotal) * 0.5).toFixed(2))
-      : 0;
-    // Crisis risk: scale by fraction of negative mentions (0..3)
-    const liveCrisis = liveTotal > 0
-      ? Number(((sentCounts.negativo / liveTotal) * 3).toFixed(1))
       : 0;
 
     const [engAgg] = await db
@@ -273,30 +273,33 @@ export async function GET(request: NextRequest) {
       ? Number(((liveEngSum / liveReach) * 100).toFixed(2))
       : 0;
 
-    // Prefer snapshot values when non-zero; fall back to live aggregates.
-    const pick = (snap: number, live: number) => (snap && snap !== 0 ? snap : live);
+    // Snapshots son fuente de verdad para métricas compuestas. Los counters
+    // (mentions/sentiment/engagement rate) usan los conteos vivos del filtro
+    // — esos respetan el rango de fechas del usuario.
+    const pickLive = (snap: number, live: number) => (snap && snap !== 0 ? snap : live);
     const CURRENT_METRICS = {
-      nss: pick(snapMetrics?.nss ?? 0, liveNss),
-      nss7d: pick(snapMetrics?.nss7d ?? 0, liveNss),
-      nss30d: pick(snapMetrics?.nss30d ?? 0, liveNss),
+      nss: pickLive(snapMetrics?.nss ?? 0, liveNss),
+      nss7d: snapMetrics?.nss7d ?? null,
+      nss30d: snapMetrics?.nss30d ?? null,
       nssDelta: snapDeltas.nssDelta,
-      brandHealthIndex: pick(snapMetrics?.brandHealthIndex ?? 0, liveBhi),
+      brandHealthIndex: snapMetrics?.brandHealthIndex ?? null,
       brandHealthDelta: snapDeltas.brandHealthDelta,
-      crisisRiskScore: pick(snapMetrics?.crisisRiskScore ?? 0, liveCrisis),
+      crisisRiskScore: snapMetrics?.crisisRiskScore ?? null,
       crisisDelta: snapDeltas.crisisDelta,
-      totalMentions: pick(snapMetrics?.totalMentions ?? 0, liveTotal),
+      totalMentions: pickLive(snapMetrics?.totalMentions ?? 0, liveTotal),
       totalMentionsDelta: snapDeltas.totalMentionsDelta,
-      totalReach: pick(0, liveReach || liveTotal * 180),
-      engagementRate: pick(snapMetrics?.engagementRate ?? 0, liveEngRate),
+      totalReach: liveReach,
+      engagementRate: pickLive(snapMetrics?.engagementRate ?? 0, liveEngRate),
       engagementDelta: snapDeltas.engagementDelta,
-      amplificationRate: Number(snapMetrics?.amplificationRate ?? 0),
+      amplificationRate: snapMetrics?.amplificationRate ?? null,
       amplificationDelta: 0,
-      reputationMomentum: Number(snapMetrics?.reputationMomentum ?? 0),
-      engagementVelocity: Number(snapMetrics?.engagementVelocity ?? 0),
-      volumeAnomalyZscore: Number(snapMetrics?.volumeAnomalyZscore ?? 0),
-      positiveCount: pick(snapMetrics?.positiveCount ?? 0, sentCounts.positivo),
-      neutralCount: pick(snapMetrics?.neutralCount ?? 0, sentCounts.neutral),
-      negativeCount: pick(snapMetrics?.negativeCount ?? 0, sentCounts.negativo),
+      reputationMomentum: snapMetrics?.reputationMomentum ?? null,
+      engagementVelocity: snapMetrics?.engagementVelocity ?? null,
+      volumeAnomalyZscore: snapMetrics?.volumeAnomalyZscore ?? null,
+      polarizationIndex: snapMetrics?.polarizationIndex ?? null,
+      positiveCount: pickLive(snapMetrics?.positiveCount ?? 0, sentCounts.positivo),
+      neutralCount: pickLive(snapMetrics?.neutralCount ?? 0, sentCounts.neutral),
+      negativeCount: pickLive(snapMetrics?.negativeCount ?? 0, sentCounts.negativo),
       highPertinenceCount: Number(engAgg?.hiPert ?? 0),
     };
 
@@ -495,6 +498,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: mentions.id,
         title: mentions.title,
+        snippet: mentions.snippet,
         domain: mentions.domain,
         pageType: mentions.pageType,
         author: mentions.author,
@@ -562,9 +566,15 @@ export async function GET(request: NextRequest) {
     const MENTIONS = recentRows.map((m) => {
       const tp = topicByMention.get(m.id);
       const mu = muniByMention.get(m.id);
+      // Mostrar el contenido real al usuario: news/blog suelen traer un título
+      // descriptivo, pero LinkedIn/Tumblr/Instagram lo dejan vacío y el texto
+      // del post vive en `snippet`. Sin este fallback, el dashboard renderiza
+      // filas en blanco (94% de LinkedIn de DDECPR caía aquí).
+      const title = (m.title && m.title.trim()) || (m.snippet && m.snippet.trim()) || '';
       return {
         id: m.id,
-        title: m.title ?? '',
+        title,
+        snippet: m.snippet ?? '',
         domain: m.domain ?? '',
         source: sourceKey(m.pageType),
         author: m.authorFullname ?? m.author ?? '',
