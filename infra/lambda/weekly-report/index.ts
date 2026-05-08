@@ -16,6 +16,8 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import {
   INSIGHTS_SYSTEM_PROMPT,
+  SENTIMENT_INSIGHTS_TOOL,
+  DAILY_SUMMARY_TOOL,
   buildSentimentInsightsPrompt,
   buildDailySummaryPrompt,
   renderWeeklyReportHtml,
@@ -823,10 +825,35 @@ async function loadTopicsTable(
 }
 
 // ============================================================
-// Bedrock
+// Bedrock — tool-use con defensa en profundidad
+//
+// Capas de protección contra fallos de generación:
+// 1. tool-use con esquema forzado (Bedrock entrega `input` ya parseado).
+// 2. fallback al modelo secundario si el primario falla o no cumple esquema.
+// 3. recuperación tolerante si por alguna razón llega texto JSON crudo
+//    (escape de comillas y newlines literales antes de JSON.parse).
+// 4. fallback funcional con valores por defecto seguros que se renderizan
+//    sin romper el correo.
+// 5. logging del payload truncado para diagnosticar futuros casos.
 // ============================================================
 
-async function invokeClaude(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<string> {
+interface BedrockTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/**
+ * Invoca el modelo en modo tool-use. Devuelve `block.input` (objeto JSON
+ * ya parseado por Bedrock a partir del schema). Si el modelo principal
+ * falla, intenta con el fallback. Si ninguno cumple, lanza.
+ */
+async function invokeClaudeTool<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  tool: BedrockTool,
+): Promise<T> {
   const models = [BEDROCK_MODEL_ID, BEDROCK_FALLBACK_MODEL_ID].filter((m, i, arr) => m && arr.indexOf(m) === i);
   let lastErr: unknown = null;
   for (const modelId of models) {
@@ -841,17 +868,123 @@ async function invokeClaude(systemPrompt: string, userPrompt: string, maxTokens:
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
           temperature: 0,
+          tools: [tool],
+          tool_choice: { type: 'tool', name: tool.name },
         }),
       }));
       const body = JSON.parse(new TextDecoder().decode(response.body));
-      const text: string = body.content[0].text;
-      return text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+      const blocks: Array<{ type?: string; name?: string; input?: unknown; text?: string }> = body?.content ?? [];
+
+      // 1) Camino normal: bloque tool_use con el nombre esperado.
+      const toolUse = blocks.find((b) => b?.type === 'tool_use' && b?.name === tool.name);
+      if (toolUse && toolUse.input && typeof toolUse.input === 'object') {
+        return toolUse.input as T;
+      }
+
+      // 2) Recuperación: si por alguna razón el modelo emitió texto en lugar
+      //    de tool_use (regresión, model swap, etc.), intentar parsear el
+      //    primer bloque de texto como JSON tolerante.
+      const textBlock = blocks.find((b) => b?.type === 'text' && typeof b?.text === 'string');
+      if (textBlock?.text) {
+        const recovered = recoverJson<T>(textBlock.text);
+        if (recovered) {
+          console.warn(`[weekly-report] model ${modelId} returned text instead of tool_use; recovered via tolerant parser`);
+          return recovered;
+        }
+      }
+
+      const stopReason = body?.stop_reason ?? 'unknown';
+      const preview = JSON.stringify(blocks).slice(0, 240);
+      throw new Error(`No tool_use(${tool.name}) in response (stop_reason=${stopReason}, preview=${preview})`);
     } catch (err) {
       lastErr = err;
-      console.warn(`[weekly-report] model ${modelId} failed:`, (err as Error).message);
+      console.warn(`[weekly-report] tool-use model ${modelId} failed:`, (err as Error).message);
     }
   }
-  throw lastErr ?? new Error('No Bedrock model produced a response');
+  throw lastErr ?? new Error('No Bedrock model produced a tool_use response');
+}
+
+/**
+ * Parser tolerante: intenta varias estrategias antes de rendirse.
+ *  a) JSON.parse directo.
+ *  b) quitar fences markdown ``` y reintentar.
+ *  c) escapar saltos de línea y comillas dobles literales dentro de
+ *     strings, sin tocar las que delimitan keys/values.
+ * Devuelve null si nada funciona.
+ */
+function recoverJson<T>(raw: string): T | null {
+  const trimmed = raw.trim();
+  const noFences = trimmed
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim();
+
+  for (const candidate of [trimmed, noFences, sanitizeJsonString(noFences)]) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // siguiente estrategia
+    }
+  }
+  return null;
+}
+
+/**
+ * Heurística para reparar JSON con `"` o `\n` literales dentro de strings.
+ * Recorre carácter a carácter siguiendo el estado de string (entre comillas
+ * dobles) y escapa los caracteres problemáticos solo cuando estamos dentro
+ * de un valor string. No es un parser real — falla en casos patológicos —
+ * pero cubre los casos prácticos vistos en producción (citas inline en
+ * resúmenes, párrafos con saltos de línea accidentales).
+ */
+function sanitizeJsonString(raw: string): string {
+  const out: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (!inString) {
+      out.push(c);
+      if (c === '"') inString = true;
+      continue;
+    }
+    // dentro de string
+    if (escaped) {
+      out.push(c);
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      out.push(c);
+      escaped = true;
+      continue;
+    }
+    if (c === '\n') { out.push('\\n'); continue; }
+    if (c === '\r') { out.push('\\r'); continue; }
+    if (c === '\t') { out.push('\\t'); continue; }
+    if (c === '"') {
+      // ¿es la comilla de cierre del string? Heurística: el siguiente
+      // carácter no-whitespace debe ser uno de , } ] :
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j++;
+      const next = raw[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || j === raw.length) {
+        out.push(c);
+        inString = false;
+      } else {
+        // comilla literal no escapada — la escapamos
+        out.push('\\"');
+      }
+      continue;
+    }
+    out.push(c);
+  }
+  return out.join('');
+}
+
+function toStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
 }
 
 async function generateInsights(
@@ -863,15 +996,19 @@ async function generateInsights(
   }
   const prompt = buildSentimentInsightsPrompt(aggregates, samples);
   try {
-    const text = await invokeClaude(INSIGHTS_SYSTEM_PROMPT, prompt, 1500);
-    const parsed = JSON.parse(text);
+    const result = await invokeClaudeTool<{ negative?: unknown; neutral?: unknown; positive?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      1500,
+      SENTIMENT_INSIGHTS_TOOL as BedrockTool,
+    );
     return {
-      negative: (parsed.negative ?? []).filter((s: string) => typeof s === 'string'),
-      neutral: (parsed.neutral ?? []).filter((s: string) => typeof s === 'string'),
-      positive: (parsed.positive ?? []).filter((s: string) => typeof s === 'string'),
+      negative: toStringArray(result.negative),
+      neutral: toStringArray(result.neutral),
+      positive: toStringArray(result.positive),
     };
   } catch (err) {
-    console.error('[weekly-report] insights generation failed:', err);
+    console.error('[weekly-report] insights generation failed:', (err as Error).message);
     return { negative: [], neutral: [], positive: [] };
   }
 }
@@ -886,13 +1023,62 @@ async function generateDailySummary(
   }
   const prompt = buildDailySummaryPrompt(aggregates, todaySamples, todayYmd);
   try {
-    const text = await invokeClaude(INSIGHTS_SYSTEM_PROMPT, prompt, 600);
-    const parsed = JSON.parse(text);
-    return typeof parsed.summary === 'string' ? parsed.summary : 'Resumen no disponible.';
+    const result = await invokeClaudeTool<{ summary?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      800,
+      DAILY_SUMMARY_TOOL as BedrockTool,
+    );
+    if (typeof result.summary === 'string' && result.summary.trim().length > 0) {
+      return result.summary;
+    }
+    console.error('[weekly-report] daily summary tool returned no usable string; falling back to numerical summary');
+    return autoFallbackSummary(aggregates, todayYmd);
   } catch (err) {
-    console.error('[weekly-report] daily summary generation failed:', err);
-    return 'Resumen no disponible.';
+    console.error('[weekly-report] daily summary generation failed; falling back to numerical summary:', (err as Error).message);
+    return autoFallbackSummary(aggregates, todayYmd);
   }
+}
+
+/**
+ * Último recurso: si Bedrock falla por completo, devolvemos un párrafo
+ * factual generado a partir de los agregados. Mejor que «Resumen no
+ * disponible.» — el lector aún recibe los números clave del día.
+ */
+function autoFallbackSummary(aggregates: WeeklyAggregates, todayYmd: string): string {
+  const today = aggregates.dailySeries.find((d) => d.date === todayYmd);
+  if (!today) {
+    return 'Resumen automático no disponible para el día reportado.';
+  }
+  const total = today.negative + today.neutral + today.positive;
+  if (total === 0) {
+    return `Sin menciones registradas en los canales monitoreados durante el día ${todayYmd}.`;
+  }
+  const idxToday = aggregates.dailySeries.findIndex((d) => d.date === todayYmd);
+  const prevDay = idxToday > 0 ? aggregates.dailySeries[idxToday - 1] : null;
+  const prevTotal = prevDay ? prevDay.negative + prevDay.neutral + prevDay.positive : 0;
+  const diffPct = prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : 0;
+  const trend = prevTotal === 0
+    ? 'sin comparación con el día previo'
+    : diffPct === 0
+    ? 'sin variación vs. el día anterior'
+    : `${diffPct > 0 ? '+' : ''}${diffPct}% vs. el día anterior`;
+
+  const dom = today.negative >= today.neutral && today.negative >= today.positive
+    ? { label: 'negativo', count: today.negative }
+    : today.positive >= today.neutral
+    ? { label: 'positivo', count: today.positive }
+    : { label: 'neutral', count: today.neutral };
+  const domPct = Math.round((dom.count / total) * 100);
+
+  const topTopics = aggregates.byTopic.slice(0, 2)
+    .map((t) => `<strong>${t.topic}</strong> (${t.total})`)
+    .join(' y ');
+  const topicsClause = topTopics
+    ? ` Los tópicos con mayor volumen del periodo fueron ${topTopics}.`
+    : '';
+
+  return `El día ${todayYmd} registró <strong>${total}</strong> menciones (${trend}), con predominio del sentimiento <strong>${dom.label}</strong> (${domPct}%).${topicsClause} Resumen automático generado al no disponer de análisis del modelo en esta corrida.`;
 }
 
 // ============================================================

@@ -87,7 +87,7 @@ REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
 6. **Si los datos no alcanzan** para un insight contextualizado con número + nombre propio, entrega menos insights. Nunca inventes municipios, tópicos, autores ni fuentes que no aparezcan en los datos. Nunca extrapoles a "sectores rurales", "clase media", "clase política", etc., si no está explícito.
 
-7. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON. Sin markdown fences. Sin comentarios.
+7. **Entrega**: invocas la herramienta provista (tool-use) — el sistema ya valida el esquema. Pasa los strings tal cual; no los envuelvas en JSON ni uses markdown fences. Para citar un fragmento de mención usa comillas tipográficas « » o curvas “ ” — JAMÁS comillas dobles rectas \`"\` (rompen el contenedor). No insertes saltos de línea dentro de un mismo string. Nunca repliques las llaves \`{ }\` del esquema dentro del texto.
 
 EJEMPLOS DE INSIGHTS ACEPTABLES (referenciales):
 - "Reclamos por cortes prolongados de agua se concentran en Bayamón (142 menciones), Toa Baja (89) y Carolina (67), con crecimiento de +34% vs. la semana previa; el pico ocurre del 19 al 21 de abril."
@@ -99,6 +99,66 @@ EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
 - "Hay una tendencia al alza de menciones negativas." ← sin número, sin tópico.
 - "Es importante atender los reclamos del área metropolitana." ← prescriptivo + sin dato.
 `.trim();
+
+// ============================================================
+// TOOL SCHEMAS — Bedrock tool-use (estructura forzada por el modelo)
+//
+// Usar tool-use elimina la clase de errores "JSON malformado en respuesta
+// de texto" porque Bedrock entrega `input` ya como objeto JSON válido,
+// derivado del esquema declarado. Si el modelo intenta poner caracteres
+// inválidos, los serializa correctamente a la cadena.
+// ============================================================
+
+export const SENTIMENT_INSIGHTS_TOOL = {
+  name: 'submit_sentiment_insights',
+  description:
+    'Entrega los insights por sentimiento del periodo. Tres listas (negative, neutral, positive), cada una con 0–3 strings. Cada string es UNA oración terminada en punto, en español, sin saltos de línea, sin comillas dobles rectas (usa « » si necesitas citar), sin markdown.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      negative: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 480 },
+        maxItems: 3,
+        description: 'Hasta 3 insights de tono negativo, cada uno con número y nombre propio concretos.',
+      },
+      neutral: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 480 },
+        maxItems: 3,
+        description: 'Hasta 3 insights de tono neutral.',
+      },
+      positive: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 480 },
+        maxItems: 3,
+        description: 'Hasta 3 insights de tono positivo.',
+      },
+    },
+    required: ['negative', 'neutral', 'positive'],
+    additionalProperties: false,
+  },
+} as const;
+
+export const DAILY_SUMMARY_TOOL = {
+  name: 'submit_daily_summary',
+  description:
+    'Entrega el párrafo único de resumen del último día cerrado del periodo. Un solo string en `summary`. Sin saltos de línea, sin comillas dobles rectas (usa « » si citas), sin markdown fences. Permitidas únicamente las etiquetas inline <strong>...</strong> para resaltar nombres propios y números clave.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        minLength: 60,
+        maxLength: 1400,
+        description:
+          'Párrafo único de 3 a 5 oraciones que resume el día reportado: volumen total, sentimiento dominante con %, 1–3 tópicos concretos, posición en la tendencia semanal y un hecho específico de las muestras del día.',
+      },
+    },
+    required: ['summary'],
+    additionalProperties: false,
+  },
+} as const;
 
 // ============================================================
 // PROMPT 1 — Insights por sentimiento (3 bloques de 3 insights)
@@ -188,14 +248,9 @@ ORDEN DE PRIORIZACIÓN DE INSIGHTS (aplica dentro de cada bloque de sentimiento)
 3. **Autores o fuentes destacadas** — si un autor individual o un medio concentra una porción notable de menciones, menciónalo con nombre y número.
 4. **Geografía (opcional)** — incluye municipios SOLO cuando hay una concentración verdaderamente clara en 1–2 municipios (p.ej. >20% de las menciones del bloque) y agrega valor al tópico. Si los datos geográficos están dispersos o no son claros, NO fuerces un insight geográfico; usa ese espacio para otro tópico o subtópico.
 
-Si para un sentimiento NO hay suficiente señal para 3 insights sustentados con datos, entrega menos (mínimo 0). Devuelve cadena vacía en los faltantes — no inventes.
+Si para un sentimiento NO hay suficiente señal para 3 insights sustentados con datos, entrega menos (mínimo 0). Omite el slot — no inventes ni dejes cadenas vacías.
 
-FORMATO DE SALIDA (un único objeto JSON, sin texto adicional, sin markdown fences):
-{
-  "negative": ["insight 1", "insight 2", "insight 3"],
-  "neutral":  ["insight 1", "insight 2", "insight 3"],
-  "positive": ["insight 1", "insight 2", "insight 3"]
-}
+ENTREGA: invoca la herramienta \`submit_sentiment_insights\` con tres listas (\`negative\`, \`neutral\`, \`positive\`), cada una con 0–3 strings. Cada string es UNA oración terminada en punto. NO uses comillas dobles rectas \`"\` dentro del texto (si necesitas citar usa « » o “ ”). NO insertes saltos de línea dentro de una oración. NO uses markdown fences ni \`\\\`\\\`\\\`\`. La herramienta es obligatoria — no respondas con texto plano.
 `.trim();
 }
 
@@ -248,12 +303,9 @@ Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${to
 4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
 5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
 
-PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
+PROHIBIDO: recomendaciones, sugerencias, consejos, «se debería», «conviene», «es importante que», llamados a la acción, juicios morales, opiniones propias. NO uses la palabra «hoy» para referirte al día reportado — usa «el día ${todayDate}», «la jornada», «el último día del periodo» o similar; el correo se entrega la mañana siguiente y «hoy» se interpretaría mal.
 
-FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
-{
-  "summary": "<párrafo de 3 a 5 oraciones>"
-}
+ENTREGA: invoca la herramienta \`submit_daily_summary\` con un único campo \`summary\` que contenga el párrafo. Permitidas SOLO las etiquetas inline \`<strong>\` y \`</strong>\`. NO uses comillas dobles rectas \`"\` (si necesitas citar usa « » o “ ”). NO insertes saltos de línea dentro del párrafo. NO uses markdown fences. La herramienta es obligatoria — no respondas con texto plano.
 `.trim();
 }
 
