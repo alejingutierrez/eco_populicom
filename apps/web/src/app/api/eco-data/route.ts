@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool } from '@eco/database';
+import { getDb } from '@eco/database';
 import {
   mentions,
   agencies,
@@ -19,7 +19,7 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '1D': 1, '5D': 5, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
 
@@ -340,81 +340,48 @@ export async function GET(request: NextRequest) {
       .slice(0, 8);
 
     // ---- TOPICS ----
-    // TOPICS: top-confidence dedup (cada mención cuenta UNA vez bajo su tópico
-    // de mayor confianza) + secondaryCount como dato suplementario. Misma
-    // semántica que el correo y /api/overview — el `count` que muestra el
-    // dashboard ahora coincide byte-por-byte con el del Overview/correo.
-    // El secondaryCount permite al UI comunicar "+N también lo tocan".
-    const pool = getPool();
-    const topicRowsRaw = await pool.query<{
-      slug: string;
-      name: string;
-      primary_count: number | string;
-      secondary_count: number | string;
-      negative: number | string;
-      neutral: number | string;
-      positive: number | string;
-    }>(
-      `WITH primaries AS (
-         SELECT t.id AS topic_id, t.slug, t.name,
-                COUNT(*)::int AS primary_count,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-           FROM (
-             SELECT m.id AS mention_id,
-                    COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                    (SELECT topic_id FROM mention_topics
-                       WHERE mention_id = m.id
-                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
-               FROM mentions m
-              WHERE m.agency_id = $1
-                AND m.published_at >= $2
-           ) pt
-           JOIN topics t ON t.id = pt.topic_id
-          GROUP BY t.id, t.slug, t.name
-       ),
-       multi AS (
-         SELECT mt.topic_id,
-                COUNT(DISTINCT mt.mention_id)::int AS multi_count
-           FROM mention_topics mt
-           JOIN mentions m ON m.id = mt.mention_id
-          WHERE m.agency_id = $1
-            AND m.published_at >= $2
-          GROUP BY mt.topic_id
-       )
-       SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
-              GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
-         FROM primaries p
-         LEFT JOIN multi mu ON mu.topic_id = p.topic_id
-        ORDER BY p.primary_count DESC
-        LIMIT 12`,
-      [agencyId, since.toISOString()],
-    );
+    const topicRows = await db
+      .select({
+        slug: topics.slug,
+        name: topics.name,
+        s: effectiveSentimentSql,
+        c: count(),
+      })
+      .from(mentionTopics)
+      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
+      .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
+      .where(baseWhere)
+      .groupBy(topics.slug, topics.name, effectiveSentimentSql);
 
-    const TOPICS = topicRowsRaw.rows.map((r) => {
-      const primary = Number(r.primary_count);
-      const secondary = Number(r.secondary_count);
-      const neg = Number(r.negative);
-      const neu = Number(r.neutral);
-      const pos = Number(r.positive);
-      const total = primary || 1;
-      const positivePct = Math.round((pos / total) * 100);
-      const negativePct = Math.round((neg / total) * 100);
-      const neutralPct = Math.max(0, 100 - positivePct - negativePct);
-      let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
-      if (positivePct > negativePct + 8) dominant = 'positivo';
-      else if (negativePct > positivePct + 8) dominant = 'negativo';
-      return {
-        slug: r.slug,
-        name: r.name,
-        count: primary,        // top-confidence — coincide con correo y Overview
-        secondaryCount: secondary,
-        positivePct, negativePct, neutralPct,
-        dominantSentiment: dominant,
-        delta: 0,
-      };
-    });
+    const tMap = new Map<string, { slug: string; name: string; total: number; positivo: number; neutral: number; negativo: number }>();
+    for (const r of topicRows) {
+      if (!tMap.has(r.slug)) tMap.set(r.slug, { slug: r.slug, name: r.name, total: 0, positivo: 0, neutral: 0, negativo: 0 });
+      const e = tMap.get(r.slug)!;
+      const k = pillFromSentiment(r.s);
+      const c = Number(r.c);
+      e[k] += c;
+      e.total += c;
+    }
+    const TOPICS = Array.from(tMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12)
+      .map((t) => {
+        const total = t.total || 1;
+        const positivePct = Math.round((t.positivo / total) * 100);
+        const negativePct = Math.round((t.negativo / total) * 100);
+        const neutralPct = Math.max(0, 100 - positivePct - negativePct);
+        let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
+        if (positivePct > negativePct + 8) dominant = 'positivo';
+        else if (negativePct > positivePct + 8) dominant = 'negativo';
+        return {
+          slug: t.slug,
+          name: t.name,
+          count: t.total,
+          positivePct, negativePct, neutralPct,
+          dominantSentiment: dominant,
+          delta: 0,
+        };
+      });
 
     // ---- SUBTOPICS ----
     const subtopicRows = await db
@@ -540,6 +507,7 @@ export async function GET(request: NextRequest) {
         bwSentiment: mentions.bwSentiment,
         nlpPertinence: mentions.nlpPertinence,
         nlpEmotions: mentions.nlpEmotions,
+        nlpSummary: mentions.nlpSummary,
         engagementScore: mentions.engagementScore,
         likes: mentions.likes,
         comments: mentions.comments,
@@ -560,6 +528,7 @@ export async function GET(request: NextRequest) {
         topicSlug: topics.slug,
         topicName: topics.name,
         subName: subtopics.name,
+        confidence: mentionTopics.confidence,
       })
       .from(mentionTopics)
       .leftJoin(topics, eq(topics.id, mentionTopics.topicId))
@@ -578,11 +547,20 @@ export async function GET(request: NextRequest) {
       .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
       .where(sql`${mentionMunicipalities.mentionId} IN (${sql.join(mentionIds.map((id) => sql`${id}`), sql`, `)})`) : [];
 
-    const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[] }>();
+    // Una mención puede tener varios topics; nos quedamos con el topic de mayor
+    // confidence como "principal" y exponemos esa confianza al UI (el panel de
+    // detalle muestra UN tópico con su confianza).
+    const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[]; confidence: number | null }>();
     for (const r of mtRows) {
       if (!r.topicSlug) continue;
-      if (!topicByMention.has(r.mentionId)) {
-        topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [] });
+      const conf = typeof r.confidence === 'number' ? r.confidence : null;
+      const existing = topicByMention.get(r.mentionId);
+      if (!existing) {
+        topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [], confidence: conf });
+      } else if (conf != null && (existing.confidence == null || conf > existing.confidence)) {
+        existing.topic = r.topicSlug;
+        existing.topicName = r.topicName ?? r.topicSlug;
+        existing.confidence = conf;
       }
       if (r.subName) topicByMention.get(r.mentionId)!.subtopics.push(r.subName);
     }
@@ -621,11 +599,13 @@ export async function GET(request: NextRequest) {
         emotions: (m.nlpEmotions ?? []).map((e) => e.toLowerCase()),
         topic: tp?.topic ?? '',
         topicName: tp?.topicName ?? '',
+        topicConfidence: tp?.confidence ?? null,
         subtopics: tp?.subtopics ?? [],
         municipality: mu?.name ?? '',
         region: mu?.region ?? '',
         coords: mu?.coords,
         url: m.url,
+        summary: m.nlpSummary ?? null,
       };
     });
 

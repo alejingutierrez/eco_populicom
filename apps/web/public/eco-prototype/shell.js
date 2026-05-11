@@ -11,8 +11,7 @@ function getNav() {
   const totalMentions = periodTotal || (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
-    { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },
-    { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D' },
+    { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
     { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
     { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
     { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
@@ -241,7 +240,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 }
 
 function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
-  const PERIODS = ['1D', '5D', '7D', '1M', '3M', '6M', '1A', 'Max'];
+  const PERIODS = ['1D', '5D', '1M', '3M', '6M', '1A', 'Max'];
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -344,7 +343,6 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
-    { kind: 'Período', label: 'Últimos 7 días cerrados (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Último mes (1M)', action: () => onSetPeriod('1M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 3 meses (3M)', action: () => onSetPeriod('3M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 6 meses (6M)', action: () => onSetPeriod('6M'), icon: 'Calendar' },
@@ -512,9 +510,9 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
             <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                <Icons.Sparkles size={12} /> Claude · Bedrock
+                <Icons.Sparkles size={12} /> {mention.summary ? 'Claude · Bedrock' : 'Sin resumen IA'}
               </div>
-              Denuncia colectiva sobre el deterioro de la PR-21 en Río Piedras tras las lluvias recientes. Los residentes exigen intervención inmediata de DTOP y mencionan incidentes de daños a vehículos. Tono predominantemente de frustración.
+              {mention.summary || mention.snippet || 'No hay resumen disponible para esta mención.'}
             </div>
           </div>
 
@@ -543,7 +541,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                     <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Tópico principal</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.topicName}</div>
                   </div>
-                  <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>confianza 94%</div>
+                  <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>{typeof mention.topicConfidence === 'number' ? `confianza ${Math.round(mention.topicConfidence * 100)}%` : 'confianza —'}</div>
                 </div>
                 {mention.subtopics?.length > 0 && (
                   <div>
@@ -786,13 +784,6 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
-  // Cuando el slice filtra por tópico, default a "primary" (top-confidence) —
-  // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Toggle
-  // permite incluir secundarias y ver el total multi-clasificación.
-  const hasTopicFilter = !!(slice && slice._filter && slice._filter.topic);
-  const [topicMode, setTopicMode] = React.useState('primary');
-  // Reset cuando cambia el slice (otro tópico, otro filtro).
-  React.useEffect(() => { setTopicMode('primary'); }, [slice]);
 
   // If a slice carries a structured filter, fetch real matching mentions from
   // /api/eco-mentions and replace the placeholder list + counts. The slice
@@ -800,23 +791,19 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   React.useEffect(() => {
     if (!slice || !slice._filter) { setLiveSlice(null); return; }
     setLoading(true);
-    const filter = { ...slice._filter };
-    // Solo enviamos topicMode cuando hay filtro de tópico — para otros filtros
-    // (heatmap, source, day) el parámetro no aplica.
-    if (filter.topic) filter.topicMode = topicMode;
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
         period: localStorage.getItem('eco.period') || '1M',
         limit: '20',
-        ...filter,
+        ...slice._filter,
       }).filter(([, v]) => v != null && v !== '')
     )).toString(), { cache: 'no-store' })
       .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
       .then((j) => setLiveSlice(j))
       .catch(() => setLiveSlice({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }))
       .finally(() => setLoading(false));
-  }, [slice, topicMode]);
+  }, [slice]);
 
   if (!slice) return null;
   const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
@@ -872,22 +859,6 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   <span className="dot" style={{ background: 'var(--neg)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neg.toLocaleString('es-PR')}</span> negativas
                 </span>
-              </div>
-            )}
-            {hasTopicFilter && (
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-2)' }}>
-                <span style={{ color: 'var(--text-3)' }}>
-                  {topicMode === 'primary'
-                    ? 'Mostrando solo menciones donde este tópico es el principal'
-                    : 'Mostrando todas las menciones que tocan este tópico (principal + secundario)'}
-                </span>
-                <button
-                  className="chip"
-                  onClick={() => setTopicMode((m) => (m === 'primary' ? 'all' : 'primary'))}
-                  style={{ fontSize: 10, padding: '3px 8px' }}
-                >
-                  {topicMode === 'primary' ? '+ Incluir secundarias' : '— Solo principales'}
-                </button>
               </div>
             )}
           </div>

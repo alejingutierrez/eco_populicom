@@ -191,44 +191,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (topicSlug) {
-    // topicMode=primary: solo menciones cuyo TOP-CONFIDENCE topic = topicSlug.
-    // Hace que el conteo del modal coincida con el "count" mostrado en el
-    // Overview, Scorecard y TopicsScreen (que también es top-confidence).
-    // topicMode=all (default): cualquier mención que toque ese tópico, sin
-    // importar la confianza — comportamiento histórico, útil para ver TODA
-    // la cobertura de un tópico aunque sea secundario.
-    const topicMode = searchParams.get('topicMode') === 'primary' ? 'primary' : 'all';
-    if (topicMode === 'primary') {
-      const tRowsRaw = await db.execute(sql`
-        SELECT m.id::text AS id
-          FROM mentions m
-         WHERE m.id IN (
-           SELECT mention_id FROM (
-             SELECT mention_id,
-                    topic_id,
-                    ROW_NUMBER() OVER (
-                      PARTITION BY mention_id
-                      ORDER BY confidence DESC NULLS LAST, topic_id ASC
-                    ) AS rn
-               FROM mention_topics
-           ) ranked
-           WHERE ranked.rn = 1
-             AND ranked.topic_id = (SELECT id FROM topics WHERE slug = ${topicSlug})
-         )
-      `);
-      // Drizzle's db.execute devuelve QueryResult con .rows (pg driver) o el
-      // array directamente. Normalizamos antes de leer .id.
-      const raw = tRowsRaw as unknown as Array<{ id: string }> | { rows?: Array<{ id: string }> };
-      const rows = Array.isArray(raw) ? raw : (raw.rows ?? []);
-      await intersect(rows.map((r) => r.id));
-    } else {
-      const tRows = await db
-        .select({ id: mentionTopics.mentionId })
-        .from(mentionTopics)
-        .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
-        .where(eq(topics.slug, topicSlug));
-      await intersect(tRows.map((r) => r.id));
-    }
+    const tRows = await db
+      .select({ id: mentionTopics.mentionId })
+      .from(mentionTopics)
+      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
+      .where(eq(topics.slug, topicSlug));
+    await intersect(tRows.map((r) => r.id));
   }
 
   if (subtopicName) {
@@ -299,6 +267,7 @@ export async function GET(request: NextRequest) {
       nlpSentiment: mentions.nlpSentiment,
       nlpPertinence: mentions.nlpPertinence,
       nlpEmotions: mentions.nlpEmotions,
+      nlpSummary: mentions.nlpSummary,
       engagementScore: mentions.engagementScore,
       likes: mentions.likes,
       comments: mentions.comments,
@@ -320,6 +289,7 @@ export async function GET(request: NextRequest) {
       topicSlug: topics.slug,
       topicName: topics.name,
       subName: subtopics.name,
+      confidence: mentionTopics.confidence,
     })
     .from(mentionTopics)
     .leftJoin(topics, eq(topics.id, mentionTopics.topicId))
@@ -338,11 +308,19 @@ export async function GET(request: NextRequest) {
     .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
     .where(inArray(mentionMunicipalities.mentionId, ids)) : [];
 
-  const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[] }>();
+  // Como en /api/eco-data: priorizamos el topic de mayor confianza para
+  // exponer la confianza del tópico principal de cada mención.
+  const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[]; confidence: number | null }>();
   for (const r of tRows) {
     if (!r.topicSlug) continue;
-    if (!topicByMention.has(r.mentionId)) {
-      topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [] });
+    const conf = typeof r.confidence === 'number' ? r.confidence : null;
+    const existing = topicByMention.get(r.mentionId);
+    if (!existing) {
+      topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [], confidence: conf });
+    } else if (conf != null && (existing.confidence == null || conf > existing.confidence)) {
+      existing.topic = r.topicSlug;
+      existing.topicName = r.topicName ?? r.topicSlug;
+      existing.confidence = conf;
     }
     if (r.subName) topicByMention.get(r.mentionId)!.subtopics.push(r.subName);
   }
@@ -381,11 +359,13 @@ export async function GET(request: NextRequest) {
       emotions: (m.nlpEmotions ?? []).map((e) => e.toLowerCase()),
       topic: tp?.topic ?? '',
       topicName: tp?.topicName ?? '',
+      topicConfidence: tp?.confidence ?? null,
       subtopics: tp?.subtopics ?? [],
       municipality: mu?.name ?? '',
       region: mu?.region ?? '',
       coords: mu?.coords,
       url: m.url,
+      summary: m.nlpSummary ?? null,
     };
   });
 
