@@ -10,6 +10,7 @@ import {
   mentionMunicipalities,
   dailyMetricSnapshots,
   alertRules,
+  agencyBriefings,
 } from '@eco/database';
 import { sql, eq, and, gte, desc, count } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
@@ -353,6 +354,16 @@ export async function GET(request: NextRequest) {
       .where(baseWhere)
       .groupBy(topics.slug, topics.name, effectiveSentimentSql);
 
+    // Descripciones IA por tópico — pobladas por eco-ai-tasks (acción
+    // topic-descriptions). Si una está vacía, la UI renderiza un fallback
+    // suave en lugar de inventar texto.
+    const topicDescRows = await db
+      .select({ slug: topics.slug, description: topics.description })
+      .from(topics)
+      .where(eq(topics.agencyId, agencyId));
+    const descBySlug = new Map<string, string | null>();
+    for (const r of topicDescRows) descBySlug.set(r.slug, r.description ?? null);
+
     const tMap = new Map<string, { slug: string; name: string; total: number; positivo: number; neutral: number; negativo: number }>();
     for (const r of topicRows) {
       if (!tMap.has(r.slug)) tMap.set(r.slug, { slug: r.slug, name: r.name, total: 0, positivo: 0, neutral: 0, negativo: 0 });
@@ -380,6 +391,7 @@ export async function GET(request: NextRequest) {
           positivePct, negativePct, neutralPct,
           dominantSentiment: dominant,
           delta: 0,
+          description: descBySlug.get(t.slug) ?? null,
         };
       });
 
@@ -677,31 +689,80 @@ export async function GET(request: NextRequest) {
       mention: m,
     }));
 
-    // ---- BRIEFING (data-driven executive summary) ----
+    // ---- BRIEFING ----
+    // Fuente primaria: tabla agency_briefings poblada por eco-ai-tasks cada
+    // 6 horas. Si el último briefing tiene más de 12 horas (lambda caída, o
+    // aún no corrió por primera vez), reconstruimos uno con la misma plantilla
+    // determinística histórica para no dejar la UI en blanco.
+    // El frontend usa `BRIEFING.source` ('ai' | 'rule') para decidir el chip
+    // de procedencia.
     const dominantTopic = TOPICS[0];
-    const sentTrend = liveNss;
-    const briefingTone = sentTrend > 5 ? 'pos' : sentTrend < -5 ? 'neg' : 'neu';
-    const briefingVerb = briefingTone === 'pos' ? 'mejora' : briefingTone === 'neg' ? 'deteriora' : 'se mantiene estable';
-    const BRIEFING = dominantTopic ? {
-      eyebrow: new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
-      narrative: {
-        pre: 'La percepción pública se',
-        verb: briefingVerb,
-        verbTone: briefingTone,
-        linkPre: ' por la conversación sobre ',
-        emphasis: dominantTopic.name,
-        linkPost: ` (${dominantTopic.count.toLocaleString('es-PR')} menciones, ${dominantTopic.negativePct}% negativo).`,
-      },
-      dominantSignal: `${dominantTopic.name} · ${dominantTopic.dominantSentiment === 'positivo' ? 'Positiva' : dominantTopic.dominantSentiment === 'negativo' ? 'Negativa' : 'Mixta'}`,
-      reachLabel: liveReach >= 1_000_000
+    const BRIEFING_TTL_MS = 12 * 60 * 60 * 1000;
+
+    const [latestBriefing] = await db
+      .select()
+      .from(agencyBriefings)
+      .where(eq(agencyBriefings.agencyId, agencyId))
+      .orderBy(desc(agencyBriefings.generatedAt))
+      .limit(1);
+
+    const briefingFresh = latestBriefing && (Date.now() - new Date(latestBriefing.generatedAt).getTime()) < BRIEFING_TTL_MS;
+
+    type BriefingShape = {
+      eyebrow: string;
+      narrativeHtml: string;
+      dominantSignal: string;
+      action: string;
+      actionTone: string;
+      reachLabel: string | null;
+      source: 'ai' | 'rule';
+      generatedAtIso: string | null;
+      generatedAtLabel: string | null;
+    };
+
+    function buildRuleBriefing(): BriefingShape | null {
+      if (!dominantTopic) return null;
+      const dominantTone = dominantTopic.dominantSentiment === 'positivo' ? 'Positiva'
+        : dominantTopic.dominantSentiment === 'negativo' ? 'Negativa'
+        : 'Mixta';
+      const tone = liveNss > 5 ? 'pos' : liveNss < -5 ? 'neg' : 'warn';
+      const verb = tone === 'pos' ? 'mejora' : tone === 'neg' ? 'deteriora' : 'se mantiene estable';
+      const narrativeHtml = `La percepción pública se <strong>${verb}</strong> en torno a <strong>${dominantTopic.name}</strong> (${dominantTopic.count.toLocaleString('es-PR')} menciones, ${dominantTopic.negativePct}% negativo).`;
+      const reachLabel = liveReach >= 1_000_000
         ? (liveReach / 1_000_000).toFixed(2) + 'M impresiones'
         : liveReach >= 1000
         ? Math.round(liveReach / 1000) + 'K impresiones'
-        : String(liveReach) + ' impresiones',
-      action: dominantTopic.negativePct > 50
-        ? `Comunicado oficial ${dominantTopic.name} →`
-        : `Monitorear ${dominantTopic.name} →`,
-    } : null;
+        : String(liveReach) + ' impresiones';
+      return {
+        eyebrow: new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
+        narrativeHtml,
+        dominantSignal: `${dominantTopic.name} · ${dominantTone}`,
+        action: `Seguir ${dominantTopic.name} →`,
+        actionTone: tone,
+        reachLabel,
+        source: 'rule',
+        generatedAtIso: null,
+        generatedAtLabel: null,
+      };
+    }
+
+    let BRIEFING: BriefingShape | null = null;
+    if (briefingFresh && latestBriefing) {
+      const generatedAt = new Date(latestBriefing.generatedAt);
+      BRIEFING = {
+        eyebrow: generatedAt.toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
+        narrativeHtml: latestBriefing.narrativeHtml,
+        dominantSignal: latestBriefing.dominantSignal,
+        action: latestBriefing.actionLabel,
+        actionTone: latestBriefing.actionTone,
+        reachLabel: latestBriefing.reachLabel ?? null,
+        source: latestBriefing.fallback ? 'rule' : 'ai',
+        generatedAtIso: generatedAt.toISOString(),
+        generatedAtLabel: relativeTime(generatedAt),
+      };
+    } else {
+      BRIEFING = buildRuleBriefing();
+    }
 
     // Slug the user is bound to (resolved from Cognito custom:agency_slug
     // header or the URL ?agency= param). Surface it so the dashboard can pick
