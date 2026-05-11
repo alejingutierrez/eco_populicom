@@ -136,12 +136,11 @@ const SCREEN_META = {
   settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
 };
 
-const AGENCIES = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || [
-  { key: 'dtop',  name: 'DTOP',  long: 'Dept. de Transportación y Obras Públicas' },
-  { key: 'dacco', name: 'DACo',  long: 'Dept. de Asuntos del Consumidor' },
-  { key: 'salud', name: 'Salud', long: 'Dept. de Salud' },
-  { key: 'ama',   name: 'AMA',   long: 'Autoridad Metropolitana de Autobuses' },
-];
+// El selector de agencias toma SIEMPRE la lista del backend
+// (`AGENCIES_FULL` viene de /api/eco-data). El fallback ya no incluye
+// menciones inventadas — si el API falla, mostramos lista vacía y la UI
+// resuelve con su empty state en lugar de fingir agencias falsas.
+const AGENCIES = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || [];
 
 function App() {
   const [theme] = useState(TWEAK_DEFAULTS.theme);
