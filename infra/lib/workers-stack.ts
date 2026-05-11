@@ -28,6 +28,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly alertsFunction: NodejsFunction;
   public readonly metricsCalculatorFunction: NodejsFunction;
   public readonly weeklyReportFunction: NodejsFunction;
+  public readonly aiTasksFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -269,5 +270,47 @@ export class WorkersStack extends cdk.Stack {
       description: 'Scan horario — la Lambda compara hora local por agencia (report_configs) contra send_hour_local y envía si coincide.',
     });
     weeklyReportRule.addTarget(new targets.LambdaFunction(this.weeklyReportFunction));
+
+    // ---- eco-ai-tasks Lambda ----
+    // Lambda multi-acción para tareas IA del dashboard:
+    //   - briefing (default scheduled): genera resumen ejecutivo IA del
+    //     scorecard cada 6 horas para cada agencia activa.
+    //   - topic-descriptions (manual): genera descripciones IA de tópicos
+    //     bajo invocación, para llenar/refrescar topics.description.
+    this.aiTasksFunction = new NodejsFunction(this, 'AiTasksFunction', {
+      functionName: 'eco-ai-tasks',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/ai-tasks/index.ts'),
+      handler: 'handler',
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+      },
+      bundling: bundlingOptions,
+    });
+
+    this.aiTasksFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.aiTasksFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // EventBridge schedule — briefing ejecutivo 4×/día (00, 06, 12, 18 hora AST
+    // = 04, 10, 16, 22 UTC). El lambda sin payload corre la acción 'briefing'.
+    const briefingRule = new events.Rule(this, 'AiTasksBriefingSchedule', {
+      ruleName: 'eco-ai-tasks-briefing',
+      schedule: events.Schedule.cron({ minute: '0', hour: '4,10,16,22' }),
+      description: 'Briefing ejecutivo IA del scorecard, 4×/día (00, 06, 12, 18 AST).',
+    });
+    briefingRule.addTarget(new targets.LambdaFunction(this.aiTasksFunction));
   }
 }
