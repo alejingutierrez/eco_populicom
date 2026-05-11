@@ -23,7 +23,6 @@
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import {
-  invokeClaude,
   EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
   buildExecutiveBriefingPrompt,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
@@ -33,6 +32,11 @@ import {
   type TopicAggregateForDescription,
   type TopicMentionSample,
 } from '@eco/shared';
+// `invokeClaude` se importa por deep-path para no traer el SDK Bedrock al
+// grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
+// — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
+// runtime instalado) lo importan directamente.
+import { invokeClaude } from '@eco/shared/src/bedrock';
 
 const bedrock = new BedrockRuntimeClient({});
 const sm = new SecretsManagerClient({});
