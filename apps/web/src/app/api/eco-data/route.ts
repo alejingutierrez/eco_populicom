@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@eco/database';
+import { getDb, getPool } from '@eco/database';
 import {
   mentions,
   agencies,
@@ -20,7 +20,7 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '1D': 1, '5D': 5, '7D': 7, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
 
@@ -341,18 +341,57 @@ export async function GET(request: NextRequest) {
       .slice(0, 8);
 
     // ---- TOPICS ----
-    const topicRows = await db
-      .select({
-        slug: topics.slug,
-        name: topics.name,
-        s: effectiveSentimentSql,
-        c: count(),
-      })
-      .from(mentionTopics)
-      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
-      .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
-      .where(baseWhere)
-      .groupBy(topics.slug, topics.name, effectiveSentimentSql);
+    // TOPICS: top-confidence dedup (cada mención cuenta UNA vez bajo su tópico
+    // de mayor confianza) + secondaryCount como dato suplementario. Misma
+    // semántica que el correo y /api/overview — el `count` que muestra el
+    // dashboard ahora coincide byte-por-byte con el del Overview/correo.
+    // El secondaryCount permite al UI comunicar "+N también lo tocan".
+    const pool = getPool();
+    const topicRowsRaw = await pool.query<{
+      slug: string;
+      name: string;
+      primary_count: number | string;
+      secondary_count: number | string;
+      negative: number | string;
+      neutral: number | string;
+      positive: number | string;
+    }>(
+      `WITH primaries AS (
+         SELECT t.id AS topic_id, t.slug, t.name,
+                COUNT(*)::int AS primary_count,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+           FROM (
+             SELECT m.id AS mention_id,
+                    COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                    (SELECT topic_id FROM mention_topics
+                       WHERE mention_id = m.id
+                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+               FROM mentions m
+              WHERE m.agency_id = $1
+                AND m.published_at >= $2
+           ) pt
+           JOIN topics t ON t.id = pt.topic_id
+          GROUP BY t.id, t.slug, t.name
+       ),
+       multi AS (
+         SELECT mt.topic_id,
+                COUNT(DISTINCT mt.mention_id)::int AS multi_count
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND m.published_at >= $2
+          GROUP BY mt.topic_id
+       )
+       SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
+              GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
+         FROM primaries p
+         LEFT JOIN multi mu ON mu.topic_id = p.topic_id
+        ORDER BY p.primary_count DESC
+        LIMIT 12`,
+      [agencyId, since.toISOString()],
+    );
 
     // Descripciones IA por tópico — pobladas por eco-ai-tasks (acción
     // topic-descriptions). Si una está vacía, la UI renderiza un fallback
@@ -364,36 +403,31 @@ export async function GET(request: NextRequest) {
     const descBySlug = new Map<string, string | null>();
     for (const r of topicDescRows) descBySlug.set(r.slug, r.description ?? null);
 
-    const tMap = new Map<string, { slug: string; name: string; total: number; positivo: number; neutral: number; negativo: number }>();
-    for (const r of topicRows) {
-      if (!tMap.has(r.slug)) tMap.set(r.slug, { slug: r.slug, name: r.name, total: 0, positivo: 0, neutral: 0, negativo: 0 });
-      const e = tMap.get(r.slug)!;
-      const k = pillFromSentiment(r.s);
-      const c = Number(r.c);
-      e[k] += c;
-      e.total += c;
-    }
-    const TOPICS = Array.from(tMap.values())
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 12)
-      .map((t) => {
-        const total = t.total || 1;
-        const positivePct = Math.round((t.positivo / total) * 100);
-        const negativePct = Math.round((t.negativo / total) * 100);
-        const neutralPct = Math.max(0, 100 - positivePct - negativePct);
-        let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
-        if (positivePct > negativePct + 8) dominant = 'positivo';
-        else if (negativePct > positivePct + 8) dominant = 'negativo';
-        return {
-          slug: t.slug,
-          name: t.name,
-          count: t.total,
-          positivePct, negativePct, neutralPct,
-          dominantSentiment: dominant,
-          delta: 0,
-          description: descBySlug.get(t.slug) ?? null,
-        };
-      });
+    const TOPICS = topicRowsRaw.rows.map((r) => {
+      const primary = Number(r.primary_count);
+      const secondary = Number(r.secondary_count);
+      const neg = Number(r.negative);
+      const neu = Number(r.neutral);
+      const pos = Number(r.positive);
+      const total = primary || 1;
+      const positivePct = Math.round((pos / total) * 100);
+      const negativePct = Math.round((neg / total) * 100);
+      const neutralPct = Math.max(0, 100 - positivePct - negativePct);
+      let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
+      if (positivePct > negativePct + 8) dominant = 'positivo';
+      else if (negativePct > positivePct + 8) dominant = 'negativo';
+      return {
+        slug: r.slug,
+        name: r.name,
+        count: primary,        // top-confidence — coincide con correo y Overview
+        secondaryCount: secondary,
+        positivePct, negativePct, neutralPct,
+        dominantSentiment: dominant,
+        delta: 0,
+        description: descBySlug.get(r.slug) ?? null,
+        evolution: [] as Array<{ date: string; fullDate: string; count: number }>,
+      };
+    });
 
     // ---- SUBTOPICS ----
     const subtopicRows = await db
@@ -417,6 +451,92 @@ export async function GET(request: NextRequest) {
     for (const k of Object.keys(SUBTOPICS)) {
       SUBTOPICS[k].sort((a, b) => b.count - a.count);
     }
+
+    // ---- TOPIC EVOLUTION (per-topic daily series, last 35d AST) ----
+    // El TopicDetail "Evolución" antes mostraba una proporción artificial
+    // (totalMentions × topic.count / totalMentions). Ahora servimos el conteo
+    // real diario por tópico en zona AST para que la línea refleje cambios
+    // reales del volumen del tópico.
+    const topicEvolutionRows = await db.execute<{ slug: string; day: string; c: number | string }>(sql`
+      SELECT t.slug AS slug,
+             (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day,
+             COUNT(*) AS c
+        FROM mentions m
+        JOIN mention_topics mt ON mt.mention_id = m.id
+        JOIN topics t ON t.id = mt.topic_id
+       WHERE m.agency_id = ${agencyId}
+         AND m.published_at >= NOW() - INTERVAL '35 days'
+       GROUP BY t.slug, day
+       ORDER BY t.slug, day
+    `);
+    const evoList: Array<{ slug: string; day: string; c: number | string }> = Array.isArray(topicEvolutionRows)
+      ? (topicEvolutionRows as unknown as Array<{ slug: string; day: string; c: number | string }>)
+      : (((topicEvolutionRows as unknown as { rows?: Array<{ slug: string; day: string; c: number | string }> }).rows) ?? []);
+    const evolutionByTopic = new Map<string, Array<{ date: string; fullDate: string; count: number }>>();
+    for (const r of evoList) {
+      const arr = evolutionByTopic.get(r.slug) ?? [];
+      const fullDate = `${r.day}T12:00:00Z`;
+      arr.push({
+        date: esShortDate(fullDate),
+        fullDate,
+        count: Number(r.c),
+      });
+      evolutionByTopic.set(r.slug, arr);
+    }
+    for (const t of TOPICS) {
+      t.evolution = evolutionByTopic.get(t.slug) ?? [];
+    }
+
+    // ---- TOPIC CALENDAR (per-day dominant topic, last 35d AST) ----
+    // El "Calendario de tópico principal por día" antes usaba una rotación
+    // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
+    // tópico por día con su sentimiento dominante en datos reales.
+    const calendarRows = await db.execute<{
+      day: string; slug: string; name: string;
+      volume: number | string; pos: number | string; neg: number | string;
+    }>(sql`
+      WITH per_day AS (
+        SELECT
+          (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day,
+          t.slug, t.name,
+          COUNT(*) AS volume,
+          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
+          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
+          FROM mentions m
+          JOIN mention_topics mt ON mt.mention_id = m.id
+          JOIN topics t ON t.id = mt.topic_id
+         WHERE m.agency_id = ${agencyId}
+           AND m.published_at >= NOW() - INTERVAL '35 days'
+         GROUP BY day, t.slug, t.name
+      ),
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk
+          FROM per_day
+      )
+      SELECT day::text AS day, slug, name, volume, pos, neg
+        FROM ranked
+       WHERE rk = 1
+       ORDER BY day
+    `);
+    const calList: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> = Array.isArray(calendarRows)
+      ? (calendarRows as unknown as Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }>)
+      : (((calendarRows as unknown as { rows?: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> }).rows) ?? []);
+    const TOPIC_CALENDAR = calList.map((r) => {
+      const volume = Number(r.volume);
+      const pos = Number(r.pos);
+      const neg = Number(r.neg);
+      const neu = Math.max(0, volume - pos - neg);
+      const sentiment = neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
+      const fullDate = `${r.day}T12:00:00Z`;
+      return {
+        date: esShortDate(fullDate),
+        fullDate,
+        volume,
+        topicSlug: r.slug,
+        topicName: r.name,
+        sentiment,
+      };
+    });
 
     // ---- MUNICIPALITIES ----
     const muniRows = await db
@@ -794,6 +914,7 @@ export async function GET(request: NextRequest) {
       PULSE: PULSE.length > 0 ? PULSE : null,
       BRIEFING,
       INGESTION_STATUS,
+      TOPIC_CALENDAR: TOPIC_CALENDAR.length > 0 ? TOPIC_CALENDAR : null,
     });
     res.headers.set('Cache-Control', 'no-store');
     return res;
