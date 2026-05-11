@@ -1,17 +1,24 @@
 /**
  * Helper compartido para invocar Claude vía AWS Bedrock con fallback Opus→Sonnet.
  *
- * Lo importan tanto Lambdas (eco-weekly-report, eco-briefing-generator,
- * eco-processor) como scripts locales (`scripts/generate-topic-descriptions.ts`).
- * El cliente Bedrock se pasa por dependency injection para evitar que
- * `@eco/shared` arrastre una dependencia hard del SDK — cada consumidor
- * controla su propia construcción y región.
+ * Lo importan Lambdas (eco-weekly-report, eco-ai-tasks, eco-processor) y
+ * scripts locales. El cliente Bedrock se pasa por dependency injection y
+ * `InvokeModelCommand` se trae con `await import(...)` para evitar que el
+ * bundler de Next.js — que arma el server de apps/web y consume `@eco/shared`
+ * para tipos compartidos como `WeeklyReportRenderData` — intente resolver
+ * `@aws-sdk/client-bedrock-runtime` (que no es dep de apps/web). Solo los
+ * consumidores que efectivamente llaman `invokeClaude()` necesitan el SDK
+ * en su node_modules.
  */
-import type { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
-import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+// Estructural y `any`-friendly: el caller pasa su propia instancia ya tipada
+// (típicamente `BedrockRuntimeClient` de @aws-sdk/client-bedrock-runtime).
+// Aquí solo necesitamos `.send(cmd)`; el SDK garantiza la firma real.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BedrockClientLike = { send: (cmd: any) => Promise<any> };
 
 export interface InvokeClaudeOptions {
-  client: BedrockRuntimeClient;
+  /** Cliente `BedrockRuntimeClient` ya construido por el caller. */
+  client: BedrockClientLike;
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
@@ -39,6 +46,11 @@ export async function invokeClaude(opts: InvokeClaudeOptions): Promise<string> {
   const seen = new Set<string>();
   const ordered = models.filter((m) => (seen.has(m) ? false : (seen.add(m), true)));
 
+  // Resolver el SDK solo en runtime (no estáticamente) — ver comentario al
+  // tope del archivo. La librería se cachea en el module loader, así que el
+  // costo de import dinámico es despreciable para invocaciones repetidas.
+  const { InvokeModelCommand } = await import('@aws-sdk/client-bedrock-runtime');
+
   let lastErr: unknown = null;
   for (const modelId of ordered) {
     try {
@@ -54,7 +66,8 @@ export async function invokeClaude(opts: InvokeClaudeOptions): Promise<string> {
           temperature: opts.temperature ?? 0,
         }),
       }));
-      const body = JSON.parse(new TextDecoder().decode(response.body));
+      const rawBody = response.body as unknown as Uint8Array;
+      const body = JSON.parse(new TextDecoder().decode(rawBody));
       const text: string = body.content?.[0]?.text ?? '';
       return text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     } catch (err) {
