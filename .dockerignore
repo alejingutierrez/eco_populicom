@@ -5,3 +5,4 @@ infra/cdk.out
 infra/node_modules
 *.md
 .env
+.claude
