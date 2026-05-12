@@ -2845,14 +2845,19 @@ function OverviewHighlights({ metrics }) {
           </div>
           {m.crisisRiskScore != null && (
             <div style={{ marginTop: 14 }}>
+              {/* Crisis Risk: escala 0–1 (cálculo del backtest 482d). Thresholds:
+                  NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
+                  Versión previa usaba /3 con thresholds 0.75/1.5/2.25 que dejaba
+                  TODO en "NORMAL" porque el score nunca cruza 0.75 — error de
+                  escala que confundía al usuario. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                <span>Riesgo · {m.crisisRiskScore.toFixed(1)}/3</span>
-                <span style={{ color: m.crisisRiskScore >= 1.5 ? 'var(--neg)' : m.crisisRiskScore >= 0.75 ? 'var(--warn)' : 'var(--pos)' }}>
-                  {m.crisisRiskScore >= 2.25 ? 'CRISIS' : m.crisisRiskScore >= 1.5 ? 'ALERTA' : m.crisisRiskScore >= 0.75 ? 'ELEVADO' : 'NORMAL'}
+                <span>Riesgo · {m.crisisRiskScore.toFixed(2)}/1</span>
+                <span style={{ color: m.crisisRiskScore >= 0.40 ? 'var(--neg)' : m.crisisRiskScore >= 0.25 ? 'var(--warn)' : 'var(--pos)' }}>
+                  {m.crisisRiskScore >= 0.60 ? 'CRISIS' : m.crisisRiskScore >= 0.40 ? 'ALERTA' : m.crisisRiskScore >= 0.25 ? 'ELEVADO' : 'NORMAL'}
                 </span>
               </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 50%, var(--neg) 50%, var(--neg) 75%, var(--neg) 100%)', position: 'relative' }}>
-                <div style={{ position: 'absolute', left: `${Math.min((m.crisisRiskScore / 3) * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
+              <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+                <div style={{ position: 'absolute', left: `${Math.min(m.crisisRiskScore * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
                 <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
