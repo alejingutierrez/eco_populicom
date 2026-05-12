@@ -835,7 +835,18 @@ async function loadTopicsTable(
 // Bedrock
 // ============================================================
 
-async function invokeClaude(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<string> {
+/**
+ * Invoca Claude vía tool-use con `input_schema`. Devuelve el `input`
+ * estructurado del bloque `tool_use` — no JSON crudo. Esto evita los fallos
+ * por comillas o saltos de línea no escapados que rompen `JSON.parse` cuando
+ * pedimos JSON en texto plano. Bedrock garantiza la forma del `tool_use`.
+ */
+async function invokeClaudeWithTool<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  tool: { name: string; description: string; input_schema: Record<string, unknown> },
+): Promise<T> {
   const models = [BEDROCK_MODEL_ID, BEDROCK_FALLBACK_MODEL_ID].filter((m, i, arr) => m && arr.indexOf(m) === i);
   let lastErr: unknown = null;
   for (const modelId of models) {
@@ -850,11 +861,20 @@ async function invokeClaude(systemPrompt: string, userPrompt: string, maxTokens:
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
           temperature: 0,
+          tools: [tool],
+          tool_choice: { type: 'tool', name: tool.name },
         }),
       }));
       const body = JSON.parse(new TextDecoder().decode(response.body));
-      const text: string = body.content[0].text;
-      return text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+      const content: Array<{ type: string; name?: string; input?: unknown }> = body.content ?? [];
+      const toolUse = content.find((b) => b.type === 'tool_use' && b.name === tool.name);
+      if (body.stop_reason && body.stop_reason !== 'end_turn' && body.stop_reason !== 'tool_use') {
+        throw new Error(`Bedrock stopped with reason '${body.stop_reason}' (likely max_tokens/filter)`);
+      }
+      if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
+        throw new Error(`No tool_use block for '${tool.name}' in model ${modelId} response`);
+      }
+      return toolUse.input as T;
     } catch (err) {
       lastErr = err;
       console.warn(`[weekly-report] model ${modelId} failed:`, (err as Error).message);
@@ -872,12 +892,31 @@ async function generateInsights(
   }
   const prompt = buildSentimentInsightsPrompt(aggregates, samples);
   try {
-    const text = await invokeClaude(INSIGHTS_SYSTEM_PROMPT, prompt, 1500);
-    const parsed = JSON.parse(text);
+    const parsed = await invokeClaudeWithTool<{ negative?: unknown; neutral?: unknown; positive?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      1500,
+      {
+        name: 'submit_weekly_insights',
+        description: 'Entrega los insights por sentimiento como tres arrays de cadenas.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            negative: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque negativo.' },
+            neutral:  { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque neutral.' },
+            positive: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque positivo.' },
+          },
+          required: ['negative', 'neutral', 'positive'],
+          additionalProperties: false,
+        },
+      },
+    );
+    const onlyStrings = (arr: unknown): string[] =>
+      Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string' && s.trim().length > 0) : [];
     return {
-      negative: (parsed.negative ?? []).filter((s: string) => typeof s === 'string'),
-      neutral: (parsed.neutral ?? []).filter((s: string) => typeof s === 'string'),
-      positive: (parsed.positive ?? []).filter((s: string) => typeof s === 'string'),
+      negative: onlyStrings(parsed.negative),
+      neutral:  onlyStrings(parsed.neutral),
+      positive: onlyStrings(parsed.positive),
     };
   } catch (err) {
     console.error('[weekly-report] insights generation failed:', err);
@@ -895,9 +934,26 @@ async function generateDailySummary(
   }
   const prompt = buildDailySummaryPrompt(aggregates, todaySamples, todayYmd);
   try {
-    const text = await invokeClaude(INSIGHTS_SYSTEM_PROMPT, prompt, 600);
-    const parsed = JSON.parse(text);
-    return typeof parsed.summary === 'string' ? parsed.summary : 'Resumen no disponible.';
+    const parsed = await invokeClaudeWithTool<{ summary?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      600,
+      {
+        name: 'submit_daily_summary',
+        description: 'Entrega el párrafo resumen del último día del periodo.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: 'Párrafo único de 3–5 oraciones.' },
+          },
+          required: ['summary'],
+          additionalProperties: false,
+        },
+      },
+    );
+    return typeof parsed.summary === 'string' && parsed.summary.trim().length > 0
+      ? parsed.summary
+      : 'Resumen no disponible.';
   } catch (err) {
     console.error('[weekly-report] daily summary generation failed:', err);
     return 'Resumen no disponible.';
