@@ -1107,8 +1107,11 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
 
   React.useEffect(() => {
     // Cache por sesión: evita re-fetchear cuando el usuario abre y cierra
-    // el mismo modal varias veces sin cambiar de period.
-    const cacheKey = `eco.metricInsight.${agency}.${metricKey}.${period}`;
+    // el mismo modal varias veces sin cambiar de period. El sufijo `.v3`
+    // invalida cachés generados antes del backfill V3 (crisis sin gate +
+    // BHI escala 1-10), que se quedaban pegados en sessionStorage del
+    // tab y mostraban valores stale aún tras redeploy.
+    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}`;
     try {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) { setData(JSON.parse(cached)); return; }
@@ -1135,9 +1138,11 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
     if (v == null) return '—';
     if (metricKey === 'nss') return (v > 0 ? '+' : '') + Number(v).toFixed(1);
     if (metricKey === 'crisis') return Number(v).toFixed(2);
-    // BHI: el endpoint puede devolver el valor crudo (0-1) o ya escalado (1-10).
-    // Asumimos crudo 0-1 y mapeamos a 1-10 para presentación consistente con el KpiCard.
-    if (metricKey === 'bhi') return (1 + Number(v) * 9).toFixed(1);
+    // BHI: el endpoint /api/ai/metric-insight ya devuelve TODOS los campos
+    // (value, deltaVsPrev, historicalP25/P75, series.value) en escala 1-10.
+    // El placeholder inicial pasado por openMetric en screens.js también se
+    // pre-convierte. Aquí solo formateamos a 1 decimal — sin re-mapear.
+    if (metricKey === 'bhi') return Number(v).toFixed(1);
     if (metricKey === 'polarization') return Math.round(Number(v)) + '%';
     if (metricKey === 'volume') return Number(v).toLocaleString('es-PR');
     return String(v);
@@ -1167,7 +1172,10 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
       return {
         labels: ['CRÍTICO', 'DÉBIL', 'SANO', 'FUERTE'],
         gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 40%, var(--warn) 40%, var(--warn) 60%, var(--pos) 60%, var(--pos) 80%, var(--accent) 80%, var(--accent) 100%)',
-        pct: (v) => Math.min((v ?? 0) * 100, 100),
+        // Valor en escala 1-10 → posición 0-100% (clamp). Antes se multiplicaba
+        // por 100 asumiendo 0-1, lo que dejaba el marcador siempre pegado al
+        // borde derecho (cualquier valor >= 1 da pct = 100%).
+        pct: (v) => Math.min(Math.max((((v ?? 1) - 1) / 9) * 100, 0), 100),
       };
     }
     if (metricKey === 'polarization') {
@@ -1285,6 +1293,19 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
                 data={series}
                 series={[{ key: 'value', label, color: accent }]}
                 height={200}
+                /* Dominio Y absoluto por métrica: sin esto la normalización
+                   por-serie estira la línea a min/max del period y un valor
+                   como 0.12 → 0.28 (crisis NORMAL) se ve dramático, como si
+                   tocara fondo y techo. Con dominio fijo el usuario ve la
+                   posición real en la escala completa de la métrica. */
+                yDomain={
+                  metricKey === 'crisis' ? [0, 1]
+                  : metricKey === 'bhi' ? [1, 10]
+                  : metricKey === 'polarization' ? [0, 100]
+                  : metricKey === 'nss' ? [-100, 100]
+                  : null
+                }
+                valueFormat={(v) => formatValue(v)}
               />
             )}
           </div>

@@ -34,6 +34,12 @@ function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = nul
 
 // Sparkline
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
+  // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
+  // y la destructuración `{ path, points } = ''` daba `points = undefined`,
+  // que reventaba al leer `points[points.length - 1]`.
+  if (!Array.isArray(data) || data.length === 0) {
+    return <svg width={width} height={height} style={{ display: 'block' }} />;
+  }
   const { path, points } = smoothLinePath(data, width, height, accessor, 2);
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
@@ -108,7 +114,7 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 }
 
 // Multi-series line chart — stock-ticker style (crosshair, hover values, volume)
-function MultiLineChart({ data, series, height = 260, onPointClick }) {
+function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, valueFormat }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null); // index or null
@@ -122,11 +128,31 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
-  // Normalize each series to 0-1 for display
+  // Guard: sin datos o sin series activas no podemos render — antes el
+  // `data[hoverIdx][s.key]` tiraba "Cannot read properties of undefined"
+  // y volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
+    return (
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+        Sin datos suficientes para graficar.
+      </div>
+    );
+  }
+
+  // Normalize each series. Por defecto auto-escala a min/max de los datos
+  // (útil para charts multi-métrica donde cada serie tiene escala propia).
+  // Si yDomain es un par [min, max] absoluto, se usa para TODAS las series
+  // — eso permite que un single-metric chart (ej. modal del KPI) muestre la
+  // línea en su posición real dentro del rango oficial de la métrica.
   const normalized = series.map((s) => {
     const vals = data.map((d) => d[s.key]);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
+    let min, max;
+    if (Array.isArray(yDomain) && yDomain.length === 2) {
+      [min, max] = yDomain;
+    } else {
+      min = Math.min(...vals);
+      max = Math.max(...vals);
+    }
     return { ...s, min, max, range: max - min || 1, vals };
   });
   const step = innerW / Math.max(1, data.length - 1);
@@ -140,9 +166,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
   }
 
   function fmtVal(key, v) {
+    if (typeof valueFormat === 'function') return valueFormat(v);
     if (key === 'totalMentions') return v >= 1000 ? (v/1000).toFixed(1) + 'K' : v.toFixed(0);
     if (key === 'nss') return (v > 0 ? '+' : '') + v.toFixed(1);
-    if (key === 'crisisRiskScore') return v.toFixed(1);
+    if (key === 'crisisRiskScore') return v.toFixed(2);
     if (key === 'brandHealthIndex') return v.toFixed(2);
     if (key === 'engagementRate') return v.toFixed(1) + '%';
     return v.toFixed(1);
@@ -188,6 +215,21 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
             <line key={i} x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
           ))}
+          {/* Y-axis tick labels — solo cuando hay un yDomain absoluto, para
+              dar contexto de escala (ej. crisis 0/0.5/1, BHI 1/5.5/10). Sin
+              esto el usuario no sabe si la línea está en zona NORMAL o CRISIS. */}
+          {Array.isArray(yDomain) && yDomain.length === 2 && normalized[0] && (() => {
+            const s = normalized[0];
+            return [0, 0.5, 1].map((p) => {
+              const val = s.max - p * s.range;
+              return (
+                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="9" textAnchor="end"
+                      fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                  {fmtVal(s.key, val)}
+                </text>
+              );
+            });
+          })()}
 
           {/* Primary series area fill (first one only) */}
           {normalized[0] && (() => {

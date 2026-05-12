@@ -161,11 +161,21 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   }
 
   function openMetric(key, label, accent) {
-    const value = m ? m[key === 'crisis' ? 'crisisRiskScore'
-      : key === 'volume' ? 'totalMentions'
-      : key === 'bhi' ? 'brandHealthIndex'
-      : key === 'polarization' ? 'polarizationIndex'
-      : 'nss'] : null;
+    let value = null;
+    if (m) {
+      if (key === 'crisis') value = m.crisisRiskScore;
+      else if (key === 'volume') value = m.totalMentions;
+      // BHI: el cálculo interno es 0-1 pero la UI presenta 1-10 (1=crítico,
+      // 10=fuerte). Pre-convertimos el placeholder para que el modal hable
+      // SIEMPRE en la misma escala — antes el headline saltaba de "0.6"
+      // (mientras cargaba el fetch) a "59.5" (después, por una segunda
+      // multiplicación errónea contra el valor ya escalado del API).
+      else if (key === 'bhi') value = m.brandHealthIndex != null
+        ? Number((1 + m.brandHealthIndex * 9).toFixed(1))
+        : null;
+      else if (key === 'polarization') value = m.polarizationIndex;
+      else value = m.nss;
+    }
     setMetricModal({ metricKey: key, value, label, accent });
   }
 
