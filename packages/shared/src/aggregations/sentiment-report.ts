@@ -12,10 +12,12 @@
  * Sentimiento: COALESCE(nlp_sentiment, bw_sentiment) — fallback a Brandwatch
  * cuando NLP aún no clasificó.
  *
- * Filtro de fechas: published_at >= startYmd AND < endYmd + 1 day, donde
- * startYmd y endYmd son strings 'YYYY-MM-DD' que representan días calendario
- * en TZ Puerto Rico (la conversión la hace el lambda/endpoint usando
- * ymdInTimeZone antes de invocar buildSentimentReport).
+ * Filtro de fechas: la ventana se interpreta SIEMPRE en zona AST (America/
+ * Puerto_Rico). Los strings 'YYYY-MM-DD' representan días calendario AST y
+ * el SQL los convierte con `$2::date AT TIME ZONE 'America/Puerto_Rico'`
+ * para que `published_at` (stored as UTC) se compare contra los timestamps
+ * UTC equivalentes a AST midnight, no contra UTC midnight (que recorta 4h
+ * del último día y agrega 4h del día previo).
  */
 
 import { addDaysYmd } from '../dates';
@@ -139,8 +141,8 @@ async function loadTotals(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND published_at >= ($2::date)
-        AND published_at <  (($3::date) + INTERVAL '1 day')
+        AND published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
+        AND published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
       GROUP BY 1`,
     [agencyId, startYmd, endYmd],
   );
@@ -163,8 +165,8 @@ async function loadDailySeries(
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND published_at >= ($2::date)
-        AND published_at <  (($3::date) + INTERVAL '1 day')
+        AND published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
+        AND published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
       GROUP BY 1, 2
       ORDER BY 1`,
     [agencyId, startYmd, endYmd],
@@ -238,8 +240,8 @@ async function loadTopicsTable(
                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
-              AND m.published_at >= ($2::date)
-              AND m.published_at <  (($3::date) + INTERVAL '1 day')
+              AND m.published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
+              AND m.published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
          ) pt
          LEFT JOIN topics t ON t.id = pt.topic_id
          LEFT JOIN subtopics s ON s.id = pt.subtopic_id
@@ -251,8 +253,8 @@ async function loadTopicsTable(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
-          AND m.published_at >= ($2::date)
-          AND m.published_at <  (($3::date) + INTERVAL '1 day')
+          AND m.published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
+          AND m.published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
         GROUP BY mt.topic_id
      )
      SELECT p.topic_id_key,
