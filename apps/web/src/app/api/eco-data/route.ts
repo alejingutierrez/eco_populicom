@@ -12,7 +12,8 @@ import {
   alertRules,
   agencyBriefings,
 } from '@eco/database';
-import { sql, eq, and, gte, lt, lte, desc, count } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
+import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -189,25 +190,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
   }
 
-  // Cota inferior: o el inicio del rango custom (AST 00:00) o NOW − days.
-  // Cota superior (opcional): solo se aplica para custom — marca el final
-  // del día AST `to` (exclusivo en UTC = AST `to` 24:00).
-  const since = customRange ? customRange.sinceUtc : (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - days);
-    return d;
-  })();
-  const untilExclusive: Date | null = customRange ? customRange.untilExclusiveUtc : null;
-  const snapshotStartDate: string = customRange ? customRange.from : since.toISOString().split('T')[0];
-  const snapshotEndDate: string | null = customRange ? customRange.to : null;
+  // Ventana cerrada en TZ Puerto Rico — termina ayer (no incluye hoy parcial),
+  // mismo patrón que /api/overview y el correo eco-weekly-report. Esto hace
+  // que NSS/BHI/Crisis/Polarization para el "scorecard" coincidan con los del
+  // espejo del correo, y que el filtro de fecha del usuario cambie todas las
+  // métricas (no solo el volumen).
+  //
+  // Para rangos custom (from/to), respetamos los YMD del usuario y derivamos
+  // la ventana previa de igual duración hacia atrás — eso permite calcular
+  // deltaVsPrev para periodos arbitrarios elegidos en el calendario.
+  const window = customRange
+    ? (() => {
+        const startYmd = customRange.from;
+        const endYmd = customRange.to;
+        const prevEndYmd = addDaysYmd(startYmd, -1);
+        const prevStartYmd = addDaysYmd(prevEndYmd, -(customRange.days - 1));
+        return { startYmd, endYmd, prevStartYmd, prevEndYmd };
+      })()
+    : closedWindowYmdInTZ(days, new Date(), TZ);
+  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
-  const baseWhere = untilExclusive
-    ? and(
-        eq(mentions.agencyId, agencyId),
-        gte(mentions.publishedAt, since),
-        lt(mentions.publishedAt, untilExclusive),
-      )
-    : and(eq(mentions.agencyId, agencyId), gte(mentions.publishedAt, since));
+  // Para el filtro de mentions usamos los bordes de la ventana traducidos a
+  // UTC con offset -04:00 (AST sin DST).
+  const since = new Date(`${startYmd}T00:00:00-04:00`);
+  const until = new Date(`${endYmd}T23:59:59.999-04:00`);
+
+  const baseWhere = and(
+    eq(mentions.agencyId, agencyId),
+    gte(mentions.publishedAt, since),
+    lte(mentions.publishedAt, until),
+  );
 
   try {
     // ---- AGENCIES (all) ----
@@ -222,16 +234,15 @@ export async function GET(request: NextRequest) {
       long: a.name,
     }));
 
-    // ---- TIMELINE + CURRENT_METRICS from snapshots ----
-    const snapshotConditions = [
-      gte(dailyMetricSnapshots.date, snapshotStartDate),
-      eq(dailyMetricSnapshots.agencyId, agencyId),
-    ];
-    if (snapshotEndDate) snapshotConditions.push(lte(dailyMetricSnapshots.date, snapshotEndDate));
+    // ---- TIMELINE from snapshots (un punto por día dentro de la ventana) ----
     const snapshots = await db
       .select()
       .from(dailyMetricSnapshots)
-      .where(and(...snapshotConditions))
+      .where(and(
+        eq(dailyMetricSnapshots.agencyId, agencyId),
+        gte(dailyMetricSnapshots.date, startYmd),
+        lte(dailyMetricSnapshots.date, endYmd),
+      ))
       .orderBy(dailyMetricSnapshots.date);
 
     const TIMELINE: TimelineRow[] = snapshots.map((s) => {
@@ -251,39 +262,32 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const last = snapshots[snapshots.length - 1];
-    const prev = snapshots[snapshots.length - 2];
+    // ---- CURRENT_METRICS — recalculadas sobre la ventana del period ----
+    // Antes leíamos solo el snapshot del último día. Ahora computamos
+    // NSS/BHI/Crisis/Polarization/etc sobre la ventana cerrada del usuario
+    // (single source of truth: @eco/shared/metrics:loadMetricsForWindow).
+    // Eso hace que cambiar 1D → 1M → 1A cambie también las compuestas.
+    const pool = getPool() as unknown as PgClientLike;
+    const [winCur, winPrev] = await Promise.all([
+      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
+      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+    ]);
 
-    // Snapshot-based metrics (may be zero/null if the metrics-calculator
-    // Lambda hasn't run yet). We keep the numbers and fall back to live
-    // aggregates below when they come back empty.
-    const snapMetrics = last ? {
-      nss: Number(last.nss ?? 0),
-      nss7d: last.nss7d != null ? Number(last.nss7d) : null,
-      nss30d: last.nss30d != null ? Number(last.nss30d) : null,
-      brandHealthIndex: last.brandHealthIndex != null ? Number(last.brandHealthIndex) : null,
-      crisisRiskScore: last.crisisRiskScore != null ? Number(last.crisisRiskScore) : null,
-      engagementRate: last.engagementRate != null ? Number(last.engagementRate) : null,
-      amplificationRate: last.amplificationRate != null ? Number(last.amplificationRate) : null,
-      reputationMomentum: last.reputationMomentum != null ? Number(last.reputationMomentum) : null,
-      engagementVelocity: last.engagementVelocity != null ? Number(last.engagementVelocity) : null,
-      volumeAnomalyZscore: last.volumeAnomalyZscore != null ? Number(last.volumeAnomalyZscore) : null,
-      polarizationIndex: last.polarizationIndex != null ? Number(last.polarizationIndex) : null,
-      totalMentions: Number(last.totalMentions ?? 0),
-      positiveCount: Number(last.positiveCount ?? 0),
-      neutralCount: Number(last.neutralCount ?? 0),
-      negativeCount: Number(last.negativeCount ?? 0),
-    } : null;
+    // Deltas vs ventana previa de igual duración.
+    const safeDelta = (cur: number | null, prev: number | null, decimals = 1) => {
+      if (cur == null || prev == null) return 0;
+      return Number((cur - prev).toFixed(decimals));
+    };
+    const pctDelta = (cur: number, prev: number) =>
+      prev > 0 ? Number((((cur - prev) / prev) * 100).toFixed(1)) : 0;
 
-    const snapDeltas = last && prev ? {
-      nssDelta: Number((Number(last.nss ?? 0) - Number(prev.nss ?? 0)).toFixed(1)),
-      brandHealthDelta: Number((Number(last.brandHealthIndex ?? 0) - Number(prev.brandHealthIndex ?? 0)).toFixed(2)),
-      crisisDelta: Number((Number(last.crisisRiskScore ?? 0) - Number(prev.crisisRiskScore ?? 0)).toFixed(1)),
-      totalMentionsDelta: Number(prev.totalMentions) > 0
-        ? Number((((Number(last.totalMentions) - Number(prev.totalMentions)) / Number(prev.totalMentions)) * 100).toFixed(1))
-        : 0,
-      engagementDelta: Number((Number(last.engagementRate ?? 0) - Number(prev.engagementRate ?? 0)).toFixed(2)),
-    } : { nssDelta: 0, brandHealthDelta: 0, crisisDelta: 0, totalMentionsDelta: 0, engagementDelta: 0 };
+    const snapDeltas = {
+      nssDelta: safeDelta(winCur.nss, winPrev.nss, 1),
+      brandHealthDelta: safeDelta(winCur.brandHealthIndex, winPrev.brandHealthIndex, 2),
+      crisisDelta: safeDelta(winCur.crisisRiskScore, winPrev.crisisRiskScore, 2),
+      totalMentionsDelta: pctDelta(winCur.totals.total, winPrev.totals.total),
+      engagementDelta: safeDelta(winCur.engagementRate, winPrev.engagementRate, 2),
+    };
 
     // ---- SENTIMENT_BREAKDOWN ----
     const sentimentAgg = await db
@@ -303,61 +307,41 @@ export async function GET(request: NextRequest) {
       { name: 'negativo', value: sentCounts.negativo, label: 'Negativo' },
     ];
 
-    // Live counts respetan el filtro del usuario (date range / agency / topic)
-    // y se usan para los conteos directos (totalMentions, conteo por sentimiento,
-    // engagement rate observado en la ventana). Las métricas COMPUESTAS (BHI,
-    // CrisisRisk, EngagementVelocity, PolarizationIndex, ReputationMomentum,
-    // VolumeAnomalyZ) vienen EXCLUSIVAMENTE del snapshot diario calculado por
-    // eco-metrics-calculator — una sola fórmula, una sola fuente de verdad.
-    // Si no hay snapshot todavía (lambda corre cada 10 min), las compuestas
-    // muestran null y la UI las renderiza como "—".
-    const liveTotal = sentCounts.positivo + sentCounts.neutral + sentCounts.negativo;
-    const liveNss = liveTotal > 0
-      ? Number((((sentCounts.positivo - sentCounts.negativo) / liveTotal) * 100).toFixed(1))
-      : 0;
-
+    // CURRENT_METRICS — single source of truth: @eco/shared/metrics.
+    // Todas las métricas compuestas (NSS, BHI, Crisis, Polarization,
+    // EngagementRate, ReputationMomentum, EngagementVelocity, etc.) se
+    // calculan sobre la VENTANA del period del usuario. Cambiar 1D → 1M → 1A
+    // las cambia a todas (no solo a totalMentions/sentiment counts como antes).
     const [engAgg] = await db
       .select({
-        reach: sql<number>`COALESCE(SUM(${mentions.reachEstimate}), 0)`.mapWith(Number),
-        eng: sql<number>`COALESCE(SUM(${mentions.likes} + ${mentions.comments} + ${mentions.shares}), 0)`.mapWith(Number),
         hiPert: sql<number>`COUNT(*) FILTER (WHERE ${mentions.nlpPertinence} = 'alta')`.mapWith(Number),
       })
       .from(mentions)
       .where(baseWhere);
 
-    const liveReach = Number(engAgg?.reach ?? 0);
-    const liveEngSum = Number(engAgg?.eng ?? 0);
-    const liveEngRate = liveReach > 0
-      ? Number(((liveEngSum / liveReach) * 100).toFixed(2))
-      : 0;
-
-    // Snapshots son fuente de verdad para métricas compuestas. Los counters
-    // (mentions/sentiment/engagement rate) usan los conteos vivos del filtro
-    // — esos respetan el rango de fechas del usuario.
-    const pickLive = (snap: number, live: number) => (snap && snap !== 0 ? snap : live);
     const CURRENT_METRICS = {
-      nss: pickLive(snapMetrics?.nss ?? 0, liveNss),
-      nss7d: snapMetrics?.nss7d ?? null,
-      nss30d: snapMetrics?.nss30d ?? null,
+      nss: winCur.nss ?? 0,
+      nss7d: winCur.nss7d,
+      nss30d: winCur.nss30d,
       nssDelta: snapDeltas.nssDelta,
-      brandHealthIndex: snapMetrics?.brandHealthIndex ?? null,
+      brandHealthIndex: winCur.brandHealthIndex,
       brandHealthDelta: snapDeltas.brandHealthDelta,
-      crisisRiskScore: snapMetrics?.crisisRiskScore ?? null,
+      crisisRiskScore: winCur.crisisRiskScore,
       crisisDelta: snapDeltas.crisisDelta,
-      totalMentions: pickLive(snapMetrics?.totalMentions ?? 0, liveTotal),
+      totalMentions: winCur.totals.total,
       totalMentionsDelta: snapDeltas.totalMentionsDelta,
-      totalReach: liveReach,
-      engagementRate: pickLive(snapMetrics?.engagementRate ?? 0, liveEngRate),
+      totalReach: winCur.totalReach,
+      engagementRate: winCur.engagementRate ?? 0,
       engagementDelta: snapDeltas.engagementDelta,
-      amplificationRate: snapMetrics?.amplificationRate ?? null,
+      amplificationRate: winCur.amplificationRate,
       amplificationDelta: 0,
-      reputationMomentum: snapMetrics?.reputationMomentum ?? null,
-      engagementVelocity: snapMetrics?.engagementVelocity ?? null,
-      volumeAnomalyZscore: snapMetrics?.volumeAnomalyZscore ?? null,
-      polarizationIndex: snapMetrics?.polarizationIndex ?? null,
-      positiveCount: pickLive(snapMetrics?.positiveCount ?? 0, sentCounts.positivo),
-      neutralCount: pickLive(snapMetrics?.neutralCount ?? 0, sentCounts.neutral),
-      negativeCount: pickLive(snapMetrics?.negativeCount ?? 0, sentCounts.negativo),
+      reputationMomentum: winCur.reputationMomentum,
+      engagementVelocity: winCur.engagementVelocity,
+      volumeAnomalyZscore: winCur.volumeAnomalyZscore,
+      polarizationIndex: winCur.polarizationIndex,
+      positiveCount: winCur.totals.positive,
+      neutralCount: winCur.totals.neutral,
+      negativeCount: winCur.totals.negative,
       highPertinenceCount: Number(engAgg?.hiPert ?? 0),
     };
 
@@ -403,83 +387,10 @@ export async function GET(request: NextRequest) {
     // semántica que el correo y /api/overview — el `count` que muestra el
     // dashboard ahora coincide byte-por-byte con el del Overview/correo.
     // El secondaryCount permite al UI comunicar "+N también lo tocan".
-    const pool = getPool();
-    // Para rango personalizado, el WHERE incluye además la cota superior
-    // (`published_at < $3`). Para el caso default (period preset), la cota
-    // superior es la fecha actual y no necesita filtro extra.
-    const topicSinceIso = since.toISOString();
-    const topicSql = untilExclusive
-      ? `WITH primaries AS (
-           SELECT t.id AS topic_id, t.slug, t.name,
-                  COUNT(*)::int AS primary_count,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-             FROM (
-               SELECT m.id AS mention_id,
-                      COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                      (SELECT topic_id FROM mention_topics
-                         WHERE mention_id = m.id
-                         ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
-                 FROM mentions m
-                WHERE m.agency_id = $1
-                  AND m.published_at >= $2
-                  AND m.published_at < $3
-             ) pt
-             JOIN topics t ON t.id = pt.topic_id
-            GROUP BY t.id, t.slug, t.name
-         ),
-         multi AS (
-           SELECT mt.topic_id,
-                  COUNT(DISTINCT mt.mention_id)::int AS multi_count
-             FROM mention_topics mt
-             JOIN mentions m ON m.id = mt.mention_id
-            WHERE m.agency_id = $1
-              AND m.published_at >= $2
-              AND m.published_at < $3
-            GROUP BY mt.topic_id
-         )
-         SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
-                GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
-           FROM primaries p
-           LEFT JOIN multi mu ON mu.topic_id = p.topic_id
-          ORDER BY p.primary_count DESC
-          LIMIT 12`
-      : `WITH primaries AS (
-           SELECT t.id AS topic_id, t.slug, t.name,
-                  COUNT(*)::int AS primary_count,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-                  COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-             FROM (
-               SELECT m.id AS mention_id,
-                      COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                      (SELECT topic_id FROM mention_topics
-                         WHERE mention_id = m.id
-                         ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
-                 FROM mentions m
-                WHERE m.agency_id = $1
-                  AND m.published_at >= $2
-             ) pt
-             JOIN topics t ON t.id = pt.topic_id
-            GROUP BY t.id, t.slug, t.name
-         ),
-         multi AS (
-           SELECT mt.topic_id,
-                  COUNT(DISTINCT mt.mention_id)::int AS multi_count
-             FROM mention_topics mt
-             JOIN mentions m ON m.id = mt.mention_id
-            WHERE m.agency_id = $1
-              AND m.published_at >= $2
-            GROUP BY mt.topic_id
-         )
-         SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
-                GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
-           FROM primaries p
-           LEFT JOIN multi mu ON mu.topic_id = p.topic_id
-          ORDER BY p.primary_count DESC
-          LIMIT 12`;
-    const topicRowsRaw = await pool.query<{
+    // `pool` ya fue resuelto arriba para loadMetricsForWindow. La query usa
+    // bordes [since, until] para respetar tanto el preset (cerrado en AST)
+    // como el rango custom del calendario.
+    const topicRowsRaw = await (pool as ReturnType<typeof getPool>).query<{
       slug: string;
       name: string;
       primary_count: number | string;
@@ -488,10 +399,43 @@ export async function GET(request: NextRequest) {
       neutral: number | string;
       positive: number | string;
     }>(
-      topicSql,
-      untilExclusive
-        ? [agencyId, topicSinceIso, untilExclusive.toISOString()]
-        : [agencyId, topicSinceIso],
+      `WITH primaries AS (
+         SELECT t.id AS topic_id, t.slug, t.name,
+                COUNT(*)::int AS primary_count,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+                COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+           FROM (
+             SELECT m.id AS mention_id,
+                    COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                    (SELECT topic_id FROM mention_topics
+                       WHERE mention_id = m.id
+                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+               FROM mentions m
+              WHERE m.agency_id = $1
+                AND m.published_at >= $2
+                AND m.published_at <= $3
+           ) pt
+           JOIN topics t ON t.id = pt.topic_id
+          GROUP BY t.id, t.slug, t.name
+       ),
+       multi AS (
+         SELECT mt.topic_id,
+                COUNT(DISTINCT mt.mention_id)::int AS multi_count
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND m.published_at >= $2
+            AND m.published_at <= $3
+          GROUP BY mt.topic_id
+       )
+       SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
+              GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
+         FROM primaries p
+         LEFT JOIN multi mu ON mu.topic_id = p.topic_id
+        ORDER BY p.primary_count DESC
+        LIMIT 12`,
+      [agencyId, since.toISOString(), until.toISOString()],
     );
 
     // Descripciones IA por tópico — pobladas por eco-ai-tasks (acción
@@ -524,6 +468,7 @@ export async function GET(request: NextRequest) {
         secondaryCount: secondary,
         positivePct, negativePct, neutralPct,
         dominantSentiment: dominant,
+        // `delta` se computa más abajo cuando ya cargamos la evolution.
         delta: 0,
         description: descBySlug.get(r.slug) ?? null,
         evolution: [] as Array<{ date: string; fullDate: string; count: number }>,
@@ -553,11 +498,15 @@ export async function GET(request: NextRequest) {
       SUBTOPICS[k].sort((a, b) => b.count - a.count);
     }
 
-    // ---- TOPIC EVOLUTION (per-topic daily series, last 35d AST) ----
-    // El TopicDetail "Evolución" antes mostraba una proporción artificial
-    // (totalMentions × topic.count / totalMentions). Ahora servimos el conteo
-    // real diario por tópico en zona AST para que la línea refleje cambios
-    // reales del volumen del tópico.
+    // ---- TOPIC EVOLUTION (per-topic daily series) ----
+    // Servimos el conteo real diario por tópico en zona AST. La ventana se
+    // expande a max(35, 2 * days) para que el cálculo de `delta` (segunda
+    // mitad vs primera mitad) tenga datos suficientes incluso con periods
+    // largos (1A, Max). La ventana ahora está anclada a AST cerrada (mismo
+    // borde superior que el resto de queries), no a NOW() — antes podía
+    // incluir mentions del día parcial actual y dejar el delta inestable.
+    const evolutionDays = Math.max(35, 2 * days);
+    const evolutionStartYmd = addDaysYmd(endYmd, -(evolutionDays - 1));
     const topicEvolutionRows = await db.execute<{ slug: string; day: string; c: number | string }>(sql`
       SELECT t.slug AS slug,
              (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day,
@@ -566,7 +515,8 @@ export async function GET(request: NextRequest) {
         JOIN mention_topics mt ON mt.mention_id = m.id
         JOIN topics t ON t.id = mt.topic_id
        WHERE m.agency_id = ${agencyId}
-         AND m.published_at >= NOW() - INTERVAL '35 days'
+         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
+         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
        GROUP BY t.slug, day
        ORDER BY t.slug, day
     `);
@@ -584,14 +534,29 @@ export async function GET(request: NextRequest) {
       });
       evolutionByTopic.set(r.slug, arr);
     }
+
+    // Cálculo de `delta` (issue #7): comparamos los últimos `halfWindow` días
+    // contra los `halfWindow` anteriores DENTRO de la evolución del tópico.
+    // Esto evita el "delta=0" hardcoded anterior y reacciona al filtro de
+    // fecha del usuario (halfWindow = max(3, days/2)).
+    const halfWindow = Math.max(3, Math.floor(days / 2));
     for (const t of TOPICS) {
-      t.evolution = evolutionByTopic.get(t.slug) ?? [];
+      const evo = evolutionByTopic.get(t.slug) ?? [];
+      t.evolution = evo;
+      const recent = evo.slice(-halfWindow).reduce((s, e) => s + e.count, 0);
+      const previous = evo.slice(-2 * halfWindow, -halfWindow).reduce((s, e) => s + e.count, 0);
+      t.delta = previous > 0
+        ? Math.round(((recent - previous) / previous) * 100)
+        : (recent > 0 ? 100 : 0);
     }
 
-    // ---- TOPIC CALENDAR (per-day dominant topic, last 35d AST) ----
+    // ---- TOPIC CALENDAR (per-day dominant topic, 35d AST cerrados) ----
     // El "Calendario de tópico principal por día" antes usaba una rotación
     // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
-    // tópico por día con su sentimiento dominante en datos reales.
+    // tópico por día con su sentimiento dominante en datos reales. La
+    // ventana es 35 días AST cerrados terminando ayer (mismo borde que el
+    // resto del scorecard — no incluye hoy parcial).
+    const calendarStartYmd = addDaysYmd(endYmd, -34);
     const calendarRows = await db.execute<{
       day: string; slug: string; name: string;
       volume: number | string; pos: number | string; neg: number | string;
@@ -607,7 +572,8 @@ export async function GET(request: NextRequest) {
           JOIN mention_topics mt ON mt.mention_id = m.id
           JOIN topics t ON t.id = mt.topic_id
          WHERE m.agency_id = ${agencyId}
-           AND m.published_at >= NOW() - INTERVAL '35 days'
+           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
+           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
          GROUP BY day, t.slug, t.name
       ),
       ranked AS (
@@ -738,6 +704,11 @@ export async function GET(request: NextRequest) {
       .slice(0, 8);
 
     // ---- MENTIONS (top 50 recent) ----
+    // Issue #2 + #9: el feed del scorecard excluye Twitter (su contenido suele
+    // venir vacío y deja filas en blanco) y menciones de baja pertinencia
+    // (ruido). La pantalla `/mentions` mantiene el comportamiento histórico
+    // (todos los sources / pertinencias) — solo el feed del scorecard filtra.
+    const TWITTER_PAGE_TYPES = ['twitter', 'x', 'xcom'];
     const recentRows = await db
       .select({
         id: mentions.id,
@@ -760,9 +731,16 @@ export async function GET(request: NextRequest) {
         url: mentions.url,
       })
       .from(mentions)
-      .where(baseWhere)
+      .where(and(
+        baseWhere,
+        sql`COALESCE(${mentions.pageType}, '') NOT IN ('twitter','x','xcom')`,
+        sql`COALESCE(${mentions.nlpPertinence}, 'media') <> 'baja'`,
+      ))
       .orderBy(desc(mentions.publishedAt))
       .limit(50);
+    // (TWITTER_PAGE_TYPES queda como referencia documental; el filtro SQL es
+    // el que cuenta.)
+    void TWITTER_PAGE_TYPES;
 
     // Resolve topics & municipalities for those mentions (batched)
     const mentionIds = recentRows.map((m) => m.id);
@@ -921,24 +899,55 @@ export async function GET(request: NextRequest) {
       mention: m,
     }));
 
-    // ---- BRIEFING ----
+    // ---- BRIEFING (3 modos: signal / emerging / crisis) ----
     // Fuente primaria: tabla agency_briefings poblada por eco-ai-tasks cada
-    // 6 horas. Si el último briefing tiene más de 12 horas (lambda caída, o
-    // aún no corrió por primera vez), reconstruimos uno con la misma plantilla
-    // determinística histórica para no dejar la UI en blanco.
-    // El frontend usa `BRIEFING.source` ('ai' | 'rule') para decidir el chip
-    // de procedencia.
+    // 6 horas. Ahora cada corrida produce 3 filas, una por modo. Si algún
+    // modo no tiene fila fresca (<12h), cae a un resumen rule-based.
+    // El frontend lee `D.BRIEFING[focus].narrativeHtml` según el chip activo.
     const dominantTopic = TOPICS[0];
     const BRIEFING_TTL_MS = 12 * 60 * 60 * 1000;
+    const liveNss = winCur.nss ?? 0;
+    const liveReach = winCur.totalReach;
 
-    const [latestBriefing] = await db
-      .select()
-      .from(agencyBriefings)
-      .where(eq(agencyBriefings.agencyId, agencyId))
-      .orderBy(desc(agencyBriefings.generatedAt))
-      .limit(1);
-
-    const briefingFresh = latestBriefing && (Date.now() - new Date(latestBriefing.generatedAt).getTime()) < BRIEFING_TTL_MS;
+    // Trae el briefing más reciente por (agencia, mode). DISTINCT ON evita
+    // un GROUP BY agg awkward y respeta el orden por generated_at DESC.
+    const briefingsRows = await db.execute<{
+      mode: string;
+      generated_at: Date | string;
+      narrative_html: string;
+      dominant_signal: string;
+      action_label: string;
+      action_tone: string;
+      reach_label: string | null;
+      fallback: boolean;
+    }>(sql`
+      SELECT DISTINCT ON (mode)
+             mode, generated_at, narrative_html, dominant_signal,
+             action_label, action_tone, reach_label, fallback
+        FROM agency_briefings
+       WHERE agency_id = ${agencyId}
+       ORDER BY mode, generated_at DESC
+    `);
+    const briefingList: Array<{
+      mode: string;
+      generated_at: Date | string;
+      narrative_html: string;
+      dominant_signal: string;
+      action_label: string;
+      action_tone: string;
+      reach_label: string | null;
+      fallback: boolean;
+    }> = Array.isArray(briefingsRows)
+      ? (briefingsRows as unknown as Array<{
+          mode: string; generated_at: Date | string; narrative_html: string;
+          dominant_signal: string; action_label: string; action_tone: string;
+          reach_label: string | null; fallback: boolean;
+        }>)
+      : (((briefingsRows as unknown as { rows?: Array<{
+          mode: string; generated_at: Date | string; narrative_html: string;
+          dominant_signal: string; action_label: string; action_tone: string;
+          reach_label: string | null; fallback: boolean;
+        }> }).rows) ?? []);
 
     type BriefingShape = {
       eyebrow: string;
@@ -952,49 +961,104 @@ export async function GET(request: NextRequest) {
       generatedAtLabel: string | null;
     };
 
-    function buildRuleBriefing(): BriefingShape | null {
+    function formatReachLabel(reach: number): string {
+      if (reach >= 1_000_000) return (reach / 1_000_000).toFixed(2) + 'M impresiones';
+      if (reach >= 1000) return Math.round(reach / 1000) + 'K impresiones';
+      return String(reach) + ' impresiones';
+    }
+
+    function buildRuleBriefingForMode(mode: 'signal' | 'emerging' | 'crisis'): BriefingShape | null {
       if (!dominantTopic) return null;
       const dominantTone = dominantTopic.dominantSentiment === 'positivo' ? 'Positiva'
         : dominantTopic.dominantSentiment === 'negativo' ? 'Negativa'
         : 'Mixta';
       const tone = liveNss > 5 ? 'pos' : liveNss < -5 ? 'neg' : 'warn';
-      const verb = tone === 'pos' ? 'mejora' : tone === 'neg' ? 'deteriora' : 'se mantiene estable';
-      const narrativeHtml = `La percepción pública se <strong>${verb}</strong> en torno a <strong>${dominantTopic.name}</strong> (${dominantTopic.count.toLocaleString('es-PR')} menciones, ${dominantTopic.negativePct}% negativo).`;
-      const reachLabel = liveReach >= 1_000_000
-        ? (liveReach / 1_000_000).toFixed(2) + 'M impresiones'
-        : liveReach >= 1000
-        ? Math.round(liveReach / 1000) + 'K impresiones'
-        : String(liveReach) + ' impresiones';
+
+      let narrativeHtml: string;
+      let dominantSignal: string;
+      let action: string;
+      let actionTone: 'pos' | 'neg' | 'warn' | 'neu' = tone;
+
+      if (mode === 'emerging') {
+        const emerging = [...TOPICS].sort((a, b) => b.delta - a.delta)[0];
+        if (emerging && emerging.delta > 15) {
+          narrativeHtml = `<strong>${emerging.name}</strong> crece <strong>+${emerging.delta}%</strong> en la segunda mitad del periodo (${emerging.count.toLocaleString('es-PR')} menciones, ${emerging.negativePct}% negativo).`;
+          dominantSignal = `${emerging.name} · +${emerging.delta}%`;
+          action = `Seguir ${emerging.name} →`;
+          actionTone = emerging.dominantSentiment === 'positivo' ? 'pos' : emerging.dominantSentiment === 'negativo' ? 'neg' : 'warn';
+        } else {
+          narrativeHtml = `Sin narrativas emergentes claras en el periodo. Tópico más activo: <strong>${dominantTopic.name}</strong> (${dominantTopic.count.toLocaleString('es-PR')} menciones).`;
+          dominantSignal = 'Sin narrativas emergentes · Estable';
+          action = 'Explorar tópicos activos →';
+          actionTone = 'neu';
+        }
+      } else if (mode === 'crisis') {
+        const crisis = winCur.crisisRiskScore ?? 0;
+        const band = crisis >= 0.60 ? 'CRISIS' : crisis >= 0.40 ? 'ALERTA' : crisis >= 0.25 ? 'ELEVADO' : 'NORMAL';
+        if (band === 'NORMAL') {
+          narrativeHtml = `Sin señales de crisis en el periodo. Negativas: <strong>${winCur.totals.negative.toLocaleString('es-PR')}</strong> de ${winCur.totals.total.toLocaleString('es-PR')}.`;
+          dominantSignal = 'NORMAL · Sin tópico crítico';
+          action = 'Ver menciones negativas →';
+          actionTone = 'neu';
+        } else {
+          narrativeHtml = `Banda actual <strong>${band}</strong> con concentración en <strong>${dominantTopic.name}</strong> (${dominantTopic.negativePct}% negativo). Crisis Risk: <strong>${crisis.toFixed(2)}</strong>.`;
+          dominantSignal = `${band} · ${dominantTopic.name}`;
+          action = `Revisar ${dominantTopic.name} →`;
+          actionTone = band === 'ELEVADO' ? 'warn' : 'neg';
+        }
+      } else {
+        const verb = tone === 'pos' ? 'mejora' : tone === 'neg' ? 'deteriora' : 'se mantiene estable';
+        narrativeHtml = `La percepción pública se <strong>${verb}</strong> en torno a <strong>${dominantTopic.name}</strong> (${dominantTopic.count.toLocaleString('es-PR')} menciones, ${dominantTopic.negativePct}% negativo).`;
+        dominantSignal = `${dominantTopic.name} · ${dominantTone}`;
+        action = `Seguir ${dominantTopic.name} →`;
+      }
+
       return {
         eyebrow: new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
         narrativeHtml,
-        dominantSignal: `${dominantTopic.name} · ${dominantTone}`,
-        action: `Seguir ${dominantTopic.name} →`,
-        actionTone: tone,
-        reachLabel,
+        dominantSignal,
+        action,
+        actionTone,
+        reachLabel: formatReachLabel(liveReach),
         source: 'rule',
         generatedAtIso: null,
         generatedAtLabel: null,
       };
     }
 
-    let BRIEFING: BriefingShape | null = null;
-    if (briefingFresh && latestBriefing) {
-      const generatedAt = new Date(latestBriefing.generatedAt);
-      BRIEFING = {
+    function toShape(row: typeof briefingList[number]): BriefingShape {
+      const generatedAt = new Date(row.generated_at);
+      return {
         eyebrow: generatedAt.toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' }),
-        narrativeHtml: latestBriefing.narrativeHtml,
-        dominantSignal: latestBriefing.dominantSignal,
-        action: latestBriefing.actionLabel,
-        actionTone: latestBriefing.actionTone,
-        reachLabel: latestBriefing.reachLabel ?? null,
-        source: latestBriefing.fallback ? 'rule' : 'ai',
+        narrativeHtml: row.narrative_html,
+        dominantSignal: row.dominant_signal,
+        action: row.action_label,
+        actionTone: row.action_tone,
+        reachLabel: row.reach_label ?? null,
+        source: row.fallback ? 'rule' : 'ai',
         generatedAtIso: generatedAt.toISOString(),
         generatedAtLabel: relativeTime(generatedAt),
       };
-    } else {
-      BRIEFING = buildRuleBriefing();
     }
+
+    const briefingByMode = new Map<string, typeof briefingList[number]>();
+    for (const row of briefingList) briefingByMode.set(row.mode, row);
+
+    function resolveMode(mode: 'signal' | 'emerging' | 'crisis'): BriefingShape | null {
+      const row = briefingByMode.get(mode);
+      if (row) {
+        const generated = new Date(row.generated_at);
+        const fresh = Date.now() - generated.getTime() < BRIEFING_TTL_MS;
+        if (fresh) return toShape(row);
+      }
+      return buildRuleBriefingForMode(mode);
+    }
+
+    const BRIEFING = {
+      signal: resolveMode('signal'),
+      emerging: resolveMode('emerging'),
+      crisis: resolveMode('crisis'),
+    };
 
     // Slug the user is bound to (resolved from Cognito custom:agency_slug
     // header or the URL ?agency= param). Surface it so the dashboard can pick

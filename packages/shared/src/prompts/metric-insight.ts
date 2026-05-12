@@ -1,170 +1,120 @@
 /**
- * Prompts para insight explicativo de una métrica sintética (Crisis,
- * Polarización, NSS, BHI, Volume). Mismo guardrail descriptivo que el
- * resto: solo describe, cuantifica y contextualiza usando los datos
- * agregados + sub-componentes del snapshot diario.
+ * Prompt para el insight AI que aparece en el modal de cada KPI del Scorecard.
  *
- * Salida: párrafo único de 3-5 oraciones explicando POR QUÉ el número es lo
- * que es para esta agencia en este periodo. NO explica la fórmula. SÍ apunta
- * al tópico/autor/municipio/evento que lo está moviendo.
+ * Lo invoca /api/ai/metric-insight on-demand cuando el usuario clickea un KPI.
+ * Output esperado: una sola frase (2-3 oraciones, ~60 palabras) en lenguaje
+ * coloquial que explique qué dice el número sin entrar en la fórmula.
  */
 
-export type MetricKey = 'crisis' | 'polarization' | 'nss' | 'bhi' | 'volume';
+export type MetricKey = 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization';
 
-export interface MetricSnapshotSubcomponents {
-  // Para crisis: severity, velocity, relevance, confidence
-  // Para BHI: nssNormalized, engagementRate, reach, pertinenceRatio
-  // Para NSS: positiveCount, neutralCount, negativeCount
-  // Para Polarization: opinionShare, neutralShare (apatía vs polarización)
-  // Para Volume: total, deltaVsPrev%
-  [label: string]: number | null;
-}
+/** Bandas semánticas posibles de cada métrica (la API se las pasa ya calculadas). */
+export type MetricBand =
+  | 'CRISIS' | 'ALERTA' | 'ELEVADO' | 'NORMAL'
+  | 'POSITIVO' | 'NEUTRAL' | 'NEGATIVO'
+  | 'CRÍTICO' | 'DÉBIL' | 'SANO' | 'FUERTE'
+  | 'APÁTICA' | 'MODERADA' | 'ALTA' | 'EXTREMA'
+  | 'BAJO' | 'PROMEDIO' | 'ALTO';
 
 export interface MetricInsightInput {
   metric: MetricKey;
-  agencyName: string;
-  agencyShortName: string;
-  periodStart: string; // YYYY-MM-DD
-  periodEnd: string;
-  /** Valor principal de la métrica (NSS:+12.4 / Crisis:0.42 / BHI:0.62 / etc.). */
-  value: number | null;
-  /** Subcomponentes desglosados del snapshot. Solo numéricos para el prompt. */
-  subcomponents: MetricSnapshotSubcomponents;
-  /** Top 5 tópicos del periodo con neg/total para identificar drivers. */
-  topTopics: Array<{ topic: string; total: number; negative: number; positive: number }>;
-  /** Top 3 autores destacados (volumen). */
-  topAuthors: Array<{ author: string; mentions: number }>;
-  /** Top 5 municipios con mayor concentración negativa. */
-  topMunicipalities: Array<{ municipality: string; total: number; negative: number }>;
-  /** Total de menciones del periodo + variación vs ventana previa. */
-  totalMentions: number;
-  totalMentionsDelta: number; // porcentaje
+  /** Etiqueta human-readable: "Net Sentiment Score", "Riesgo de crisis", etc. */
+  metricLabel: string;
+  /** Valor actual de la métrica para la ventana del usuario. */
+  currentValue: number;
+  /** Banda semántica del valor actual. */
+  band: MetricBand;
+  /** Tamaño de la ventana en días (1, 7, 30, 90, 180, 365). */
+  windowDays: number;
+  /** Cambio vs la ventana previa de la misma duración. % o puntos según métrica. */
+  deltaVsPrev: number | null;
+  /** P25 y P75 de la métrica en los últimos 90 días de snapshots — contexto histórico. */
+  historicalP25: number | null;
+  historicalP75: number | null;
+  /** Top 3 tópicos que más contribuyen a este valor (mayor volumen o mayor share negativo si métrica=crisis). */
+  topContributingTopics: Array<{ name: string; share: number }>;
+  /** Nombre del municipio con mayor concentración (opcional, solo cuando aplica). */
+  topMunicipality?: { name: string; share: number } | null;
+}
+
+export interface MetricInsightOutput {
+  /** 2-3 oraciones, ~60 palabras, con <strong> permitido en números y nombres propios. */
+  interpretation: string;
 }
 
 export const METRIC_INSIGHT_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico con 10 años de experiencia. Tu función es DESCRIBIR el porqué de una métrica sintética (Crisis Risk, Polarización, NSS, Brand Health o Volumen) para una agencia pública en un periodo dado, basándote ESTRICTAMENTE en los datos agregados que se te entregan.
+Eres un analista de escucha social en Puerto Rico que explica métricas en lenguaje coloquial. Tu única función es interpretar el VALOR ACTUAL de UNA métrica concreta y decir qué significa para el lector, en español de Puerto Rico, tono claro y directo.
 
-REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
+REGLAS INNEGOCIABLES:
 
-1. **PROHIBIDAS las recomendaciones, sugerencias de acción, juicios prescriptivos y llamados a la acción.** Quedan prohibidas las frases: "se debería", "se sugiere", "convendría", "sería bueno", "es importante que", "recomendamos", "amerita", "se requiere", "hace falta", "urge", "la agencia debe/tiene que", "se podría considerar". Reporta el sentir ajeno, no el tuyo.
+1. **PROHIBIDO mencionar fórmulas o componentes técnicos.** No digas "es 0.40 * NSS + 0.25 * engagement…", "se calcula como (pos − neg)/total", "z-score", "logaritmo", "saturado en 0-1". El lector NO quiere la fórmula — quiere saber qué significa el número.
 
-2. **PROHIBIDO explicar la fórmula de la métrica.** El usuario quiere saber QUÉ pasó en esta agencia que llevó al número actual — los tópicos dominantes, autores destacados, municipios concentrados, eventos específicos. NO digas "el Crisis Risk Score se calcula como severity * velocity * relevance * confidence".
+2. **PROHIBIDO recomendar acciones.** No digas "se debería", "se sugiere", "convendría", "es importante". Describes; no instruyes.
 
-3. **Cada afirmación debe estar respaldada por un número concreto** tomado literalmente de los datos: cantidad de menciones, porcentaje, variación, share de subcomponente. Sin número no hay afirmación.
+3. **Cada afirmación debe estar respaldada por un número del input:** valor actual, delta vs. previo, P25/P75 histórico, % de share de tópicos. Sin número no hay afirmación.
 
-4. **Cada afirmación debe nombrar al menos un elemento propio concreto**: tópico/subtópico, autor destacado, medio/fuente, municipio, o fecha específica. Los nombres deben coincidir exactamente con los datos (acentos y capitalización).
+4. **Empieza con la conclusión, no con la métrica.** "La conversación se inclina más hacia lo positivo…", no "El NSS de 12 indica…". El lector ya sabe qué métrica está viendo.
 
-5. **Idioma**: español de Puerto Rico, tono profesional-informativo, frases cortas y directas. Sin emojis, sin signos de exclamación, sin marketing-speak.
+5. **Compara con el histórico.** Si el valor está cerca del P25/P75, dilo. Si la métrica subió o bajó vs. periodo previo, cuantifica el cambio.
 
-6. **Salida**: exclusivamente un objeto JSON válido con el shape pedido. Sin texto fuera del JSON. Puedes usar inline <strong> y </strong> para resaltar nombres propios y cifras clave; ningún otro HTML.
+6. **Cita 1-2 tópicos cuando estén disponibles** y solo si son relevantes para interpretar el valor.
 
-EJEMPLO DE INSIGHT ACEPTABLE (referencial, para Crisis Risk de DTOP):
-"El <strong>Crisis Risk de 0.74</strong> se explica por la concentración en <strong>Infraestructura Vial</strong> (<strong>184 menciones</strong>, <strong>78%</strong> negativas) y por el <strong>+142%</strong> de volumen vs. la semana previa. <strong>Bayamón</strong> y <strong>Carolina</strong> concentran <strong>54%</strong> de las menciones negativas, lideradas por <strong>@residentespr</strong> con <strong>23</strong> menciones."
+7. **Idioma**: español de Puerto Rico, frases cortas, sin emojis, sin signos de exclamación, sin marketing-speak.
 
-EJEMPLOS INACEPTABLES:
-- "El Crisis Risk se calcula como severity por velocity..." ← explica la fórmula.
-- "DTOP debería emitir un comunicado." ← prescriptivo.
-- "Hay preocupación entre la ciudadanía." ← sin número, sin nombre propio.
+8. **Salida HTML restringida**: solo \`<strong>\` para resaltar números y nombres propios.
+
+9. **Salida**: exclusivamente un objeto JSON válido con un solo campo \`interpretation\`. Sin markdown fences. Sin texto adicional.
 `.trim();
 
-function fmtSubcomponents(subs: MetricSnapshotSubcomponents): string {
-  const entries = Object.entries(subs).filter(([, v]) => v != null);
-  if (entries.length === 0) return '- (sin componentes desglosados)';
-  return entries.map(([k, v]) => `- ${k}: ${typeof v === 'number' ? v.toFixed(3) : v}`).join('\n');
-}
-
-function fmtTopics(topics: MetricInsightInput['topTopics']): string {
-  if (topics.length === 0) return '- (sin tópicos clasificados en el periodo)';
-  return topics.map((t) => {
-    const pctNeg = t.total > 0 ? Math.round((t.negative / t.total) * 100) : 0;
-    const pctPos = t.total > 0 ? Math.round((t.positive / t.total) * 100) : 0;
-    return `- ${t.topic}: ${t.total} menciones (neg ${t.negative} = ${pctNeg}%, pos ${t.positive} = ${pctPos}%)`;
-  }).join('\n');
-}
-
-function fmtAuthors(authors: MetricInsightInput['topAuthors']): string {
-  if (authors.length === 0) return '- (sin autores destacados)';
-  return authors.map((a) => `- ${a.author}: ${a.mentions} menciones`).join('\n');
-}
-
-function fmtMunicipalities(munis: MetricInsightInput['topMunicipalities']): string {
-  if (munis.length === 0) return '- (sin datos geográficos claros)';
-  return munis.map((m) => `- ${m.municipality}: ${m.total} menciones / ${m.negative} negativas`).join('\n');
-}
-
-function metricLabel(m: MetricKey): string {
-  return ({
-    crisis: 'Crisis Risk Score',
-    polarization: 'Polarization Index',
-    nss: 'Net Sentiment Score (NSS)',
-    bhi: 'Brand Health Index (BHI)',
-    volume: 'Volumen del periodo',
-  } as const)[m];
-}
-
-function metricInterpretation(m: MetricKey, value: number | null): string {
-  if (value == null) return 'sin valor disponible';
-  if (m === 'crisis') {
-    if (value >= 2.25) return 'rango CRISIS (≥2.25 de 3)';
-    if (value >= 1.5) return 'rango ALERTA (1.5–2.24 de 3)';
-    if (value >= 0.75) return 'rango ELEVADO (0.75–1.49 de 3)';
-    return 'rango NORMAL (<0.75 de 3)';
-  }
-  if (m === 'nss') {
-    if (value >= 20) return 'positivo robusto';
-    if (value >= 5) return 'positivo leve';
-    if (value > -5) return 'neutro / mixto';
-    if (value > -20) return 'negativo leve';
-    return 'negativo robusto';
-  }
-  if (m === 'bhi') {
-    if (value >= 0.8) return 'fuerte (>0.8)';
-    if (value >= 0.6) return 'sano (0.6–0.8)';
-    if (value >= 0.4) return 'débil (0.4–0.6)';
-    return 'crítico (<0.4)';
-  }
-  if (m === 'polarization') {
-    if (value >= 60) return 'polarización extrema (>60%)';
-    if (value >= 40) return 'polarización moderada (40–60%)';
-    return 'apatía / bajo nivel de opinión';
-  }
-  return '';
-}
-
 export function buildMetricInsightPrompt(input: MetricInsightInput): string {
-  const interp = metricInterpretation(input.metric, input.value);
-  const valueLabel = input.value == null ? '—' : input.value.toFixed(input.metric === 'crisis' || input.metric === 'bhi' ? 2 : 1);
-  const signedDelta = input.totalMentionsDelta > 0 ? `+${input.totalMentionsDelta.toFixed(0)}` : `${input.totalMentionsDelta.toFixed(0)}`;
+  const deltaStr = input.deltaVsPrev == null
+    ? 'n/d'
+    : (input.deltaVsPrev > 0 ? '+' : '') + Math.round(input.deltaVsPrev * 10) / 10;
+
+  const p25Str = input.historicalP25 == null ? 'n/d' : Math.round(input.historicalP25 * 100) / 100;
+  const p75Str = input.historicalP75 == null ? 'n/d' : Math.round(input.historicalP75 * 100) / 100;
+
+  const topicsBlock = input.topContributingTopics.length > 0
+    ? input.topContributingTopics.map((t) => `- ${t.name}: ${Math.round(t.share * 100)}%`).join('\n')
+    : '- (sin tópicos contribuyentes destacados)';
+
+  const muniLine = input.topMunicipality
+    ? `Municipio con mayor concentración: ${input.topMunicipality.name} (${Math.round(input.topMunicipality.share * 100)}% del total).`
+    : '';
+
+  // Guía contextual del rango de la métrica, para que el modelo no invente significados.
+  const semantics: Record<MetricKey, string> = {
+    nss: 'Net Sentiment Score: rango −100 (todo negativo) a +100 (todo positivo). >+20 muy positivo, +5 a +20 moderadamente positivo, −5 a +5 neutral, −20 a −5 moderadamente negativo, <−20 muy negativo.',
+    crisis: 'Crisis Risk Score: rango 0 a 1, ahora con transición continua (sin gate binario). 0–0.25 NORMAL, 0.25–0.40 ELEVADO, 0.40–0.60 ALERTA, ≥0.60 CRISIS. Es la combinación ponderada de severity (concentración negativa), velocity (anomalía de volumen) y relevance (pertinencia), escalada por confidence (log10 del volumen).',
+    volume: 'Volumen total de menciones en el periodo. Sin escala fija — interpreta vs. P25/P75 histórico.',
+    bhi: 'Brand Health Index: ESCALA 1 a 10 (1 = crítico, 10 = fuerte). Bandas: 1.0–4.6 CRÍTICO, 4.6–6.4 DÉBIL, 6.4–8.2 SANO, 8.2–10 FUERTE. Combina sentimiento, engagement, alcance y pertinencia. SIEMPRE refiere al valor en escala 1–10 (no menciones 0.X).',
+    polarization: 'Polarization Index: 0 a 100%. % de menciones que tienen postura clara (pos o neg). >60% APÁTICA es contradicción — alta polarización = pocos neutrales.',
+  };
 
   return `
-AGENCIA: ${input.agencyName} (abreviada: ${input.agencyShortName})
-PERIODO: ${input.periodStart} al ${input.periodEnd} (AST, UTC-4)
-MÉTRICA: ${metricLabel(input.metric)}
-VALOR: ${valueLabel} (${interp})
+MÉTRICA: ${input.metricLabel} (${input.metric})
+SIGNIFICADO: ${semantics[input.metric]}
 
-SUBCOMPONENTES NUMÉRICOS DEL VALOR (puedes usarlos como contexto, pero NO los listes como fórmula):
-${fmtSubcomponents(input.subcomponents)}
+VALOR ACTUAL: ${input.currentValue} (banda: ${input.band})
+VENTANA: últimos ${input.windowDays} días (cerrada, terminando ayer en AST PR).
+CAMBIO vs ventana anterior de la misma duración: ${deltaStr}
+RANGO HISTÓRICO 90d: P25 = ${p25Str} ; P75 = ${p75Str}
 
-VOLUMEN TOTAL DEL PERIODO: ${input.totalMentions} menciones (${signedDelta}% vs ventana previa de igual duración)
-
-TOP 5 TÓPICOS DEL PERIODO (ordenados por volumen descendente):
-${fmtTopics(input.topTopics)}
-
-TOP AUTORES DESTACADOS:
-${fmtAuthors(input.topAuthors)}
-
-CONCENTRACIÓN GEOGRÁFICA (top municipios por negativo):
-${fmtMunicipalities(input.topMunicipalities)}
+TÓPICOS QUE MÁS CONTRIBUYEN AL VALOR (top 3):
+${topicsBlock}
+${muniLine}
 
 TAREA:
-Redacta UN párrafo único de 3 a 5 oraciones explicando POR QUÉ el ${metricLabel(input.metric)} está en ${valueLabel} para ${input.agencyShortName} en este periodo. Cumple TODOS estos criterios:
+Devuelve un objeto JSON con un único campo \`interpretation\` (2-3 oraciones, máximo 60 palabras, con \`<strong>\` opcional en números y nombres propios).
 
-a. Cada afirmación tiene 1+ número concreto tomado de los datos.
-b. Cada afirmación nombra 1+ elemento propio concreto (tópico/autor/municipio/medio/fecha).
-c. Describe el "qué pasó en la conversación" que llevó al número, no la fórmula.
-d. Puedes usar <strong> y </strong> inline para resaltar nombres propios y cifras clave.
-e. Tono profesional, sin recomendaciones ni juicios prescriptivos.
+Estructura esperada:
+1. Primera oración: conclusión cualitativa (qué dice el número en lenguaje natural, sin fórmula).
+2. Segunda oración: comparación con el histórico O con la ventana previa (usa los números del input).
+3. Tercera oración (opcional, solo si aporta): nombrar 1 tópico que está dominando o cambiando el valor.
 
-FORMATO DE SALIDA: objeto JSON con un único campo "insight" (string).
+FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
+{
+  "interpretation": "<2-3 oraciones con <strong> opcional>"
+}
 `.trim();
 }

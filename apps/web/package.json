@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.1",
+    "@aws-sdk/client-bedrock-runtime": "^3.1045.0",
     "@aws-sdk/client-lambda": "^3.1033.0",
     "@eco/database": "*",
     "@eco/shared": "*",

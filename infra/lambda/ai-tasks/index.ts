@@ -25,20 +25,27 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import {
   EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
   buildExecutiveBriefingPrompt,
+  EMERGING_BRIEFING_SYSTEM_PROMPT,
+  buildEmergingBriefingPrompt,
+  CRISIS_BRIEFING_SYSTEM_PROMPT,
+  buildCrisisBriefingPrompt,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   buildTopicDescriptionPrompt,
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
   buildPeriodSummaryPrompt,
-  METRIC_INSIGHT_SYSTEM_PROMPT,
-  buildMetricInsightPrompt,
+  CACHED_METRIC_INSIGHT_SYSTEM_PROMPT,
+  buildCachedMetricInsightPrompt,
   type BriefingAggregates,
   type BriefingOutput,
+  type EmergingBriefingAggregates,
+  type CrisisBriefingAggregates,
+  type EmergingTopic,
   type TopicAggregateForDescription,
   type TopicMentionSample,
   type WeeklyAggregates,
   type MetricKey,
-  type MetricInsightInput,
+  type CachedMetricInsightInput,
 } from '@eco/shared';
 import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
@@ -176,6 +183,8 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
 // Briefing generator
 // ============================================================
 
+type BriefingMode = 'signal' | 'emerging' | 'crisis';
+
 async function generateBriefingFor(
   client: any,
   agency: AgencyRow,
@@ -185,22 +194,71 @@ async function generateBriefingFor(
   const aggregates = await loadBriefingAggregates(client, agency, periodHours);
 
   // Si la ventana tiene < 10 menciones, no vale la pena invocar al LLM —
-  // emitimos un briefing de reglas (fallback=true) para que la UI quede
-  // poblada sin riesgo de alucinación.
+  // emitimos un briefing rule-based para cada modo (fallback=true) para que
+  // la UI quede poblada sin riesgo de alucinación.
   if (aggregates.totals.total < 10) {
     const ruleBased = buildRuleBasedBriefing(aggregates);
     if (!dryRun) {
-      await persistBriefing(client, agency.id, periodHours, ruleBased, aggregates.totals.total, PRIMARY_MODEL, true);
+      for (const mode of ['signal', 'emerging', 'crisis'] as BriefingMode[]) {
+        await persistBriefing(client, agency.id, periodHours, mode, ruleBased, aggregates.totals.total, PRIMARY_MODEL, true);
+      }
     }
-    return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: ruleBased };
+    return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: { signal: ruleBased, emerging: ruleBased, crisis: ruleBased } };
   }
 
+  // Cargar aggregates específicos para "emerging" y "crisis" (queries
+  // adicionales sobre la misma ventana). Se hace en paralelo para no
+  // duplicar latencia.
+  const [emergingAgg, crisisAgg] = await Promise.all([
+    loadEmergingAggregates(client, agency, periodHours, aggregates),
+    loadCrisisAggregates(client, agency, periodHours, aggregates),
+  ]);
+
+  // Tres invocaciones en paralelo, una por modo. Cada una falla
+  // independientemente al fallback rule-based.
+  const [signalRes, emergingRes, crisisRes] = await Promise.all([
+    runBriefingMode('signal', () => buildExecutiveBriefingPrompt(aggregates), EXECUTIVE_BRIEFING_SYSTEM_PROMPT, aggregates),
+    runBriefingMode('emerging', () => buildEmergingBriefingPrompt(emergingAgg), EMERGING_BRIEFING_SYSTEM_PROMPT, aggregates),
+    runBriefingMode('crisis', () => buildCrisisBriefingPrompt(crisisAgg), CRISIS_BRIEFING_SYSTEM_PROMPT, aggregates),
+  ]);
+
+  if (!dryRun) {
+    await Promise.all([
+      persistBriefing(client, agency.id, periodHours, 'signal', signalRes.output, aggregates.totals.total, PRIMARY_MODEL, signalRes.fallback),
+      persistBriefing(client, agency.id, periodHours, 'emerging', emergingRes.output, aggregates.totals.total, PRIMARY_MODEL, emergingRes.fallback),
+      persistBriefing(client, agency.id, periodHours, 'crisis', crisisRes.output, aggregates.totals.total, PRIMARY_MODEL, crisisRes.fallback),
+    ]);
+  }
+
+  const status = signalRes.fallback || emergingRes.fallback || crisisRes.fallback ? 'fallback' : 'ok';
+  return {
+    agencySlug: agency.slug,
+    status,
+    output: { signal: signalRes.output, emerging: emergingRes.output, crisis: crisisRes.output },
+  };
+}
+
+interface BriefingModeResult {
+  output: BriefingOutput;
+  fallback: boolean;
+  errorMessage?: string;
+}
+
+async function runBriefingMode(
+  mode: BriefingMode,
+  buildPrompt: () => string,
+  systemPrompt: string,
+  fallbackAgg: BriefingAggregates,
+): Promise<BriefingModeResult> {
   try {
-    const prompt = buildExecutiveBriefingPrompt(aggregates);
+    // Tool-use con input_schema (vs el invokeClaude + JSON.parse de main) —
+    // Bedrock garantiza el shape del input. Sin comillas/saltos rompiendo el
+    // parser (feedback_bedrock_tool_use). Mantenemos la abstracción
+    // runBriefingMode de main para los 3 modos (signal / emerging / crisis).
     const parsed = await invokeClaudeWithTool<BriefingOutput>({
       client: bedrock,
-      systemPrompt: EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
-      userPrompt: prompt,
+      systemPrompt,
+      userPrompt: buildPrompt(),
       maxTokens: 800,
       primaryModel: PRIMARY_MODEL,
       fallbackModel: FALLBACK_MODEL,
@@ -211,19 +269,10 @@ async function generateBriefingFor(
         input_schema: BRIEFING_TOOL_SCHEMA,
       },
     });
-    const validated = validateBriefingOutput(parsed);
-
-    if (!dryRun) {
-      await persistBriefing(client, agency.id, periodHours, validated, aggregates.totals.total, PRIMARY_MODEL, false);
-    }
-    return { agencySlug: agency.slug, status: 'ok', output: validated };
+    return { output: validateBriefingOutput(parsed), fallback: false };
   } catch (err) {
-    console.error(`[ai-tasks] briefing failed for ${agency.slug}:`, (err as Error).message);
-    const ruleBased = buildRuleBasedBriefing(aggregates);
-    if (!dryRun) {
-      await persistBriefing(client, agency.id, periodHours, ruleBased, aggregates.totals.total, PRIMARY_MODEL, true);
-    }
-    return { agencySlug: agency.slug, status: 'fallback', message: (err as Error).message, output: ruleBased };
+    console.error(`[ai-tasks] briefing mode=${mode} failed:`, (err as Error).message);
+    return { output: buildRuleBasedBriefing(fallbackAgg), fallback: true, errorMessage: (err as Error).message };
   }
 }
 
@@ -296,6 +345,7 @@ async function persistBriefing(
   client: any,
   agencyId: string,
   periodHours: number,
+  mode: BriefingMode,
   output: BriefingOutput,
   sourceMentions: number,
   model: string,
@@ -303,13 +353,14 @@ async function persistBriefing(
 ): Promise<void> {
   await client.query(
     `INSERT INTO agency_briefings
-       (agency_id, period_hours, narrative_html, dominant_signal,
+       (agency_id, period_hours, mode, narrative_html, dominant_signal,
         action_label, action_tone, reach_label, model_used,
         source_mentions, fallback)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       agencyId,
       periodHours,
+      mode,
       output.narrative_html,
       output.dominant_signal,
       output.action_label,
@@ -464,6 +515,159 @@ function normalizeSentiment(s: string | null): 'positivo' | 'neutral' | 'negativ
   if (s === 'positivo' || s === 'positive') return 'positivo';
   if (s === 'negativo' || s === 'negative') return 'negativo';
   return 'neutral';
+}
+
+// ============================================================
+// Emerging aggregates loader
+// ============================================================
+
+async function loadEmergingAggregates(
+  client: any,
+  agency: AgencyRow,
+  periodHours: number,
+  base: BriefingAggregates,
+): Promise<EmergingBriefingAggregates> {
+  // Comparamos las últimas N/2 horas vs. las N/2 horas anteriores del periodo.
+  // El delta es ((recent − previous) / previous) × 100, sin tope superior.
+  const since = new Date(Date.now() - periodHours * 3600 * 1000);
+  const midPoint = new Date(Date.now() - (periodHours / 2) * 3600 * 1000);
+
+  const halvesRes = await client.query(
+    `SELECT t.name AS topic,
+            COUNT(*) FILTER (WHERE m.published_at >= $3)::int AS recent_total,
+            COUNT(*) FILTER (WHERE m.published_at >= $2 AND m.published_at < $3)::int AS previous_total,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg
+       FROM mentions m
+       JOIN mention_topics mt ON mt.mention_id = m.id
+       JOIN topics t ON t.id = mt.topic_id
+      WHERE m.agency_id = $1 AND m.published_at >= $2
+      GROUP BY t.name
+      ORDER BY recent_total DESC`,
+    [agency.id, since.toISOString(), midPoint.toISOString()],
+  );
+
+  const emerging: EmergingTopic[] = halvesRes.rows.map((r: any) => {
+    const recent = Number(r.recent_total);
+    const previous = Number(r.previous_total);
+    const deltaPct = previous > 0
+      ? Math.round(((recent - previous) / previous) * 100)
+      : (recent > 0 ? 100 : 0);
+    const total = Number(r.total);
+    const pos = Number(r.pos);
+    const neg = Number(r.neg);
+    return {
+      topic: r.topic,
+      total,
+      positive: pos,
+      neutral: Math.max(0, total - pos - neg),
+      negative: neg,
+      deltaPct,
+    };
+  }).sort((a: EmergingTopic, b: EmergingTopic) => b.deltaPct - a.deltaPct).slice(0, 5);
+
+  return {
+    agencyName: agency.name,
+    agencyShortName: agency.slug.toUpperCase().slice(0, 6),
+    periodHours,
+    generatedAtLabel: base.generatedAtLabel,
+    emergingTopics: emerging,
+    totals: base.totals,
+    totalReach: base.totalReach,
+  };
+}
+
+// ============================================================
+// Crisis aggregates loader
+// ============================================================
+
+async function loadCrisisAggregates(
+  client: any,
+  agency: AgencyRow,
+  periodHours: number,
+  base: BriefingAggregates,
+): Promise<CrisisBriefingAggregates> {
+  // Lee el snapshot diario más reciente para crisis_risk_score y subcomponentes
+  // (la fórmula se calcula 24/7 por eco-metrics-calculator). Si no hay snapshot,
+  // todos los valores quedan en null y el prompt cae en banda NORMAL.
+  const snapRes = await client.query(
+    `SELECT crisis_risk_score, crisis_severity, crisis_velocity, crisis_relevance,
+            volume_anomaly_zscore
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1
+      ORDER BY date DESC
+      LIMIT 1`,
+    [agency.id],
+  );
+  const snap = snapRes.rows[0] ?? {};
+
+  const since = new Date(Date.now() - periodHours * 3600 * 1000);
+  const negTopicsRes = await client.query(
+    `SELECT t.name AS topic,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg
+       FROM mentions m
+       JOIN mention_topics mt ON mt.mention_id = m.id
+       JOIN topics t ON t.id = mt.topic_id
+      WHERE m.agency_id = $1 AND m.published_at >= $2
+      GROUP BY t.name
+      HAVING COUNT(*) >= 5
+      ORDER BY (COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC
+      LIMIT 5`,
+    [agency.id, since.toISOString()],
+  );
+  const topNegativeTopics = negTopicsRes.rows.map((r: any) => {
+    const total = Number(r.total);
+    const negative = Number(r.neg);
+    return {
+      topic: r.topic,
+      total,
+      negative,
+      negativeShare: total > 0 ? negative / total : 0,
+    };
+  });
+
+  const negMuniRes = await client.query(
+    `SELECT mu.name AS municipality,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg
+       FROM mentions m
+       JOIN mention_municipalities mm ON mm.mention_id = m.id
+       JOIN municipalities mu ON mu.id = mm.municipality_id
+      WHERE m.agency_id = $1 AND m.published_at >= $2
+      GROUP BY mu.name
+      HAVING COUNT(*) >= 5
+      ORDER BY (COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC
+      LIMIT 3`,
+    [agency.id, since.toISOString()],
+  );
+  const topNegativeMunicipalities = negMuniRes.rows.map((r: any) => ({
+    municipality: r.municipality,
+    total: Number(r.total),
+    negative: Number(r.neg),
+  }));
+
+  const negShare = base.totals.total > 0
+    ? base.totals.negative / base.totals.total
+    : 0;
+
+  return {
+    agencyName: agency.name,
+    agencyShortName: agency.slug.toUpperCase().slice(0, 6),
+    periodHours,
+    generatedAtLabel: base.generatedAtLabel,
+    crisisRiskScore: snap.crisis_risk_score != null ? Number(snap.crisis_risk_score) : null,
+    crisisSeverity: snap.crisis_severity != null ? Number(snap.crisis_severity) : null,
+    crisisVelocity: snap.crisis_velocity != null ? Number(snap.crisis_velocity) : null,
+    crisisRelevance: snap.crisis_relevance != null ? Number(snap.crisis_relevance) : null,
+    volumeAnomalyZscore: snap.volume_anomaly_zscore != null ? Number(snap.volume_anomaly_zscore) : null,
+    totals: base.totals,
+    negativeShare: negShare,
+    topNegativeTopics,
+    topNegativeMunicipalities,
+    totalReach: base.totalReach,
+  };
 }
 
 // ============================================================
@@ -779,7 +983,7 @@ async function generateMetricInsightFor(
   try {
     const ctx = await loadMetricInsightContext(client, agency, periodStart, periodEnd);
     const value = snapshotValueFor(metric, ctx.snapshot, ctx.totalMentions);
-    const promptInput: MetricInsightInput = {
+    const promptInput: CachedMetricInsightInput = {
       metric,
       agencyName: agency.name,
       agencyShortName: agencyShortName(agency.slug),
@@ -800,10 +1004,10 @@ async function generateMetricInsightFor(
       }
       return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal', output: { metric, insight: fallback } };
     }
-    const prompt = buildMetricInsightPrompt(promptInput);
+    const prompt = buildCachedMetricInsightPrompt(promptInput);
     const parsed = await invokeClaudeWithTool<{ insight: string }>({
       client: bedrock,
-      systemPrompt: METRIC_INSIGHT_SYSTEM_PROMPT,
+      systemPrompt: CACHED_METRIC_INSIGHT_SYSTEM_PROMPT,
       userPrompt: prompt,
       maxTokens: 800,
       primaryModel: PRIMARY_MODEL,
@@ -1057,7 +1261,7 @@ async function ensureOverviewPeriodInsightsSchema(client: any): Promise<void> {
 }
 
 async function ensureBriefingsSchema(client: any): Promise<void> {
-  // Idempotente — sin efecto si la migración 0002 ya corrió.
+  // Idempotente — sin efecto si las migraciones 0002/0003 ya corrieron.
   await client.query(`
     CREATE TABLE IF NOT EXISTS "agency_briefings" (
       "id"              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1077,6 +1281,16 @@ async function ensureBriefingsSchema(client: any): Promise<void> {
   await client.query(`
     CREATE INDEX IF NOT EXISTS "idx_agency_briefings_recent"
       ON "agency_briefings"("agency_id", "generated_at" DESC)
+  `);
+  // Self-heal de la migración 0003 (briefing modes) — la corrida del lambda
+  // no depende de invocar manualmente eco-migration.
+  await client.query(`
+    ALTER TABLE "agency_briefings"
+      ADD COLUMN IF NOT EXISTS "mode" VARCHAR(10) NOT NULL DEFAULT 'signal'
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS "idx_agency_briefings_mode"
+      ON "agency_briefings"("agency_id", "mode", "generated_at" DESC)
   `);
 }
 

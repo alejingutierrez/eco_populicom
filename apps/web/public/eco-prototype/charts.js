@@ -69,6 +69,12 @@ function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = nul
 
 // Sparkline
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
+  // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
+  // y la destructuración `{ path, points } = ''` daba `points = undefined`,
+  // que reventaba al leer `points[points.length - 1]`.
+  if (!Array.isArray(data) || data.length === 0) {
+    return <svg width={width} height={height} style={{ display: 'block' }} />;
+  }
   const { path, points } = smoothLinePath(data, width, height, accessor, 2);
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
@@ -143,7 +149,20 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 }
 
 // Multi-series line chart — stock-ticker style (crosshair, hover values, volume)
-function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false }) {
+//
+// Props:
+//   sharedScale  (mio)    — todas las series comparten min=0/max=max(all);
+//                           para sentiment timeline donde pos/neg deben ser
+//                           comparables.
+//   smooth       (mio)    — usa Catmull-Rom para las líneas (peaks puntiagudos
+//                           sin "mesetas" laterales).
+//   yDomain      (main)   — par [min, max] absoluto, fuerza ese rango Y. Útil
+//                           en single-metric modal chart para mostrar el valor
+//                           real dentro del rango oficial de la métrica. Tiene
+//                           prioridad sobre sharedScale.
+//   valueFormat  (main)   — función custom para formatear valores en tooltip;
+//                           si no se pasa, usa el switch por key.
+function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null); // index or null
@@ -158,20 +177,32 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
-  // Normalize: si sharedScale, todas las series comparten min=0 y max=max(all)
-  // para que peaks comparables visualmente representen volúmenes comparables.
-  // Si false (default), cada serie su propia escala (útil cuando series son
-  // métricas de unidades distintas, ej NSS, BHI, crisisRisk).
+  // Guard de main: sin datos o sin series activas no podemos render — antes el
+  // `data[hoverIdx][s.key]` tiraba "Cannot read properties of undefined" y
+  // volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
+    return (
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+        Sin datos suficientes para graficar.
+      </div>
+    );
+  }
+
+  // Normalize each series. Prioridad: yDomain absoluto (main, para modal KPI)
+  // > sharedScale (mio, para sentiment timeline) > escala por serie (default).
   let normalized;
-  if (sharedScale) {
+  if (Array.isArray(yDomain) && yDomain.length === 2) {
+    const [yMin, yMax] = yDomain;
+    normalized = series.map((s) => ({
+      ...s, min: yMin, max: yMax, range: (yMax - yMin) || 1,
+      vals: data.map((d) => d[s.key]),
+    }));
+  } else if (sharedScale) {
     const allVals = series.flatMap((s) => data.map((d) => d[s.key] || 0));
     const sharedMin = 0;
     const sharedMax = Math.max(1, ...allVals);
     normalized = series.map((s) => ({
-      ...s,
-      min: sharedMin,
-      max: sharedMax,
-      range: sharedMax - sharedMin || 1,
+      ...s, min: sharedMin, max: sharedMax, range: sharedMax - sharedMin || 1,
       vals: data.map((d) => d[s.key] || 0),
     }));
   } else {
@@ -193,9 +224,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   }
 
   function fmtVal(key, v) {
+    if (typeof valueFormat === 'function') return valueFormat(v);
     if (key === 'totalMentions') return v >= 1000 ? (v/1000).toFixed(1) + 'K' : v.toFixed(0);
     if (key === 'nss') return (v > 0 ? '+' : '') + v.toFixed(1);
-    if (key === 'crisisRiskScore') return v.toFixed(1);
+    if (key === 'crisisRiskScore') return v.toFixed(2);
     if (key === 'brandHealthIndex') return v.toFixed(2);
     if (key === 'engagementRate') return v.toFixed(1) + '%';
     return v.toFixed(1);
@@ -250,6 +282,21 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               )}
             </g>
           ))}
+          {/* Y-axis tick labels — solo cuando hay un yDomain absoluto, para
+              dar contexto de escala (ej. crisis 0/0.5/1, BHI 1/5.5/10). Sin
+              esto el usuario no sabe si la línea está en zona NORMAL o CRISIS. */}
+          {Array.isArray(yDomain) && yDomain.length === 2 && normalized[0] && (() => {
+            const s = normalized[0];
+            return [0, 0.5, 1].map((p) => {
+              const val = s.max - p * s.range;
+              return (
+                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="9" textAnchor="end"
+                      fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                  {fmtVal(s.key, val)}
+                </text>
+              );
+            });
+          })()}
 
           {/* Area fill SOLO cuando NO es sharedScale (donde tiene sentido
               destacar la primera serie). En shared-scale sentiment charts,
@@ -546,18 +593,26 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 }
 
 // Heatmap (hour x weekday)
+// Mejoras issue #8: etiquetas de horas cada 2h en vez de cada 4h, separadores
+// visuales en transiciones de turno (madrugada→mañana→tarde→noche), hover más
+// pronunciado con z-index para que destaque sobre las celdas vecinas.
 function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, onCellClick }) {
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  // Separadores en horas que marcan transición de turno (6am, 12pm, 6pm).
+  const SHIFT_BREAKS = new Set([6, 12, 18]);
+  const extraGap = (h) => SHIFT_BREAKS.has(h) ? 4 : 0;
   return (
     <div>
       <div style={{ display: 'flex', gap: 2, marginLeft: 30, fontSize: 9, color: 'var(--text-3)', marginBottom: 4 }}>
         {Array.from({ length: hours }).map((_, h) => (
-          <div key={h} style={{ width: cellSize, textAlign: 'center' }}>{h % 4 === 0 ? h : ''}</div>
+          <div key={h} style={{ width: cellSize, textAlign: 'center', marginLeft: extraGap(h), fontWeight: SHIFT_BREAKS.has(h) ? 700 : 400, color: SHIFT_BREAKS.has(h) ? 'var(--text-2)' : 'var(--text-3)' }}>
+            {h % 2 === 0 ? h : ''}
+          </div>
         ))}
       </div>
       {Array.from({ length: days }).map((_, d) => (
         <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: gap }}>
-          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)' }}>{labels[d]}</div>
+          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
           {Array.from({ length: hours }).map((_, h) => {
             const v = data[d * hours + h] ?? 0;
             const clickable = !!onCellClick;
@@ -565,10 +620,26 @@ function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, 
               <div key={h}
                 role={clickable ? 'button' : undefined}
                 onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: h, value: v }) : undefined}
-                title={`${labels[d]} ${h}h: ${v}`}
-                style={{ width: cellSize, height: cellSize, background: colorFn(v), borderRadius: 3, cursor: clickable ? 'pointer' : 'default', transition: 'transform 0.12s var(--ease)' }}
-                onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'scale(1.25)'; e.currentTarget.style.outline = '2px solid var(--accent)'; } : undefined}
-                onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.outline = 'none'; } : undefined}
+                title={`${labels[d]} ${String(h).padStart(2, '0')}:00 — ${v} menciones`}
+                style={{
+                  width: cellSize, height: cellSize,
+                  background: colorFn(v),
+                  borderRadius: 3,
+                  marginLeft: extraGap(h),
+                  cursor: clickable ? 'pointer' : 'default',
+                  transition: 'transform 0.12s var(--ease)',
+                  position: 'relative',
+                }}
+                onMouseEnter={clickable ? (e) => {
+                  e.currentTarget.style.transform = 'scale(1.4)';
+                  e.currentTarget.style.outline = '2px solid var(--accent)';
+                  e.currentTarget.style.zIndex = '10';
+                } : undefined}
+                onMouseLeave={clickable ? (e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.outline = 'none';
+                  e.currentTarget.style.zIndex = '';
+                } : undefined}
               />
             );
           })}

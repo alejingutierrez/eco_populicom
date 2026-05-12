@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool, dailyMetricSnapshots, mentions } from '@eco/database';
-import { sql, and, eq, lte, desc } from 'drizzle-orm';
+import { getPool } from '@eco/database';
 import {
   buildSentimentReport,
   closedWindowYmdInTZ,
   formatPeriodLabel,
+  loadMetricsForWindow,
 } from '@eco/shared';
 import type { PgClientLike, SentimentReport } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
@@ -144,44 +144,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       pool, agencyId, startYmd, endYmd, prevStartYmd, prevEndYmd,
     );
 
-    // Métricas compuestas: último snapshot dentro de la ventana.
-    const db = getDb();
-    const [snap] = await db
-      .select()
-      .from(dailyMetricSnapshots)
-      .where(and(
-        eq(dailyMetricSnapshots.agencyId, agencyId),
-        lte(dailyMetricSnapshots.date, endYmd),
-      ))
-      .orderBy(desc(dailyMetricSnapshots.date))
-      .limit(1);
+    // Métricas compuestas — recalculadas sobre la VENTANA del period (no
+    // sólo el snapshot del último día). Paridad con /api/eco-data del
+    // Scorecard, ambos usan el mismo loadMetricsForWindow del paquete
+    // `@eco/shared/metrics`. Antes el Overview leía sólo el snapshot más
+    // reciente, lo que producía valores idénticos para todos los periods
+    // (Crisis ayer = 0.185 para 1D/7D/1M/3M/6M/1A) — inconsistencia visible
+    // contra el Scorecard que sí recalculaba (0.588 para 7D).
+    const [winCur, winPrev] = await Promise.all([
+      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
+      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+    ]);
 
-    // Reach acumulado de la ventana — los snapshots son por día, así que para
-    // el "totalReach del periodo" sumamos reach_estimate de la tabla mentions
-    // con el mismo filtro que el termómetro (paridad con totals.total).
-    const reachRow = await pool.query<{ reach: number | string }>(
-      `SELECT COALESCE(SUM(reach_estimate), 0)::bigint AS reach
-         FROM mentions
-        WHERE agency_id = $1
-          AND published_at >= ($2::date)
-          AND published_at <  (($3::date) + INTERVAL '1 day')`,
-      [agencyId, startYmd, endYmd],
-    );
-    const totalReach = Number(reachRow.rows[0]?.reach ?? 0);
-
-    // Delta de volumen (% change) vs ventana previa.
-    const prevTotalRow = await pool.query<{ total: number | string }>(
-      `SELECT COUNT(*)::int AS total
-         FROM mentions
-        WHERE agency_id = $1
-          AND published_at >= ($2::date)
-          AND published_at <  (($3::date) + INTERVAL '1 day')`,
-      [agencyId, prevStartYmd, prevEndYmd],
-    );
-    const prevTotal = Number(prevTotalRow.rows[0]?.total ?? 0);
-    const totalMentionsDelta = prevTotal > 0
-      ? Number((((report.totals.total - prevTotal) / prevTotal) * 100).toFixed(1))
-      : (report.totals.total > 0 ? 100 : 0);
+    const totalMentionsDelta = winPrev.totals.total > 0
+      ? Number((((winCur.totals.total - winPrev.totals.total) / winPrev.totals.total) * 100).toFixed(1))
+      : (winCur.totals.total > 0 ? 100 : 0);
 
     const response: OverviewResponse = {
       periodLabel: formatPeriodLabel(startYmd, endYmd),
@@ -194,14 +171,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       dailySeries: report.dailySeries,
       topicsTable: report.topicsTable,
       currentMetrics: {
-        nss: snap?.nss != null ? Number(snap.nss) : null,
-        nss7d: snap?.nss7d != null ? Number(snap.nss7d) : null,
-        nss30d: snap?.nss30d != null ? Number(snap.nss30d) : null,
-        crisisRiskScore: snap?.crisisRiskScore != null ? Number(snap.crisisRiskScore) : null,
-        brandHealthIndex: snap?.brandHealthIndex != null ? Number(snap.brandHealthIndex) : null,
-        engagementRate: snap?.engagementRate != null ? Number(snap.engagementRate) : null,
-        totalMentions: report.totals.total,
-        totalReach,
+        nss: winCur.nss,
+        nss7d: winCur.nss7d,
+        nss30d: winCur.nss30d,
+        crisisRiskScore: winCur.crisisRiskScore,
+        brandHealthIndex: winCur.brandHealthIndex,
+        engagementRate: winCur.engagementRate,
+        totalMentions: winCur.totals.total,
+        totalReach: winCur.totalReach,
         totalMentionsDelta,
       },
     };

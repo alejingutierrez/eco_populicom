@@ -562,6 +562,95 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   );
 }
 
+/**
+ * Mini mapa Leaflet del municipio detectado en una mención. Reemplaza el SVG
+ * mock anterior (forma genérica de PR con un pin por región) por el mapa real
+ * con tiles CARTO y un círculo en las coordenadas exactas. Color del círculo
+ * según el sentimiento. Si Leaflet no cargó (CSP/red), cae a placeholder.
+ */
+function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
+  const containerRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
+    const L = window.L;
+    const hasCoords = Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number';
+    // Encuadre por defecto: centro de PR. Si la mención tiene coords, se
+    // ajustará en la siguiente línea.
+    const center = hasCoords ? [coords[0], coords[1]] : [18.22, -66.59];
+    const zoom = hasCoords ? 10 : 8;
+
+    if (!mapRef.current) {
+      const map = L.map(containerRef.current, {
+        center, zoom,
+        zoomControl: false,
+        attributionControl: false,
+        scrollWheelZoom: false,
+        dragging: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        touchZoom: false,
+      });
+      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+      const tileUrl = mode === 'light'
+        ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
+      mapRef.current = map;
+    } else {
+      mapRef.current.setView(center, zoom);
+    }
+
+    // Limpiar marcadores previos.
+    mapRef.current.eachLayer((layer) => {
+      if (layer instanceof L.CircleMarker) mapRef.current.removeLayer(layer);
+    });
+
+    if (hasCoords) {
+      const color = sentiment === 'positivo' ? '#3FD47A' : sentiment === 'negativo' ? '#FF6A3D' : '#8A94A1';
+      L.circleMarker(center, {
+        radius: 9, color: '#0E1620', weight: 1.5,
+        fillColor: color, fillOpacity: 0.85,
+      }).addTo(mapRef.current);
+    }
+  }, [coords, sentiment]);
+
+  // Cleanup on unmount — Leaflet sobre un container reusado en React
+  // puede acumular handlers; remove() libera memoria y listeners.
+  React.useEffect(() => () => {
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+  }, []);
+
+  if (typeof window !== 'undefined' && !window.L) {
+    return (
+      <div style={{
+        height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
+        background: 'var(--canvas-2)',
+      }}>Cargando mapa…</div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', height: 140 }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      <div style={{
+        position: 'absolute', top: 6, left: 8, zIndex: 400,
+        fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase',
+        letterSpacing: '0.1em', fontWeight: 700,
+        textShadow: '0 0 4px var(--canvas), 0 0 8px var(--canvas)',
+        pointerEvents: 'none',
+      }}>
+        Puerto Rico · {region || 'PR'}
+      </div>
+    </div>
+  );
+}
+
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
@@ -680,7 +769,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             </div>
           )}
 
-          {/* Geografía */}
+          {/* Geografía — mini mapa Leaflet real (issue QA: el SVG mock anterior
+              ignoraba las coordenadas exactas del municipio). */}
           {mention.municipality && (
             <div>
               <div className="section-eyebrow" style={{ marginBottom: 10 }}>Geografía detectada</div>
@@ -688,34 +778,20 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                 border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden',
                 background: 'var(--canvas-2)',
               }}>
-                {/* Mini mapa esquemático */}
-                <div style={{
-                  height: 120, position: 'relative',
-                  background: 'linear-gradient(135deg, #e8edf2 0%, #dce4ed 100%)',
-                  backgroundImage: `
-                    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)
-                  `,
-                  backgroundSize: '24px 24px',
-                }}>
-                  {/* Forma aproximada de PR */}
-                  <svg viewBox="0 0 400 150" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}>
-                    <path d="M30,70 Q60,50 110,55 L200,50 Q280,52 340,65 L370,80 Q340,95 280,100 L180,105 Q100,105 60,95 Q30,85 30,70 Z"
-                      fill="rgba(255,255,255,0.6)" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="3 3" />
-                    {/* Pin en ubicación aproximada */}
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="8" fill="var(--neg)" opacity="0.2" />
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="4" fill="var(--neg)" />
-                  </svg>
-                  <div style={{ position: 'absolute', top: 6, left: 8, fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                    Puerto Rico · {mention.region}
-                  </div>
-                </div>
+                <MiniMunicipalityMap
+                  municipality={mention.municipality}
+                  region={mention.region}
+                  coords={mention.coords}
+                  sentiment={mention.sentiment}
+                />
                 <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--hairline)' }}>
                   <Icons.MapPin size={14} color="var(--neg)" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
                     <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                      {mention.coords?.[0].toFixed(4)}°N, {Math.abs(mention.coords?.[1] ?? 0).toFixed(4)}°O · Región {mention.region}
+                      {Array.isArray(mention.coords) && typeof mention.coords[0] === 'number' && typeof mention.coords[1] === 'number'
+                        ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1]).toFixed(4)}°O · Región ${mention.region}`
+                        : `Región ${mention.region || 'PR'}`}
                     </div>
                   </div>
                   <button className="btn"
@@ -1181,4 +1257,258 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   );
 }
 
-window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, TweaksPanel, NAV, SYSTEM_NAV };
+// =========================================================
+// MetricInsightModal — modal de drilldown para cada KPI del Scorecard.
+// Patrón visual inspirado en OverviewHighlights (banda + etiqueta + valor)
+// del Overview, ahora con serie temporal e interpretación AI coloquial.
+//
+// Props:
+//   metricKey: 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization'
+//   value:     number (valor en el periodo actual; sirve de placeholder
+//              mientras carga el fetch)
+//   label:     "Net Sentiment Score" etc.
+//   accent:    color CSS para borde superior y línea del chart
+//   period:    period activo del header (1D/7D/...)
+//   agency:    slug de la agencia activa
+// =========================================================
+function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)', period, agency, onClose }) {
+  const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
+  const [data, setData] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    // Cache por sesión: evita re-fetchear cuando el usuario abre y cierra
+    // el mismo modal varias veces sin cambiar de period. El sufijo `.v3`
+    // invalida cachés generados antes del backfill V3 (crisis sin gate +
+    // BHI escala 1-10), que se quedaban pegados en sessionStorage del
+    // tab y mostraban valores stale aún tras redeploy.
+    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) { setData(JSON.parse(cached)); return; }
+    } catch (_) {}
+    const ctrl = new AbortController();
+    const params = new URLSearchParams({ metric: metricKey, period: period || '7D' });
+    if (agency) params.set('agency', agency);
+    fetch(`/api/ai/metric-insight?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then((j) => {
+        setData(j);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(j)); } catch (_) {}
+      })
+      .catch((e) => { if (e?.name !== 'AbortError') setError(String(e?.message || e)); });
+    return () => ctrl.abort();
+  }, [metricKey, period, agency]);
+
+  function sanitize(html) {
+    if (!html) return '';
+    return String(html).replace(/<(?!\/?strong\b)[^>]*>/gi, '');
+  }
+
+  function formatValue(v) {
+    if (v == null) return '—';
+    if (metricKey === 'nss') return (v > 0 ? '+' : '') + Number(v).toFixed(1);
+    if (metricKey === 'crisis') return Number(v).toFixed(2);
+    // BHI: el endpoint /api/ai/metric-insight ya devuelve TODOS los campos
+    // (value, deltaVsPrev, historicalP25/P75, series.value) en escala 1-10.
+    // El placeholder inicial pasado por openMetric en screens.js también se
+    // pre-convierte. Aquí solo formateamos a 1 decimal — sin re-mapear.
+    if (metricKey === 'bhi') return Number(v).toFixed(1);
+    if (metricKey === 'polarization') return Math.round(Number(v)) + '%';
+    if (metricKey === 'volume') return Number(v).toLocaleString('es-PR');
+    return String(v);
+  }
+
+  function bandColor(band) {
+    if (!band) return 'var(--text-3)';
+    const b = String(band).toUpperCase();
+    if (['CRISIS', 'ALERTA', 'NEGATIVO', 'CRÍTICO'].includes(b)) return 'var(--neg)';
+    if (['ELEVADO', 'DÉBIL', 'MODERADA', 'EXTREMA'].includes(b)) return 'var(--warn)';
+    if (['SANO', 'POSITIVO', 'NORMAL', 'ALTA'].includes(b)) return 'var(--pos)';
+    if (['FUERTE'].includes(b)) return 'var(--accent)';
+    return 'var(--text-3)';
+  }
+
+  // Bandas para la barra gradiente — patrón replicado de OverviewHighlights
+  // crisis card (screens.js:2865). Cada métrica tiene su gradiente.
+  function bandConfig() {
+    if (metricKey === 'crisis') {
+      return {
+        labels: ['NORMAL', 'ELEVADO', 'ALERTA', 'CRISIS'],
+        gradient: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)',
+        pct: (v) => Math.min((v ?? 0) * 100, 100),
+      };
+    }
+    if (metricKey === 'bhi') {
+      return {
+        labels: ['CRÍTICO', 'DÉBIL', 'SANO', 'FUERTE'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 40%, var(--warn) 40%, var(--warn) 60%, var(--pos) 60%, var(--pos) 80%, var(--accent) 80%, var(--accent) 100%)',
+        // Valor en escala 1-10 → posición 0-100% (clamp). Antes se multiplicaba
+        // por 100 asumiendo 0-1, lo que dejaba el marcador siempre pegado al
+        // borde derecho (cualquier valor >= 1 da pct = 100%).
+        pct: (v) => Math.min(Math.max((((v ?? 1) - 1) / 9) * 100, 0), 100),
+      };
+    }
+    if (metricKey === 'polarization') {
+      return {
+        labels: ['APÁTICA', 'MODERADA', 'ALTA', 'EXTREMA'],
+        gradient: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 50%, #8B5CF6 50%, #8B5CF6 75%, var(--neg) 75%, var(--neg) 100%)',
+        pct: (v) => Math.max(0, Math.min(v ?? 0, 100)),
+      };
+    }
+    if (metricKey === 'nss') {
+      return {
+        labels: ['MUY NEG', 'NEG', 'NEUTRAL', 'POS', 'MUY POS'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 30%, var(--warn) 30%, var(--warn) 45%, var(--text-3) 45%, var(--text-3) 55%, var(--pos) 55%, var(--pos) 70%, var(--accent) 70%, var(--accent) 100%)',
+        pct: (v) => Math.max(0, Math.min(((v ?? 0) + 100) / 2, 100)),
+      };
+    }
+    // volume — sin banda intrínseca, mostramos solo posición vs P25/P75
+    return null;
+  }
+
+  const displayValue = data ? data.value : value;
+  const displayBand = data ? data.band : null;
+  const cfg = bandConfig();
+  const series = (data && data.series) || [];
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} style={{ zIndex: 2000 }} />
+      <div role="dialog" aria-modal="true" style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto',
+        background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
+        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        zIndex: 2001,
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid var(--hairline)',
+          borderTop: `3px solid ${accent}`,
+          display: 'flex', alignItems: 'flex-start', gap: 16,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>
+              <span>Métrica · {period || '—'}</span>
+              {data && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4 }}>
+                  <Icons.Sparkles size={9} /> IA
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
+              {label}
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              <div className="num" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                {formatValue(displayValue)}
+              </div>
+              {displayBand && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
+                  {displayBand}
+                </div>
+              )}
+              {data && data.deltaVsPrev != null && (
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+                  {data.deltaVsPrev > 0 ? '▲ +' : data.deltaVsPrev < 0 ? '▼ ' : '· '}
+                  {Math.abs(data.deltaVsPrev)} vs ventana anterior
+                </div>
+              )}
+            </div>
+          </div>
+          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+        </div>
+
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Banda visual — patrón Overview crisis card. */}
+          {cfg && displayValue != null && (
+            <div>
+              <div style={{ height: 8, borderRadius: 4, background: cfg.gradient, position: 'relative' }}>
+                <div style={{ position: 'absolute', left: `${cfg.pct(displayValue)}%`, top: -4, width: 14, height: 14, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor(displayBand)}`, transform: 'translateX(-50%)' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
+                {cfg.labels.map((l) => <span key={l}>{l}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* Interpretación AI coloquial (issue #4). */}
+          <div style={{
+            padding: '14px 16px', background: 'var(--canvas-2)',
+            border: '1px solid var(--hairline)', borderRadius: 8,
+            fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
+          }}>
+            {!data && !error && (
+              <span style={{ color: 'var(--text-3)' }}>Generando interpretación…</span>
+            )}
+            {error && (
+              <span style={{ color: 'var(--neg)' }}>No se pudo generar la interpretación: {error}</span>
+            )}
+            {data && data.interpretation && (
+              <span dangerouslySetInnerHTML={{ __html: sanitize(data.interpretation) }} />
+            )}
+          </div>
+
+          {/* Serie temporal de la métrica para la ventana del period. */}
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Evolución diaria</div>
+            {series.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, background: 'var(--canvas-2)', borderRadius: 6 }}>
+                Sin datos suficientes para graficar la serie.
+              </div>
+            )}
+            {series.length > 0 && (
+              <MultiLineChart
+                data={series}
+                series={[{ key: 'value', label, color: accent }]}
+                height={200}
+                /* Dominio Y absoluto por métrica: sin esto la normalización
+                   por-serie estira la línea a min/max del period y un valor
+                   como 0.12 → 0.28 (crisis NORMAL) se ve dramático, como si
+                   tocara fondo y techo. Con dominio fijo el usuario ve la
+                   posición real en la escala completa de la métrica. */
+                yDomain={
+                  metricKey === 'crisis' ? [0, 1]
+                  : metricKey === 'bhi' ? [1, 10]
+                  : metricKey === 'polarization' ? [0, 100]
+                  : metricKey === 'nss' ? [-100, 100]
+                  : null
+                }
+                valueFormat={(v) => formatValue(v)}
+              />
+            )}
+          </div>
+
+          {/* Tópicos contribuyentes (opcional). */}
+          {data && data.topContributingTopics && data.topContributingTopics.length > 0 && (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópicos contribuyentes</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.topContributingTopics.map((t) => (
+                  <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>{t.name}</span>
+                    <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{Math.round(t.share * 100)}%</span>
+                    <div style={{ width: 80, height: 4, background: 'var(--canvas-2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.min(t.share * 100, 100)}%`, height: '100%', background: accent }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Contexto histórico — P25/P75 90d. */}
+          {data && data.historicalP25 != null && data.historicalP75 != null && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
+              Rango típico de los últimos 90 días: <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP25)}</strong> a <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP75)}</strong>.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };
