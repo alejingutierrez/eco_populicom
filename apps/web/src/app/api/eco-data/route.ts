@@ -661,26 +661,18 @@ export async function GET(request: NextRequest) {
       });
 
     // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
-    const emotionAgg = untilExclusive
-      ? await db.execute<{ emotion: string; c: number | string }>(sql`
-          SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
-          FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
-          WHERE m.agency_id = ${agencyId}
-            AND m.published_at >= ${since.toISOString()}
-            AND m.published_at < ${untilExclusive.toISOString()}
-          GROUP BY emotion
-          ORDER BY c DESC
-          LIMIT 20
-        `)
-      : await db.execute<{ emotion: string; c: number | string }>(sql`
-          SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
-          FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
-          WHERE m.agency_id = ${agencyId}
-            AND m.published_at >= ${since.toISOString()}
-          GROUP BY emotion
-          ORDER BY c DESC
-          LIMIT 20
-        `);
+    // since/until ya están computados desde la ventana cerrada (preset) o
+    // desde customRange — cubren ambos casos sin necesidad de branch.
+    const emotionAgg = await db.execute<{ emotion: string; c: number | string }>(sql`
+      SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
+      FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
+      WHERE m.agency_id = ${agencyId}
+        AND m.published_at >= ${since.toISOString()}
+        AND m.published_at <= ${until.toISOString()}
+      GROUP BY emotion
+      ORDER BY c DESC
+      LIMIT 20
+    `);
     // pg driver returns { rows, rowCount, ... }; Drizzle passes that through.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const emotionRowsList: Array<{ emotion: string; c: number | string }> = Array.isArray(emotionAgg)

@@ -46,7 +46,7 @@ function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--ac
       </div>
       {trendData && <div style={{ marginTop: 10 }}><Sparkline data={trendData} width={200} height={30} color={accent} /></div>}
       {children && <div style={{ marginTop: 10 }}>{children}</div>}
-    </Tag>
+    </div>
   );
 }
 
