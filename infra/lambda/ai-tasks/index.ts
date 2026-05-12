@@ -32,11 +32,41 @@ import {
   type TopicAggregateForDescription,
   type TopicMentionSample,
 } from '@eco/shared';
-// `invokeClaude` se importa por deep-path para no traer el SDK Bedrock al
-// grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
+// `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
+// al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
-// runtime instalado) lo importan directamente.
-import { invokeClaude } from '@eco/shared/src/bedrock';
+// runtime instalado) lo importan directamente. Tool-use con input_schema es
+// preferido vs JSON crudo (feedback_bedrock_tool_use).
+import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
+
+// JSON Schemas para tool-use. Bedrock garantiza el shape del input — el modelo
+// no puede devolver comillas/saltos sin escapar que rompan JSON.parse, problema
+// histórico documentado en feedback_bedrock_tool_use.
+const BRIEFING_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    narrative_html: {
+      type: 'string',
+      description: 'Narrativa de 1-2 oraciones con <strong> permitido solo para resaltar nombres propios/cifras.',
+    },
+    dominant_signal: { type: 'string', description: 'Ej: "Infraestructura · Negativa"' },
+    action_label: { type: 'string', description: 'Acción recomendada en gerundio/imperativo (max 80 chars)' },
+    action_tone: { type: 'string', enum: ['pos', 'neg', 'warn', 'neu'] },
+    reach_label: { type: 'string', description: 'Ej: "2.34M impresiones"' },
+  },
+  required: ['narrative_html', 'dominant_signal', 'action_label', 'action_tone', 'reach_label'],
+};
+
+const TOPIC_DESCRIPTION_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    description: {
+      type: 'string',
+      description: '2-3 oraciones describiendo el tópico, cada afirmación con número concreto + nombre propio.',
+    },
+  },
+  required: ['description'],
+};
 
 const bedrock = new BedrockRuntimeClient({});
 const sm = new SecretsManagerClient({});
@@ -136,7 +166,7 @@ async function generateBriefingFor(
 
   try {
     const prompt = buildExecutiveBriefingPrompt(aggregates);
-    const text = await invokeClaude({
+    const parsed = await invokeClaudeWithTool<BriefingOutput>({
       client: bedrock,
       systemPrompt: EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
       userPrompt: prompt,
@@ -144,8 +174,12 @@ async function generateBriefingFor(
       primaryModel: PRIMARY_MODEL,
       fallbackModel: FALLBACK_MODEL,
       temperature: 0,
+      tool: {
+        name: 'emit_briefing',
+        description: 'Emit the structured executive briefing.',
+        input_schema: BRIEFING_TOOL_SCHEMA,
+      },
     });
-    const parsed = JSON.parse(text) as BriefingOutput;
     const validated = validateBriefingOutput(parsed);
 
     if (!dryRun) {
@@ -428,7 +462,7 @@ async function generateTopicDescriptionsFor(
       }
       const samples = await loadTopicSamples(client, agency, t.id, since);
       const prompt = buildTopicDescriptionPrompt(agg, samples);
-      const text = await invokeClaude({
+      const parsed = await invokeClaudeWithTool<{ description?: string }>({
         client: bedrock,
         systemPrompt: TOPIC_DESCRIPTION_SYSTEM_PROMPT,
         userPrompt: prompt,
@@ -436,8 +470,12 @@ async function generateTopicDescriptionsFor(
         primaryModel: PRIMARY_MODEL,
         fallbackModel: FALLBACK_MODEL,
         temperature: 0,
+        tool: {
+          name: 'emit_topic_description',
+          description: 'Emit the structured topic description.',
+          input_schema: TOPIC_DESCRIPTION_TOOL_SCHEMA,
+        },
       });
-      const parsed = JSON.parse(text) as { description?: string };
       const description = (parsed.description ?? '').trim().slice(0, 800);
       if (!description) {
         updates.push({ topic: t.slug, status: 'skip', message: 'modelo devolvió vacío' });
