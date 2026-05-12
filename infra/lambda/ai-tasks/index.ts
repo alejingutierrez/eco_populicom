@@ -27,11 +27,16 @@ import {
   buildExecutiveBriefingPrompt,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   buildTopicDescriptionPrompt,
+  INSIGHTS_SYSTEM_PROMPT,
+  buildSentimentInsightsPrompt,
+  buildDailySummaryPrompt,
   type BriefingAggregates,
   type BriefingOutput,
   type TopicAggregateForDescription,
   type TopicMentionSample,
+  type WeeklyAggregates,
 } from '@eco/shared';
+import { buildPeriodAggregates, loadSamples, loadTodaySamples } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -79,11 +84,15 @@ const TZ = 'America/Puerto_Rico';
 
 let dbUrl: string | null = null;
 
-type Action = 'briefing' | 'topic-descriptions';
+type Action = 'briefing' | 'topic-descriptions' | 'period-insights';
 
 interface InvokeEvent {
   action?: Action;
   agencySlug?: string;
+  /** YYYY-MM-DD (inclusive) — solo para action='period-insights'. */
+  periodStart?: string;
+  /** YYYY-MM-DD (inclusive) — solo para action='period-insights'. */
+  periodEnd?: string;
   dryRun?: boolean;
 }
 
@@ -130,6 +139,14 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
     } else if (action === 'topic-descriptions') {
       for (const a of agencies) {
         results.push(await generateTopicDescriptionsFor(client, a, dryRun));
+      }
+    } else if (action === 'period-insights') {
+      if (!event?.periodStart || !event?.periodEnd) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'period-insights requires periodStart + periodEnd (YYYY-MM-DD)' }) };
+      }
+      await ensureOverviewPeriodInsightsSchema(client);
+      for (const a of agencies) {
+        results.push(await generatePeriodInsightsFor(client, a, event.periodStart, event.periodEnd, dryRun));
       }
     } else {
       return { statusCode: 400, body: JSON.stringify({ error: `unknown action: ${action}` }) };
@@ -493,6 +510,186 @@ async function generateTopicDescriptionsFor(
   return { agencySlug: agency.slug, status: 'ok', output: updates };
 }
 
+// ============================================================
+// Period Insights generator (action='period-insights')
+// ============================================================
+//
+// Genera los 3 bloques de insights (negative/neutral/positive) y un párrafo
+// daily_summary para un periodo arbitrario (agency, periodStart, periodEnd).
+// Persiste en `overview_period_insights` con UPSERT. Sirve a /api/eco-insights.
+
+interface PeriodInsightsOutput {
+  negative: string[];
+  neutral: string[];
+  positive: string[];
+}
+
+const PERIOD_INSIGHTS_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    negative: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+      description: 'Hasta 3 insights de tono negativo, una oración cada uno (20–45 palabras).',
+    },
+    neutral: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+    },
+    positive: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+    },
+  },
+  required: ['negative', 'neutral', 'positive'],
+};
+
+const DAILY_SUMMARY_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: {
+      type: 'string',
+      minLength: 80, maxLength: 1400,
+      description: 'Párrafo de 3–5 oraciones describiendo el último día del periodo.',
+    },
+  },
+  required: ['summary'],
+};
+
+async function generatePeriodInsightsFor(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  periodStart: string,
+  periodEnd: string,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  // Ventana previa de igual duración para deltaVsPrevWeek.
+  const fromDate = new Date(`${periodStart}T00:00:00Z`);
+  const toDate = new Date(`${periodEnd}T00:00:00Z`);
+  const days = Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1;
+  const prevEnd = new Date(fromDate.getTime() - 86400000);
+  const prevStart = new Date(prevEnd.getTime() - (days - 1) * 86400000);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const prevStartYmd = fmt(prevStart);
+  const prevEndYmd = fmt(prevEnd);
+
+  let aggregates: WeeklyAggregates;
+  try {
+    aggregates = await buildPeriodAggregates(client, agency, periodStart, periodEnd, prevStartYmd, prevEndYmd);
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: `aggregates failed: ${(err as Error).message}` };
+  }
+
+  if (aggregates.totals.total < 10) {
+    // No vale la pena gastar LLM para señal anémica. Persistimos fila vacía
+    // para que el endpoint la sirva sin reintentar.
+    const empty: PeriodInsightsOutput = { negative: [], neutral: [], positive: [] };
+    if (!dryRun) {
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, PRIMARY_MODEL);
+    }
+    return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: { ...empty, daily_summary: null } };
+  }
+
+  try {
+    const samples = await loadSamples(client, agency.id, periodStart, periodEnd);
+    const insightsPrompt = buildSentimentInsightsPrompt(aggregates, samples);
+    const insights = await invokeClaudeWithTool<PeriodInsightsOutput>({
+      client: bedrock,
+      systemPrompt: INSIGHTS_SYSTEM_PROMPT,
+      userPrompt: insightsPrompt,
+      maxTokens: 1500,
+      primaryModel: PRIMARY_MODEL,
+      fallbackModel: FALLBACK_MODEL,
+      temperature: 0,
+      tool: {
+        name: 'emit_period_insights',
+        description: 'Emit 3 sentiment-bucketed lists of insights.',
+        input_schema: PERIOD_INSIGHTS_TOOL_SCHEMA,
+      },
+    });
+
+    // Daily summary: párrafo sobre el último día del periodo. Usa muestras
+    // del endYmd. Si falla, simplemente queda null en la fila.
+    let dailySummary: string | null = null;
+    try {
+      const todaySamples = await loadTodaySamples(client, agency.id, periodEnd);
+      const summaryPrompt = buildDailySummaryPrompt(aggregates, todaySamples, periodEnd);
+      const sum = await invokeClaudeWithTool<{ summary: string }>({
+        client: bedrock,
+        systemPrompt: INSIGHTS_SYSTEM_PROMPT,
+        userPrompt: summaryPrompt,
+        maxTokens: 600,
+        primaryModel: PRIMARY_MODEL,
+        fallbackModel: FALLBACK_MODEL,
+        temperature: 0,
+        tool: {
+          name: 'emit_daily_summary',
+          description: 'Emit a single paragraph daily summary.',
+          input_schema: DAILY_SUMMARY_TOOL_SCHEMA,
+        },
+      });
+      dailySummary = (sum.summary ?? '').trim().slice(0, 1400) || null;
+    } catch (err) {
+      console.warn(`[ai-tasks] daily_summary failed for ${agency.slug}: ${(err as Error).message}`);
+    }
+
+    const validated: PeriodInsightsOutput = {
+      negative: Array.isArray(insights.negative) ? insights.negative.slice(0, 3) : [],
+      neutral: Array.isArray(insights.neutral) ? insights.neutral.slice(0, 3) : [],
+      positive: Array.isArray(insights.positive) ? insights.positive.slice(0, 3) : [],
+    };
+
+    if (!dryRun) {
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, PRIMARY_MODEL);
+    }
+    return {
+      agencySlug: agency.slug,
+      status: 'ok',
+      output: { ...validated, daily_summary: dailySummary },
+    };
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
+  }
+}
+
+async function persistPeriodInsights(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agencyId: string,
+  periodStart: string,
+  periodEnd: string,
+  insights: PeriodInsightsOutput,
+  dailySummary: string | null,
+  modelUsed: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO overview_period_insights
+       (agency_id, period_start_date, period_end_date,
+        negative_insights, neutral_insights, positive_insights,
+        daily_summary, model_used, generated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, NOW())
+     ON CONFLICT ON CONSTRAINT uq_overview_period_insights_agency_range
+     DO UPDATE SET
+       negative_insights = EXCLUDED.negative_insights,
+       neutral_insights  = EXCLUDED.neutral_insights,
+       positive_insights = EXCLUDED.positive_insights,
+       daily_summary     = EXCLUDED.daily_summary,
+       model_used        = EXCLUDED.model_used,
+       generated_at      = NOW()`,
+    [
+      agencyId, periodStart, periodEnd,
+      JSON.stringify(insights.negative),
+      JSON.stringify(insights.neutral),
+      JSON.stringify(insights.positive),
+      dailySummary, modelUsed,
+    ],
+  );
+}
+
 async function loadTopicAggregate(
   client: any,
   agency: AgencyRow,
@@ -614,6 +811,32 @@ async function loadAgencies(client: any, slugFilter: string | null): Promise<Age
     `SELECT id, slug, name FROM agencies WHERE is_active = true ORDER BY slug`,
   );
   return res.rows;
+}
+
+async function ensureOverviewPeriodInsightsSchema(client: any): Promise<void> {
+  // Self-heal idempotente — espejo de la migración 0003. Permite que el lambda
+  // funcione aunque el endpoint o el infra-team aún no haya corrido la
+  // migración formal.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "overview_period_insights" (
+      "id"                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "agency_id"           UUID NOT NULL REFERENCES "agencies"("id") ON DELETE CASCADE,
+      "period_start_date"   DATE NOT NULL,
+      "period_end_date"     DATE NOT NULL,
+      "negative_insights"   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "neutral_insights"    JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "positive_insights"   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "daily_summary"       TEXT,
+      "model_used"          TEXT NOT NULL,
+      "generated_at"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "uq_overview_period_insights_agency_range"
+        UNIQUE ("agency_id", "period_start_date", "period_end_date")
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS "idx_overview_period_insights_recent"
+      ON "overview_period_insights"("agency_id", "period_end_date" DESC)
+  `);
 }
 
 async function ensureBriefingsSchema(client: any): Promise<void> {

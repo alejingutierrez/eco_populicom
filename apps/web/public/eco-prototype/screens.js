@@ -2899,6 +2899,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       <OverviewFilterBar period={period} />
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
+      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       <OverviewHighlights metrics={data.currentMetrics} />
       <OverviewTendencia dailySeries={data.dailySeries} />
       <OverviewTopicos
@@ -3187,6 +3188,148 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
           conteos más altos en la pestaña Tópicos por esa razón.
         </span>
       </div>
+    </div>
+  );
+}
+
+// OverviewInsights — 3 columnas (negativos / positivos / resumen general)
+// generadas por LLM y cacheadas por (agency, periodStart, periodEnd).
+// Patrón cache-or-202: si el endpoint devuelve 'ready' renderiza inmediato.
+// Si devuelve 'computing' arranca polling cada 3s hasta cap 90s.
+function OverviewInsights({ periodStart, periodEnd, agency }) {
+  const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
+  const pollRef = React.useRef(null);
+  const startedAt = React.useRef(0);
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_INTERVAL_MS = 3 * 1000;
+
+  React.useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    setState({ phase: 'loading', data: null, error: null });
+    startedAt.current = Date.now();
+    const ctrl = new AbortController();
+
+    async function fetchOnce() {
+      const params = new URLSearchParams({ from: periodStart, to: periodEnd });
+      if (agency) params.set('agency', agency);
+      try {
+        const res = await fetch('/api/eco-insights?' + params.toString(), {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
+        if (res.status === 202) {
+          setState((s) => ({ ...s, phase: 'computing' }));
+          return 'computing';
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setState({ phase: 'error', data: null, error: body.error || `HTTP ${res.status}` });
+          return 'error';
+        }
+        const json = await res.json();
+        setState({ phase: 'ready', data: json, error: null });
+        return 'ready';
+      } catch (e) {
+        if (e?.name === 'AbortError') return 'aborted';
+        setState({ phase: 'error', data: null, error: String(e?.message || e) });
+        return 'error';
+      }
+    }
+
+    async function loop() {
+      const status = await fetchOnce();
+      if (status === 'computing') {
+        if (Date.now() - startedAt.current > MAX_POLL_MS) {
+          setState({ phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' });
+          return;
+        }
+        pollRef.current = setTimeout(loop, POLL_INTERVAL_MS);
+      }
+    }
+    loop();
+
+    return () => {
+      ctrl.abort();
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [periodStart, periodEnd, agency]);
+
+  const eyebrow = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>02 · Insights · análisis IA del periodo</div>
+      {state.phase === 'computing' && (
+        <span style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+          GENERANDO…
+        </span>
+      )}
+      {state.phase === 'ready' && state.data?.stale && (
+        <span className="pill pill-info" style={{ fontSize: 9 }} title="Datos cacheados; el lambda está recomputando en background">
+          Actualizando…
+        </span>
+      )}
+    </div>
+  );
+
+  if (state.phase === 'error') {
+    return (
+      <div>
+        {eyebrow}
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          No fue posible cargar los insights del periodo: {state.error}
+        </div>
+      </div>
+    );
+  }
+
+  const cols = [
+    { key: 'negative', title: 'Negativos', accent: 'var(--neg)', items: state.data?.insights?.negative ?? [] },
+    { key: 'positive', title: 'Positivos', accent: 'var(--pos)', items: state.data?.insights?.positive ?? [] },
+    { key: 'general',  title: 'Resumen general', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
+  ];
+  const isLoading = state.phase !== 'ready';
+  const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);
+
+  return (
+    <div>
+      {eyebrow}
+      {allEmpty ? (
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          Sin suficiente señal en el periodo seleccionado para generar insights.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {cols.map((col) => (
+            <div key={col.key} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${col.accent}` }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{col.title}</div>
+              {isLoading ? (
+                <>
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6 }} />
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6, width: '92%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '78%' }} />
+                </>
+              ) : col.items.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
+                </div>
+              ) : col.key === 'general' ? (
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(col.items[0]) }} />
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {col.items.map((it, i) => (
+                    <li key={i} style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 8 }}>
+                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 6 }} />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
