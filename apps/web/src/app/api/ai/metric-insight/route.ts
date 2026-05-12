@@ -260,17 +260,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       share: Number(r.total) / totalForShare,
     }));
 
+    // BHI: el cálculo interno es 0-1 (backtest), pero la UI presenta 1-10
+    // (1 = crítico, 10 = fuerte). Transformamos value, delta, P25/P75 y la
+    // serie temporal antes de pasar al prompt y al cliente para que el insight
+    // AI hable en la misma escala que ve el usuario en el KpiCard. Las bandas
+    // (CRÍTICO/DÉBIL/SANO/FUERTE) se calculan del valor crudo y por lo tanto
+    // no cambian; solo los números mostrados se reescalan.
+    const toBhi = (v: number | null): number | null => v == null ? null : Number((1 + v * 9).toFixed(1));
+    const displayValue = metric === 'bhi' ? toBhi(value) : value;
+    const displayDelta = metric === 'bhi' && deltaVsPrev != null
+      ? Number((deltaVsPrev * 9).toFixed(1))
+      : deltaVsPrev;
+    const displayP25 = metric === 'bhi' ? toBhi(p25) : p25;
+    const displayP75 = metric === 'bhi' ? toBhi(p75) : p75;
+    const displaySeries = metric === 'bhi'
+      ? series.map((s) => ({ ...s, value: toBhi(s.value) }))
+      : series;
+
     // Invocar Claude para la interpretación. Si falla, devolvemos una
     // interpretación rule-based (no rompemos la UI).
     const insightInput: MetricInsightInput = {
       metric,
       metricLabel: METRIC_LABELS[metric],
-      currentValue: value ?? 0,
+      currentValue: displayValue ?? 0,
       band,
       windowDays: days,
-      deltaVsPrev,
-      historicalP25: p25,
-      historicalP75: p75,
+      deltaVsPrev: displayDelta,
+      historicalP25: displayP25,
+      historicalP75: displayP75,
       topContributingTopics,
       topMunicipality: null,
     };
@@ -286,15 +303,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const payload = {
       metric,
       label: METRIC_LABELS[metric],
-      value,
+      value: displayValue,
       band,
-      deltaVsPrev,
+      deltaVsPrev: displayDelta,
       windowDays: days,
       periodStart: startYmd,
       periodEnd: endYmd,
-      series,
-      historicalP25: p25,
-      historicalP75: p75,
+      series: displaySeries,
+      historicalP25: displayP25,
+      historicalP75: displayP75,
       topContributingTopics,
       interpretation,
     };
@@ -351,7 +368,7 @@ function buildRuleBasedInsight(i: MetricInsightInput): string {
     return `Se registraron <strong>${v.toLocaleString('es-PR')}</strong> menciones en los ${windowStr}. ${deltaStr === 'no presenta cambio medible' ? 'Volumen estable vs. la ventana anterior.' : `Volumen ${deltaStr}% vs. la ventana anterior.`}`;
   }
   if (i.metric === 'bhi') {
-    return `El Brand Health Index está en <strong>${v}</strong> (${i.band.toLowerCase()}) en los ${windowStr}. ${deltaStr === 'no presenta cambio medible' ? 'Sin movimiento medible.' : `${deltaStr} puntos vs. la ventana anterior.`}`;
+    return `El Brand Health Index está en <strong>${v}</strong> de 10 (${i.band.toLowerCase()}) en los ${windowStr}. ${deltaStr === 'no presenta cambio medible' ? 'Sin movimiento medible.' : `${deltaStr} puntos vs. la ventana anterior.`}`;
   }
   return `La polarización está en <strong>${v}%</strong> (${i.band.toLowerCase()}) en los ${windowStr}. ${deltaStr === 'no presenta cambio medible' ? 'Sin variación medible.' : `${deltaStr} puntos vs. la ventana anterior.`}`;
 }
