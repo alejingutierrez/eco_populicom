@@ -631,14 +631,18 @@ async function generatePeriodInsightsFor(
     // describe la VENTANA COMPLETA. Petición explícita del usuario:
     // "independiente que yo filtre 1D, 5D, 7D y 30D parece que los insights
     // y resúmenes se siguen haciendo solo con el día anterior y eso está mal".
-    let dailySummary: string | null = null;
-    try {
-      const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples);
+    //
+    // maxTokens 1500 (igual que insights) — antes era 600 y truncaba el tool_use
+    // en periodos ≥7D devolviendo input vacío silenciosamente. Si el primer
+    // intento devuelve summary corto, reintentamos con 3000 tokens. Si tras eso
+    // sigue vacío, log VISIBLE para que se note en CloudWatch.
+    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples);
+    const trySummary = async (maxTokens: number): Promise<string | null> => {
       const sum = await invokeClaudeWithTool<{ summary: string }>({
         client: bedrock,
         systemPrompt: INSIGHTS_SYSTEM_PROMPT,
         userPrompt: summaryPrompt,
-        maxTokens: 600,
+        maxTokens,
         primaryModel: PRIMARY_MODEL,
         fallbackModel: FALLBACK_MODEL,
         temperature: 0,
@@ -648,9 +652,29 @@ async function generatePeriodInsightsFor(
           input_schema: DAILY_SUMMARY_TOOL_SCHEMA,
         },
       });
-      dailySummary = (sum.summary ?? '').trim().slice(0, 1400) || null;
+      const trimmed = (sum.summary ?? '').trim().slice(0, 1400);
+      return trimmed.length >= 80 ? trimmed : null;
+    };
+
+    let dailySummary: string | null = null;
+    try {
+      dailySummary = await trySummary(1500);
+      if (!dailySummary) {
+        console.warn(`[ai-tasks] period_summary returned empty/short for ${agency.slug} ${periodStart}→${periodEnd} at maxTokens=1500; retrying with 3000`);
+        dailySummary = await trySummary(3000);
+      }
     } catch (err) {
-      console.warn(`[ai-tasks] period_summary failed for ${agency.slug}: ${(err as Error).message}`);
+      console.warn(`[ai-tasks] period_summary error for ${agency.slug} ${periodStart}→${periodEnd}: ${(err as Error).message}`);
+      try {
+        dailySummary = await trySummary(3000);
+      } catch (err2) {
+        console.warn(`[ai-tasks] period_summary retry also failed: ${(err2 as Error).message}`);
+      }
+    }
+    if (!dailySummary) {
+      // El usuario reportó que para 2026-04-12→2026-05-11 no se generó resumen
+      // — antes esto era silencioso (null persistido). Ahora ERROR explícito.
+      console.error(`[ai-tasks] period_summary FINAL NULL for ${agency.slug} ${periodStart}→${periodEnd}`);
     }
 
     const validated: PeriodInsightsOutput = {

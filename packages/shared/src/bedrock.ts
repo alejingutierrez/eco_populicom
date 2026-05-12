@@ -93,8 +93,16 @@ export async function invokeClaudeWithTool<TInput = unknown>(
       const body = JSON.parse(new TextDecoder().decode(rawBody));
       const content: Array<{ type: string; name?: string; input?: unknown }> = body.content ?? [];
       const toolUse = content.find((b) => b.type === 'tool_use' && b.name === opts.tool.name);
+      // Stop reason no-end_turn/tool_use indica truncamiento (max_tokens), filtro
+      // de seguridad, etc. — propagar como error para que el caller decida si
+      // reintenta con maxTokens mayor o cae a fallback. Antes esto se ignoraba
+      // y el modelo devolvía tool_use vacío/parcial sin que el lambda lo notara.
+      const stopReason: string | undefined = body.stop_reason;
+      if (stopReason && stopReason !== 'end_turn' && stopReason !== 'tool_use') {
+        throw new Error(`Model ${modelId} stopped with reason="${stopReason}" (likely truncated)`);
+      }
       if (!toolUse || toolUse.input === undefined) {
-        throw new Error(`Model ${modelId} did not return tool_use block for "${opts.tool.name}"`);
+        throw new Error(`Model ${modelId} did not return tool_use block for "${opts.tool.name}" (stop_reason=${stopReason ?? 'unknown'})`);
       }
       const input = toolUse.input;
       return opts.validate ? opts.validate(input) : (input as TInput);

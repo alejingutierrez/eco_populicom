@@ -357,10 +357,7 @@ PROHIBIDO:
 - Recomendaciones, sugerencias, juicios prescriptivos ("se debería", "convendría", "urge").
 - Hablar de la audiencia como bloque ("la ciudadanía", "el sector privado") sin identificar el actor concreto en los datos.
 
-FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
-{
-  "summary": "<párrafo analítico de 3 a 5 oraciones>"
-}
+SALIDA: usa la tool emit_period_summary con el campo "summary" (1 párrafo de 3-5 oraciones, 80-1400 chars).
 `.trim();
 }
 
