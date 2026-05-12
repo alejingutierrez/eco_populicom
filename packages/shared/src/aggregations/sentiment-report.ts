@@ -13,11 +13,14 @@
  * cuando NLP aún no clasificó.
  *
  * Filtro de fechas: la ventana se interpreta SIEMPRE en zona AST (America/
- * Puerto_Rico). Los strings 'YYYY-MM-DD' representan días calendario AST y
- * el SQL los convierte con `$2::date AT TIME ZONE 'America/Puerto_Rico'`
- * para que `published_at` (stored as UTC) se compare contra los timestamps
- * UTC equivalentes a AST midnight, no contra UTC midnight (que recorta 4h
- * del último día y agrega 4h del día previo).
+ * Puerto_Rico). Los strings 'YYYY-MM-DD' representan días calendario AST.
+ * El SQL convierte cada `published_at` (stored as UTC) a su fecha AST con
+ * `(published_at AT TIME ZONE 'America/Puerto_Rico')::date` y la compara
+ * contra los bordes `$2::date`/`$3::date`. Match con el filtro que usa
+ * `loadAggregatesForWindow` en `@eco/shared/metrics` — paridad byte-por-byte
+ * entre Overview, Scorecard y correo. NOTA: no usar `$2::date AT TIME ZONE`
+ * porque retorna `timestamp without TZ`, que Postgres compara asumiendo TZ
+ * del servidor (UTC) → recorta/agrega 4h en los bordes (bug previo).
  */
 
 import { addDaysYmd } from '../dates';
@@ -141,8 +144,8 @@ async function loadTotals(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
-        AND published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1`,
     [agencyId, startYmd, endYmd],
   );
@@ -165,8 +168,8 @@ async function loadDailySeries(
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
-        AND published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1, 2
       ORDER BY 1`,
     [agencyId, startYmd, endYmd],
@@ -240,8 +243,8 @@ async function loadTopicsTable(
                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
-              AND m.published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
-              AND m.published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
+              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
          ) pt
          LEFT JOIN topics t ON t.id = pt.topic_id
          LEFT JOIN subtopics s ON s.id = pt.subtopic_id
@@ -253,8 +256,8 @@ async function loadTopicsTable(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
-          AND m.published_at >= ($2::date AT TIME ZONE 'America/Puerto_Rico')
-          AND m.published_at <  (($3::date + INTERVAL '1 day') AT TIME ZONE 'America/Puerto_Rico')
+          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY mt.topic_id
      )
      SELECT p.topic_id_key,
