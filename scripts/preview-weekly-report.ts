@@ -16,6 +16,7 @@ import { join } from 'node:path';
 
 const data: WeeklyReportRenderData = {
   agencyName: 'Departamento de Desarrollo Económico y Comercio',
+  agencyShortName: 'DDEC',
   agencyKicker: 'DDEC · Departamento de Desarrollo Económico y Comercio',
   periodLabel: '29 abr – 5 may 2026',
   updatedAtLabel: '6 may, 6:00 a.m. AST',

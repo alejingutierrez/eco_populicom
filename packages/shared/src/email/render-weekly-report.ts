@@ -1,14 +1,16 @@
 /**
  * Renderiza el template HTML del reporte semanal con datos reales.
  *
- * Diseño: minimalista, fondo claro, marca Populicom (azul + amarillo) usada
- * con moderación. Sin gradients oscuros ni elementos decorativos. Tablas e
+ * Diseño: minimalista, fondo claro, marca ECO (azul + amarillo) usada con
+ * moderación. Sin gradients oscuros ni elementos decorativos. Tablas e
  * inline styles para compatibilidad con Gmail / Outlook / Apple Mail.
  * Imagen PNG externa (QuickChart) para el gráfico de tendencia.
  */
 
 export interface WeeklyReportRenderData {
   agencyName: string;
+  /** Siglas de la agencia destinataria (ej. "DDEC", "AAA"). Se usa en `<title>`. */
+  agencyShortName: string;
   agencyKicker: string;
   periodLabel: string;
   updatedAtLabel: string;
@@ -74,14 +76,14 @@ const COLORS = {
   borderSoft: '#EEF0F4',    // separadores internos
 
   // Tipografía
-  ink: '#0E1E2C',           // texto principal (azul muy oscuro Populicom)
+  ink: '#0E1E2C',           // texto principal (azul muy oscuro de marca)
   inkSoft: '#4A5563',       // texto secundario
   inkMute: '#8A93A0',       // texto terciario, labels
 
-  // Marca Populicom
-  brand: '#0A7EA4',         // azul Populicom
+  // Marca ECO
+  brand: '#0A7EA4',         // azul de marca
   brandSoft: '#E6F1F7',     // azul muy claro para acentos
-  accent: '#F4C300',        // amarillo Populicom
+  accent: '#F4C300',        // amarillo de marca
   accentSoft: '#FFF8DB',    // amarillo crema para destacar
 
   // Semánticos
@@ -233,7 +235,7 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   <meta name="x-apple-disable-message-reformatting">
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light only">
-  <title>Resumen semanal Populicom · ${esc(data.periodLabel)}</title>
+  <title>Resumen semanal ECO · ${esc(data.agencyShortName)} · ${esc(data.periodLabel)}</title>
   <!--[if mso]>
   <style type="text/css">
     table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
@@ -287,10 +289,10 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td align="left" valign="middle">
-                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${COLORS.ink};">Populicom <span style="color:${COLORS.brand};">Radar</span></span>
+                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${COLORS.ink};">ECO <span style="color:${COLORS.brand};">Radar</span></span>
                   </td>
-                  <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};letter-spacing:0.02em;">
-                    Reporte semanal
+                  <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};letter-spacing:0.02em;font-weight:600;">
+                    IDEA
                   </td>
                 </tr>
               </table>
@@ -424,7 +426,7 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
           <tr>
             <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid ${COLORS.borderSoft};" align="center">
               <div class="force-text-soft" style="color:${COLORS.inkMute};font-size:11.5px;line-height:1.6;">
-                Populicom · San Juan, Puerto Rico &nbsp;·&nbsp; <a href="https://www.populicom.com" style="color:${COLORS.brand};text-decoration:none;">populicom.com</a>
+                ECO Radar &nbsp;·&nbsp; IDEA
               </div>
               <div class="force-text-soft" style="margin-top:6px;color:${COLORS.inkMute};font-size:11px;line-height:1.5;">
                 Recibes este correo porque eres administrador del Radar de tu agencia.
