@@ -3169,10 +3169,12 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
         </div>
       </div>
       <div className="card-bd">
-        {/* sharedScale=true porque neg/neu/pos son del mismo tipo (conteos
-            de menciones). Sin esto cada línea se normalizaba a su propio
-            min/max y peaks de tamaño muy distinto se veían igual de alto. */}
-        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} sharedScale={true} />
+        {/* Per-series normalization (cada línea con su propio min/max) +
+            smooth bezier — petición explícita del usuario: "me gustaba más
+            como se veía antes... me gustaban las líneas suavizadas". Con
+            shared-scale, los picos grandes (ej. neg=203) comprimían las
+            variaciones diarias normales en una banda plana al fondo. */}
+        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} smooth={true} />
       </div>
     </div>
   );
