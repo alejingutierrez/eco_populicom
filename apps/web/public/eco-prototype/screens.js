@@ -1,18 +1,38 @@
 // Dashboard + screens
 const { Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
-const { MentionDrawer, MentionsSliceModal } = window.ECO_SHELL;
+const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
-function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children }) {
+function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
+  const clickable = !!onClick;
   return (
-    <div className="card" style={{ padding: 18, position: 'relative', overflow: 'hidden', borderTop: highlight ? `2px solid ${accent}` : undefined }}>
+    <div
+      className="card"
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      style={{
+        padding: 18, position: 'relative', overflow: 'hidden',
+        borderTop: highlight ? `2px solid ${accent}` : undefined,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'transform 0.12s var(--ease), box-shadow 0.12s var(--ease)',
+      }}
+      onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.18)'; } : undefined}
+      onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; } : undefined}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         {IconC && <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
         {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal'}</span>}
+        {clickable && !tone && (
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <I2.Sparkles size={10} /> Detalles
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
@@ -49,9 +69,23 @@ function sanitizeBriefingHtml(html) {
 // =============== DASHBOARD ===============
 function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   const m = D.CURRENT_METRICS;
-  const [activeMetrics, setActiveMetrics] = useState(['nss', 'totalMentions', 'crisisRiskScore']);
-  const [focus, setFocus] = useState('signal'); // signal | narrative | crisis
+  // Default: solo "Menciones" (issue #6). El usuario puede sumar series con
+  // los chips, máx 3 a la vez.
+  const [activeMetrics, setActiveMetrics] = useState(['totalMentions']);
+  // Modo del Resumen ejecutivo: signal | emerging | crisis. El backend
+  // devuelve D.BRIEFING como objeto con esas 3 claves.
+  const [focus, setFocus] = useState('signal');
   const [slice, setSlice] = useState(null);
+  const [metricModal, setMetricModal] = useState(null);
+
+  // Resumen ejecutivo activo según `focus`. Si el backend solo devolvió el
+  // shape antiguo (un solo briefing), fallback a él para no romper la UI.
+  const briefingByMode = (D.BRIEFING && typeof D.BRIEFING === 'object' && D.BRIEFING.signal !== undefined)
+    ? D.BRIEFING
+    : null;
+  const activeBriefing = briefingByMode
+    ? (briefingByMode[focus] || briefingByMode.signal || null)
+    : D.BRIEFING;
 
   const seriesConfig = [
     { key: 'nss', label: 'NSS', color: 'var(--accent)' },
@@ -120,49 +154,60 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
 
   function openBriefingSlice() {
     // Hero CTA opens the mention slice for the actual dominant topic reported
-    // by the API briefing (falls back to the first topic by volume).
-    const briefingTopicName = (D.BRIEFING && D.BRIEFING.dominantSignal || '').split(' · ')[0];
+    // by the active briefing mode (falls back to the first topic by volume).
+    const briefingTopicName = (activeBriefing && activeBriefing.dominantSignal || '').split(' · ')[0];
     const topic = (briefingTopicName && D.TOPICS.find(t => t.name === briefingTopicName)) || D.TOPICS[0];
     if (topic) openTopicSlice(topic);
   }
 
+  function openMetric(key, label, accent) {
+    const value = m ? m[key === 'crisis' ? 'crisisRiskScore'
+      : key === 'volume' ? 'totalMentions'
+      : key === 'bhi' ? 'brandHealthIndex'
+      : key === 'polarization' ? 'polarizationIndex'
+      : 'nss'] : null;
+    setMetricModal({ metricKey: key, value, label, accent });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* ── Executive Briefing ── */}
+      {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
       <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, alignItems: 'stretch' }}>
         <div>
           <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>Resumen ejecutivo · {(D.BRIEFING && D.BRIEFING.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-            {D.BRIEFING && D.BRIEFING.source === 'ai' && (
+            <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            {activeBriefing && activeBriefing.source === 'ai' && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
-                <Icons.Sparkles size={9} /> IA · {D.BRIEFING.generatedAtLabel || 'reciente'}
+                <Icons.Sparkles size={9} /> IA · {activeBriefing.generatedAtLabel || 'reciente'}
               </span>
             )}
-            {D.BRIEFING && D.BRIEFING.source === 'rule' && (
+            {activeBriefing && activeBriefing.source === 'rule' && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
                 Resumen automatizado
               </span>
             )}
           </div>
-          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600, lineHeight: 1.25, letterSpacing: 'var(--letter-display)', marginTop: 8, color: 'var(--text)' }}>
-            {D.BRIEFING ? (
-              <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(D.BRIEFING.narrativeHtml || '') }} />
+          {/* Fuente reducida a 18px y line-height 1.45 (issue #1). Narrativas
+              cap a 75 palabras desde el prompt. */}
+          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 18, fontWeight: 500, lineHeight: 1.45, letterSpacing: 'var(--letter-display)', marginTop: 10, color: 'var(--text)' }}>
+            {activeBriefing ? (
+              <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} />
             ) : (
               <>Sin suficientes menciones en este período para generar un resumen.</>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 20, marginTop: 20, fontSize: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 20, marginTop: 16, fontSize: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
-              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.dominantSignal) || '—'}</div>
+              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
             </div>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
-              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
+              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
             </div>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Siguiente paso</div>
-              <div style={{ color: `var(--${D.BRIEFING && D.BRIEFING.actionTone === 'neg' ? 'neg' : D.BRIEFING && D.BRIEFING.actionTone === 'pos' ? 'pos' : D.BRIEFING && D.BRIEFING.actionTone === 'warn' ? 'warn' : 'accent'})`, fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.action) || 'Explorar tópicos activos →'}</div>
+              <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'accent'})`, fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
             </div>
           </div>
           <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -171,7 +216,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </button>
             <span style={{ width: 1, height: 16, background: 'var(--hairline)', margin: '0 4px' }} />
             <button className={`chip ${focus === 'signal' ? 'active' : ''}`} onClick={() => setFocus('signal')}>Señal del día</button>
-            <button className={`chip ${focus === 'narrative' ? 'active' : ''}`} onClick={() => setFocus('narrative')}>Narrativas emergentes</button>
+            <button className={`chip ${focus === 'emerging' ? 'active' : ''}`} onClick={() => setFocus('emerging')}>Narrativas emergentes</button>
             <button className={`chip ${focus === 'crisis' ? 'active' : ''}`} onClick={() => setFocus('crisis')}>Vigilancia de crisis</button>
           </div>
         </div>
@@ -193,15 +238,17 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         </div>
       </div>
 
-      {/* ── Hero KPIs: NSS + Crisis prominent ── */}
+      {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
+        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
+          onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
             <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
+          onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
@@ -212,13 +259,16 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
-        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
+        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ventana ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+          onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
+        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)"
+          onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}>
+        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
+          onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
@@ -230,64 +280,39 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         </KpiCard>
       </div>
 
-      {/* ── Row 2: Timeline (8) + Topic composition (4) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-        <div className="card">
-          <div className="card-hd">
-            <div>
-              <div className="card-hd-title">Evolución multi-métrica</div>
-              <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {seriesConfig.map((s) => {
-                const on = activeMetrics.includes(s.key);
-                return (
-                  <button key={s.key} onClick={() => {
-                    if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
-                    else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
-                  }} style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '4px 9px', borderRadius: 999,
-                    fontSize: 10, fontWeight: 600,
-                    border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
-                    background: on ? s.color : 'transparent',
-                    color: on ? '#fff' : 'var(--text-3)',
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+      {/* ── Row 2: Timeline ocupa todo el ancho (issue #5 eliminó pie de sentimiento) ── */}
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Evolución multi-métrica</div>
+            <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
           </div>
-          <div className="card-bd">
-            {/* Timeframe selector — drives the global period (same as header pills) */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 8, fontSize: 10, justifyContent: 'flex-end' }}>
-              {['1D', '5D', '1M', '3M', '6M', '1A', 'Max'].map((tf) => (
-                <button key={tf}
-                  onClick={() => setPeriod && setPeriod(tf)}
-                  className={`chip ${period === tf ? 'active' : ''}`}
-                  style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'var(--ff-numeric)', fontWeight: 600 }}>{tf}</button>
-              ))}
-            </div>
-            <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {seriesConfig.map((s) => {
+              const on = activeMetrics.includes(s.key);
+              return (
+                <button key={s.key} onClick={() => {
+                  if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
+                  else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
+                }} style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 9px', borderRadius: 999,
+                  fontSize: 10, fontWeight: 600,
+                  border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
+                  background: on ? s.color : 'transparent',
+                  color: on ? '#fff' : 'var(--text-3)',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-
-        <DashSentimentCard total={m.totalMentions} nss={m.nss} onSliceClick={(name) => {
-          const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
-          if (!row) return;
-          const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-          const senti = { pos: 0, neu: 0, neg: 0 };
-          senti[name === 'positivo' ? 'pos' : name === 'negativo' ? 'neg' : 'neu'] = row.value;
-          setSlice({
-            eyebrow: 'Sentimiento',
-            title: `Menciones ${row.label.toLowerCase()}`,
-            accent,
-            mentions: [],
-            _filter: { sentiment: name },
-          });
-        }} />
+        <div className="card-bd">
+          {/* Issue #6: sin selector de timeframe local — el header global lo cubre. */}
+          <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
+        </div>
       </div>
 
       {/* ── Row 3: Topics (emerging) + Sources + Heatmap ── */}
@@ -332,11 +357,24 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
       </div>
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+      {metricModal && MetricInsightModal && (
+        <MetricInsightModal
+          metricKey={metricModal.metricKey}
+          value={metricModal.value}
+          label={metricModal.label}
+          accent={metricModal.accent}
+          period={period}
+          agency={(window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || (localStorage.getItem('eco.agency') || '')}
+          onClose={() => setMetricModal(null)}
+        />
+      )}
 
-      {/* ── Recent mentions table (dense) ── */}
+      {/* ── Recent mentions table (dense) — issue #9: sin columna pertinencia,
+          engagement=0 muestra "—". El backend ya excluye twitter y baja
+          pertinencia del feed. ── */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Ordenadas por pertinencia × engagement</div></div>
+          <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
           <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(m.totalMentions)}) →</a>
         </div>
         <div>
@@ -348,7 +386,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 90px 80px 90px', gap: 12,
+                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', gap: 12,
                   alignItems: 'center', padding: '10px 16px',
                   borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                   fontSize: 12, cursor: 'pointer',
@@ -359,10 +397,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
                   <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
                 </div>
                 <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-                <span style={{ fontSize: 11, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  {mn.pertinence}
-                </span>
-                <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{fmt(mn.engagement)}</span>
+                <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
                 <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
               </div>
             );
@@ -415,58 +450,6 @@ function BrandHealthMini({ value }) {
   );
 }
 
-// --- DashSentimentCard: redesigned with donut + prominent legend rows (clickable) ---
-function DashSentimentCard({ total, nss, onSliceClick }) {
-  const safeTotal = (D.SENTIMENT_BREAKDOWN || []).reduce((s, x) => s + (x.value || 0), 0) || total || 0;
-  const pctOf = (v) => safeTotal > 0 ? Math.round((v / safeTotal) * 100) : 0;
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Sentimiento</div>
-          <div className="card-hd-sub">Distribución · {fmt(safeTotal)} menciones</div>
-        </div>
-        <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>
-          NSS <span className="num" style={{ color: 'var(--accent)', fontSize: 13, fontWeight: 700 }}>+{nss}</span>
-        </div>
-      </div>
-      <div className="card-bd" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <Donut data={D.SENTIMENT_BREAKDOWN} size={120} thickness={18} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', lineHeight: 1 }}>
-              {pctOf((D.SENTIMENT_BREAKDOWN.find(s => s.name === 'positivo') || {}).value || 0)}%
-            </div>
-            <div style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.06em', marginTop: 2 }}>POSITIVO</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {D.SENTIMENT_BREAKDOWN.map((s) => {
-            const pct = pctOf(s.value);
-            const c = s.name === 'positivo' ? 'var(--pos)' : s.name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-            return (
-              <button key={s.name} onClick={() => onSliceClick(s.name)}
-                className="row-hover"
-                style={{
-                  display: 'grid', gridTemplateColumns: '8px 1fr auto auto 12px',
-                  gap: 8, alignItems: 'center',
-                  padding: '6px 8px', marginInline: -8, borderRadius: 6,
-                  background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
-                }}>
-                <span className="dot" style={{ background: c, width: 8, height: 8 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>{s.label}</span>
-                <span className="num" style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{fmt(s.value)}</span>
-                <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', minWidth: 36, textAlign: 'right' }}>{pct}%</span>
-                <Icons.ArrowRight size={11} color="var(--text-3)" />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // --- HourActivityCard: heatmap fed from window.ECO_DATA.HOUR_HEATMAP ---
 function HourActivityCard({ onCellClick }) {
   const data = React.useMemo(() => {
@@ -509,7 +492,7 @@ function HourActivityCard({ onCellClick }) {
             const intensity = max > 0 ? Math.min(1, v / max) : 0;
             return `rgba(255, 106, 61, ${0.08 + intensity * 0.85})`;
           }}
-          cellSize={11}
+          cellSize={14}
           onCellClick={onCellClick}
         />
       </div>

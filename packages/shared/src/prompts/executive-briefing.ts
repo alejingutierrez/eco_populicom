@@ -1,9 +1,10 @@
 /**
- * Prompt para el resumen ejecutivo IA del Scorecard del dashboard.
+ * Prompt para el modo "Señal del día" del Resumen ejecutivo del Scorecard.
  *
- * Lo invoca eco-ai-tasks (acción "briefing") 4 veces al día por agencia.
- * Output esperado: JSON con narrativa, señal dominante, acción sugerida y
- * etiqueta de alcance, todo descriptivo y respaldado por números.
+ * Es uno de los 3 modos generados por eco-ai-tasks (los otros 2 viven en
+ * `briefing-emerging.ts` y `briefing-crisis.ts`). Output esperado: JSON con
+ * narrativa, señal dominante, acción sugerida y etiqueta de alcance, todo
+ * descriptivo y respaldado por números.
  */
 
 export interface BriefingAggregates {
@@ -153,7 +154,7 @@ ${mentionBlock}
 TAREA:
 Devuelve un objeto JSON con cuatro campos: \`narrative_html\`, \`dominant_signal\`, \`action_label\`, \`action_tone\`, \`reach_label\`.
 
-1. \`narrative_html\` (2 a 4 oraciones, ≤90 palabras): describe la conversación pública de las últimas ${agg.periodHours} horas para la agencia. Debe (a) abrir con el patrón dominante (tópico con más volumen y su % negativo), (b) anclar con un número clave del periodo (variación, NSS, reach), (c) opcionalmente citar un municipio o autor SOLO si la concentración es clara. Resalta nombres propios y números con \`<strong>\`. No abras con la palabra "Hoy"; usa "En las últimas horas", "Durante el periodo", "El último ciclo".
+1. \`narrative_html\` (2 a 3 oraciones, ≤75 palabras): describe la conversación pública de las últimas ${agg.periodHours} horas para la agencia. Debe (a) abrir con el patrón dominante (tópico con más volumen y su % negativo), (b) anclar con un número clave del periodo (variación, NSS, reach), (c) opcionalmente citar un municipio o autor SOLO si la concentración es clara. Resalta nombres propios y números con \`<strong>\`. No abras con la palabra "Hoy"; usa "En las últimas horas", "Durante el periodo", "El último ciclo". El límite de 75 palabras es estricto — sé más conciso.
 
 2. \`dominant_signal\` (texto plano): "<Tópico dominante> · <Tono>" — donde Tono es "Positiva", "Negativa", "Mixta" o "Neutral" según el balance del tópico dominante. Si no hay tópico claro, "Sin señal dominante · Neutral".
 

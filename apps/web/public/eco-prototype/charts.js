@@ -425,18 +425,26 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 }
 
 // Heatmap (hour x weekday)
+// Mejoras issue #8: etiquetas de horas cada 2h en vez de cada 4h, separadores
+// visuales en transiciones de turno (madrugada→mañana→tarde→noche), hover más
+// pronunciado con z-index para que destaque sobre las celdas vecinas.
 function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, onCellClick }) {
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  // Separadores en horas que marcan transición de turno (6am, 12pm, 6pm).
+  const SHIFT_BREAKS = new Set([6, 12, 18]);
+  const extraGap = (h) => SHIFT_BREAKS.has(h) ? 4 : 0;
   return (
     <div>
       <div style={{ display: 'flex', gap: 2, marginLeft: 30, fontSize: 9, color: 'var(--text-3)', marginBottom: 4 }}>
         {Array.from({ length: hours }).map((_, h) => (
-          <div key={h} style={{ width: cellSize, textAlign: 'center' }}>{h % 4 === 0 ? h : ''}</div>
+          <div key={h} style={{ width: cellSize, textAlign: 'center', marginLeft: extraGap(h), fontWeight: SHIFT_BREAKS.has(h) ? 700 : 400, color: SHIFT_BREAKS.has(h) ? 'var(--text-2)' : 'var(--text-3)' }}>
+            {h % 2 === 0 ? h : ''}
+          </div>
         ))}
       </div>
       {Array.from({ length: days }).map((_, d) => (
         <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: gap }}>
-          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)' }}>{labels[d]}</div>
+          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
           {Array.from({ length: hours }).map((_, h) => {
             const v = data[d * hours + h] ?? 0;
             const clickable = !!onCellClick;
@@ -444,10 +452,26 @@ function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, 
               <div key={h}
                 role={clickable ? 'button' : undefined}
                 onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: h, value: v }) : undefined}
-                title={`${labels[d]} ${h}h: ${v}`}
-                style={{ width: cellSize, height: cellSize, background: colorFn(v), borderRadius: 3, cursor: clickable ? 'pointer' : 'default', transition: 'transform 0.12s var(--ease)' }}
-                onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'scale(1.25)'; e.currentTarget.style.outline = '2px solid var(--accent)'; } : undefined}
-                onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.outline = 'none'; } : undefined}
+                title={`${labels[d]} ${String(h).padStart(2, '0')}:00 — ${v} menciones`}
+                style={{
+                  width: cellSize, height: cellSize,
+                  background: colorFn(v),
+                  borderRadius: 3,
+                  marginLeft: extraGap(h),
+                  cursor: clickable ? 'pointer' : 'default',
+                  transition: 'transform 0.12s var(--ease)',
+                  position: 'relative',
+                }}
+                onMouseEnter={clickable ? (e) => {
+                  e.currentTarget.style.transform = 'scale(1.4)';
+                  e.currentTarget.style.outline = '2px solid var(--accent)';
+                  e.currentTarget.style.zIndex = '10';
+                } : undefined}
+                onMouseLeave={clickable ? (e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.outline = 'none';
+                  e.currentTarget.style.zIndex = '';
+                } : undefined}
               />
             );
           })}

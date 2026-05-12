@@ -18,6 +18,7 @@ const PROTECTED_PATHS = [
   /^\/api\/alerts(\/.*)?$/,
   /^\/api\/agencies(\/.*)?$/,
   /^\/api\/users(\/.*)?$/,
+  /^\/api\/ai(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -113,5 +114,6 @@ export const config = {
     '/api/alerts/:path*',
     '/api/agencies/:path*',
     '/api/users/:path*',
+    '/api/ai/:path*',
   ],
 };
