@@ -2919,6 +2919,27 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
+  // openDaySlice — click en un día del gráfico de tendencias. Abre el modal
+  // con las menciones de ESE día específico, leyendo los conteos del propio
+  // datapoint. El _filter.day se interpreta como YYYY-MM-DD en TZ Puerto Rico
+  // por el endpoint /api/eco-mentions.
+  function openDaySlice(d) {
+    if (!d || !d.fullDate) return;
+    const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
+    const bias = (d.negative || 0) > (d.positive || 0) ? 'negativo'
+      : (d.positive || 0) > (d.negative || 0) ? 'positivo' : 'neutral';
+    const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
+    setSlice({
+      eyebrow: d.date || d.fullDate,
+      title: `Conversación del día`,
+      accent,
+      volume: total,
+      sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
+      mentions: [],
+      _filter: { day: d.fullDate },
+    });
+  }
+
   // openMetricInsight — abre MetricInsightModal vía helper compartido.
   function openMetricInsight(metric, value, accent) {
     const labels = {
@@ -2948,7 +2969,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
-      <OverviewTendencia dailySeries={data.dailySeries} />
+      <OverviewTendencia dailySeries={data.dailySeries} onDayClick={openDaySlice} />
       <OverviewTopicos
         rows={data.topicsTable}
         totals={data.totals}
@@ -3115,13 +3136,17 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   );
 }
 
-function OverviewTendencia({ dailySeries }) {
+function OverviewTendencia({ dailySeries, onDayClick }) {
   // Adapta dailySeries del API al shape que MultiLineChart espera (`date` + keys de las series).
+  // Guardamos fullDate (YYYY-MM-DD) para que el onPointClick pueda filtrar
+  // las menciones del día seleccionado en MentionsSliceModal (_filter.day).
   const chartData = (dailySeries || []).map((d) => ({
     date: d.dayLabel,
+    fullDate: d.date,
     negative: d.negative,
     neutral: d.neutral,
     positive: d.positive,
+    totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
   }));
   const series = [
     { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
@@ -3140,11 +3165,11 @@ function OverviewTendencia({ dailySeries }) {
       <div className="card-hd">
         <div>
           <div className="card-hd-title">02 · Tendencia · Día a día</div>
-          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico)</div>
+          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones</div>
         </div>
       </div>
       <div className="card-bd">
-        <MultiLineChart data={chartData} series={series} height={240} />
+        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} />
       </div>
     </div>
   );
