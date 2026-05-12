@@ -132,6 +132,19 @@ export class ComputeStack extends cdk.Stack {
       ],
     }));
 
+    // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus + Sonnet
+    // inference profiles). Sin estos permisos, el endpoint cae al fallback
+    // rule-based de buildRuleBasedInsight.
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: [
+        `arn:aws:bedrock:${cdk.Stack.of(this).region}::foundation-model/anthropic.claude-*`,
+        `arn:aws:bedrock:*::foundation-model/anthropic.claude-*`,
+        `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:inference-profile/*claude*`,
+        `arn:aws:bedrock:*:${cdk.Stack.of(this).account}:inference-profile/*claude*`,
+      ],
+    }));
+
     // Fargate Service
     this.ecsService = new ecs.FargateService(this, 'EcoWebService', {
       serviceName: 'eco-web',

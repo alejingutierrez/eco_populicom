@@ -176,6 +176,23 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       const del = await client.query(`DELETE FROM daily_metric_snapshots RETURNING id`);
       return { statusCode: 200, body: JSON.stringify({ deleted: del.rowCount }) };
     }
+    if (action === 'add-briefing-modes') {
+      // Idempotente: añade la columna `mode` a agency_briefings y un índice
+      // por (agency_id, mode, generated_at DESC) para soportar los 3 modos
+      // del Resumen ejecutivo del Scorecard: signal / emerging / crisis.
+      // Filas históricas heredan el default 'signal'.
+      const stmts = [
+        `ALTER TABLE agency_briefings ADD COLUMN IF NOT EXISTS mode VARCHAR(10) NOT NULL DEFAULT 'signal'`,
+        `CREATE INDEX IF NOT EXISTS idx_agency_briefings_mode ON agency_briefings (agency_id, mode, generated_at DESC)`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) { await client.query(s); applied.push(s); }
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'agency_briefings' ORDER BY column_name`,
+      );
+      return { statusCode: 200, body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name) }, null, 2) };
+    }
     if (action === 'add-formula-columns') {
       // Idempotente: añade columnas para Polarization Index y los subcomponentes
       // del nuevo Crisis Risk (severity/velocity/relevance/confidence) que sirven
