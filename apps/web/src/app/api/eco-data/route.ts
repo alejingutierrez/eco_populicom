@@ -13,7 +13,7 @@ import {
   agencyBriefings,
 } from '@eco/database';
 import { sql, eq, and, gte, lte, desc, count, inArray } from 'drizzle-orm';
-import { closedWindowYmdInTZ, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
+import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -446,8 +446,11 @@ export async function GET(request: NextRequest) {
     // Servimos el conteo real diario por tópico en zona AST. La ventana se
     // expande a max(35, 2 * days) para que el cálculo de `delta` (segunda
     // mitad vs primera mitad) tenga datos suficientes incluso con periods
-    // largos (1A, Max).
+    // largos (1A, Max). La ventana ahora está anclada a AST cerrada (mismo
+    // borde superior que el resto de queries), no a NOW() — antes podía
+    // incluir mentions del día parcial actual y dejar el delta inestable.
     const evolutionDays = Math.max(35, 2 * days);
+    const evolutionStartYmd = addDaysYmd(endYmd, -(evolutionDays - 1));
     const topicEvolutionRows = await db.execute<{ slug: string; day: string; c: number | string }>(sql`
       SELECT t.slug AS slug,
              (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day,
@@ -456,7 +459,8 @@ export async function GET(request: NextRequest) {
         JOIN mention_topics mt ON mt.mention_id = m.id
         JOIN topics t ON t.id = mt.topic_id
        WHERE m.agency_id = ${agencyId}
-         AND m.published_at >= NOW() - (${evolutionDays} || ' days')::interval
+         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
+         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
        GROUP BY t.slug, day
        ORDER BY t.slug, day
     `);
@@ -490,10 +494,13 @@ export async function GET(request: NextRequest) {
         : (recent > 0 ? 100 : 0);
     }
 
-    // ---- TOPIC CALENDAR (per-day dominant topic, last 35d AST) ----
+    // ---- TOPIC CALENDAR (per-day dominant topic, 35d AST cerrados) ----
     // El "Calendario de tópico principal por día" antes usaba una rotación
     // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
-    // tópico por día con su sentimiento dominante en datos reales.
+    // tópico por día con su sentimiento dominante en datos reales. La
+    // ventana es 35 días AST cerrados terminando ayer (mismo borde que el
+    // resto del scorecard — no incluye hoy parcial).
+    const calendarStartYmd = addDaysYmd(endYmd, -34);
     const calendarRows = await db.execute<{
       day: string; slug: string; name: string;
       volume: number | string; pos: number | string; neg: number | string;
@@ -509,7 +516,8 @@ export async function GET(request: NextRequest) {
           JOIN mention_topics mt ON mt.mention_id = m.id
           JOIN topics t ON t.id = mt.topic_id
          WHERE m.agency_id = ${agencyId}
-           AND m.published_at >= NOW() - INTERVAL '35 days'
+           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
+           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
          GROUP BY day, t.slug, t.name
       ),
       ranked AS (
