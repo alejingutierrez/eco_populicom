@@ -247,7 +247,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
           <div style={{ marginTop: -2 }}>

@@ -670,9 +670,9 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
                     <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                      {mention.coords && mention.coords[0] != null
-                        ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1] ?? 0).toFixed(4)}°O · Región ${mention.region}`
-                        : `Región ${mention.region}`}
+                      {Array.isArray(mention.coords) && typeof mention.coords[0] === 'number' && typeof mention.coords[1] === 'number'
+                        ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1]).toFixed(4)}°O · Región ${mention.region}`
+                        : `Región ${mention.region || 'PR'}`}
                     </div>
                   </div>
                   <button className="btn"
