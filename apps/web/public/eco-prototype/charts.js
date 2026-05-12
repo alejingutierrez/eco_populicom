@@ -217,20 +217,51 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
             return <path key={s.key} d={p} stroke={s.color} strokeWidth="1.75" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
 
-          {/* Crosshair + hover dots + right-edge value tags */}
-          {hover != null && (
-            <g>
-              <line x1={hoverIdx * step} y1={0} x2={hoverIdx * step} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
-              {normalized.map(s => {
-                const y = innerH - ((data[hoverIdx][s.key] - s.min) / s.range) * innerH;
-                return (
-                  <g key={s.key}>
-                    <circle cx={hoverIdx * step} cy={y} r="5" fill="var(--canvas)" stroke={s.color} strokeWidth="2" />
-                  </g>
-                );
-              })}
-            </g>
-          )}
+          {/* Crosshair + hover dots + tooltip flotante */}
+          {hover != null && (() => {
+            const xPos = hoverIdx * step;
+            // Tooltip anclado al cursor con fecha + valores exactos para
+            // eliminar ambiguedad cuando hay muchos días en pantalla (30D+).
+            const tooltipW = 180;
+            // Mostrar a la derecha por defecto, a la izquierda si está cerca
+            // del borde derecho.
+            const tooltipX = xPos + tooltipW + 8 > innerW ? xPos - tooltipW - 8 : xPos + 8;
+            const tooltipY = 0;
+            const lineCount = normalized.length;
+            const tooltipH = 22 + lineCount * 18;
+            const dotData = data[hoverIdx];
+            return (
+              <g>
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                {normalized.map(s => {
+                  const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
+                  return (
+                    <g key={s.key}>
+                      <circle cx={xPos} cy={y} r="5" fill="var(--canvas)" stroke={s.color} strokeWidth="2" />
+                    </g>
+                  );
+                })}
+                {/* Tooltip flotante — fondo + fecha + cada serie */}
+                <g transform={`translate(${tooltipX},${tooltipY})`}>
+                  <rect x={0} y={0} width={tooltipW} height={tooltipH} rx={6}
+                    fill="var(--canvas)" stroke="var(--hairline-strong)" strokeWidth="1"
+                    opacity="0.97" />
+                  <text x={10} y={15} fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
+                    {dotData.fullDate || dotData.date || ''}
+                  </text>
+                  {normalized.map((s, i) => (
+                    <g key={s.key}>
+                      <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={s.color} rx={2} />
+                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{s.label}</text>
+                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                        {fmtVal(s.key, dotData[s.key])}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+              </g>
+            );
+          })()}
 
           {/* Last-point value tags on the right edge */}
           {normalized.map(s => {
@@ -245,20 +276,32 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
             );
           })}
 
-          {/* X axis date labels */}
+          {/* X axis date labels — densidad adaptativa: muestra hasta 14
+              labels cuando hay espacio para evitar ambiguedad visual entre
+              picos y la fecha mostrada. */}
           {(() => {
-            const xTickCount = Math.min(7, data.length);
-            // Guard against division-by-zero (data.length === 1 makes
-            // xTickCount-1 === 0, so the index becomes NaN and data[NaN]
-            // crashes "Cannot read properties of undefined").
+            // Estimación conservadora: cada label necesita ~50px para no chocar.
+            const maxLabels = Math.max(2, Math.floor(innerW / 50));
+            const xTickCount = Math.min(maxLabels, data.length);
             const denom = Math.max(1, xTickCount - 1);
             const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
-            return xIdxs
+            // Deduplicar índices (cuando data.length < xTickCount).
+            const seen = new Set();
+            const unique = xIdxs.filter((idx) => {
+              if (seen.has(idx)) return false;
+              seen.add(idx);
+              return true;
+            });
+            return unique
               .filter((idx) => data[idx] && data[idx].date)
               .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="9" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
               ));
           })()}
+          {/* Tick marks bajo cada día (útil cuando hay >14 días y no caben labels) */}
+          {data.length > 14 && data.map((_, i) => (
+            <line key={`tick-${i}`} x1={i * step} y1={innerH} x2={i * step} y2={innerH + 3} stroke="var(--hairline)" strokeWidth="1" />
+          ))}
         </g>
       </svg>
     </div>
