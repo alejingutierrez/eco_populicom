@@ -263,7 +263,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true, activeScreen }) {
   // PERIODS alineado con OverviewFilterBar (en screens.js). Incluye
   // 30D/90D para que el chip activo del header coincida cuando el usuario
   // elige esos periodos desde el bar del overview. 'custom' no aparece como
@@ -271,6 +271,11 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
   // personalizado activo (el control real vive en el bar del overview).
   const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
   const isCustom = period === 'custom';
+  // En el screen 'overview' los chips del Header son redundantes — el
+  // OverviewFilterBar (más prominente, con calendario) vive justo debajo.
+  // Petición explícita del usuario: "no repitas los filtros de periodo, ya
+  // están arriba".
+  const hidePeriodChips = activeScreen === 'overview';
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -311,28 +316,31 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         </select>
       </div>
 
-      {/* Period — estilo bolsa */}
-      <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
-        {PERIODS.map((p) => (
-          <button key={p} onClick={() => {
-            // Si el usuario venía de un rango personalizado, limpiar
-            // eco.from/eco.to antes de cambiar al preset para que el siguiente
-            // boot no envíe restos del rango anterior.
-            try {
-              localStorage.removeItem('eco.from');
-              localStorage.removeItem('eco.to');
-            } catch (_) {}
-            setPeriod(p);
-          }} style={{
-            padding: '4px 10px', fontSize: 11, fontWeight: 600,
-            borderRadius: 999,
-            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
-            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
-            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
-          }}>{p}</button>
-        ))}
-      </div>
-      {isCustom && (
+      {/* Period — estilo bolsa. Oculto en Overview porque el OverviewFilterBar
+          (más prominente, con calendario) vive justo debajo. */}
+      {!hidePeriodChips && (
+        <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+          {PERIODS.map((p) => (
+            <button key={p} onClick={() => {
+              // Si el usuario venía de un rango personalizado, limpiar
+              // eco.from/eco.to antes de cambiar al preset para que el siguiente
+              // boot no envíe restos del rango anterior.
+              try {
+                localStorage.removeItem('eco.from');
+                localStorage.removeItem('eco.to');
+              } catch (_) {}
+              setPeriod(p);
+            }} style={{
+              padding: '4px 10px', fontSize: 11, fontWeight: 600,
+              borderRadius: 999,
+              background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
+              color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
+              boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            }}>{p}</button>
+          ))}
+        </div>
+      )}
+      {!hidePeriodChips && isCustom && (
         <span className="pill pill-info" title="Rango personalizado activo · gestiónalo desde el overview" style={{ fontSize: 10 }}>
           <Icons.Calendar size={10} /> Custom
         </span>
