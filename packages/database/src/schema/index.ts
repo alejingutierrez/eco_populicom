@@ -10,3 +10,4 @@ export * from './daily-metric-snapshots';
 export * from './reports';
 export * from './briefings';
 export * from './overview-period-insights';
+export * from './metric-insights-cache';

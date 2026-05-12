@@ -30,13 +30,17 @@ import {
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
   buildDailySummaryPrompt,
+  METRIC_INSIGHT_SYSTEM_PROMPT,
+  buildMetricInsightPrompt,
   type BriefingAggregates,
   type BriefingOutput,
   type TopicAggregateForDescription,
   type TopicMentionSample,
   type WeeklyAggregates,
+  type MetricKey,
+  type MetricInsightInput,
 } from '@eco/shared';
-import { buildPeriodAggregates, loadSamples, loadTodaySamples } from './aggregates';
+import { agencyShortName, buildPeriodAggregates, loadSamples, loadTodaySamples, loadMetricInsightContext } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -84,15 +88,17 @@ const TZ = 'America/Puerto_Rico';
 
 let dbUrl: string | null = null;
 
-type Action = 'briefing' | 'topic-descriptions' | 'period-insights';
+type Action = 'briefing' | 'topic-descriptions' | 'period-insights' | 'metric-insight';
 
 interface InvokeEvent {
   action?: Action;
   agencySlug?: string;
-  /** YYYY-MM-DD (inclusive) — solo para action='period-insights'. */
+  /** YYYY-MM-DD (inclusive) — para period-insights y metric-insight. */
   periodStart?: string;
-  /** YYYY-MM-DD (inclusive) — solo para action='period-insights'. */
+  /** YYYY-MM-DD (inclusive) — para period-insights y metric-insight. */
   periodEnd?: string;
+  /** Solo para action='metric-insight'. */
+  metric?: MetricKey;
   dryRun?: boolean;
 }
 
@@ -147,6 +153,14 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
       await ensureOverviewPeriodInsightsSchema(client);
       for (const a of agencies) {
         results.push(await generatePeriodInsightsFor(client, a, event.periodStart, event.periodEnd, dryRun));
+      }
+    } else if (action === 'metric-insight') {
+      if (!event?.periodStart || !event?.periodEnd || !event?.metric) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'metric-insight requires metric + periodStart + periodEnd' }) };
+      }
+      await ensureMetricInsightsSchema(client);
+      for (const a of agencies) {
+        results.push(await generateMetricInsightFor(client, a, event.metric, event.periodStart, event.periodEnd, dryRun));
       }
     } else {
       return { statusCode: 400, body: JSON.stringify({ error: `unknown action: ${action}` }) };
@@ -656,6 +670,162 @@ async function generatePeriodInsightsFor(
   }
 }
 
+// ============================================================
+// Metric Insight generator (action='metric-insight')
+// ============================================================
+
+const METRIC_INSIGHT_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    insight: {
+      type: 'string',
+      minLength: 80, maxLength: 1400,
+      description: 'Párrafo de 3-5 oraciones describiendo POR QUÉ el valor de la métrica es lo que es para esta agencia en este periodo. Inline <strong> permitido.',
+    },
+  },
+  required: ['insight'],
+};
+
+function subcomponentsFor(metric: MetricKey, snapshot: Record<string, number | null>): Record<string, number | null> {
+  // Mapea las columnas crudas de daily_metric_snapshots a labels humanos por
+  // métrica. El prompt los usa como contexto SIN explicar la fórmula.
+  if (metric === 'crisis') {
+    return {
+      'severity (share negativo)': snapshot.crisis_severity ?? null,
+      'velocity (z-score volumen)': snapshot.crisis_velocity ?? null,
+      'relevance (ratio pertinencia)': snapshot.crisis_relevance ?? null,
+      'confidence (log10 menciones)': snapshot.crisis_confidence ?? null,
+    };
+  }
+  if (metric === 'bhi') {
+    return {
+      'nss normalizado (0-1)': snapshot.nss != null ? (Number(snapshot.nss) + 100) / 200 : null,
+      'engagement rate': snapshot.engagement_rate ?? null,
+      'amplification rate': snapshot.amplification_rate ?? null,
+      'volume (menciones del día)': snapshot.total_mentions ?? null,
+    };
+  }
+  if (metric === 'nss') {
+    return {
+      'positivas (día)': snapshot.positive_count ?? null,
+      'neutras (día)': snapshot.neutral_count ?? null,
+      'negativas (día)': snapshot.negative_count ?? null,
+      'nss rolling 7d': snapshot.nss_7d ?? null,
+      'nss rolling 30d': snapshot.nss_30d ?? null,
+    };
+  }
+  if (metric === 'polarization') {
+    return {
+      'polarization index': snapshot.polarization_index ?? null,
+      'positivas (día)': snapshot.positive_count ?? null,
+      'negativas (día)': snapshot.negative_count ?? null,
+      'neutras (día)': snapshot.neutral_count ?? null,
+    };
+  }
+  if (metric === 'volume') {
+    return {
+      'total menciones del periodo': null, // se inyecta vía totalMentions
+      'volume anomaly z-score': snapshot.volume_anomaly_zscore ?? null,
+      'reputation momentum': snapshot.reputation_momentum ?? null,
+    };
+  }
+  return {};
+}
+
+function snapshotValueFor(metric: MetricKey, snapshot: Record<string, number | null>, totalMentions: number): number | null {
+  if (metric === 'crisis') return snapshot.crisis_risk_score ?? null;
+  if (metric === 'bhi') return snapshot.brand_health_index ?? null;
+  if (metric === 'nss') return snapshot.nss ?? null;
+  if (metric === 'polarization') return snapshot.polarization_index ?? null;
+  if (metric === 'volume') return totalMentions;
+  return null;
+}
+
+async function generateMetricInsightFor(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  metric: MetricKey,
+  periodStart: string,
+  periodEnd: string,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  try {
+    const ctx = await loadMetricInsightContext(client, agency, periodStart, periodEnd);
+    const value = snapshotValueFor(metric, ctx.snapshot, ctx.totalMentions);
+    const promptInput: MetricInsightInput = {
+      metric,
+      agencyName: agency.name,
+      agencyShortName: agencyShortName(agency.slug),
+      periodStart,
+      periodEnd,
+      value,
+      subcomponents: subcomponentsFor(metric, ctx.snapshot),
+      topTopics: ctx.topTopics,
+      topAuthors: ctx.topAuthors,
+      topMunicipalities: ctx.topMunicipalities,
+      totalMentions: ctx.totalMentions,
+      totalMentionsDelta: ctx.totalMentionsDelta,
+    };
+    if (ctx.totalMentions < 5) {
+      const fallback = `No hay señal suficiente (<strong>${ctx.totalMentions}</strong> menciones) en el periodo seleccionado para describir el valor de la métrica.`;
+      if (!dryRun) {
+        await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, fallback, PRIMARY_MODEL);
+      }
+      return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal', output: { metric, insight: fallback } };
+    }
+    const prompt = buildMetricInsightPrompt(promptInput);
+    const parsed = await invokeClaudeWithTool<{ insight: string }>({
+      client: bedrock,
+      systemPrompt: METRIC_INSIGHT_SYSTEM_PROMPT,
+      userPrompt: prompt,
+      maxTokens: 800,
+      primaryModel: PRIMARY_MODEL,
+      fallbackModel: FALLBACK_MODEL,
+      temperature: 0,
+      tool: {
+        name: 'emit_metric_insight',
+        description: 'Emit the structured one-paragraph metric insight.',
+        input_schema: METRIC_INSIGHT_TOOL_SCHEMA,
+      },
+    });
+    const insight = sanitizeStrongOnly(String(parsed.insight ?? '').trim()).slice(0, 1400);
+    if (!insight) {
+      return { agencySlug: agency.slug, status: 'error', message: 'modelo devolvió vacío' };
+    }
+    if (!dryRun) {
+      await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, insight, PRIMARY_MODEL);
+    }
+    return { agencySlug: agency.slug, status: 'ok', output: { metric, insight } };
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
+  }
+}
+
+async function persistMetricInsight(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agencyId: string,
+  metric: MetricKey,
+  periodStart: string,
+  periodEnd: string,
+  insight: string,
+  modelUsed: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO metric_insights_cache
+       (agency_id, metric, period_start_date, period_end_date,
+        insight_text, model_used, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT ON CONSTRAINT uq_metric_insights_agency_metric_range
+     DO UPDATE SET
+       insight_text = EXCLUDED.insight_text,
+       model_used   = EXCLUDED.model_used,
+       generated_at = NOW()`,
+    [agencyId, metric, periodStart, periodEnd, insight, modelUsed],
+  );
+}
+
 async function persistPeriodInsights(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   client: any,
@@ -811,6 +981,27 @@ async function loadAgencies(client: any, slugFilter: string | null): Promise<Age
     `SELECT id, slug, name FROM agencies WHERE is_active = true ORDER BY slug`,
   );
   return res.rows;
+}
+
+async function ensureMetricInsightsSchema(client: any): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "metric_insights_cache" (
+      "id"                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "agency_id"           UUID NOT NULL REFERENCES "agencies"("id") ON DELETE CASCADE,
+      "metric"              VARCHAR(24) NOT NULL,
+      "period_start_date"   DATE NOT NULL,
+      "period_end_date"     DATE NOT NULL,
+      "insight_text"        TEXT NOT NULL,
+      "model_used"          TEXT NOT NULL,
+      "generated_at"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "uq_metric_insights_agency_metric_range"
+        UNIQUE ("agency_id", "metric", "period_start_date", "period_end_date")
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS "idx_metric_insights_recent"
+      ON "metric_insights_cache"("agency_id", "metric", "period_end_date" DESC)
+  `);
 }
 
 async function ensureOverviewPeriodInsightsSchema(client: any): Promise<void> {

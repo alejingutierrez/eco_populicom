@@ -860,7 +860,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   }, [slice, topicMode]);
 
   if (!slice) return null;
-  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
+  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta, insightText, subcomponents, headlineValue } = slice;
   const volume = liveSlice ? liveSlice.total : slice.volume;
   const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
   const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
@@ -936,6 +936,58 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Insight LLM (cuando el slice viene de un click en una métrica
+              sintética como Crisis, NSS, BHI). Va arriba del histogram +
+              mentions; explica el porqué del número para esta agencia. */}
+          {(insightText || headlineValue != null) && (
+            <div className="card" style={{
+              padding: 16, background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              {headlineValue != null && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <div className="num" style={{ fontSize: 32, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                    {headlineValue}
+                  </div>
+                  {slice.headlineLabel && (
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {slice.headlineLabel}
+                    </div>
+                  )}
+                </div>
+              )}
+              {insightText && (
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}
+                  dangerouslySetInnerHTML={{ __html: insightText }} />
+              )}
+              {insightText === '__loading__' && (
+                <>
+                  <div className="skeleton" style={{ height: 14 }} />
+                  <div className="skeleton" style={{ height: 14, width: '95%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '82%' }} />
+                </>
+              )}
+              {Array.isArray(subcomponents) && subcomponents.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 4 }}>Componentes</div>
+                  {subcomponents.map((sc, i) => {
+                    const pct = Math.max(0, Math.min(100, Number(sc.value) || 0));
+                    return (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 60px', gap: 10, alignItems: 'center', fontSize: 11 }}>
+                        <span style={{ color: 'var(--text-2)' }}>{sc.label}</span>
+                        <div style={{ height: 6, borderRadius: 3, background: 'var(--canvas)', overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: sc.color || accent }} />
+                        </div>
+                        <span className="num" style={{ textAlign: 'right', color: 'var(--text)', fontWeight: 600 }}>
+                          {sc.display ?? (Number.isFinite(Number(sc.value)) ? Number(sc.value).toFixed(2) : '—')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {histogram && histogram.values?.length > 0 && (() => {
             const maxH = Math.max(...histogram.values) || 1;
             const xLabels = histogram.xLabels || [];

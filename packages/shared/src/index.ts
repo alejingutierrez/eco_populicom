@@ -8,6 +8,7 @@ export * from './email/render-weekly-report';
 export * from './prompts/weekly-report-insights';
 export * from './prompts/topic-description';
 export * from './prompts/executive-briefing';
+export * from './prompts/metric-insight';
 // `./bedrock` se importa directamente desde lambdas via
 // `@eco/shared/src/bedrock`. NO se re-exporta aquí porque trae el SDK
 // `@aws-sdk/client-bedrock-runtime` al grafo de webpack de apps/web, que

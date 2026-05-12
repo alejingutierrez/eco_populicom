@@ -2894,13 +2894,87 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
+  // openMetricInsight — clic en Crisis (Overview) o KPIs (Scorecard). Arma
+  // un slice con headlineValue + subcomponents + placeholder loading, lo
+  // muestra inmediato, y dispara fetch a /api/eco-metric-insight (cache-or-
+  // 202 con polling).
+  function openMetricInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const m = data?.currentMetrics || {};
+    // Construye subcomponents desde currentMetrics. Para crisis el snapshot
+    // ya tiene los componentes, pero /api/overview no los expone (solo el
+    // compuesto). Para esta versión, mostramos los rolling NSS + el
+    // crisisRiskScore como contexto. El servidor verá el snapshot real para
+    // el LLM (a través de loadMetricInsightContext).
+    let subs = [];
+    if (metric === 'crisis') {
+      subs = [
+        { label: 'Crisis Risk Score', value: (Number(value) / 3) * 100, display: value, color: 'var(--neg)' },
+        { label: 'NSS (último día)', value: m.nss != null ? Math.max(0, (Number(m.nss) + 100) / 2) : 0, display: m.nss != null ? Number(m.nss).toFixed(1) : '—' },
+      ];
+    } else if (metric === 'bhi' && m.brandHealthIndex != null) {
+      subs = [
+        { label: 'BHI', value: Number(m.brandHealthIndex) * 100, display: Number(m.brandHealthIndex).toFixed(2), color: 'var(--pos)' },
+        { label: 'Engagement rate', value: m.engagementRate != null ? Math.min(100, Number(m.engagementRate) * 10) : 0, display: m.engagementRate != null ? Number(m.engagementRate).toFixed(2) : '—' },
+      ];
+    }
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' } : {};
+    setSlice({
+      eyebrow: labels[metric] || metric,
+      title: `${labels[metric] || metric} · ${data?.periodLabel ?? ''}`,
+      accent: accent || 'var(--accent)',
+      headlineValue: value,
+      headlineLabel: labels[metric] || metric,
+      subcomponents: subs,
+      insightText: '__loading__',
+      mentions: [],
+      _filter: filter,
+    });
+
+    const params = new URLSearchParams({ metric, from: data?.periodStart || '', to: data?.periodEnd || '' });
+    if (agency) params.set('agency', agency);
+    const startedAt = Date.now();
+    const MAX_POLL_MS = 90 * 1000;
+    const POLL_MS = 3000;
+    async function tick() {
+      try {
+        const res = await fetch('/api/eco-metric-insight?' + params.toString(), {
+          credentials: 'same-origin', cache: 'no-store',
+        });
+        if (res.status === 202) {
+          if (Date.now() - startedAt > MAX_POLL_MS) {
+            setSlice((s) => s ? { ...s, insightText: 'Insight no disponible (timeout).' } : s);
+            return;
+          }
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        if (!res.ok) {
+          setSlice((s) => s ? { ...s, insightText: 'No se pudo cargar el insight.' } : s);
+          return;
+        }
+        const json = await res.json();
+        setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
+      } catch (_) {
+        setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
+      }
+    }
+    tick();
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OverviewFilterBar period={period} />
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
-      <OverviewHighlights metrics={data.currentMetrics} />
+      <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
       <OverviewTendencia dailySeries={data.dailySeries} />
       <OverviewTopicos
         rows={data.topicsTable}
@@ -3015,7 +3089,10 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
 // del usuario quitamos NSS / Volúmenes / Brand Health del Overview (esas
 // métricas viven en el tab Scorecard); Crisis se queda como termómetro pero
 // ya no está fusionada con NSS — vive aquí en su propia card slim.
-function OverviewHighlights({ metrics }) {
+//
+// Clickable: abre MetricInsightModal con insight LLM + subcomponentes
+// (severity/velocity/relevance/confidence del snapshot diario).
+function OverviewHighlights({ metrics, onOpenInsight }) {
   const m = metrics || {};
   if (m.crisisRiskScore == null) return null;
   const band = m.crisisRiskScore >= 2.25 ? 'CRISIS'
@@ -3024,13 +3101,23 @@ function OverviewHighlights({ metrics }) {
     : 'NORMAL';
   const bandColor = m.crisisRiskScore >= 1.5 ? 'var(--neg)' : m.crisisRiskScore >= 0.75 ? 'var(--warn)' : 'var(--pos)';
   return (
-    <div className="card" style={{ padding: 16, display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center' }}>
+    <button
+      onClick={() => onOpenInsight && onOpenInsight('crisis', m.crisisRiskScore.toFixed(2), 'var(--neg)')}
+      className="card row-hover"
+      style={{
+        padding: 16,
+        display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center',
+        cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
+        textAlign: 'left', width: '100%',
+      }}
+      title="Ver insight del riesgo de crisis para el periodo">
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Icons.Shield size={14} color="var(--neg)" />
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Riesgo de crisis
           </div>
+          <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <div className="num" style={{ fontSize: 28, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
@@ -3048,7 +3135,7 @@ function OverviewHighlights({ metrics }) {
           <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 

@@ -209,6 +209,141 @@ export async function loadSamples(
   return result as { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] };
 }
 
+/**
+ * Carga datos compactos para `metric-insight`: subcomponentes del último
+ * snapshot dentro del rango + top topics / authors / municipalities. Devuelve
+ * lo mínimo que el prompt necesita para describir el porqué de la métrica.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadMetricInsightContext(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+  startDate: string,
+  endDate: string,
+): Promise<{
+  snapshot: Record<string, number | null>;
+  topTopics: Array<{ topic: string; total: number; negative: number; positive: number }>;
+  topAuthors: Array<{ author: string; mentions: number }>;
+  topMunicipalities: Array<{ municipality: string; total: number; negative: number }>;
+  totalMentions: number;
+  totalMentionsDelta: number;
+}> {
+  // Snapshot más reciente dentro de la ventana.
+  const snapRes = await client.query(
+    `SELECT *
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1
+        AND date >= $2::date
+        AND date <= $3::date
+      ORDER BY date DESC
+      LIMIT 1`,
+    [agency.id, startDate, endDate],
+  );
+  const snapshot = (snapRes.rows[0] ?? {}) as Record<string, unknown>;
+
+  // Top topics primary-confidence.
+  const topicRes = await client.query(
+    `WITH primaries AS (
+       SELECT t.name AS topic,
+              COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+              COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+         FROM (
+           SELECT m.id AS mention_id,
+                  COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                  (SELECT topic_id FROM mention_topics
+                     WHERE mention_id = m.id
+                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+             FROM mentions m
+            WHERE m.agency_id = $1
+              AND m.published_at >= ($2::date)
+              AND m.published_at <  (($3::date) + INTERVAL '1 day')
+         ) pt
+         JOIN topics t ON t.id = pt.topic_id
+        GROUP BY t.name
+        ORDER BY total DESC
+        LIMIT 5
+     )
+     SELECT topic, total, negative, positive FROM primaries`,
+    [agency.id, startDate, endDate],
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const topTopics = topicRes.rows.map((r: any) => ({
+    topic: r.topic, total: r.total, negative: r.negative, positive: r.positive,
+  }));
+
+  const authorRes = await client.query(
+    `SELECT author, COUNT(*)::int AS mentions
+       FROM mentions
+      WHERE agency_id = $1
+        AND author IS NOT NULL AND author <> ''
+        AND published_at >= ($2::date)
+        AND published_at <  (($3::date) + INTERVAL '1 day')
+      GROUP BY author
+      ORDER BY mentions DESC
+      LIMIT 3`,
+    [agency.id, startDate, endDate],
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const topAuthors = authorRes.rows.map((r: any) => ({ author: r.author, mentions: r.mentions }));
+
+  const muniRes = await client.query(
+    `SELECT mu.name AS municipality,
+            COUNT(DISTINCT m.id)::int AS total,
+            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative
+       FROM mentions m
+       JOIN mention_municipalities mm ON mm.mention_id = m.id
+       JOIN municipalities mu ON mu.id = mm.municipality_id
+      WHERE m.agency_id = $1
+        AND m.published_at >= ($2::date)
+        AND m.published_at <  (($3::date) + INTERVAL '1 day')
+      GROUP BY mu.id, mu.name
+      ORDER BY negative DESC, total DESC
+      LIMIT 5`,
+    [agency.id, startDate, endDate],
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const topMunicipalities = muniRes.rows.map((r: any) => ({
+    municipality: r.municipality, total: r.total, negative: r.negative,
+  }));
+
+  // Volume + delta vs ventana previa.
+  const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
+  const totalRes = await client.query(
+    `SELECT COUNT(*)::int AS total
+       FROM mentions
+      WHERE agency_id = $1
+        AND published_at >= ($2::date)
+        AND published_at <  (($3::date) + INTERVAL '1 day')`,
+    [agency.id, startDate, endDate],
+  );
+  const totalMentions = Number(totalRes.rows[0]?.total ?? 0);
+  const prevStart = new Date(new Date(startDate).getTime() - days * 86400000);
+  const prevEnd = new Date(new Date(startDate).getTime() - 86400000);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const prevRes = await client.query(
+    `SELECT COUNT(*)::int AS total
+       FROM mentions
+      WHERE agency_id = $1
+        AND published_at >= ($2::date)
+        AND published_at <  (($3::date) + INTERVAL '1 day')`,
+    [agency.id, fmt(prevStart), fmt(prevEnd)],
+  );
+  const prevTotal = Number(prevRes.rows[0]?.total ?? 0);
+  const totalMentionsDelta = prevTotal > 0 ? ((totalMentions - prevTotal) / prevTotal) * 100 : (totalMentions > 0 ? 100 : 0);
+
+  return {
+    snapshot: Object.fromEntries(
+      Object.entries(snapshot).map(([k, v]) => [k, typeof v === 'number' || typeof v === 'string' ? Number(v) || null : null]),
+    ),
+    topTopics,
+    topAuthors,
+    topMunicipalities,
+    totalMentions,
+    totalMentionsDelta,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function loadTodaySamples(client: any, agencyId: string, endYmd: string): Promise<MentionSample[]> {
   const r = await client.query(
