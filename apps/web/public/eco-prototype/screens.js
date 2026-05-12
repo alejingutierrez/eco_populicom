@@ -628,6 +628,41 @@ function MentionsScreen({ onMentionClick }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [sortBy, setSortBy] = useState({ key: 'recent', dir: 'desc' });
   const [showCount, setShowCount] = useState(20);
+  const [slice, setSlice] = useState(null);
+
+  function openQuickMetric(metric) {
+    const total = D.CURRENT_METRICS.totalMentions || 0;
+    if (metric === 'total') {
+      setSlice({
+        eyebrow: 'Volumen del periodo',
+        title: 'Todas las menciones',
+        accent: 'var(--text-2)',
+        volume: total,
+        mentions: [],
+        _filter: {},
+      });
+    } else if (metric === 'pertinence') {
+      setSlice({
+        eyebrow: 'Pertinencia',
+        title: 'Menciones de alta pertinencia',
+        accent: 'var(--warn)',
+        mentions: [],
+        _filter: { pertinence: 'alta' },
+      });
+    } else if (metric === 'virales') {
+      // Virales: alto engagement. Filtra por engagement implícito vía
+      // sentimiento + ordenamiento — pero el endpoint no expone threshold de
+      // engagement, así que abrimos por ahora con filtro vacío y dejamos
+      // pendiente extender /api/eco-mentions con minEngagement.
+      setSlice({
+        eyebrow: 'Engagement',
+        title: 'Menciones virales',
+        accent: 'var(--neg)',
+        mentions: [],
+        _filter: {},
+      });
+    }
+  }
 
   React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
 
@@ -721,17 +756,26 @@ function MentionsScreen({ onMentionClick }) {
       {/* Quick metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
         {[
-          { l: 'Total', v: fmt(D.CURRENT_METRICS.totalMentions), t: null },
+          { l: 'Total', v: fmt(D.CURRENT_METRICS.totalMentions), t: null, click: 'total' },
           { l: 'Alcance', v: fmt(D.CURRENT_METRICS.totalReach), t: null },
-          { l: 'Alta pertinencia', v: fmt(D.CURRENT_METRICS.highPertinenceCount), t: 'warn' },
+          { l: 'Alta pertinencia', v: fmt(D.CURRENT_METRICS.highPertinenceCount), t: 'warn', click: 'pertinence' },
           { l: 'Engagement rate', v: D.CURRENT_METRICS.engagementRate + '%', t: null },
-          { l: 'Virales (>5K)', v: '23', t: 'neg' },
-        ].map((k, i) => (
-          <div key={i} className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{k.l}</div>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, color: k.t === 'neg' ? 'var(--neg)' : k.t === 'warn' ? 'var(--warn)' : 'var(--text)', marginTop: 6, fontFamily: 'var(--ff-display)' }}>{k.v}</div>
-          </div>
-        ))}
+          { l: 'Virales (>5K)', v: '23', t: 'neg', click: 'virales' },
+        ].map((k, i) => {
+          const Tag = k.click ? 'button' : 'div';
+          const tagProps = k.click
+            ? { onClick: () => openQuickMetric(k.click), className: 'card row-hover', type: 'button', style: { padding: 14, cursor: 'pointer', textAlign: 'left', background: 'var(--canvas)', border: '1px solid var(--hairline)', width: '100%' } }
+            : { className: 'card', style: { padding: 14 } };
+          return (
+            <Tag key={i} {...tagProps}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{k.l}</div>
+                {k.click && <Icons.ArrowRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
+              </div>
+              <div className="num" style={{ fontSize: 22, fontWeight: 600, color: k.t === 'neg' ? 'var(--neg)' : k.t === 'warn' ? 'var(--warn)' : 'var(--text)', marginTop: 6, fontFamily: 'var(--ff-display)' }}>{k.v}</div>
+            </Tag>
+          );
+        })}
       </div>
 
       {/* Mentions table */}
@@ -764,6 +808,7 @@ function MentionsScreen({ onMentionClick }) {
           </div>
         )}
       </div>
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
 }
