@@ -157,7 +157,7 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
   const a = agencyRow.rows[0];
   const recipients = event.recipients ?? (a.recipients as string[] | null) ?? [];
   const fromEmail = a.from_email ?? 'agutierrez@populicom.com';
-  const fromName = a.from_name ?? 'Populicom Radar';
+  const fromName = a.from_name ?? 'ECO Radar';
   const templateKey = a.template_key ?? 'weekly-sentiment-summary';
   const trigger = event.trigger ?? 'manual';
 
@@ -312,6 +312,7 @@ async function buildReport(
 
   const renderData: WeeklyReportRenderData = {
     agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
     periodLabel: formatPeriodLabel(startDate, endDate),
     updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
@@ -344,7 +345,7 @@ async function ensureReportsSchema(client: any): Promise<void> {
       template_key VARCHAR(64) NOT NULL DEFAULT 'weekly-sentiment-summary',
       recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
       from_email VARCHAR(255) NOT NULL DEFAULT 'agutierrez@populicom.com',
-      from_name VARCHAR(255) NOT NULL DEFAULT 'Populicom Radar',
+      from_name VARCHAR(255) NOT NULL DEFAULT 'ECO Radar',
       updated_by UUID REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -390,7 +391,7 @@ async function ensureReportsSchema(client: any): Promise<void> {
            'America/Puerto_Rico',
            CASE WHEN slug = 'ddecpr' THEN $1::jsonb ELSE '[]'::jsonb END,
            'agutierrez@populicom.com',
-           'Populicom Radar'
+           'ECO Radar'
     FROM agencies
     WHERE is_active = true
     ON CONFLICT (agency_id) DO UPDATE SET
@@ -419,6 +420,14 @@ async function ensureReportsSchema(client: any): Promise<void> {
      WHERE rc.agency_id = a.id
        AND a.slug = 'ddecpr'
        AND rc.timezone = 'America/Bogota';
+  `);
+
+  // Self-heal from_name: migra filas con el branding viejo "Populicom Radar"
+  // a "ECO Radar" sin tocar valores custom que la UI haya guardado.
+  await client.query(`
+    UPDATE report_configs
+       SET from_name = 'ECO Radar', updated_at = NOW()
+     WHERE from_name = 'Populicom Radar';
   `);
 
   // Self-heal recipients de DDEC: añade lquinones y grosado si faltan, sin
