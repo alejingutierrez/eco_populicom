@@ -1010,4 +1010,235 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   );
 }
 
-window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, TweaksPanel, NAV, SYSTEM_NAV };
+// =========================================================
+// MetricInsightModal — modal de drilldown para cada KPI del Scorecard.
+// Patrón visual inspirado en OverviewHighlights (banda + etiqueta + valor)
+// del Overview, ahora con serie temporal e interpretación AI coloquial.
+//
+// Props:
+//   metricKey: 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization'
+//   value:     number (valor en el periodo actual; sirve de placeholder
+//              mientras carga el fetch)
+//   label:     "Net Sentiment Score" etc.
+//   accent:    color CSS para borde superior y línea del chart
+//   period:    period activo del header (1D/7D/...)
+//   agency:    slug de la agencia activa
+// =========================================================
+function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)', period, agency, onClose }) {
+  const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
+  const [data, setData] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    // Cache por sesión: evita re-fetchear cuando el usuario abre y cierra
+    // el mismo modal varias veces sin cambiar de period.
+    const cacheKey = `eco.metricInsight.${agency}.${metricKey}.${period}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) { setData(JSON.parse(cached)); return; }
+    } catch (_) {}
+    const ctrl = new AbortController();
+    const params = new URLSearchParams({ metric: metricKey, period: period || '7D' });
+    if (agency) params.set('agency', agency);
+    fetch(`/api/ai/metric-insight?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then((j) => {
+        setData(j);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(j)); } catch (_) {}
+      })
+      .catch((e) => { if (e?.name !== 'AbortError') setError(String(e?.message || e)); });
+    return () => ctrl.abort();
+  }, [metricKey, period, agency]);
+
+  function sanitize(html) {
+    if (!html) return '';
+    return String(html).replace(/<(?!\/?strong\b)[^>]*>/gi, '');
+  }
+
+  function formatValue(v) {
+    if (v == null) return '—';
+    if (metricKey === 'nss') return (v > 0 ? '+' : '') + Number(v).toFixed(1);
+    if (metricKey === 'crisis') return Number(v).toFixed(2);
+    if (metricKey === 'bhi') return Number(v).toFixed(2);
+    if (metricKey === 'polarization') return Math.round(Number(v)) + '%';
+    if (metricKey === 'volume') return Number(v).toLocaleString('es-PR');
+    return String(v);
+  }
+
+  function bandColor(band) {
+    if (!band) return 'var(--text-3)';
+    const b = String(band).toUpperCase();
+    if (['CRISIS', 'ALERTA', 'NEGATIVO', 'CRÍTICO'].includes(b)) return 'var(--neg)';
+    if (['ELEVADO', 'DÉBIL', 'MODERADA', 'EXTREMA'].includes(b)) return 'var(--warn)';
+    if (['SANO', 'POSITIVO', 'NORMAL', 'ALTA'].includes(b)) return 'var(--pos)';
+    if (['FUERTE'].includes(b)) return 'var(--accent)';
+    return 'var(--text-3)';
+  }
+
+  // Bandas para la barra gradiente — patrón replicado de OverviewHighlights
+  // crisis card (screens.js:2865). Cada métrica tiene su gradiente.
+  function bandConfig() {
+    if (metricKey === 'crisis') {
+      return {
+        labels: ['NORMAL', 'ELEVADO', 'ALERTA', 'CRISIS'],
+        gradient: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)',
+        pct: (v) => Math.min((v ?? 0) * 100, 100),
+      };
+    }
+    if (metricKey === 'bhi') {
+      return {
+        labels: ['CRÍTICO', 'DÉBIL', 'SANO', 'FUERTE'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 40%, var(--warn) 40%, var(--warn) 60%, var(--pos) 60%, var(--pos) 80%, var(--accent) 80%, var(--accent) 100%)',
+        pct: (v) => Math.min((v ?? 0) * 100, 100),
+      };
+    }
+    if (metricKey === 'polarization') {
+      return {
+        labels: ['APÁTICA', 'MODERADA', 'ALTA', 'EXTREMA'],
+        gradient: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 50%, #8B5CF6 50%, #8B5CF6 75%, var(--neg) 75%, var(--neg) 100%)',
+        pct: (v) => Math.max(0, Math.min(v ?? 0, 100)),
+      };
+    }
+    if (metricKey === 'nss') {
+      return {
+        labels: ['MUY NEG', 'NEG', 'NEUTRAL', 'POS', 'MUY POS'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 30%, var(--warn) 30%, var(--warn) 45%, var(--text-3) 45%, var(--text-3) 55%, var(--pos) 55%, var(--pos) 70%, var(--accent) 70%, var(--accent) 100%)',
+        pct: (v) => Math.max(0, Math.min(((v ?? 0) + 100) / 2, 100)),
+      };
+    }
+    // volume — sin banda intrínseca, mostramos solo posición vs P25/P75
+    return null;
+  }
+
+  const displayValue = data ? data.value : value;
+  const displayBand = data ? data.band : null;
+  const cfg = bandConfig();
+  const series = (data && data.series) || [];
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} style={{ zIndex: 2000 }} />
+      <div role="dialog" aria-modal="true" style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto',
+        background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
+        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        zIndex: 2001,
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid var(--hairline)',
+          borderTop: `3px solid ${accent}`,
+          display: 'flex', alignItems: 'flex-start', gap: 16,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>
+              <span>Métrica · {period || '—'}</span>
+              {data && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4 }}>
+                  <Icons.Sparkles size={9} /> IA
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
+              {label}
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              <div className="num" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                {formatValue(displayValue)}
+              </div>
+              {displayBand && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
+                  {displayBand}
+                </div>
+              )}
+              {data && data.deltaVsPrev != null && (
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+                  {data.deltaVsPrev > 0 ? '▲ +' : data.deltaVsPrev < 0 ? '▼ ' : '· '}
+                  {Math.abs(data.deltaVsPrev)} vs ventana anterior
+                </div>
+              )}
+            </div>
+          </div>
+          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+        </div>
+
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Banda visual — patrón Overview crisis card. */}
+          {cfg && displayValue != null && (
+            <div>
+              <div style={{ height: 8, borderRadius: 4, background: cfg.gradient, position: 'relative' }}>
+                <div style={{ position: 'absolute', left: `${cfg.pct(displayValue)}%`, top: -4, width: 14, height: 14, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor(displayBand)}`, transform: 'translateX(-50%)' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
+                {cfg.labels.map((l) => <span key={l}>{l}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* Interpretación AI coloquial (issue #4). */}
+          <div style={{
+            padding: '14px 16px', background: 'var(--canvas-2)',
+            border: '1px solid var(--hairline)', borderRadius: 8,
+            fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
+          }}>
+            {!data && !error && (
+              <span style={{ color: 'var(--text-3)' }}>Generando interpretación…</span>
+            )}
+            {error && (
+              <span style={{ color: 'var(--neg)' }}>No se pudo generar la interpretación: {error}</span>
+            )}
+            {data && data.interpretation && (
+              <span dangerouslySetInnerHTML={{ __html: sanitize(data.interpretation) }} />
+            )}
+          </div>
+
+          {/* Serie temporal de la métrica para la ventana del period. */}
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Evolución diaria</div>
+            {series.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, background: 'var(--canvas-2)', borderRadius: 6 }}>
+                Sin datos suficientes para graficar la serie.
+              </div>
+            )}
+            {series.length > 0 && (
+              <MultiLineChart
+                data={series}
+                series={[{ key: 'value', label, color: accent }]}
+                height={200}
+              />
+            )}
+          </div>
+
+          {/* Tópicos contribuyentes (opcional). */}
+          {data && data.topContributingTopics && data.topContributingTopics.length > 0 && (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópicos contribuyentes</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.topContributingTopics.map((t) => (
+                  <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>{t.name}</span>
+                    <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{Math.round(t.share * 100)}%</span>
+                    <div style={{ width: 80, height: 4, background: 'var(--canvas-2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.min(t.share * 100, 100)}%`, height: '100%', background: accent }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Contexto histórico — P25/P75 90d. */}
+          {data && data.historicalP25 != null && data.historicalP75 != null && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
+              Rango típico de los últimos 90 días: <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP25)}</strong> a <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP75)}</strong>.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };

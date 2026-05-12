@@ -19,6 +19,14 @@ export const agencyBriefings = pgTable(
     agencyId: uuid('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
     generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
     periodHours: integer('period_hours').notNull().default(24),
+    /**
+     * `signal` (la narrativa "Señal del día" — comportamiento histórico),
+     * `emerging` (tópicos con mayor crecimiento), `crisis` (vigilancia de
+     * señales negativas). Cada corrida del lambda eco-ai-tasks produce 3
+     * filas — una por modo. Si solo había 'signal' antes de la migración
+     * 0003, se asume default 'signal'.
+     */
+    mode: varchar('mode', { length: 10 }).notNull().default('signal'),
     narrativeHtml: text('narrative_html').notNull(),
     dominantSignal: text('dominant_signal').notNull(),
     actionLabel: text('action_label').notNull(),
@@ -28,5 +36,8 @@ export const agencyBriefings = pgTable(
     sourceMentions: integer('source_mentions').notNull(),
     fallback: boolean('fallback').notNull().default(false),
   },
-  (t) => [index('idx_agency_briefings_recent').on(t.agencyId, t.generatedAt)],
+  (t) => [
+    index('idx_agency_briefings_recent').on(t.agencyId, t.generatedAt),
+    index('idx_agency_briefings_mode').on(t.agencyId, t.mode, t.generatedAt),
+  ],
 );
