@@ -1,5 +1,40 @@
 // SVG chart primitives — no external libs, tuned to theme via CSS vars
 
+/**
+ * Convierte un array de puntos [x,y] a un path SVG smooth usando Catmull-Rom
+ * splines. A diferencia del bezier con tangentes horizontales (donde el
+ * control point se centra en cx=(x0+x1)/2 con y=y_endpoint), Catmull-Rom usa
+ * tangentes basadas en el slope de los puntos VECINOS. Resultado:
+ *  - La curva pasa EXACTAMENTE por cada data point (sin overshoot).
+ *  - Los peaks son puntiagudos en su día real, NO extendidos lateralmente
+ *    (la "meseta" del bezier horizontal-tangent confundía al usuario sobre
+ *    qué label X correspondía a un peak visible).
+ *  - Tensión 0.5 = standard Catmull-Rom; 1.0 = más recto; 0 = más curvo.
+ *
+ * Conversión Catmull-Rom → cubic bezier:
+ *  Para el segmento P1→P2, los control points son:
+ *    cp1 = P1 + (P2 - P0) * tension / 6
+ *    cp2 = P2 - (P3 - P1) * tension / 6
+ *  Donde P0 y P3 son los puntos previo y siguiente (o reflexión en bordes).
+ */
+function catmullRomPath(pts, tension = 1) {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
+  let p = `M ${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || pts[i + 1];
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 6;
+    p += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return p;
+}
+
 function linePath(data, w, h, accessor = (d) => d, padding = 4, minY = null, maxY = null) {
   if (!data.length) return '';
   const vals = data.map(accessor);
@@ -222,50 +257,38 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           {!sharedScale && normalized[0] && (() => {
             const s = normalized[0];
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
-            let p = `M ${pts[0][0]},${innerH} L ${pts[0][0]},${pts[0][1]}`;
-            for (let i = 1; i < pts.length; i++) {
-              const [x0, y0] = pts[i - 1];
-              const [x1, y1] = pts[i];
-              const cx = (x0 + x1) / 2;
-              p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
-            }
-            p += ` L ${pts[pts.length - 1][0]},${innerH} Z`;
+            // Reemplazo el M inicial del path Catmull-Rom por L para anexarlo al
+            // move-to bottom-left que abre el área.
+            const lineFromL = catmullRomPath(pts).replace(/^M /, 'L ');
+            const p = `M ${pts[0][0]},${innerH} ${lineFromL} L ${pts[pts.length - 1][0]},${innerH} Z`;
             return <path d={p} fill={`url(#mlg-${s.key})`} />;
           })()}
 
-          {/* Lines — rectas cuando los datos son volátiles (sharedScale por
-              defecto), suaves cuando smooth=true. Las curvas bezier
-              "overshoot" en spikes (ej 5→78→13) y exageran picos visualmente. */}
+          {/* Lines — Catmull-Rom cuando smooth=true (pasa por cada punto sin
+              overshoot ni mesetas) o straight L cuando smooth=false. */}
           {normalized.map((s) => {
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
             const useSmooth = smooth || (!sharedScale && pts.length > 2);
-            let p = `M ${pts[0][0]},${pts[0][1]}`;
-            if (useSmooth) {
-              for (let i = 1; i < pts.length; i++) {
-                const [x0, y0] = pts[i - 1];
-                const [x1, y1] = pts[i];
-                const cx = (x0 + x1) / 2;
-                p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
-              }
-            } else {
-              for (let i = 1; i < pts.length; i++) {
-                p += ` L ${pts[i][0]},${pts[i][1]}`;
-              }
-            }
+            const p = useSmooth ? catmullRomPath(pts) : (() => {
+              let str = `M ${pts[0][0]},${pts[0][1]}`;
+              for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
+              return str;
+            })();
             return <path key={s.key} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
 
-          {/* Dots discretos en cada punto cuando hay pocos puntos (<=14) o
-              hovereado — ayuda al usuario a ver cada día como punto discreto
-              y no como curva continua. */}
-          {(data.length <= 14 || hover != null) && normalized.map((s) => (
+          {/* Dots SIEMPRE visibles en cada día — el usuario puede verificar
+              visualmente la posición exacta del peak y trazarla a la label X
+              correspondiente. Tamaño pequeño (1.8px) para no saturar; grande
+              (3.5px) en hover. */}
+          {normalized.map((s) => (
             <g key={`${s.key}-dots`}>
               {data.map((d, i) => {
                 const y = innerH - ((d[s.key] - s.min) / s.range) * innerH;
                 const isHover = hover === i;
                 return (
                   <circle key={i} cx={i * step} cy={y}
-                    r={isHover ? 3.5 : (data.length <= 14 ? 2.5 : 0)}
+                    r={isHover ? 3.5 : (data.length <= 14 ? 2.5 : 1.8)}
                     fill={s.color} stroke="var(--canvas)" strokeWidth={isHover ? 1 : 0} />
                 );
               })}
