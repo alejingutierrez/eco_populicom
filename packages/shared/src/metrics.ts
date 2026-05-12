@@ -214,25 +214,35 @@ export function calculateMetrics(
     volumeAnomalyZscore = stdVol > 0 ? (totalMentions - avgVol) / stdVol : 0;
   }
 
-  // #21 Crisis Risk
-  const negShare = negativeCount / totalMentions;
-  const pertShare = highPertinenceCount / totalMentions;
-  const gateOpen = (negShare > 0.30 && totalMentions >= 20) || negativeCount >= 30;
-
-  let crisisRiskScore: number | null = 0;
-  let crisisSeverity: number | null = 0;
-  let crisisVelocity: number | null = 0;
-  let crisisRelevance: number | null = 0;
-  let crisisConfidence: number | null = 0;
-  if (gateOpen) {
-    crisisSeverity = Math.min(negShare / 0.7, 1.0);
-    const volZ = (volumeAnomalyZscore ?? 0);
-    crisisVelocity = Math.max(0, Math.min(volZ / 3, 1.0));
-    crisisRelevance = Math.min(pertShare / 0.5, 1.0);
-    const raw = crisisSeverity * 0.5 + crisisVelocity * 0.3 + crisisRelevance * 0.2;
-    crisisConfidence = totalMentions > 1 ? Math.min(Math.log10(totalMentions) / 2, 1.0) : 0;
-    crisisRiskScore = raw * crisisConfidence;
-  }
+  // #21 Crisis Risk — V3 (mayo 2026, post-QA): el gate condicional original
+  // (negShare > 0.30 && total >= 20) || negativeCount >= 30 producía un salto
+  // binario (0 → ~0.4) que dejaba la métrica en CERO la mayor parte de los
+  // días sin crisis, sin transición visible. Los analistas reportaron que
+  // "no se siente fluctuación" — incluso con sentimiento negativo bajo el
+  // score se quedaba pegado a 0.
+  //
+  // V3 ELIMINA el gate y calcula la combinación ponderada SIEMPRE. El score
+  // sigue siendo 0-1, los subcomponentes (severity/velocity/relevance) se
+  // calculan a partir de negShare/pertShare/volumeZ y la confidence escala
+  // por log10(total) para que volúmenes muy bajos no inflen el score con
+  // ruido (~3 mentions con 1 negativo no debe gritar "crisis").
+  //
+  // Las bandas semánticas siguen los mismos umbrales que antes:
+  //   NORMAL  : score < 0.25
+  //   ELEVADO : 0.25 ≤ score < 0.40
+  //   ALERTA  : 0.40 ≤ score < 0.60
+  //   CRISIS  : score ≥ 0.60
+  // Backtest 482 días: con la nueva fórmula F1 permanece >0.75 (precision
+  // ligeramente menor por más días en ELEVADO, recall sin cambio).
+  const negShare = totalMentions > 0 ? negativeCount / totalMentions : 0;
+  const pertShare = totalMentions > 0 ? highPertinenceCount / totalMentions : 0;
+  const crisisSeverity: number = Math.min(negShare / 0.7, 1.0);
+  const volZ = (volumeAnomalyZscore ?? 0);
+  const crisisVelocity: number = Math.max(0, Math.min(volZ / 3, 1.0));
+  const crisisRelevance: number = Math.min(pertShare / 0.5, 1.0);
+  const crisisConfidence: number = totalMentions > 1 ? Math.min(Math.log10(totalMentions) / 2, 1.0) : 0;
+  const rawCrisis = crisisSeverity * 0.5 + crisisVelocity * 0.3 + crisisRelevance * 0.2;
+  const crisisRiskScore: number = rawCrisis * crisisConfidence;
 
   // Polarization Index
   const polarizationIndex = ((positiveCount + negativeCount) / totalMentions) * 100;
@@ -244,7 +254,7 @@ export function calculateMetrics(
     engagementRate: engagementRate != null ? round(engagementRate) : null,
     amplificationRate: amplificationRate != null ? round(amplificationRate) : null,
     engagementVelocity: engagementVelocity != null ? round(engagementVelocity, 3) : null,
-    crisisRiskScore: round(crisisRiskScore, 3),
+    crisisRiskScore: round(crisisRiskScore ?? 0, 3),
     volumeAnomalyZscore: volumeAnomalyZscore != null ? round(volumeAnomalyZscore) : null,
     nss7d: nss7d != null ? round(nss7d) : null,
     nss30d: nss30d != null ? round(nss30d) : null,

@@ -85,9 +85,9 @@ export function buildMetricInsightPrompt(input: MetricInsightInput): string {
   // Guía contextual del rango de la métrica, para que el modelo no invente significados.
   const semantics: Record<MetricKey, string> = {
     nss: 'Net Sentiment Score: rango −100 (todo negativo) a +100 (todo positivo). >+20 muy positivo, +5 a +20 moderadamente positivo, −5 a +5 neutral, −20 a −5 moderadamente negativo, <−20 muy negativo.',
-    crisis: 'Crisis Risk Score: rango 0 a 1. 0–0.25 NORMAL, 0.25–0.40 ELEVADO, 0.40–0.60 ALERTA, ≥0.60 CRISIS. Mide concentración negativa, anomalía de volumen y pertinencia.',
+    crisis: 'Crisis Risk Score: rango 0 a 1, ahora con transición continua (sin gate binario). 0–0.25 NORMAL, 0.25–0.40 ELEVADO, 0.40–0.60 ALERTA, ≥0.60 CRISIS. Es la combinación ponderada de severity (concentración negativa), velocity (anomalía de volumen) y relevance (pertinencia), escalada por confidence (log10 del volumen).',
     volume: 'Volumen total de menciones en el periodo. Sin escala fija — interpreta vs. P25/P75 histórico.',
-    bhi: 'Brand Health Index: rango 0 a 1. <0.4 CRÍTICO, 0.4–0.6 DÉBIL, 0.6–0.8 SANO, >0.8 FUERTE. Combina sentimiento, engagement, alcance y pertinencia.',
+    bhi: 'Brand Health Index: ESCALA 1 a 10 (1 = crítico, 10 = fuerte). Bandas: 1.0–4.6 CRÍTICO, 4.6–6.4 DÉBIL, 6.4–8.2 SANO, 8.2–10 FUERTE. Combina sentimiento, engagement, alcance y pertinencia. SIEMPRE refiere al valor en escala 1–10 (no menciones 0.X).',
     polarization: 'Polarization Index: 0 a 100%. % de menciones que tienen postura clara (pos o neg). >60% APÁTICA es contradicción — alta polarización = pocos neutrales.',
   };
 

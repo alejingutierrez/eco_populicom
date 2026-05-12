@@ -261,7 +261,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         </KpiCard>
         <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ventana ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
           onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
-        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)"
+        {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
+            0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
+            y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
+        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? (1 + m.brandHealthIndex * 9).toFixed(1) : '—'} delta={m.brandHealthDelta != null ? Number((m.brandHealthDelta * 9).toFixed(1)) : null} sub="escala 1–10" icon="Heart" accent="var(--pos)"
           onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
@@ -408,9 +411,12 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   );
 }
 
-// --- BrandHealthMini: a more interesting KPI readout (segmented gauge) ---
+// --- BrandHealthMini: gauge segmentado. Internamente trabaja con value 0..1
+//     (output del backtest), pero el label de la banda y los hitos se muestran
+//     en escala 1–10 para alinearse con la presentación del KpiCard.
+//     Segmentos (valor interno): Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1).
+//     Equivalente en escala 1-10: 1-4.6, 4.6-6.4, 6.4-8.2, 8.2-10.
 function BrandHealthMini({ value }) {
-  // value 0..1. Segments: Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1)
   const segments = [
     { from: 0, to: 0.4, color: 'var(--neg)' },
     { from: 0.4, to: 0.6, color: 'var(--warn)' },
@@ -442,8 +448,8 @@ function BrandHealthMini({ value }) {
           );
         })}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em' }}>
-        <span>CRÍT</span><span>DÉB</span><span>SANO</span><span>FUERTE</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--ff-mono)' }}>
+        <span>1</span><span>4.6</span><span>6.4</span><span>8.2</span><span>10</span>
       </div>
       <div style={{ fontSize: 10, color: bandColor, fontWeight: 700, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{bandLabel}</div>
     </div>

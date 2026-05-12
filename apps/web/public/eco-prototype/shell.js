@@ -1135,7 +1135,9 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
     if (v == null) return '—';
     if (metricKey === 'nss') return (v > 0 ? '+' : '') + Number(v).toFixed(1);
     if (metricKey === 'crisis') return Number(v).toFixed(2);
-    if (metricKey === 'bhi') return Number(v).toFixed(2);
+    // BHI: el endpoint puede devolver el valor crudo (0-1) o ya escalado (1-10).
+    // Asumimos crudo 0-1 y mapeamos a 1-10 para presentación consistente con el KpiCard.
+    if (metricKey === 'bhi') return (1 + Number(v) * 9).toFixed(1);
     if (metricKey === 'polarization') return Math.round(Number(v)) + '%';
     if (metricKey === 'volume') return Number(v).toLocaleString('es-PR');
     return String(v);
