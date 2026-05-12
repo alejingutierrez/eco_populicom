@@ -4,15 +4,22 @@ const { MentionDrawer, MentionsSliceModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
-function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children }) {
+function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, onClick, children }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
+  // Si onClick está presente, renderiza como <button> clickable con hover y
+  // cursor pointer. Si no, queda como <div> estático (comportamiento previo).
+  const Tag = onClick ? 'button' : 'div';
+  const clickableProps = onClick
+    ? { onClick, className: 'card row-hover', type: 'button', style: { padding: 18, position: 'relative', overflow: 'hidden', borderTop: highlight ? `2px solid ${accent}` : undefined, cursor: 'pointer', textAlign: 'left', width: '100%', background: 'var(--canvas)', border: '1px solid var(--hairline)' } }
+    : { className: 'card', style: { padding: 18, position: 'relative', overflow: 'hidden', borderTop: highlight ? `2px solid ${accent}` : undefined } };
   return (
-    <div className="card" style={{ padding: 18, position: 'relative', overflow: 'hidden', borderTop: highlight ? `2px solid ${accent}` : undefined }}>
+    <Tag {...clickableProps}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         {IconC && <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
         {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal'}</span>}
+        {onClick && !tone && <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
@@ -26,7 +33,7 @@ function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--ac
       </div>
       {trendData && <div style={{ marginTop: 10 }}><Sparkline data={trendData} width={200} height={30} color={accent} /></div>}
       {children && <div style={{ marginTop: 10 }}>{children}</div>}
-    </div>
+    </Tag>
   );
 }
 
@@ -35,6 +42,69 @@ function fmt(n) {
   if (Math.abs(n) >= 1_000_000) return (n/1_000_000).toFixed(1)+'M';
   if (Math.abs(n) >= 1_000) return (n/1_000).toFixed(1)+'K';
   return n.toLocaleString('es-PR');
+}
+
+/**
+ * Helper compartido para abrir un MetricInsightModal desde cualquier pantalla.
+ * Construye el slice inicial con headlineValue + subcomponents + skeleton de
+ * insight, lo aplica vía setSlice, y dispara un fetch (con polling) al
+ * endpoint /api/eco-metric-insight. Al llegar la respuesta actualiza el slice
+ * con el texto del insight.
+ *
+ * @param {Function} setSlice — el setter del state local de cada screen.
+ * @param {Object} opts — { metric, value, accent, label, periodStart?, periodEnd?, periodPreset?, agency, subcomponents, filter }
+ */
+function openMetricInsightShared(setSlice, opts) {
+  const headlineValue = opts.value != null && opts.value !== '' ? String(opts.value) : '—';
+  setSlice({
+    eyebrow: opts.label,
+    title: `${opts.label}${opts.periodLabel ? ' · ' + opts.periodLabel : ''}`,
+    accent: opts.accent || 'var(--accent)',
+    headlineValue,
+    headlineLabel: opts.label,
+    subcomponents: opts.subcomponents || [],
+    insightText: '__loading__',
+    mentions: [],
+    _filter: opts.filter || {},
+  });
+
+  const params = new URLSearchParams({ metric: opts.metric });
+  if (opts.periodStart && opts.periodEnd) {
+    params.set('from', opts.periodStart);
+    params.set('to', opts.periodEnd);
+  } else if (opts.periodPreset) {
+    params.set('period', opts.periodPreset);
+  }
+  if (opts.agency) params.set('agency', opts.agency);
+
+  const startedAt = Date.now();
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_MS = 3000;
+
+  async function tick() {
+    try {
+      const res = await fetch('/api/eco-metric-insight?' + params.toString(), {
+        credentials: 'same-origin', cache: 'no-store',
+      });
+      if (res.status === 202) {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          setSlice((s) => s ? { ...s, insightText: 'Insight no disponible (timeout).' } : s);
+          return;
+        }
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      if (!res.ok) {
+        setSlice((s) => s ? { ...s, insightText: 'No se pudo cargar el insight.' } : s);
+        return;
+      }
+      const json = await res.json();
+      setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
+    } catch (_) {
+      setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
+    }
+  }
+  tick();
 }
 
 // Sanitiza HTML del briefing IA — solo permite <strong>/</strong>. El lambda
@@ -47,11 +117,37 @@ function sanitizeBriefingHtml(html) {
 }
 
 // =============== DASHBOARD ===============
-function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
+function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency }) {
   const m = D.CURRENT_METRICS;
   const [activeMetrics, setActiveMetrics] = useState(['nss', 'totalMentions', 'crisisRiskScore']);
   const [focus, setFocus] = useState('signal'); // signal | narrative | crisis
   const [slice, setSlice] = useState(null);
+
+  // Helper para clicks en KPIs del Scorecard. Usa el period preset (no
+  // periodStart/periodEnd) porque DashboardScreen consume /api/eco-data que
+  // no expone esos campos; el endpoint /api/eco-metric-insight resolverá la
+  // ventana con closedWindowYmdInTZ del period preset.
+  function openKpiInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' }
+      : metric === 'nss' ? { sentiment: 'negativo' }
+      : metric === 'polarization' ? {}
+      : {};
+    openMetricInsightShared(setSlice, {
+      metric, value, accent,
+      label: labels[metric] || metric,
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter,
+    });
+  }
 
   const seriesConfig = [
     { key: 'nss', label: 'NSS', color: 'var(--accent)' },
@@ -195,13 +291,15 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
 
       {/* ── Hero KPIs: NSS + Crisis prominent ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
+        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
+          onClick={m.nss != null ? () => openKpiInsight('nss', `${m.nss > 0 ? '+' : ''}${m.nss}`, 'var(--accent)') : undefined}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
             <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
+          onClick={m.crisisRiskScore != null ? () => openKpiInsight('crisis', m.crisisRiskScore.toFixed(2), 'var(--neg)') : undefined}>
           {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
@@ -212,13 +310,16 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
-        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
+        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+          onClick={() => openKpiInsight('volume', fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0)), 'var(--text-2)')} />
+        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)"
+          onClick={m.brandHealthIndex != null ? () => openKpiInsight('bhi', m.brandHealthIndex.toFixed(2), 'var(--pos)') : undefined}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}>
+        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
+          onClick={m.polarizationIndex != null ? () => openKpiInsight('polarization', `${m.polarizationIndex.toFixed(0)}%`, '#8B5CF6') : undefined}>
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
@@ -800,9 +901,23 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
 }
 
 // =============== SENTIMENT ===============
-function SentimentScreen({ onMentionClick }) {
+function SentimentScreen({ onMentionClick, period, agency }) {
   const [slice, setSlice] = useState(null);
   const m = D.CURRENT_METRICS;
+
+  function openNssInsight() {
+    if (m.nss == null) return;
+    openMetricInsightShared(setSlice, {
+      metric: 'nss',
+      value: `${m.nss > 0 ? '+' : ''}${m.nss}`,
+      accent: 'var(--accent)',
+      label: 'Net Sentiment Score',
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter: {},
+    });
+  }
 
   function openSentimentSlice(name) {
     const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
@@ -872,13 +987,17 @@ function SentimentScreen({ onMentionClick }) {
       <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">Balance de sentimiento · 30 días</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8 }}>
+          <button onClick={openNssInsight}
+            className="row-hover"
+            title="Ver insight del NSS para el periodo"
+            style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
             <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>+{m.nss}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>NSS</div>
-            <div style={{ marginLeft: 24, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icons.ArrowRight size={14} color="var(--text-3)" />
+            <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Icons.ArrowDown size={12} /> 3.2 vs período anterior
             </div>
-          </div>
+          </button>
           <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 12, maxWidth: 640, lineHeight: 1.55 }}>
             Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
           </div>
@@ -2894,10 +3013,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
-  // openMetricInsight — clic en Crisis (Overview) o KPIs (Scorecard). Arma
-  // un slice con headlineValue + subcomponents + placeholder loading, lo
-  // muestra inmediato, y dispara fetch a /api/eco-metric-insight (cache-or-
-  // 202 con polling).
+  // openMetricInsight — abre MetricInsightModal vía helper compartido.
   function openMetricInsight(metric, value, accent) {
     const labels = {
       crisis: 'Riesgo de crisis',
@@ -2906,66 +3022,19 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       bhi: 'Brand Health',
       volume: 'Volumen',
     };
-    const m = data?.currentMetrics || {};
-    // Construye subcomponents desde currentMetrics. Para crisis el snapshot
-    // ya tiene los componentes, pero /api/overview no los expone (solo el
-    // compuesto). Para esta versión, mostramos los rolling NSS + el
-    // crisisRiskScore como contexto. El servidor verá el snapshot real para
-    // el LLM (a través de loadMetricInsightContext).
-    let subs = [];
-    if (metric === 'crisis') {
-      subs = [
-        { label: 'Crisis Risk Score', value: (Number(value) / 3) * 100, display: value, color: 'var(--neg)' },
-        { label: 'NSS (último día)', value: m.nss != null ? Math.max(0, (Number(m.nss) + 100) / 2) : 0, display: m.nss != null ? Number(m.nss).toFixed(1) : '—' },
-      ];
-    } else if (metric === 'bhi' && m.brandHealthIndex != null) {
-      subs = [
-        { label: 'BHI', value: Number(m.brandHealthIndex) * 100, display: Number(m.brandHealthIndex).toFixed(2), color: 'var(--pos)' },
-        { label: 'Engagement rate', value: m.engagementRate != null ? Math.min(100, Number(m.engagementRate) * 10) : 0, display: m.engagementRate != null ? Number(m.engagementRate).toFixed(2) : '—' },
-      ];
-    }
     const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' } : {};
-    setSlice({
-      eyebrow: labels[metric] || metric,
-      title: `${labels[metric] || metric} · ${data?.periodLabel ?? ''}`,
-      accent: accent || 'var(--accent)',
-      headlineValue: value,
-      headlineLabel: labels[metric] || metric,
-      subcomponents: subs,
-      insightText: '__loading__',
-      mentions: [],
-      _filter: filter,
+    openMetricInsightShared(setSlice, {
+      metric,
+      value,
+      accent,
+      label: labels[metric] || metric,
+      periodLabel: data?.periodLabel,
+      periodStart: data?.periodStart,
+      periodEnd: data?.periodEnd,
+      agency,
+      subcomponents: [],
+      filter,
     });
-
-    const params = new URLSearchParams({ metric, from: data?.periodStart || '', to: data?.periodEnd || '' });
-    if (agency) params.set('agency', agency);
-    const startedAt = Date.now();
-    const MAX_POLL_MS = 90 * 1000;
-    const POLL_MS = 3000;
-    async function tick() {
-      try {
-        const res = await fetch('/api/eco-metric-insight?' + params.toString(), {
-          credentials: 'same-origin', cache: 'no-store',
-        });
-        if (res.status === 202) {
-          if (Date.now() - startedAt > MAX_POLL_MS) {
-            setSlice((s) => s ? { ...s, insightText: 'Insight no disponible (timeout).' } : s);
-            return;
-          }
-          setTimeout(tick, POLL_MS);
-          return;
-        }
-        if (!res.ok) {
-          setSlice((s) => s ? { ...s, insightText: 'No se pudo cargar el insight.' } : s);
-          return;
-        }
-        const json = await res.json();
-        setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
-      } catch (_) {
-        setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
-      }
-    }
-    tick();
   }
 
   return (
