@@ -3169,7 +3169,10 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
         </div>
       </div>
       <div className="card-bd">
-        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} />
+        {/* sharedScale=true porque neg/neu/pos son del mismo tipo (conteos
+            de menciones). Sin esto cada línea se normalizaba a su propio
+            min/max y peaks de tamaño muy distinto se veían igual de alto. */}
+        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} sharedScale={true} />
       </div>
     </div>
   );

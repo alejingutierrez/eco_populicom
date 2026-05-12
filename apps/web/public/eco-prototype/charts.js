@@ -108,7 +108,7 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 }
 
 // Multi-series line chart — stock-ticker style (crosshair, hover values, volume)
-function MultiLineChart({ data, series, height = 260, onPointClick }) {
+function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null); // index or null
@@ -118,17 +118,35 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
-  const padding = { t: 28, r: 20, b: 34, l: 20 };
+  // Padding left más amplio para que los Y-axis labels (números) quepan.
+  const padding = { t: 28, r: 20, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
-  // Normalize each series to 0-1 for display
-  const normalized = series.map((s) => {
-    const vals = data.map((d) => d[s.key]);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    return { ...s, min, max, range: max - min || 1, vals };
-  });
+  // Normalize: si sharedScale, todas las series comparten min=0 y max=max(all)
+  // para que peaks comparables visualmente representen volúmenes comparables.
+  // Si false (default), cada serie su propia escala (útil cuando series son
+  // métricas de unidades distintas, ej NSS, BHI, crisisRisk).
+  let normalized;
+  if (sharedScale) {
+    const allVals = series.flatMap((s) => data.map((d) => d[s.key] || 0));
+    const sharedMin = 0;
+    const sharedMax = Math.max(1, ...allVals);
+    normalized = series.map((s) => ({
+      ...s,
+      min: sharedMin,
+      max: sharedMax,
+      range: sharedMax - sharedMin || 1,
+      vals: data.map((d) => d[s.key] || 0),
+    }));
+  } else {
+    normalized = series.map((s) => {
+      const vals = data.map((d) => d[s.key]);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      return { ...s, min, max, range: max - min || 1, vals };
+    });
+  }
   const step = innerW / Math.max(1, data.length - 1);
   const hoverIdx = hover == null ? data.length - 1 : hover;
 
@@ -184,13 +202,24 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
           ))}
         </defs>
         <g transform={`translate(${padding.l},${padding.t})`}>
-          {/* subtle y gridlines */}
+          {/* Y-axis gridlines + labels. Cuando sharedScale, mostramos valores
+              numéricos en las gridlines. Si no, solo las líneas (cada serie
+              tiene escala propia, no aplicaría un solo eje). */}
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
-            <line key={i} x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
+            <g key={i}>
+              <line x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
+              {sharedScale && normalized[0] && (
+                <text x={-6} y={p * innerH + 3} fontSize="9" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                  {Math.round(normalized[0].max - (p * normalized[0].range))}
+                </text>
+              )}
+            </g>
           ))}
 
-          {/* Primary series area fill (first one only) */}
-          {normalized[0] && (() => {
+          {/* Area fill SOLO cuando NO es sharedScale (donde tiene sentido
+              destacar la primera serie). En shared-scale sentiment charts,
+              el fill confundía visualmente. */}
+          {!sharedScale && normalized[0] && (() => {
             const s = normalized[0];
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
             let p = `M ${pts[0][0]},${innerH} L ${pts[0][0]},${pts[0][1]}`;
@@ -204,18 +233,44 @@ function MultiLineChart({ data, series, height = 260, onPointClick }) {
             return <path d={p} fill={`url(#mlg-${s.key})`} />;
           })()}
 
-          {/* Lines */}
+          {/* Lines — rectas cuando los datos son volátiles (sharedScale por
+              defecto), suaves cuando smooth=true. Las curvas bezier
+              "overshoot" en spikes (ej 5→78→13) y exageran picos visualmente. */}
           {normalized.map((s) => {
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
+            const useSmooth = smooth || (!sharedScale && pts.length > 2);
             let p = `M ${pts[0][0]},${pts[0][1]}`;
-            for (let i = 1; i < pts.length; i++) {
-              const [x0, y0] = pts[i - 1];
-              const [x1, y1] = pts[i];
-              const cx = (x0 + x1) / 2;
-              p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
+            if (useSmooth) {
+              for (let i = 1; i < pts.length; i++) {
+                const [x0, y0] = pts[i - 1];
+                const [x1, y1] = pts[i];
+                const cx = (x0 + x1) / 2;
+                p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
+              }
+            } else {
+              for (let i = 1; i < pts.length; i++) {
+                p += ` L ${pts[i][0]},${pts[i][1]}`;
+              }
             }
-            return <path key={s.key} d={p} stroke={s.color} strokeWidth="1.75" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            return <path key={s.key} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
+
+          {/* Dots discretos en cada punto cuando hay pocos puntos (<=14) o
+              hovereado — ayuda al usuario a ver cada día como punto discreto
+              y no como curva continua. */}
+          {(data.length <= 14 || hover != null) && normalized.map((s) => (
+            <g key={`${s.key}-dots`}>
+              {data.map((d, i) => {
+                const y = innerH - ((d[s.key] - s.min) / s.range) * innerH;
+                const isHover = hover === i;
+                return (
+                  <circle key={i} cx={i * step} cy={y}
+                    r={isHover ? 3.5 : (data.length <= 14 ? 2.5 : 0)}
+                    fill={s.color} stroke="var(--canvas)" strokeWidth={isHover ? 1 : 0} />
+                );
+              })}
+            </g>
+          ))}
 
           {/* Crosshair + hover dots + tooltip flotante */}
           {hover != null && (() => {
