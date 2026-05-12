@@ -442,6 +442,95 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   );
 }
 
+/**
+ * Mini mapa Leaflet del municipio detectado en una mención. Reemplaza el SVG
+ * mock anterior (forma genérica de PR con un pin por región) por el mapa real
+ * con tiles CARTO y un círculo en las coordenadas exactas. Color del círculo
+ * según el sentimiento. Si Leaflet no cargó (CSP/red), cae a placeholder.
+ */
+function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
+  const containerRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
+    const L = window.L;
+    const hasCoords = Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number';
+    // Encuadre por defecto: centro de PR. Si la mención tiene coords, se
+    // ajustará en la siguiente línea.
+    const center = hasCoords ? [coords[0], coords[1]] : [18.22, -66.59];
+    const zoom = hasCoords ? 10 : 8;
+
+    if (!mapRef.current) {
+      const map = L.map(containerRef.current, {
+        center, zoom,
+        zoomControl: false,
+        attributionControl: false,
+        scrollWheelZoom: false,
+        dragging: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        touchZoom: false,
+      });
+      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+      const tileUrl = mode === 'light'
+        ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
+      mapRef.current = map;
+    } else {
+      mapRef.current.setView(center, zoom);
+    }
+
+    // Limpiar marcadores previos.
+    mapRef.current.eachLayer((layer) => {
+      if (layer instanceof L.CircleMarker) mapRef.current.removeLayer(layer);
+    });
+
+    if (hasCoords) {
+      const color = sentiment === 'positivo' ? '#3FD47A' : sentiment === 'negativo' ? '#FF6A3D' : '#8A94A1';
+      L.circleMarker(center, {
+        radius: 9, color: '#0E1620', weight: 1.5,
+        fillColor: color, fillOpacity: 0.85,
+      }).addTo(mapRef.current);
+    }
+  }, [coords, sentiment]);
+
+  // Cleanup on unmount — Leaflet sobre un container reusado en React
+  // puede acumular handlers; remove() libera memoria y listeners.
+  React.useEffect(() => () => {
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+  }, []);
+
+  if (typeof window !== 'undefined' && !window.L) {
+    return (
+      <div style={{
+        height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
+        background: 'var(--canvas-2)',
+      }}>Cargando mapa…</div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', height: 140 }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      <div style={{
+        position: 'absolute', top: 6, left: 8, zIndex: 400,
+        fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase',
+        letterSpacing: '0.1em', fontWeight: 700,
+        textShadow: '0 0 4px var(--canvas), 0 0 8px var(--canvas)',
+        pointerEvents: 'none',
+      }}>
+        Puerto Rico · {region || 'PR'}
+      </div>
+    </div>
+  );
+}
+
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
@@ -561,7 +650,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             </div>
           )}
 
-          {/* Geografía */}
+          {/* Geografía — mini mapa Leaflet real (issue QA: el SVG mock anterior
+              ignoraba las coordenadas exactas del municipio). */}
           {mention.municipality && (
             <div>
               <div className="section-eyebrow" style={{ marginBottom: 10 }}>Geografía detectada</div>
@@ -569,34 +659,20 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                 border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden',
                 background: 'var(--canvas-2)',
               }}>
-                {/* Mini mapa esquemático */}
-                <div style={{
-                  height: 120, position: 'relative',
-                  background: 'linear-gradient(135deg, #e8edf2 0%, #dce4ed 100%)',
-                  backgroundImage: `
-                    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)
-                  `,
-                  backgroundSize: '24px 24px',
-                }}>
-                  {/* Forma aproximada de PR */}
-                  <svg viewBox="0 0 400 150" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}>
-                    <path d="M30,70 Q60,50 110,55 L200,50 Q280,52 340,65 L370,80 Q340,95 280,100 L180,105 Q100,105 60,95 Q30,85 30,70 Z"
-                      fill="rgba(255,255,255,0.6)" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="3 3" />
-                    {/* Pin en ubicación aproximada */}
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="8" fill="var(--neg)" opacity="0.2" />
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="4" fill="var(--neg)" />
-                  </svg>
-                  <div style={{ position: 'absolute', top: 6, left: 8, fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                    Puerto Rico · {mention.region}
-                  </div>
-                </div>
+                <MiniMunicipalityMap
+                  municipality={mention.municipality}
+                  region={mention.region}
+                  coords={mention.coords}
+                  sentiment={mention.sentiment}
+                />
                 <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--hairline)' }}>
                   <Icons.MapPin size={14} color="var(--neg)" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
                     <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                      {mention.coords?.[0].toFixed(4)}°N, {Math.abs(mention.coords?.[1] ?? 0).toFixed(4)}°O · Región {mention.region}
+                      {mention.coords && mention.coords[0] != null
+                        ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1] ?? 0).toFixed(4)}°O · Región ${mention.region}`
+                        : `Región ${mention.region}`}
                     </div>
                   </div>
                   <button className="btn"
