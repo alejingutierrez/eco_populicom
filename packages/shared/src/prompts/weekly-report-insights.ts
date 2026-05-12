@@ -258,6 +258,82 @@ FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 }
 
 // ============================================================
+// PROMPT 3 — Resumen del PERIODO (rango entero, no solo el último día)
+// ============================================================
+//
+// Usado por el lambda eco-ai-tasks acción period-insights. Para 1D coincide
+// semánticamente con el daily-summary; para 5D/7D/30D/custom describe la
+// VENTANA ENTERA, no solo el último día. Mantiene los mismos guardrails
+// descriptivos del INSIGHTS_SYSTEM_PROMPT.
+
+export function buildPeriodSummaryPrompt(
+  aggregates: WeeklyAggregates,
+  samples: { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] },
+): string {
+  const days = aggregates.dailySeries.length || 1;
+  const { totals, deltaVsPrevWeek } = aggregates;
+  const dominantTopic = aggregates.byTopic[0];
+  const dominantSecondary = aggregates.byTopic[1];
+
+  const dailyVolumeLine = aggregates.dailySeries.map((d) => {
+    const t = d.negative + d.neutral + d.positive;
+    return `${d.date}=${t}`;
+  }).join(' · ');
+
+  const sampleSummary = (label: string, items: MentionSample[]): string => {
+    if (items.length === 0) return `${label}: (sin muestras)`;
+    return `${label}: ${items.length} muestras destacadas` +
+      (items[0]?.topic ? ` (top: ${items[0].topic}${items[0].municipality ? ` · ${items[0].municipality}` : ''})` : '');
+  };
+
+  return `
+AGENCIA: ${aggregates.agencyName} (abreviada: ${aggregates.agencyShortName})
+VENTANA: ${aggregates.periodStart} al ${aggregates.periodEnd} (${days} ${days === 1 ? 'día' : 'días'} en TZ America/Puerto_Rico).
+SCOPE: describe la VENTANA COMPLETA, NO solo el último día. El resumen debe sintetizar lo que pasó en TODO el periodo seleccionado.
+
+TOTALES DEL PERIODO:
+- Negativo: ${totals.negative} (${pct(totals.negative, totals.total)}%, ${signed(deltaVsPrevWeek.negative)}% vs ventana previa)
+- Neutral:  ${totals.neutral}  (${pct(totals.neutral, totals.total)}%, ${signed(deltaVsPrevWeek.neutral)}% vs previa)
+- Positivo: ${totals.positive} (${pct(totals.positive, totals.total)}%, ${signed(deltaVsPrevWeek.positive)}% vs previa)
+- Total:    ${totals.total}
+
+VOLUMEN POR DÍA DEL PERIODO:
+${dailyVolumeLine}
+
+TOP TÓPICOS DEL PERIODO:
+${aggregates.byTopic.slice(0, 5).map((t) => `- ${t.topic}: ${t.total} menciones (neg ${t.negative}, pos ${t.positive})`).join('\n') || '- (sin tópicos clasificados)'}
+
+GEOGRAFÍA (top 5 por volumen):
+${aggregates.byMunicipality.slice(0, 5).map((m) => `- ${m.municipality}: ${m.total} (${m.negative} negativas)`).join('\n') || '- (sin datos geográficos)'}
+
+AUTORES Y FUENTES DESTACADAS:
+${(aggregates.topAuthors ?? []).slice(0, 3).map((a) => `- autor ${a.author}: ${a.mentions}`).join('\n') || '- (sin autores)'}
+${(aggregates.topSources ?? []).slice(0, 3).map((s) => `- fuente ${s.source}: ${s.mentions}`).join('\n') || '- (sin fuentes)'}
+
+MUESTRAS POR SENTIMIENTO:
+${sampleSummary('negativas', samples.negative)}
+${sampleSummary('neutrales', samples.neutral)}
+${sampleSummary('positivas', samples.positive)}
+
+TAREA:
+Redacta UN párrafo único de 3 a 5 oraciones resumiendo el periodo ENTERO (${aggregates.periodStart} al ${aggregates.periodEnd}) para ${aggregates.agencyShortName}. Cumple TODOS estos criterios:
+
+a. Indica el volumen TOTAL del periodo (${totals.total}) y qué sentimiento dominó con su %.
+b. Señala los **1–3 tópicos** que dominaron la conversación durante la ventana, con sus números (no del último día — del periodo completo).
+c. Ubica la ventana en la tendencia: ${signed(deltaVsPrevWeek.negative)}%/${signed(deltaVsPrevWeek.positive)}% vs ventana previa, o un comentario sobre evolución día a día (picos/valles del periodo).
+d. Menciona un nombre propio concreto (medio, autor, municipio, evento) que haya destacado durante el rango — NO necesariamente del último día.
+e. Puedes usar <strong>...</strong> inline para resaltar nombres y cifras clave. Sin otras etiquetas.
+
+PROHIBIDO: recomendaciones, sugerencias, consejos, llamados a la acción, juicios morales. NO digas "hoy" ni "el día reportado" — habla del PERIODO (la "semana", "los últimos N días", "la ventana del X al Y", "el rango analizado").
+
+FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
+{
+  "summary": "<párrafo de 3 a 5 oraciones describiendo el periodo entero>"
+}
+`.trim();
+}
+
+// ============================================================
 // Utilidades locales de formato
 // ============================================================
 

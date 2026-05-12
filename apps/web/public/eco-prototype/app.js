@@ -274,7 +274,6 @@ function App() {
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
           mode={mode} setMode={setMode} live={true}
-          activeScreen={active}
         />
         <main className="eco-page"
           data-screen-label={`${String(Object.keys(SCREEN_META).indexOf(active) + 1).padStart(2, '0')} ${screenMeta.label}`}>

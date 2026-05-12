@@ -2860,145 +2860,6 @@ function AlertsPrefs() {
 // Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
 // (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
 // el conteo multi-clasificación.
-// OverviewFilterBar — chips de periodo prominentes + ícono de calendario para
-// rango personalizado. Vive al tope del overview para anclar qué ventana de
-// tiempo aplica al resto de la página. Aplicar un cambio escribe a
-// localStorage y recarga: el boot loader vuelve a llamar a /api/eco-data y
-// OverviewScreen vuelve a llamar a /api/overview con los parámetros nuevos
-// (period, o from+to si es custom).
-function OverviewFilterBar({ period }) {
-  const [calendarOpen, setCalendarOpen] = React.useState(false);
-  const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
-  const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
-  const [draftFrom, setDraftFrom] = React.useState(lsFrom);
-  const [draftTo, setDraftTo] = React.useState(lsTo);
-
-  const PRESETS = [
-    { k: '1D', l: '1d' },
-    { k: '5D', l: '5d' },
-    { k: '7D', l: '7d' },
-    { k: '30D', l: '30d' },
-    { k: '90D', l: '90d' },
-    { k: '3M', l: '3m' },
-    { k: '6M', l: '6m' },
-    { k: '1A', l: '1a' },
-    { k: 'Max', l: 'max' },
-  ];
-
-  const isCustom = period === 'custom' && lsFrom && lsTo;
-  const todayIso = new Date().toISOString().slice(0, 10);
-
-  function applyPreset(p) {
-    try {
-      localStorage.removeItem('eco.from');
-      localStorage.removeItem('eco.to');
-      localStorage.setItem('eco.period', p);
-    } catch (_) {}
-    window.location.reload();
-  }
-  function applyCustom() {
-    if (!draftFrom || !draftTo || draftFrom > draftTo) return;
-    try {
-      localStorage.setItem('eco.from', draftFrom);
-      localStorage.setItem('eco.to', draftTo);
-      localStorage.setItem('eco.period', 'custom');
-    } catch (_) {}
-    window.location.reload();
-  }
-
-  return (
-    <div className="card" style={{
-      padding: '12px 16px',
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-      position: 'relative',
-      borderLeft: '3px solid var(--accent)',
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Periodo</div>
-      <div style={{ display: 'flex', gap: 2, padding: 3, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 999 }}>
-        {PRESETS.map((p) => {
-          const on = !isCustom && period === p.k;
-          return (
-            <button key={p.k} onClick={() => applyPreset(p.k)}
-              style={{
-                padding: '6px 12px', fontSize: 12, fontWeight: 600,
-                borderRadius: 999,
-                background: on ? 'var(--accent)' : 'transparent',
-                color: on ? '#fff' : 'var(--text-2)',
-                cursor: 'pointer',
-                fontFamily: 'var(--ff-numeric)',
-                transition: 'background 0.12s var(--ease), color 0.12s var(--ease)',
-              }}>{p.l}</button>
-          );
-        })}
-      </div>
-      <button onClick={() => setCalendarOpen(v => !v)}
-        className="btn"
-        title="Seleccionar rango de fechas personalizado"
-        style={{
-          fontSize: 12, gap: 6,
-          borderColor: isCustom ? 'var(--accent)' : 'var(--hairline)',
-          color: isCustom ? 'var(--accent)' : 'var(--text)',
-          background: isCustom ? 'var(--accent-fill)' : 'var(--canvas)',
-          fontWeight: isCustom ? 600 : 500,
-        }}>
-        <Icons.Calendar size={13} /> {isCustom ? `${lsFrom} → ${lsTo}` : 'Fechas custom'}
-      </button>
-      {isCustom && (
-        <button onClick={() => applyPreset('7D')} className="chip"
-          title="Volver al periodo predeterminado (7D)"
-          style={{ fontSize: 11 }}>
-          <Icons.Close size={10} /> Limpiar
-        </button>
-      )}
-      <div style={{ flex: 1 }} />
-      <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--ff-mono)' }}>
-        TZ America/Puerto_Rico
-      </div>
-
-      {calendarOpen && (
-        <>
-          <div onClick={() => setCalendarOpen(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
-          <div className="card" style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 16, zIndex: 100,
-            padding: 14, minWidth: 280,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
-          }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ minWidth: 44 }}>Desde</span>
-                <input type="date" value={draftFrom}
-                  onChange={(e) => setDraftFrom(e.target.value)}
-                  max={todayIso}
-                  className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
-              </label>
-              <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ minWidth: 44 }}>Hasta</span>
-                <input type="date" value={draftTo}
-                  onChange={(e) => setDraftTo(e.target.value)}
-                  max={todayIso}
-                  className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
-              </label>
-            </div>
-            {draftFrom && draftTo && draftFrom > draftTo && (
-              <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
-              <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
-              <button className="btn btn-primary" onClick={applyCustom}
-                disabled={!draftFrom || !draftTo || draftFrom > draftTo}
-                style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
-                Aplicar
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function OverviewScreen({ period, agency, onMentionClick }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -3084,10 +2945,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <OverviewFilterBar period={period} />
       <OverviewHero data={data} />
-      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
+      {/* Insights va en SEGUNDA posición (después del Hero, antes del termómetro)
+          por petición explícita del usuario: el contexto narrativo es lo que
+          la persona quiere leer primero al abrir el overview. */}
       <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
       <OverviewTendencia dailySeries={data.dailySeries} />
       <OverviewTopicos
@@ -3121,8 +2984,8 @@ function OverviewHero({ data }) {
   const total = data.totals.total || 0;
   return (
     <div style={{ padding: '4px 4px 0' }}>
-      {/* Sin section-eyebrow: el periodo / fechas ya viven en OverviewFilterBar
-          arriba, y la palabra "Overview" ya está en el header / sidebar.
+      {/* Sin section-eyebrow: el periodo / fechas viven en el Header (chips +
+          calendar icon) y la palabra "Overview" ya está en el header / sidebar.
           Repetirlas aquí era ruido (instrucción explícita del usuario). */}
       <h1 style={{
         fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
@@ -3487,7 +3350,7 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
   const cols = [
     { key: 'negative', title: 'Negativos', accent: 'var(--neg)', items: state.data?.insights?.negative ?? [] },
     { key: 'positive', title: 'Positivos', accent: 'var(--pos)', items: state.data?.insights?.positive ?? [] },
-    { key: 'general',  title: 'Resumen general', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
+    { key: 'general',  title: 'Resumen del periodo', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
   ];
   const isLoading = state.phase !== 'ready';
   const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);

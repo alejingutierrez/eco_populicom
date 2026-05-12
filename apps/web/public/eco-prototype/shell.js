@@ -263,19 +263,31 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true, activeScreen }) {
-  // PERIODS alineado con OverviewFilterBar (en screens.js). Incluye
-  // 30D/90D para que el chip activo del header coincida cuando el usuario
-  // elige esos periodos desde el bar del overview. 'custom' no aparece como
-  // chip aquí: se muestra como pill aparte indicando que hay un rango
-  // personalizado activo (el control real vive en el bar del overview).
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
+  // Una sola fuente de control de periodo en TODA la aplicación: el Header.
+  // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
+  // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
+  // del usuario: "los filtros en el overview no deben estar en otro lugar
+  // diferente y ser diferentes visualmente a los que ya existen en el
+  // scorecard (que están en el header)".
   const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
   const isCustom = period === 'custom';
-  // En el screen 'overview' los chips del Header son redundantes — el
-  // OverviewFilterBar (más prominente, con calendario) vive justo debajo.
-  // Petición explícita del usuario: "no repitas los filtros de periodo, ya
-  // están arriba".
-  const hidePeriodChips = activeScreen === 'overview';
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
+  const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
+  const [draftFrom, setDraftFrom] = React.useState(lsFrom);
+  const [draftTo, setDraftTo] = React.useState(lsTo);
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  function applyCustomRange() {
+    if (!draftFrom || !draftTo || draftFrom > draftTo) return;
+    try {
+      localStorage.setItem('eco.from', draftFrom);
+      localStorage.setItem('eco.to', draftTo);
+      localStorage.setItem('eco.period', 'custom');
+    } catch (_) {}
+    window.location.reload();
+  }
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -316,35 +328,93 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         </select>
       </div>
 
-      {/* Period — estilo bolsa. Oculto en Overview porque el OverviewFilterBar
-          (más prominente, con calendario) vive justo debajo. */}
-      {!hidePeriodChips && (
-        <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
-          {PERIODS.map((p) => (
-            <button key={p} onClick={() => {
-              // Si el usuario venía de un rango personalizado, limpiar
-              // eco.from/eco.to antes de cambiar al preset para que el siguiente
-              // boot no envíe restos del rango anterior.
-              try {
-                localStorage.removeItem('eco.from');
-                localStorage.removeItem('eco.to');
-              } catch (_) {}
-              setPeriod(p);
-            }} style={{
-              padding: '4px 10px', fontSize: 11, fontWeight: 600,
-              borderRadius: 999,
-              background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
-              color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
-              boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
-            }}>{p}</button>
-          ))}
-        </div>
-      )}
-      {!hidePeriodChips && isCustom && (
-        <span className="pill pill-info" title="Rango personalizado activo · gestiónalo desde el overview" style={{ fontSize: 10 }}>
-          <Icons.Calendar size={10} /> Custom
-        </span>
-      )}
+      {/* Period — estilo bolsa, único control de periodo de toda la app. */}
+      <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+        {PERIODS.map((p) => (
+          <button key={p} onClick={() => {
+            // Si el usuario venía de un rango personalizado, limpiar
+            // eco.from/eco.to antes de cambiar al preset para que el siguiente
+            // boot no envíe restos del rango anterior.
+            try {
+              localStorage.removeItem('eco.from');
+              localStorage.removeItem('eco.to');
+            } catch (_) {}
+            setPeriod(p);
+          }} style={{
+            padding: '4px 10px', fontSize: 11, fontWeight: 600,
+            borderRadius: 999,
+            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
+            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
+            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+          }}>{p}</button>
+        ))}
+      </div>
+      {/* Calendar icon: abre popover con date inputs para rango custom. */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setCalendarOpen(v => !v)}
+          title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: isCustom ? 'var(--accent-fill)' : 'var(--canvas-2)',
+            color: isCustom ? 'var(--accent)' : 'var(--text-2)',
+            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline)'),
+            cursor: 'pointer',
+          }}>
+          <Icons.Calendar size={12} />
+          {isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : 'Fechas'}
+        </button>
+        {calendarOpen && (
+          <>
+            <div onClick={() => setCalendarOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+            <div className="card" style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
+              padding: 14, minWidth: 280,
+              boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Desde</span>
+                  <input type="date" value={draftFrom}
+                    onChange={(e) => setDraftFrom(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Hasta</span>
+                  <input type="date" value={draftTo}
+                    onChange={(e) => setDraftTo(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+              </div>
+              {draftFrom && draftTo && draftFrom > draftTo && (
+                <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
+                {isCustom && (
+                  <button className="btn" onClick={() => {
+                    try {
+                      localStorage.removeItem('eco.from');
+                      localStorage.removeItem('eco.to');
+                    } catch (_) {}
+                    setPeriod('7D');
+                  }} style={{ fontSize: 12 }} title="Limpiar rango y volver a 7D">Limpiar</button>
+                )}
+                <button className="btn btn-primary" onClick={applyCustomRange}
+                  disabled={!draftFrom || !draftTo || draftFrom > draftTo}
+                  style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Quick search — abre el command palette con foco real */}
       <button onClick={onOpenCommand} className="btn" title="Buscar (⌘K)">

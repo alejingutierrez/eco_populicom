@@ -29,7 +29,7 @@ import {
   buildTopicDescriptionPrompt,
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
-  buildDailySummaryPrompt,
+  buildPeriodSummaryPrompt,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
   type BriefingAggregates,
@@ -40,7 +40,7 @@ import {
   type MetricKey,
   type MetricInsightInput,
 } from '@eco/shared';
-import { agencyShortName, buildPeriodAggregates, loadSamples, loadTodaySamples, loadMetricInsightContext } from './aggregates';
+import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -567,7 +567,7 @@ const DAILY_SUMMARY_TOOL_SCHEMA = {
     summary: {
       type: 'string',
       minLength: 80, maxLength: 1400,
-      description: 'Párrafo de 3–5 oraciones describiendo el último día del periodo.',
+      description: 'Párrafo de 3–5 oraciones describiendo el PERIODO ENTERO (no solo el último día). Para 1D coincide con un daily summary; para 5D/7D/30D/custom describe la ventana completa.',
     },
   },
   required: ['summary'],
@@ -626,12 +626,14 @@ async function generatePeriodInsightsFor(
       },
     });
 
-    // Daily summary: párrafo sobre el último día del periodo. Usa muestras
-    // del endYmd. Si falla, simplemente queda null en la fila.
+    // Period summary: párrafo sobre el RANGO ENTERO (no solo el último día).
+    // Para 1D coincide semánticamente con un daily summary; para 5D/7D/30D
+    // describe la VENTANA COMPLETA. Petición explícita del usuario:
+    // "independiente que yo filtre 1D, 5D, 7D y 30D parece que los insights
+    // y resúmenes se siguen haciendo solo con el día anterior y eso está mal".
     let dailySummary: string | null = null;
     try {
-      const todaySamples = await loadTodaySamples(client, agency.id, periodEnd);
-      const summaryPrompt = buildDailySummaryPrompt(aggregates, todaySamples, periodEnd);
+      const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples);
       const sum = await invokeClaudeWithTool<{ summary: string }>({
         client: bedrock,
         systemPrompt: INSIGHTS_SYSTEM_PROMPT,
@@ -641,14 +643,14 @@ async function generatePeriodInsightsFor(
         fallbackModel: FALLBACK_MODEL,
         temperature: 0,
         tool: {
-          name: 'emit_daily_summary',
-          description: 'Emit a single paragraph daily summary.',
+          name: 'emit_period_summary',
+          description: 'Emit a single paragraph summarizing the WHOLE period (not just the last day).',
           input_schema: DAILY_SUMMARY_TOOL_SCHEMA,
         },
       });
       dailySummary = (sum.summary ?? '').trim().slice(0, 1400) || null;
     } catch (err) {
-      console.warn(`[ai-tasks] daily_summary failed for ${agency.slug}: ${(err as Error).message}`);
+      console.warn(`[ai-tasks] period_summary failed for ${agency.slug}: ${(err as Error).message}`);
     }
 
     const validated: PeriodInsightsOutput = {
