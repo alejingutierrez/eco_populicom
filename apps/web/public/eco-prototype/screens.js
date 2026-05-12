@@ -2946,10 +2946,6 @@ function OverviewScreen({ period, agency, onMentionClick }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OverviewHero data={data} />
-      {/* Insights va en SEGUNDA posición (después del Hero, antes del termómetro)
-          por petición explícita del usuario: el contexto narrativo es lo que
-          la persona quiere leer primero al abrir el overview. */}
-      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
       <OverviewTendencia dailySeries={data.dailySeries} />
@@ -2975,6 +2971,9 @@ function OverviewScreen({ period, agency, onMentionClick }) {
           });
         }}
       />
+      {/* Insights va al FINAL, después de Topicos (orden explícito del
+          usuario: "necesito que salga de último después de los topicos"). */}
+      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
