@@ -2696,6 +2696,145 @@ function AlertsPrefs() {
 // Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
 // (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
 // el conteo multi-clasificación.
+// OverviewFilterBar — chips de periodo prominentes + ícono de calendario para
+// rango personalizado. Vive al tope del overview para anclar qué ventana de
+// tiempo aplica al resto de la página. Aplicar un cambio escribe a
+// localStorage y recarga: el boot loader vuelve a llamar a /api/eco-data y
+// OverviewScreen vuelve a llamar a /api/overview con los parámetros nuevos
+// (period, o from+to si es custom).
+function OverviewFilterBar({ period }) {
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
+  const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
+  const [draftFrom, setDraftFrom] = React.useState(lsFrom);
+  const [draftTo, setDraftTo] = React.useState(lsTo);
+
+  const PRESETS = [
+    { k: '1D', l: '1d' },
+    { k: '5D', l: '5d' },
+    { k: '7D', l: '7d' },
+    { k: '30D', l: '30d' },
+    { k: '90D', l: '90d' },
+    { k: '3M', l: '3m' },
+    { k: '6M', l: '6m' },
+    { k: '1A', l: '1a' },
+    { k: 'Max', l: 'max' },
+  ];
+
+  const isCustom = period === 'custom' && lsFrom && lsTo;
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  function applyPreset(p) {
+    try {
+      localStorage.removeItem('eco.from');
+      localStorage.removeItem('eco.to');
+      localStorage.setItem('eco.period', p);
+    } catch (_) {}
+    window.location.reload();
+  }
+  function applyCustom() {
+    if (!draftFrom || !draftTo || draftFrom > draftTo) return;
+    try {
+      localStorage.setItem('eco.from', draftFrom);
+      localStorage.setItem('eco.to', draftTo);
+      localStorage.setItem('eco.period', 'custom');
+    } catch (_) {}
+    window.location.reload();
+  }
+
+  return (
+    <div className="card" style={{
+      padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      position: 'relative',
+      borderLeft: '3px solid var(--accent)',
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Periodo</div>
+      <div style={{ display: 'flex', gap: 2, padding: 3, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 999 }}>
+        {PRESETS.map((p) => {
+          const on = !isCustom && period === p.k;
+          return (
+            <button key={p.k} onClick={() => applyPreset(p.k)}
+              style={{
+                padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                borderRadius: 999,
+                background: on ? 'var(--accent)' : 'transparent',
+                color: on ? '#fff' : 'var(--text-2)',
+                cursor: 'pointer',
+                fontFamily: 'var(--ff-numeric)',
+                transition: 'background 0.12s var(--ease), color 0.12s var(--ease)',
+              }}>{p.l}</button>
+          );
+        })}
+      </div>
+      <button onClick={() => setCalendarOpen(v => !v)}
+        className="btn"
+        title="Seleccionar rango de fechas personalizado"
+        style={{
+          fontSize: 12, gap: 6,
+          borderColor: isCustom ? 'var(--accent)' : 'var(--hairline)',
+          color: isCustom ? 'var(--accent)' : 'var(--text)',
+          background: isCustom ? 'var(--accent-fill)' : 'var(--canvas)',
+          fontWeight: isCustom ? 600 : 500,
+        }}>
+        <Icons.Calendar size={13} /> {isCustom ? `${lsFrom} → ${lsTo}` : 'Fechas custom'}
+      </button>
+      {isCustom && (
+        <button onClick={() => applyPreset('7D')} className="chip"
+          title="Volver al periodo predeterminado (7D)"
+          style={{ fontSize: 11 }}>
+          <Icons.Close size={10} /> Limpiar
+        </button>
+      )}
+      <div style={{ flex: 1 }} />
+      <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--ff-mono)' }}>
+        TZ America/Puerto_Rico
+      </div>
+
+      {calendarOpen && (
+        <>
+          <div onClick={() => setCalendarOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+          <div className="card" style={{
+            position: 'absolute', top: 'calc(100% + 6px)', right: 16, zIndex: 100,
+            padding: 14, minWidth: 280,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ minWidth: 44 }}>Desde</span>
+                <input type="date" value={draftFrom}
+                  onChange={(e) => setDraftFrom(e.target.value)}
+                  max={todayIso}
+                  className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+              </label>
+              <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ minWidth: 44 }}>Hasta</span>
+                <input type="date" value={draftTo}
+                  onChange={(e) => setDraftTo(e.target.value)}
+                  max={todayIso}
+                  className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+              </label>
+            </div>
+            {draftFrom && draftTo && draftFrom > draftTo && (
+              <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
+              <button className="btn btn-primary" onClick={applyCustom}
+                disabled={!draftFrom || !draftTo || draftFrom > draftTo}
+                style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function OverviewScreen({ period, agency, onMentionClick }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -2705,6 +2844,14 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     setData(null); setError(null);
     const params = new URLSearchParams({ period: period || '7D' });
     if (agency) params.set('agency', agency);
+    // Rango personalizado: cuando period === 'custom', el FilterBar habrá
+    // guardado eco.from/eco.to en localStorage; los pasamos al API para que
+    // sobrescriba la ventana derivada del period.
+    if (period === 'custom') {
+      const from = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.from')) || '';
+      const to = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.to')) || '';
+      if (from && to) { params.set('from', from); params.set('to', to); }
+    }
     const ctrl = new AbortController();
     fetch('/api/overview?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
@@ -2729,10 +2876,29 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     );
   }
 
+  function openSentimentSlice(name, count) {
+    const map = { negativo: 'Negativo', neutral: 'Neutral', positivo: 'Positivo' };
+    const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+    setSlice({
+      eyebrow: 'Sentimiento',
+      title: `Menciones ${map[name].toLowerCase()}`,
+      accent,
+      volume: count,
+      sentiment: {
+        pos: name === 'positivo' ? count : 0,
+        neu: name === 'neutral' ? count : 0,
+        neg: name === 'negativo' ? count : 0,
+      },
+      mentions: [],
+      _filter: { sentiment: name },
+    });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <OverviewFilterBar period={period} />
       <OverviewHero data={data} />
-      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} />
       <OverviewTendencia dailySeries={data.dailySeries} />
       <OverviewTopicos
@@ -2766,10 +2932,12 @@ function OverviewHero({ data }) {
   const total = data.totals.total || 0;
   return (
     <div style={{ padding: '4px 4px 0' }}>
-      <div className="section-eyebrow">Overview · espejo del correo diario · {data.periodLabel}</div>
+      {/* Sin section-eyebrow: el periodo / fechas ya viven en OverviewFilterBar
+          arriba, y la palabra "Overview" ya está en el header / sidebar.
+          Repetirlas aquí era ruido (instrucción explícita del usuario). */}
       <h1 style={{
         fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
-        lineHeight: 1.2, margin: '6px 0 4px', letterSpacing: 'var(--letter-display)',
+        lineHeight: 1.2, margin: '0 0 4px', letterSpacing: 'var(--letter-display)',
         color: 'var(--text)',
       }}>
         Conversación pública de los últimos {data.dailySeries.length} días
@@ -2783,12 +2951,12 @@ function OverviewHero({ data }) {
   );
 }
 
-function OverviewTermometro({ totals, deltas }) {
+function OverviewTermometro({ totals, deltas, onSliceClick }) {
   const t = totals.total || 1;
   const cards = [
-    { name: 'Negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
-    { name: 'Neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
-    { name: 'Positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
+    { name: 'Negativo', sentKey: 'negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
+    { name: 'Neutral',  sentKey: 'neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
+    { name: 'Positivo', sentKey: 'positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
   ];
   return (
     <div>
@@ -2804,13 +2972,24 @@ function OverviewTermometro({ totals, deltas }) {
             : c.invert
               ? (c.delta > 0 ? 'var(--neg)' : c.delta < 0 ? 'var(--pos)' : 'var(--text-3)')
               : (c.delta > 0 ? 'var(--pos)' : c.delta < 0 ? 'var(--neg)' : 'var(--text-3)');
+          // Las cards del termómetro abren MentionsSliceModal con el sentimiento
+          // correspondiente. Usar <button> para teclado/aria; padding/estilos
+          // imitan el card. Sin underline o cursor pointer por defecto del btn.
           return (
-            <div key={c.name} className="card" style={{ padding: 16 }}>
+            <button key={c.name}
+              onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
+              className="card row-hover"
+              style={{
+                padding: 16, textAlign: 'left',
+                cursor: 'pointer', border: '1px solid var(--hairline)',
+                background: 'var(--canvas)',
+              }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {c.name}
                 </div>
+                <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <div className="num" style={{ fontSize: 32, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
@@ -2822,7 +3001,7 @@ function OverviewTermometro({ totals, deltas }) {
                 {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
                 {Math.abs(Math.round(c.delta))}% vs ventana previa
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -2830,92 +3009,42 @@ function OverviewTermometro({ totals, deltas }) {
   );
 }
 
+// OverviewHighlights — reducido a un único termómetro de Crisis. Antes había
+// 3 tarjetas (NSS · Riesgo, Volúmenes, Brand Health). Por petición explícita
+// del usuario quitamos NSS / Volúmenes / Brand Health del Overview (esas
+// métricas viven en el tab Scorecard); Crisis se queda como termómetro pero
+// ya no está fusionada con NSS — vive aquí en su propia card slim.
 function OverviewHighlights({ metrics }) {
   const m = metrics || {};
-  const fmtSigned = (v) => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(1);
+  if (m.crisisRiskScore == null) return null;
+  const band = m.crisisRiskScore >= 2.25 ? 'CRISIS'
+    : m.crisisRiskScore >= 1.5 ? 'ALERTA'
+    : m.crisisRiskScore >= 0.75 ? 'ELEVADO'
+    : 'NORMAL';
+  const bandColor = m.crisisRiskScore >= 1.5 ? 'var(--neg)' : m.crisisRiskScore >= 0.75 ? 'var(--warn)' : 'var(--pos)';
   return (
-    <div>
-      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Highlights estratégicos</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        {/* NSS + Riesgo combinada */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.Activity size={14} color="var(--accent)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              NSS · Riesgo
-            </div>
+    <div className="card" style={{ padding: 16, display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center' }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Icons.Shield size={14} color="var(--neg)" />
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Riesgo de crisis
           </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {fmtSigned(m.nss)}
-          </div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 10, color: 'var(--text-3)' }}>
-            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss7d)}</strong></span>
-            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss30d)}</strong></span>
-          </div>
-          {m.crisisRiskScore != null && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                <span>Riesgo · {m.crisisRiskScore.toFixed(1)}/3</span>
-                <span style={{ color: m.crisisRiskScore >= 1.5 ? 'var(--neg)' : m.crisisRiskScore >= 0.75 ? 'var(--warn)' : 'var(--pos)' }}>
-                  {m.crisisRiskScore >= 2.25 ? 'CRISIS' : m.crisisRiskScore >= 1.5 ? 'ALERTA' : m.crisisRiskScore >= 0.75 ? 'ELEVADO' : 'NORMAL'}
-                </span>
-              </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 50%, var(--neg) 50%, var(--neg) 75%, var(--neg) 100%)', position: 'relative' }}>
-                <div style={{ position: 'absolute', left: `${Math.min((m.crisisRiskScore / 3) * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
-                <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Volúmenes */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.MessageSquare size={14} color="var(--text-2)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Volúmenes
-            </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div className="num" style={{ fontSize: 28, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {m.crisisRiskScore.toFixed(1)}
           </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {fmt(m.totalMentions ?? 0)}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>menciones</div>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)' }}>
-            Alcance · <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(m.totalReach ?? 0)}</span> impresiones
-          </div>
-          {m.totalMentionsDelta != null && (
-            <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: m.totalMentionsDelta > 0 ? 'var(--neg)' : m.totalMentionsDelta < 0 ? 'var(--pos)' : 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {m.totalMentionsDelta > 0 ? '▲' : m.totalMentionsDelta < 0 ? '▼' : '·'}
-              {Math.abs(m.totalMentionsDelta).toFixed(1)}% vs ventana previa
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>/3</div>
+          <span className={`pill pill-${m.crisisRiskScore >= 1.5 ? 'neg' : m.crisisRiskScore >= 0.75 ? 'warn' : 'pos'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
         </div>
-
-        {/* Brand Health */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.Heart size={14} color="var(--pos)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Brand Health
-            </div>
-          </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>BHI · 0–1</div>
-          {m.brandHealthIndex != null && (
-            <div style={{ marginTop: 12 }}>
-              <BrandHealthMini value={m.brandHealthIndex} />
-            </div>
-          )}
+      </div>
+      <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
+        <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 50%, var(--neg) 50%, var(--neg) 75%, var(--neg) 100%)', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: `${Math.min((m.crisisRiskScore / 3) * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor}`, transform: 'translateX(-50%)' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)', letterSpacing: '0.04em' }}>
+          <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
         </div>
       </div>
     </div>

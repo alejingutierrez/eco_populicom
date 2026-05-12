@@ -9,7 +9,7 @@ import {
   mentionTopics,
   mentionMunicipalities,
 } from '@eco/database';
-import { sql, eq, and, gte, lte, desc, inArray } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, lte, desc, inArray } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
@@ -17,8 +17,29 @@ import { log } from '@/lib/log';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
 };
+
+/**
+ * Espejo de parseCustomRange en /api/eco-data — interpreta from/to
+ * (YYYY-MM-DD) como AST (UTC-4 sin DST) y devuelve cotas exactas en UTC.
+ * Upper bound es exclusivo para alinearse con
+ * `lt(mentions.publishedAt, untilExclusiveUtc)`.
+ */
+function parseCustomRange(
+  fromParam: string | null,
+  toParam: string | null,
+): null | { from: string; to: string; sinceUtc: Date; untilExclusiveUtc: Date } {
+  if (!fromParam || !toParam) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromParam) || !/^\d{4}-\d{2}-\d{2}$/.test(toParam)) return null;
+  if (fromParam > toParam) return null;
+  const sinceUtc = new Date(`${fromParam}T04:00:00.000Z`);
+  const untilExclusiveUtc = new Date(`${toParam}T04:00:00.000Z`);
+  untilExclusiveUtc.setUTCDate(untilExclusiveUtc.getUTCDate() + 1);
+  if (Number.isNaN(sinceUtc.getTime()) || Number.isNaN(untilExclusiveUtc.getTime())) return null;
+  return { from: fromParam, to: toParam, sinceUtc, untilExclusiveUtc };
+}
 
 function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo' {
   if (s === 'positivo' || s === 'positive') return 'positivo';
@@ -78,6 +99,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   const periodKey = searchParams.get('period') ?? '1M';
+  const customRange = parseCustomRange(searchParams.get('from'), searchParams.get('to'));
   const days = PERIOD_DAYS[periodKey] ?? 30;
   const limit = Math.min(100, Number(searchParams.get('limit') ?? '20'));
   const offset = Math.max(0, Number(searchParams.get('offset') ?? '0'));
@@ -93,13 +115,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ mentions: [], total: 0 });
   }
 
-  const since = new Date();
-  since.setDate(since.getDate() - days);
+  const since = customRange ? customRange.sinceUtc : (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d;
+  })();
 
   const conditions: ReturnType<typeof eq>[] = [
     eq(mentions.agencyId, agencyId),
     gte(mentions.publishedAt, since),
   ];
+  if (customRange) {
+    conditions.push(lt(mentions.publishedAt, customRange.untilExclusiveUtc));
+  }
 
   const sentiment = searchParams.get('sentiment');
   if (sentiment) conditions.push(eq(mentions.nlpSentiment, sentiment));

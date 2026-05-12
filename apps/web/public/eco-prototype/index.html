@@ -632,11 +632,20 @@
     const params = new URLSearchParams(location.search);
     const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
     const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
+    // Rango personalizado: cuando period === 'custom', el OverviewFilterBar
+    // habrá guardado eco.from y eco.to en localStorage. Se envían como query
+    // params para que /api/eco-data sobrescriba la ventana derivada de period.
+    const fromCustom = params.get('from') || localStorage.getItem('eco.from') || '';
+    const toCustom = params.get('to') || localStorage.getItem('eco.to') || '';
     let apiFailed = false;
     let apiError = null;
     try {
       const qs = new URLSearchParams({ period });
       if (agency) qs.set('agency', agency);
+      if (period === 'custom' && fromCustom && toCustom) {
+        qs.set('from', fromCustom);
+        qs.set('to', toCustom);
+      }
       const res = await fetch('/api/eco-data?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
       if (res.ok) {
         window.ECO_DATA_REMOTE = await res.json();

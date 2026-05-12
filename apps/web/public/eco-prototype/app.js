@@ -126,7 +126,7 @@ class EcoErrorBoundary extends React.Component {
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
-  overview:  { label: 'Overview',      eyebrow: 'Vista diaria · espejo del correo' },
+  overview:  { label: 'Overview',      eyebrow: null },
   dashboard: { label: 'Scorecard',     eyebrow: 'Scorecard táctico · tiempo real' },
   mentions:  { label: 'Menciones',     eyebrow: 'Flujo de conversación' },
   sentiment: { label: 'Sentimiento',   eyebrow: 'Análisis emocional' },

@@ -12,7 +12,7 @@ import {
   alertRules,
   agencyBriefings,
 } from '@eco/database';
-import { sql, eq, and, gte, desc, count } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, lte, desc, count } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -20,9 +20,45 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
+
+/**
+ * Parse y validación del rango personalizado from / to.
+ *
+ * `from` y `to` son YYYY-MM-DD en AST (TZ America/Puerto_Rico, UTC-4 sin DST).
+ * Como AST = UTC-4 constante, podemos derivar timestamps UTC exactos:
+ *   - sinceUtc:           `from`T04:00:00Z   (AST 00:00 del día `from`)
+ *   - untilExclusiveUtc:  `to`T04:00:00Z + 1 día  (AST 24:00 del día `to`)
+ *
+ * El upper bound es exclusivo (`lt`) para no incluir mediciones de un día
+ * adicional por error de comparación.
+ *
+ * Retorna null si los parámetros son inválidos (faltantes, mal formados, o
+ * `from` > `to`). En ese caso el caller cae al cálculo por `period`.
+ */
+function parseCustomRange(
+  fromParam: string | null,
+  toParam: string | null,
+): null | {
+  from: string;
+  to: string;
+  sinceUtc: Date;
+  untilExclusiveUtc: Date;
+  days: number;
+} {
+  if (!fromParam || !toParam) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromParam) || !/^\d{4}-\d{2}-\d{2}$/.test(toParam)) return null;
+  if (fromParam > toParam) return null;
+  const sinceUtc = new Date(`${fromParam}T04:00:00.000Z`);
+  const untilExclusiveUtc = new Date(`${toParam}T04:00:00.000Z`);
+  untilExclusiveUtc.setUTCDate(untilExclusiveUtc.getUTCDate() + 1);
+  if (Number.isNaN(sinceUtc.getTime()) || Number.isNaN(untilExclusiveUtc.getTime())) return null;
+  const days = Math.round((untilExclusiveUtc.getTime() - sinceUtc.getTime()) / 86400000);
+  return { from: fromParam, to: toParam, sinceUtc, untilExclusiveUtc, days };
+}
 
 type TimelineRow = {
   date: string;
@@ -130,7 +166,11 @@ export async function GET(request: NextRequest) {
   const start = Date.now();
   const { searchParams } = new URL(request.url);
   const periodKey = searchParams.get('period') ?? '1M';
-  const days = PERIOD_DAYS[periodKey] ?? 30;
+  // Rango personalizado: from / to en YYYY-MM-DD interpretados en TZ
+  // America/Puerto_Rico (UTC-4 sin DST). Solo se honran si vienen ambos y son
+  // un rango válido; cualquier desviación cae al cálculo por `period`.
+  const customRange = parseCustomRange(searchParams.get('from'), searchParams.get('to'));
+  const days = customRange ? customRange.days : (PERIOD_DAYS[periodKey] ?? 30);
 
   const db = getDb();
 
@@ -149,10 +189,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
   }
 
-  const since = new Date();
-  since.setDate(since.getDate() - days);
+  // Cota inferior: o el inicio del rango custom (AST 00:00) o NOW − days.
+  // Cota superior (opcional): solo se aplica para custom — marca el final
+  // del día AST `to` (exclusivo en UTC = AST `to` 24:00).
+  const since = customRange ? customRange.sinceUtc : (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d;
+  })();
+  const untilExclusive: Date | null = customRange ? customRange.untilExclusiveUtc : null;
+  const snapshotStartDate: string = customRange ? customRange.from : since.toISOString().split('T')[0];
+  const snapshotEndDate: string | null = customRange ? customRange.to : null;
 
-  const baseWhere = and(eq(mentions.agencyId, agencyId), gte(mentions.publishedAt, since));
+  const baseWhere = untilExclusive
+    ? and(
+        eq(mentions.agencyId, agencyId),
+        gte(mentions.publishedAt, since),
+        lt(mentions.publishedAt, untilExclusive),
+      )
+    : and(eq(mentions.agencyId, agencyId), gte(mentions.publishedAt, since));
 
   try {
     // ---- AGENCIES (all) ----
@@ -168,13 +223,15 @@ export async function GET(request: NextRequest) {
     }));
 
     // ---- TIMELINE + CURRENT_METRICS from snapshots ----
+    const snapshotConditions = [
+      gte(dailyMetricSnapshots.date, snapshotStartDate),
+      eq(dailyMetricSnapshots.agencyId, agencyId),
+    ];
+    if (snapshotEndDate) snapshotConditions.push(lte(dailyMetricSnapshots.date, snapshotEndDate));
     const snapshots = await db
       .select()
       .from(dailyMetricSnapshots)
-      .where(and(
-        gte(dailyMetricSnapshots.date, since.toISOString().split('T')[0]),
-        eq(dailyMetricSnapshots.agencyId, agencyId),
-      ))
+      .where(and(...snapshotConditions))
       .orderBy(dailyMetricSnapshots.date);
 
     const TIMELINE: TimelineRow[] = snapshots.map((s) => {
@@ -347,6 +404,81 @@ export async function GET(request: NextRequest) {
     // dashboard ahora coincide byte-por-byte con el del Overview/correo.
     // El secondaryCount permite al UI comunicar "+N también lo tocan".
     const pool = getPool();
+    // Para rango personalizado, el WHERE incluye además la cota superior
+    // (`published_at < $3`). Para el caso default (period preset), la cota
+    // superior es la fecha actual y no necesita filtro extra.
+    const topicSinceIso = since.toISOString();
+    const topicSql = untilExclusive
+      ? `WITH primaries AS (
+           SELECT t.id AS topic_id, t.slug, t.name,
+                  COUNT(*)::int AS primary_count,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+             FROM (
+               SELECT m.id AS mention_id,
+                      COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                      (SELECT topic_id FROM mention_topics
+                         WHERE mention_id = m.id
+                         ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+                 FROM mentions m
+                WHERE m.agency_id = $1
+                  AND m.published_at >= $2
+                  AND m.published_at < $3
+             ) pt
+             JOIN topics t ON t.id = pt.topic_id
+            GROUP BY t.id, t.slug, t.name
+         ),
+         multi AS (
+           SELECT mt.topic_id,
+                  COUNT(DISTINCT mt.mention_id)::int AS multi_count
+             FROM mention_topics mt
+             JOIN mentions m ON m.id = mt.mention_id
+            WHERE m.agency_id = $1
+              AND m.published_at >= $2
+              AND m.published_at < $3
+            GROUP BY mt.topic_id
+         )
+         SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
+                GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
+           FROM primaries p
+           LEFT JOIN multi mu ON mu.topic_id = p.topic_id
+          ORDER BY p.primary_count DESC
+          LIMIT 12`
+      : `WITH primaries AS (
+           SELECT t.id AS topic_id, t.slug, t.name,
+                  COUNT(*)::int AS primary_count,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
+                  COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
+             FROM (
+               SELECT m.id AS mention_id,
+                      COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                      (SELECT topic_id FROM mention_topics
+                         WHERE mention_id = m.id
+                         ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+                 FROM mentions m
+                WHERE m.agency_id = $1
+                  AND m.published_at >= $2
+             ) pt
+             JOIN topics t ON t.id = pt.topic_id
+            GROUP BY t.id, t.slug, t.name
+         ),
+         multi AS (
+           SELECT mt.topic_id,
+                  COUNT(DISTINCT mt.mention_id)::int AS multi_count
+             FROM mention_topics mt
+             JOIN mentions m ON m.id = mt.mention_id
+            WHERE m.agency_id = $1
+              AND m.published_at >= $2
+            GROUP BY mt.topic_id
+         )
+         SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
+                GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
+           FROM primaries p
+           LEFT JOIN multi mu ON mu.topic_id = p.topic_id
+          ORDER BY p.primary_count DESC
+          LIMIT 12`;
     const topicRowsRaw = await pool.query<{
       slug: string;
       name: string;
@@ -356,41 +488,10 @@ export async function GET(request: NextRequest) {
       neutral: number | string;
       positive: number | string;
     }>(
-      `WITH primaries AS (
-         SELECT t.id AS topic_id, t.slug, t.name,
-                COUNT(*)::int AS primary_count,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral,
-                COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive
-           FROM (
-             SELECT m.id AS mention_id,
-                    COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                    (SELECT topic_id FROM mention_topics
-                       WHERE mention_id = m.id
-                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
-               FROM mentions m
-              WHERE m.agency_id = $1
-                AND m.published_at >= $2
-           ) pt
-           JOIN topics t ON t.id = pt.topic_id
-          GROUP BY t.id, t.slug, t.name
-       ),
-       multi AS (
-         SELECT mt.topic_id,
-                COUNT(DISTINCT mt.mention_id)::int AS multi_count
-           FROM mention_topics mt
-           JOIN mentions m ON m.id = mt.mention_id
-          WHERE m.agency_id = $1
-            AND m.published_at >= $2
-          GROUP BY mt.topic_id
-       )
-       SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
-              GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count
-         FROM primaries p
-         LEFT JOIN multi mu ON mu.topic_id = p.topic_id
-        ORDER BY p.primary_count DESC
-        LIMIT 12`,
-      [agencyId, since.toISOString()],
+      topicSql,
+      untilExclusive
+        ? [agencyId, topicSinceIso, untilExclusive.toISOString()]
+        : [agencyId, topicSinceIso],
     );
 
     // Descripciones IA por tópico — pobladas por eco-ai-tasks (acción
@@ -594,15 +695,26 @@ export async function GET(request: NextRequest) {
       });
 
     // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
-    const emotionAgg = await db.execute<{ emotion: string; c: number | string }>(sql`
-      SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
-      FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
-      WHERE m.agency_id = ${agencyId}
-        AND m.published_at >= ${since.toISOString()}
-      GROUP BY emotion
-      ORDER BY c DESC
-      LIMIT 20
-    `);
+    const emotionAgg = untilExclusive
+      ? await db.execute<{ emotion: string; c: number | string }>(sql`
+          SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
+          FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
+          WHERE m.agency_id = ${agencyId}
+            AND m.published_at >= ${since.toISOString()}
+            AND m.published_at < ${untilExclusive.toISOString()}
+          GROUP BY emotion
+          ORDER BY c DESC
+          LIMIT 20
+        `)
+      : await db.execute<{ emotion: string; c: number | string }>(sql`
+          SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
+          FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
+          WHERE m.agency_id = ${agencyId}
+            AND m.published_at >= ${since.toISOString()}
+          GROUP BY emotion
+          ORDER BY c DESC
+          LIMIT 20
+        `);
     // pg driver returns { rows, rowCount, ... }; Drizzle passes that through.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const emotionRowsList: Array<{ emotion: string; c: number | string }> = Array.isArray(emotionAgg)
@@ -922,6 +1034,10 @@ export async function GET(request: NextRequest) {
     log.error('eco-data', 'handler failed', { msg: (err as Error).message });
     return NextResponse.json({ error: 'eco-data error', message: (err as Error).message }, { status: 500 });
   } finally {
-    log.info('eco-data', 'request complete', { latencyMs: Date.now() - start, period: periodKey });
+    log.info('eco-data', 'request complete', {
+      latencyMs: Date.now() - start,
+      period: customRange ? 'custom' : periodKey,
+      ...(customRange ? { from: customRange.from, to: customRange.to } : {}),
+    });
   }
 }

@@ -2,6 +2,29 @@
 const { Icons } = window;
 const { useState, useEffect, useRef } = React;
 
+/**
+ * Construye los parámetros de ventana de tiempo para los endpoints de datos.
+ * Si el usuario está en rango personalizado (eco.period === 'custom' y
+ * eco.from/eco.to válidos en localStorage), retorna `{ period: 'custom',
+ * from, to }`. Si no, `{ period }`. Centralizado aquí para que
+ * CommandPalette, MentionDrawer y MentionsSliceModal envíen los mismos
+ * parámetros y queden alineados con el filtro del overview.
+ */
+function getPeriodParams() {
+  try {
+    const period = localStorage.getItem('eco.period') || '1M';
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from') || '';
+      const to = localStorage.getItem('eco.to') || '';
+      if (from && to) return { period, from, to };
+    }
+    return { period };
+  } catch (_) {
+    return { period: '1M' };
+  }
+}
+window.ecoGetPeriodParams = getPeriodParams;
+
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
   const D = window.ECO_DATA || {};
@@ -241,7 +264,13 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 }
 
 function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
-  const PERIODS = ['1D', '5D', '7D', '1M', '3M', '6M', '1A', 'Max'];
+  // PERIODS alineado con OverviewFilterBar (en screens.js). Incluye
+  // 30D/90D para que el chip activo del header coincida cuando el usuario
+  // elige esos periodos desde el bar del overview. 'custom' no aparece como
+  // chip aquí: se muestra como pill aparte indicando que hay un rango
+  // personalizado activo (el control real vive en el bar del overview).
+  const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
+  const isCustom = period === 'custom';
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -285,15 +314,29 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       {/* Period — estilo bolsa */}
       <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
         {PERIODS.map((p) => (
-          <button key={p} onClick={() => setPeriod(p)} style={{
+          <button key={p} onClick={() => {
+            // Si el usuario venía de un rango personalizado, limpiar
+            // eco.from/eco.to antes de cambiar al preset para que el siguiente
+            // boot no envíe restos del rango anterior.
+            try {
+              localStorage.removeItem('eco.from');
+              localStorage.removeItem('eco.to');
+            } catch (_) {}
+            setPeriod(p);
+          }} style={{
             padding: '4px 10px', fontSize: 11, fontWeight: 600,
             borderRadius: 999,
-            background: period === p ? 'var(--canvas)' : 'transparent',
-            color: period === p ? 'var(--text)' : 'var(--text-3)',
-            boxShadow: period === p ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
+            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
+            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
           }}>{p}</button>
         ))}
       </div>
+      {isCustom && (
+        <span className="pill pill-info" title="Rango personalizado activo · gestiónalo desde el overview" style={{ fontSize: 10 }}>
+          <Icons.Calendar size={10} /> Custom
+        </span>
+      )}
 
       {/* Quick search — abre el command palette con foco real */}
       <button onClick={onOpenCommand} className="btn" title="Buscar (⌘K)">
@@ -325,8 +368,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       const agency = localStorage.getItem('eco.agency') || '';
-      const period = localStorage.getItem('eco.period') || '1M';
-      const params = new URLSearchParams({ q, agency, period, limit: '8' });
+      const params = new URLSearchParams({ q, agency, limit: '8', ...getPeriodParams() });
       fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
         .then((r) => r.ok ? r.json() : { mentions: [] })
         .then((j) => setLiveResults(j.mentions || []))
@@ -452,8 +494,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
     setRelated(null);
     const ctrl = new AbortController();
     const agency = (typeof window !== 'undefined' && localStorage.getItem('eco.agency')) || '';
-    const period = (typeof window !== 'undefined' && localStorage.getItem('eco.period')) || '1M';
-    const params = new URLSearchParams({ period, limit: '6' });
+    const params = new URLSearchParams({ limit: '6', ...getPeriodParams() });
     if (agency) params.set('agency', agency);
     if (mention.topic) params.set('topic', mention.topic);
     else if (mention.municipality) params.set('municipality', mention.municipality.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
@@ -807,7 +848,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
-        period: localStorage.getItem('eco.period') || '1M',
+        ...getPeriodParams(),
         limit: '20',
         ...filter,
       }).filter(([, v]) => v != null && v !== '')
