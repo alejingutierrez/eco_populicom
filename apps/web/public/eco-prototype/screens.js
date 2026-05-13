@@ -834,12 +834,12 @@ function Pagination({ page, totalPages, onChange }) {
   );
 }
 
-// --- Mentions: List view (dense table-row, sin columna Engagement) ---
+// --- Mentions: List view (dense table-row, sin columnas Engagement ni Pertinencia) ---
 function MentionsList({ mentions, onMentionClick }) {
   return (
     <>
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 110px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
-        <span /><span>Mención</span><span>Sentimiento</span><span>Pertinencia</span><span>Tópico</span><span>Hora</span><span />
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+        <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
@@ -847,14 +847,13 @@ function MentionsList({ mentions, onMentionClick }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ overflow: 'hidden' }}>
               <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
               <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-            <span style={{ fontSize: 11, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{mn.pertinence}</span>
             <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
@@ -865,7 +864,7 @@ function MentionsList({ mentions, onMentionClick }) {
   );
 }
 
-// --- Mentions: Cards view (rich tiles, sin engagement footer) ---
+// --- Mentions: Cards view (rich tiles, sin pill de pertinencia) ---
 function MentionsCards({ mentions, onMentionClick }) {
   return (
     <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
@@ -889,7 +888,7 @@ function MentionsCards({ mentions, onMentionClick }) {
             {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.snippet}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
               <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase' }}>{mn.pertinence}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</span>
             </div>
           </div>
         );
@@ -898,9 +897,9 @@ function MentionsCards({ mentions, onMentionClick }) {
   );
 }
 
-// --- Mentions: Table view (compact, sin columna Engagement) ---
+// --- Mentions: Table view (compact, sin columnas Engagement ni Pertinencia) ---
 function MentionsTable({ mentions, onMentionClick }) {
-  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Pert.', 'Tópico', 'Municipio', 'Fecha'];
+  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -923,7 +922,6 @@ function MentionsTable({ mentions, onMentionClick }) {
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
                 <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
-                <td style={{ padding: '8px 10px', fontWeight: 600, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', textTransform: 'uppercase', fontSize: 10 }}>{mn.pertinence}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.municipality || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{mn.publishedAt}</td>

@@ -448,19 +448,30 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
   const k = Math.min(20, Math.max(1, limit));
 
   // 1) ¿La mención fuente tiene embedding? Si no, fallback inmediato.
+  // Cast explícito a uuid: Drizzle parametriza strings como text por defecto y
+  // PostgreSQL no siempre hace cast implícito text→uuid en el contexto de un
+  // operador vectorial (`<=>`). Sin ::uuid la query corre pero no encuentra
+  // matches.
   const srcRaw = await db.execute(sql`
     SELECT m.id::text AS id,
-           m.embedding IS NOT NULL AS has_embedding,
+           (m.embedding IS NOT NULL) AS has_embedding,
            m.agency_id::text AS agency_id
       FROM mentions m
-     WHERE m.id = ${sourceId}
+     WHERE m.id = ${sourceId}::uuid
      LIMIT 1
   `);
   const srcRows = (Array.isArray(srcRaw) ? srcRaw : ((srcRaw as any).rows ?? [])) as Array<{
     id: string; has_embedding: boolean; agency_id: string;
   }>;
+  log.info('eco-mentions', 'similar_to lookup', {
+    sourceId,
+    agencyId,
+    srcFound: srcRows.length,
+    hasEmbedding: srcRows[0]?.has_embedding ?? null,
+    srcAgencyId: srcRows[0]?.agency_id ?? null,
+  });
   if (srcRows.length === 0 || srcRows[0].agency_id !== agencyId) {
-    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
+    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, similar: true });
   }
 
   let neighborIds: string[] = [];
@@ -470,8 +481,8 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
     const nbrRaw = await db.execute(sql`
       SELECT n.id::text AS id
         FROM mentions n, mentions s
-       WHERE s.id = ${sourceId}
-         AND n.agency_id = ${agencyId}
+       WHERE s.id = ${sourceId}::uuid
+         AND n.agency_id = ${agencyId}::uuid
          AND n.id <> s.id
          AND n.embedding IS NOT NULL
        ORDER BY n.embedding <=> s.embedding
@@ -479,6 +490,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
     `);
     const rows = (Array.isArray(nbrRaw) ? nbrRaw : ((nbrRaw as any).rows ?? [])) as Array<{ id: string }>;
     neighborIds = rows.map((r) => r.id);
+    log.info('eco-mentions', 'similar_to cosine', { sourceId, neighbors: neighborIds.length });
   }
 
   // Fallback / complemento: si no hay embedding o hubo cero vecinos, usar
@@ -489,7 +501,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
         SELECT mt.topic_id, m.published_at
           FROM mentions m
           JOIN mention_topics mt ON mt.mention_id = m.id
-         WHERE m.id = ${sourceId}
+         WHERE m.id = ${sourceId}::uuid
          ORDER BY mt.confidence DESC NULLS LAST
          LIMIT 1
       )
@@ -497,17 +509,18 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
         FROM mentions n
         JOIN mention_topics nt ON nt.mention_id = n.id
         JOIN src ON src.topic_id = nt.topic_id
-       WHERE n.agency_id = ${agencyId}
-         AND n.id <> ${sourceId}
+       WHERE n.agency_id = ${agencyId}::uuid
+         AND n.id <> ${sourceId}::uuid
        ORDER BY n.published_at DESC
        LIMIT ${k}
     `);
     const rows = (Array.isArray(fbRaw) ? fbRaw : ((fbRaw as any).rows ?? [])) as Array<{ id: string }>;
     neighborIds = rows.map((r) => r.id);
+    log.info('eco-mentions', 'similar_to fallback-topic', { sourceId, neighbors: neighborIds.length });
   }
 
   if (neighborIds.length === 0) {
-    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
+    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, similar: true });
   }
 
   // 2) Hidrata los neighbors usando el mismo shape de respuesta.

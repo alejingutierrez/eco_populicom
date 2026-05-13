@@ -565,7 +565,6 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: 'var(--text-2)' }}>
               <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
-              <span className={`pill pill-warn`}>Pertinencia {mention.pertinence}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
             <h2 style={{ margin: '4px 0 8px', fontSize: 20, fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
