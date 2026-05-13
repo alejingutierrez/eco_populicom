@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
 import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText } from '@eco/shared';
+import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -203,6 +204,20 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   );
 
   const mentionId = mentionResult.rows[0].id;
+
+  // Best-effort: generar embedding del contenido para "menciones similares".
+  // No bloquea el resto del procesamiento — si Bedrock falla, la mención
+  // queda sin embedding y el backfill la recogerá después.
+  const embedInput = buildEmbeddingInput(mention.title, mention.snippet);
+  if (embedInput) {
+    const vec = await embedText(embedInput);
+    if (vec) {
+      await pgClient.query(
+        'UPDATE mentions SET embedding = $1::vector, embedded_at = NOW() WHERE id = $2',
+        [toPgvectorLiteral(vec), mentionId],
+      );
+    }
+  }
 
   // Insert topic associations
   for (const topic of nlp.topics) {
