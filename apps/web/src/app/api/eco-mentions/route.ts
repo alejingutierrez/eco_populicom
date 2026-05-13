@@ -64,8 +64,11 @@ function relativeTime(d: Date): string {
  *   dow — day-of-week 0..6 (Mon=0)
  *   hour — hour 0..23
  *   day — YYYY-MM-DD (filter to that calendar day in UTC)
- *   pertinence — alta | media | baja
+ *   pertinence — alta | media | baja (explicit; bypasses default exclude-low)
+ *   includeLow — '1'/'true' to keep baja pertinencia in results (default excludes)
+ *   minEngagement — number; keeps mentions con engagement_score >= N (viral filter)
  *   q — full-text search in title/snippet
+ *   similar_to — mention id; returns coseno-neighbors (excluye filtros de contenido)
  *   limit — default 20, max 100
  *   offset — default 0
  */
@@ -96,6 +99,15 @@ export async function GET(request: NextRequest) {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
+  // similar_to: rama dedicada — devuelve coseno-vecinos de la mención fuente
+  // dentro de la misma agencia, ignorando filtros de contenido. Si la mención
+  // fuente no tiene embedding (aún por backfill), fallback a la lógica
+  // existente filtrando por mismo topic.
+  const similarTo = searchParams.get('similar_to');
+  if (similarTo && /^[0-9a-f-]{36}$/i.test(similarTo)) {
+    return await handleSimilarTo(similarTo, agencyId, limit);
+  }
+
   const conditions: ReturnType<typeof eq>[] = [
     eq(mentions.agencyId, agencyId),
     gte(mentions.publishedAt, since),
@@ -104,8 +116,22 @@ export async function GET(request: NextRequest) {
   const sentiment = searchParams.get('sentiment');
   if (sentiment) conditions.push(eq(mentions.nlpSentiment, sentiment));
 
+  // Default: excluye 'baja' pertinencia. Si el caller pasa `pertinence` explícito
+  // o `includeLow=1`, no aplica el filtro (compat con drawer y slices de debug).
   const pertinence = searchParams.get('pertinence');
-  if (pertinence) conditions.push(eq(mentions.nlpPertinence, pertinence));
+  const includeLow = searchParams.get('includeLow');
+  if (pertinence) {
+    conditions.push(eq(mentions.nlpPertinence, pertinence));
+  } else if (!includeLow || (includeLow !== '1' && includeLow.toLowerCase() !== 'true')) {
+    conditions.push(sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')` as any);
+  }
+
+  // minEngagement: usado por la card "Virales" del MentionsScreen.
+  const minEngagementRaw = searchParams.get('minEngagement');
+  if (minEngagementRaw && !isNaN(Number(minEngagementRaw))) {
+    const minE = Math.max(0, Number(minEngagementRaw));
+    if (minE > 0) conditions.push(sql`${mentions.engagementScore} >= ${minE}` as any);
+  }
 
   const pageTypeParam = searchParams.get('pageType');
   if (pageTypeParam) {
@@ -407,6 +433,198 @@ export async function GET(request: NextRequest) {
     mentions: out,
     total: Number(total),
     sentiment: sentCounts,
+  });
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/**
+ * Devuelve los vecinos coseno-más-cercanos a `sourceId` dentro de la misma
+ * agencia. Si la mención fuente no tiene embedding (backfill pendiente),
+ * fallback al comportamiento previo: menciones del mismo topic principal.
+ */
+async function handleSimilarTo(sourceId: string, agencyId: string, limit: number) {
+  const db = getDb();
+  const k = Math.min(20, Math.max(1, limit));
+
+  // 1) ¿La mención fuente tiene embedding? Si no, fallback inmediato.
+  const srcRaw = await db.execute(sql`
+    SELECT m.id::text AS id,
+           m.embedding IS NOT NULL AS has_embedding,
+           m.agency_id::text AS agency_id
+      FROM mentions m
+     WHERE m.id = ${sourceId}
+     LIMIT 1
+  `);
+  const srcRows = (Array.isArray(srcRaw) ? srcRaw : ((srcRaw as any).rows ?? [])) as Array<{
+    id: string; has_embedding: boolean; agency_id: string;
+  }>;
+  if (srcRows.length === 0 || srcRows[0].agency_id !== agencyId) {
+    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
+  }
+
+  let neighborIds: string[] = [];
+
+  if (srcRows[0].has_embedding) {
+    // pgvector: <=> es la distancia coseno (menor = más similar).
+    const nbrRaw = await db.execute(sql`
+      SELECT n.id::text AS id
+        FROM mentions n, mentions s
+       WHERE s.id = ${sourceId}
+         AND n.agency_id = ${agencyId}
+         AND n.id <> s.id
+         AND n.embedding IS NOT NULL
+       ORDER BY n.embedding <=> s.embedding
+       LIMIT ${k}
+    `);
+    const rows = (Array.isArray(nbrRaw) ? nbrRaw : ((nbrRaw as any).rows ?? [])) as Array<{ id: string }>;
+    neighborIds = rows.map((r) => r.id);
+  }
+
+  // Fallback / complemento: si no hay embedding o hubo cero vecinos, usar
+  // mismo topic principal (orden por publishedAt DESC).
+  if (neighborIds.length === 0) {
+    const fbRaw = await db.execute(sql`
+      WITH src AS (
+        SELECT mt.topic_id, m.published_at
+          FROM mentions m
+          JOIN mention_topics mt ON mt.mention_id = m.id
+         WHERE m.id = ${sourceId}
+         ORDER BY mt.confidence DESC NULLS LAST
+         LIMIT 1
+      )
+      SELECT n.id::text AS id
+        FROM mentions n
+        JOIN mention_topics nt ON nt.mention_id = n.id
+        JOIN src ON src.topic_id = nt.topic_id
+       WHERE n.agency_id = ${agencyId}
+         AND n.id <> ${sourceId}
+       ORDER BY n.published_at DESC
+       LIMIT ${k}
+    `);
+    const rows = (Array.isArray(fbRaw) ? fbRaw : ((fbRaw as any).rows ?? [])) as Array<{ id: string }>;
+    neighborIds = rows.map((r) => r.id);
+  }
+
+  if (neighborIds.length === 0) {
+    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
+  }
+
+  // 2) Hidrata los neighbors usando el mismo shape de respuesta.
+  const rows = await db
+    .select({
+      id: mentions.id,
+      title: mentions.title,
+      snippet: mentions.snippet,
+      domain: mentions.domain,
+      pageType: mentions.pageType,
+      author: mentions.author,
+      authorFullname: mentions.authorFullname,
+      nlpSentiment: mentions.nlpSentiment,
+      nlpPertinence: mentions.nlpPertinence,
+      nlpEmotions: mentions.nlpEmotions,
+      nlpSummary: mentions.nlpSummary,
+      engagementScore: mentions.engagementScore,
+      likes: mentions.likes,
+      comments: mentions.comments,
+      shares: mentions.shares,
+      publishedAt: mentions.publishedAt,
+      url: mentions.url,
+    })
+    .from(mentions)
+    .where(inArray(mentions.id, neighborIds));
+
+  // Preserva el orden de neighborIds (cercanía coseno).
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = neighborIds.map((id) => byId.get(id)).filter(Boolean) as typeof rows;
+
+  const ids = ordered.map((r) => r.id);
+  const tRows = ids.length > 0 ? await db
+    .select({
+      mentionId: mentionTopics.mentionId,
+      topicSlug: topics.slug,
+      topicName: topics.name,
+      subName: subtopics.name,
+      confidence: mentionTopics.confidence,
+    })
+    .from(mentionTopics)
+    .leftJoin(topics, eq(topics.id, mentionTopics.topicId))
+    .leftJoin(subtopics, eq(subtopics.id, mentionTopics.subtopicId))
+    .where(inArray(mentionTopics.mentionId, ids)) : [];
+
+  const mRows = ids.length > 0 ? await db
+    .select({
+      mentionId: mentionMunicipalities.mentionId,
+      muniName: municipalities.name,
+      region: municipalities.region,
+      lat: municipalities.latitude,
+      lon: municipalities.longitude,
+    })
+    .from(mentionMunicipalities)
+    .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
+    .where(inArray(mentionMunicipalities.mentionId, ids)) : [];
+
+  const topicByMention = new Map<string, { topic: string; topicName: string; subtopics: string[]; confidence: number | null }>();
+  for (const r of tRows) {
+    if (!r.topicSlug) continue;
+    const conf = typeof r.confidence === 'number' ? r.confidence : null;
+    const existing = topicByMention.get(r.mentionId);
+    if (!existing) {
+      topicByMention.set(r.mentionId, { topic: r.topicSlug, topicName: r.topicName ?? r.topicSlug, subtopics: [], confidence: conf });
+    } else if (conf != null && (existing.confidence == null || conf > existing.confidence)) {
+      existing.topic = r.topicSlug;
+      existing.topicName = r.topicName ?? r.topicSlug;
+      existing.confidence = conf;
+    }
+    if (r.subName) topicByMention.get(r.mentionId)!.subtopics.push(r.subName);
+  }
+  const muniByMention = new Map<string, { name: string; region: string; coords: [number, number] }>();
+  for (const r of mRows) {
+    if (!muniByMention.has(r.mentionId)) {
+      muniByMention.set(r.mentionId, {
+        name: r.muniName,
+        region: r.region,
+        coords: [Number(r.lat), Number(r.lon)],
+      });
+    }
+  }
+
+  const out = ordered.map((m) => {
+    const tp = topicByMention.get(m.id);
+    const mu = muniByMention.get(m.id);
+    const title = (m.title && m.title.trim()) || (m.snippet && m.snippet.trim()) || '';
+    return {
+      id: m.id,
+      title,
+      snippet: m.snippet ?? '',
+      domain: m.domain ?? '',
+      source: sourceKey(m.pageType),
+      author: m.authorFullname ?? m.author ?? '',
+      sentiment: pillFromSentiment(m.nlpSentiment),
+      pertinence: m.nlpPertinence ?? 'media',
+      engagement: Number(m.engagementScore ?? 0),
+      likes: Number(m.likes ?? 0),
+      comments: Number(m.comments ?? 0),
+      shares: Number(m.shares ?? 0),
+      publishedAt: relativeTime(new Date(m.publishedAt)),
+      emotions: (m.nlpEmotions ?? []).map((e) => e.toLowerCase()),
+      topic: tp?.topic ?? '',
+      topicName: tp?.topicName ?? '',
+      topicConfidence: tp?.confidence ?? null,
+      subtopics: tp?.subtopics ?? [],
+      municipality: mu?.name ?? '',
+      region: mu?.region ?? '',
+      coords: mu?.coords,
+      url: m.url,
+      summary: m.nlpSummary ?? null,
+    };
+  });
+
+  const res = NextResponse.json({
+    mentions: out,
+    total: out.length,
+    sentiment: { pos: 0, neu: 0, neg: 0 },
+    similar: true,
   });
   res.headers.set('Cache-Control', 'no-store');
   return res;

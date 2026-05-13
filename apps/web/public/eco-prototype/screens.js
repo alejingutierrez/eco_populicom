@@ -517,48 +517,103 @@ function HourActivityCard({ onCellClick }) {
 }
 
 // =============== MENTIONS ===============
+// El feed de menciones ya NO filtra el array `D.MENTIONS` precargado.
+// Hace fetch directo a `/api/eco-mentions` con paginación + búsqueda
+// server-side para que los filtros funcionen sobre el universo completo y la
+// paginación numerada navegue por TODAS las menciones del período, no solo
+// las 20-50 que vienen en el cargue inicial del dashboard.
+const PAGE_SIZE = 25;
+const VIRAL_THRESHOLD = 5000;
+
 function MentionsScreen({ onMentionClick }) {
-  const [sentiment, setSentiment] = useState('all');
-  const [source, setSource] = useState('all');
-  const [pertinence, setPertinence] = useState('all');
-  const [query, setQuery] = useState('');
+  // Estado de filtros (server-side). `q` se sincroniza con `queryInput` con
+  // debounce de 300ms para evitar un fetch por cada tecla.
+  const [queryInput, setQueryInput] = useState('');
+  const [filters, setFilters] = useState({
+    q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent',
+  });
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ mentions: [], total: 0 });
+  const [loading, setLoading] = useState(false);
+  const [viralCount, setViralCount] = useState(null); // null = loading
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
   const [moreOpen, setMoreOpen] = useState(false);
-  const [sortBy, setSortBy] = useState({ key: 'recent', dir: 'desc' });
-  const [showCount, setShowCount] = useState(20);
+  const [slice, setSlice] = useState(null);
 
   React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
 
-  let filtered = D.MENTIONS;
-  if (sentiment !== 'all') filtered = filtered.filter(m => m.sentiment === sentiment);
-  if (source !== 'all') filtered = filtered.filter(m => m.source === source);
-  if (pertinence !== 'all') filtered = filtered.filter(m => m.pertinence === pertinence);
-  if (query) filtered = filtered.filter(m => m.title.toLowerCase().includes(query.toLowerCase()));
+  // Debounce del buscador → filters.q
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      setFilters((f) => f.q === queryInput ? f : { ...f, q: queryInput });
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [queryInput]);
 
-  // Sort
-  filtered = [...filtered];
-  const sortFns = {
-    recent: (a, b) => 0, // API already returns newest first
-    engagement: (a, b) => (a.engagement || 0) - (b.engagement || 0),
-    pertinence: (a, b) => ({ alta: 3, media: 2, baja: 1 }[a.pertinence] || 0) - ({ alta: 3, media: 2, baja: 1 }[b.pertinence] || 0),
-    sentiment: (a, b) => ({ positivo: 3, neutral: 2, negativo: 1 }[a.sentiment] || 0) - ({ positivo: 3, neutral: 2, negativo: 1 }[b.sentiment] || 0),
-  };
-  if (sortFns[sortBy.key]) filtered.sort((a, b) => (sortBy.dir === 'desc' ? -1 : 1) * sortFns[sortBy.key](a, b));
+  // Cuando cambian los filtros (no la página), reset a página 1.
+  // Cuando cambia la página, no reseteamos filtros.
+  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy]);
 
-  const visible = filtered.slice(0, showCount);
+  // Fetch del feed con filtros + paginación.
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    const agency = localStorage.getItem('eco.agency') || '';
+    const period = localStorage.getItem('eco.period') || '1M';
+    const params = new URLSearchParams({
+      period,
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+    if (agency) params.set('agency', agency);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
+    if (filters.source !== 'all') params.set('source', filters.source);
+    if (filters.topic) params.set('topic', filters.topic);
+    if (filters.region) params.set('region', filters.region);
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { mentions: [], total: 0 })
+      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [filters, page]);
 
-  function exportCsv() {
-    const header = ['Título', 'Sentimiento', 'Pertinencia', 'Engagement', 'Tópico', 'Subtópicos', 'Municipio', 'Fuente', 'Publicado', 'URL'];
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = filtered.map((m) => [m.title, m.sentiment, m.pertinence, m.engagement, m.topicName || m.topic, (m.subtopics || []).join('; '), m.municipality, m.source, m.publishedAt, m.url || ''].map(esc).join(','));
-    const csv = [header.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `eco-menciones-${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Conteo de "Virales": una consulta separada con limit=1 (solo nos
+  // interesa `total`). Se recalcula cuando cambia el período/agency, pero
+  // NO cuando cambian filtros de búsqueda — virales es un agregado global.
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    const agency = localStorage.getItem('eco.agency') || '';
+    const period = localStorage.getItem('eco.period') || '1M';
+    const params = new URLSearchParams({
+      period, limit: '1', minEngagement: String(VIRAL_THRESHOLD),
+    });
+    if (agency) params.set('agency', agency);
+    setViralCount(null);
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { total: 0 })
+      .then((j) => setViralCount(Number(j.total || 0)))
+      .catch(() => setViralCount(0));
+    return () => ctrl.abort();
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
+  const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
+
+  const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
+
+  function openViralSlice() {
+    setSlice({
+      eyebrow: 'Menciones virales',
+      title: 'Engagement ≥ ' + VIRAL_THRESHOLD.toLocaleString('es-PR'),
+      accent: 'var(--neg)',
+      _filter: { minEngagement: String(VIRAL_THRESHOLD) },
+    });
   }
+  const MentionsSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -566,17 +621,17 @@ function MentionsScreen({ onMentionClick }) {
       <div className="card" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
           <Icons.Search size={14} color="var(--text-3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-          <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
+          <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
-            <button key={x.k} onClick={() => setSentiment(x.k)} className={`chip ${sentiment === x.k ? 'active' : ''}`}>
+            <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
             </button>
           ))}
         </div>
         <div style={{ width: 1, height: 24, background: 'var(--hairline)' }} />
-        <select className="input" value={source} onChange={(e) => setSource(e.target.value)} style={{ width: 160 }}>
+        <select className="input" value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }}>
           <option value="all">Todas las fuentes</option>
           <option value="facebook">Facebook</option>
           <option value="twitter">X / Twitter</option>
@@ -586,56 +641,68 @@ function MentionsScreen({ onMentionClick }) {
         </select>
         <div style={{ position: 'relative' }}>
           <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
-            <Icons.Filter size={13} /> Más filtros {pertinence !== 'all' && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·1</span>}
+            <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
           </button>
           {moreOpen && (
-            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 220, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Pertinencia</div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                {['all', 'alta', 'media', 'baja'].map((p) => (
-                  <button key={p} className={`chip ${pertinence === p ? 'active' : ''}`} onClick={() => setPertinence(p)}>
-                    {p === 'all' ? 'Todas' : p}
-                  </button>
-                ))}
-              </div>
+            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Tópico</div>
+              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                <option value="">Todos los tópicos</option>
+                {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
+              </select>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Región</div>
+              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                <option value="">Todas las regiones</option>
+                {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Ordenar por</div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'pertinence', l: 'Pertinencia' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
-                  <button key={o.k} className={`chip ${sortBy.key === o.k ? 'active' : ''}`} onClick={() => setSortBy({ key: o.k, dir: 'desc' })}>
+                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
+                  <button key={o.k} className={`chip ${filters.sortBy === o.k ? 'active' : ''}`} onClick={() => setFilters((f) => ({ ...f, sortBy: o.k }))}>
                     {o.l}
                   </button>
                 ))}
               </div>
+              {activeMoreFiltersCount > 0 && (
+                <button className="chip" style={{ marginTop: 12 }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
+                  Limpiar filtros
+                </button>
+              )}
             </div>
           )}
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{filtered.length} de {D.MENTIONS.length}</span>
-        <button className="btn" onClick={exportCsv} disabled={filtered.length === 0}>
-          <Icons.Download size={13} /> CSV
-        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          {loading ? 'Cargando…' : `${data.total.toLocaleString('es-PR')} menciones`}
+        </span>
       </div>
 
-      {/* Quick metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-        {[
-          { l: 'Total', v: fmt(D.CURRENT_METRICS.totalMentions), t: null },
-          { l: 'Alcance', v: fmt(D.CURRENT_METRICS.totalReach), t: null },
-          { l: 'Alta pertinencia', v: fmt(D.CURRENT_METRICS.highPertinenceCount), t: 'warn' },
-          { l: 'Engagement rate', v: D.CURRENT_METRICS.engagementRate + '%', t: null },
-          { l: 'Virales (>5K)', v: '23', t: 'neg' },
-        ].map((k, i) => (
-          <div key={i} className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{k.l}</div>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, color: k.t === 'neg' ? 'var(--neg)' : k.t === 'warn' ? 'var(--warn)' : 'var(--text)', marginTop: 6, fontFamily: 'var(--ff-display)' }}>{k.v}</div>
-          </div>
-        ))}
+      {/* Quick metrics — 4 cards (sin "Alta pertinencia"). "Virales" es clickeable. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} />
+        <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
+        <QuickMetric label="Engagement rate" value={D.CURRENT_METRICS.engagementRate + '%'} />
+        <QuickMetric
+          label={`Virales (≥ ${(VIRAL_THRESHOLD / 1000)}K)`}
+          value={viralCount == null ? '…' : fmt(viralCount)}
+          tone="neg"
+          onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
+        />
       </div>
 
       {/* Mentions table */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Menciones</div><div className="card-hd-sub">Ordenar: Más recientes</div></div>
+          <div>
+            <div className="card-hd-title">Menciones</div>
+            <div className="card-hd-sub">
+              {loading ? 'Cargando…' : (
+                data.total === 0
+                  ? 'Sin resultados'
+                  : `Página ${page} de ${totalPages} · ${data.total.toLocaleString('es-PR')} en total`
+              )}
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
             {[
               { k: 'list', l: 'Lista', icon: 'List' },
@@ -651,27 +718,128 @@ function MentionsScreen({ onMentionClick }) {
             })}
           </div>
         </div>
-        {viewMode === 'list' && <MentionsList mentions={visible} onMentionClick={onMentionClick} />}
-        {viewMode === 'cards' && <MentionsCards mentions={visible} onMentionClick={onMentionClick} />}
-        {viewMode === 'table' && <MentionsTable mentions={visible} onMentionClick={onMentionClick} sortBy={sortBy} setSortBy={setSortBy} />}
-        {visible.length < filtered.length && (
-          <div style={{ padding: 14, textAlign: 'center', borderTop: '1px solid var(--hairline)' }}>
-            <button className="chip" onClick={() => setShowCount((n) => n + 20)}>
-              Cargar más ({filtered.length - visible.length} restantes)
-            </button>
+        {data.mentions.length === 0 && !loading && (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            No se encontraron menciones con los filtros actuales.
+          </div>
+        )}
+        {viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {data.total > PAGE_SIZE && (
+          <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         )}
       </div>
+      {slice && MentionsSliceModal && (
+        <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />
+      )}
     </div>
   );
 }
 
-// --- Mentions: List view (dense table-row) ---
+function QuickMetric({ label, value, tone, onClick }) {
+  const color = tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)';
+  const baseStyle = {
+    padding: 14,
+    cursor: onClick ? 'pointer' : 'default',
+    transition: 'background 0.15s ease',
+  };
+  return (
+    <div
+      className="card"
+      style={baseStyle}
+      onClick={onClick || undefined}
+      onMouseEnter={onClick ? (e) => (e.currentTarget.style.background = 'var(--canvas-2)') : undefined}
+      onMouseLeave={onClick ? (e) => (e.currentTarget.style.background = '') : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        {label}
+        {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
+      </div>
+      <div className="num" style={{ fontSize: 22, fontWeight: 600, color, marginTop: 6, fontFamily: 'var(--ff-display)' }}>{value}</div>
+    </div>
+  );
+}
+
+function Pagination({ page, totalPages, onChange }) {
+  // Estilo clásico: Anterior · 1 2 3 … N · Siguiente. Muestra hasta 5 páginas
+  // alrededor de la actual con elipses en los extremos cuando hay más.
+  const window = 2; // vecinos a cada lado
+  const pages = [];
+  const push = (p) => { if (!pages.includes(p) && p >= 1 && p <= totalPages) pages.push(p); };
+  push(1);
+  for (let p = page - window; p <= page + window; p++) push(p);
+  push(totalPages);
+  pages.sort((a, b) => a - b);
+
+  const out = [];
+  let prev = 0;
+  for (const p of pages) {
+    if (p - prev > 1) out.push({ ellipsis: true, key: 'e-' + prev });
+    out.push({ p, key: 'p-' + p });
+    prev = p;
+  }
+
+  const btnStyle = (active, disabled) => ({
+    minWidth: 32,
+    padding: '6px 10px',
+    border: '1px solid ' + (active ? 'var(--accent)' : 'var(--hairline)'),
+    background: active ? 'var(--accent-fill)' : 'var(--canvas)',
+    color: disabled ? 'var(--text-3)' : (active ? 'var(--accent)' : 'var(--text-2)'),
+    borderRadius: 6,
+    fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontWeight: active ? 700 : 500,
+    fontFamily: 'var(--ff-numeric)',
+  });
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      <button
+        onClick={() => page > 1 && onChange(page - 1)}
+        disabled={page <= 1}
+        style={btnStyle(false, page <= 1)}
+        aria-label="Página anterior"
+      >
+        <Icons.ChevronLeft size={12} style={{ verticalAlign: 'middle' }} />
+        <span style={{ marginLeft: 4, fontSize: 11 }}>Anterior</span>
+      </button>
+      {out.map((item) => item.ellipsis ? (
+        <span key={item.key} style={{ padding: '6px 4px', color: 'var(--text-3)', fontSize: 12 }}>…</span>
+      ) : (
+        <button
+          key={item.key}
+          onClick={() => onChange(item.p)}
+          style={btnStyle(item.p === page, false)}
+          aria-current={item.p === page ? 'page' : undefined}
+        >
+          {item.p}
+        </button>
+      ))}
+      <button
+        onClick={() => page < totalPages && onChange(page + 1)}
+        disabled={page >= totalPages}
+        style={btnStyle(false, page >= totalPages)}
+        aria-label="Página siguiente"
+      >
+        <span style={{ marginRight: 4, fontSize: 11 }}>Siguiente</span>
+        <Icons.ChevronRight size={12} style={{ verticalAlign: 'middle' }} />
+      </button>
+    </div>
+  );
+}
+
+// --- Mentions: List view (dense table-row, sin columna Engagement) ---
 function MentionsList({ mentions, onMentionClick }) {
   return (
     <>
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 80px 90px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
-        <span /><span>Mención</span><span>Sentimiento</span><span>Pertinencia</span><span style={{ textAlign: 'right' }}>Engagement</span><span>Tópico</span><span>Hora</span><span />
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 110px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+        <span /><span>Mención</span><span>Sentimiento</span><span>Pertinencia</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
@@ -679,7 +847,7 @@ function MentionsList({ mentions, onMentionClick }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 80px 90px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ overflow: 'hidden' }}>
               <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
@@ -687,8 +855,7 @@ function MentionsList({ mentions, onMentionClick }) {
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
             <span style={{ fontSize: 11, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{mn.pertinence}</span>
-            <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{fmt(mn.engagement)}</span>
-            <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize' }}>{mn.topic}</span>
+            <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
           </div>
@@ -698,7 +865,7 @@ function MentionsList({ mentions, onMentionClick }) {
   );
 }
 
-// --- Mentions: Cards view (rich tiles) ---
+// --- Mentions: Cards view (rich tiles, sin engagement footer) ---
 function MentionsCards({ mentions, onMentionClick }) {
   return (
     <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
@@ -719,11 +886,10 @@ function MentionsCards({ mentions, onMentionClick }) {
               <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`}>{mn.sentiment}</span>
             </div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.title}</div>
-            {mn.excerpt && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.excerpt}</div>}
+            {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.snippet}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author}</span>
-              <span style={{ marginLeft: 'auto' }} className="num">{fmt(mn.engagement)} eng.</span>
-              <span style={{ fontSize: 10, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase' }}>{mn.pertinence}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase' }}>{mn.pertinence}</span>
             </div>
           </div>
         );
@@ -732,42 +898,17 @@ function MentionsCards({ mentions, onMentionClick }) {
   );
 }
 
-// --- Mentions: Table view (compact with more columns) ---
-function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
-  const columns = [
-    { key: null, l: '' },
-    { key: null, l: 'ID' },
-    { key: null, l: 'Título' },
-    { key: null, l: 'Autor' },
-    { key: null, l: 'Dominio' },
-    { key: 'sentiment', l: 'Sentim.' },
-    { key: 'pertinence', l: 'Pert.' },
-    { key: 'engagement', l: 'Engage.' },
-    { key: null, l: 'Alcance' },
-    { key: null, l: 'Tópico' },
-    { key: null, l: 'Municipio' },
-    { key: 'recent', l: 'Fecha' },
-  ];
-  const toggle = (k) => {
-    if (!k || !setSortBy) return;
-    setSortBy((s) => s.key === k ? { key: k, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key: k, dir: 'desc' });
-  };
+// --- Mentions: Table view (compact, sin columna Engagement) ---
+function MentionsTable({ mentions, onMentionClick }) {
+  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Pert.', 'Tópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--hairline-strong)', background: 'var(--canvas-2)' }}>
-            {columns.map((c) => {
-              const sortable = !!c.key;
-              const active = sortBy && sortBy.key === c.key;
-              return (
-                <th key={c.l}
-                  onClick={() => toggle(c.key)}
-                  style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: active ? 'var(--accent)' : 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap', cursor: sortable ? 'pointer' : 'default', userSelect: 'none' }}>
-                  {c.l}{sortable && active ? (sortBy.dir === 'desc' ? ' ↓' : ' ↑') : ''}
-                </th>
-              );
-            })}
+            {columns.map((c) => (
+              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{c}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -778,15 +919,12 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
             return (
               <tr key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover" style={{ borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}>
                 <td style={{ padding: '8px 10px' }}><SIcon size={12} color="var(--text-3)" /></td>
-                <td className="num" style={{ padding: '8px 10px', color: 'var(--text-3)', fontSize: 10 }}>#{mn.id}</td>
                 <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{mn.title}</td>
-                <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
                 <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
                 <td style={{ padding: '8px 10px', fontWeight: 600, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', textTransform: 'uppercase', fontSize: 10 }}>{mn.pertinence}</td>
-                <td className="num" style={{ padding: '8px 10px', textAlign: 'right' }}>{fmt(mn.engagement)}</td>
-                <td className="num" style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-2)' }}>{fmt(mn.reach || mn.engagement * 15)}</td>
-                <td style={{ padding: '8px 10px', color: 'var(--text-2)', textTransform: 'capitalize' }}>{mn.topic}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.municipality || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{mn.publishedAt}</td>
               </tr>

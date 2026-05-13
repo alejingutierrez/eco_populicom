@@ -71,6 +71,12 @@ export const mentions = pgTable(
     nlpPertinence: varchar('nlp_pertinence', { length: 10 }),
     nlpSummary: text('nlp_summary'),
 
+    // Embedding (Titan Embed Text v2, 1024-dim cosine). Drizzle no tiene tipo
+    // nativo `vector`; el processor y los queries de similitud lo manejan vía
+    // SQL raw. Aquí solo lo declaramos para que aparezca en select queries.
+    embedding: text('embedding'),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }),
+
     // Deduplication
     textHash: varchar('text_hash', { length: 64 }),
     isDuplicate: boolean('is_duplicate').notNull().default(false),
