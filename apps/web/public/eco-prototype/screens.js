@@ -57,6 +57,69 @@ function fmt(n) {
   return n.toLocaleString('es-PR');
 }
 
+/**
+ * Helper compartido para abrir un MetricInsightModal desde cualquier pantalla.
+ * Construye el slice inicial con headlineValue + subcomponents + skeleton de
+ * insight, lo aplica vía setSlice, y dispara un fetch (con polling) al
+ * endpoint /api/eco-metric-insight. Al llegar la respuesta actualiza el slice
+ * con el texto del insight.
+ *
+ * @param {Function} setSlice — el setter del state local de cada screen.
+ * @param {Object} opts — { metric, value, accent, label, periodStart?, periodEnd?, periodPreset?, agency, subcomponents, filter }
+ */
+function openMetricInsightShared(setSlice, opts) {
+  const headlineValue = opts.value != null && opts.value !== '' ? String(opts.value) : '—';
+  setSlice({
+    eyebrow: opts.label,
+    title: `${opts.label}${opts.periodLabel ? ' · ' + opts.periodLabel : ''}`,
+    accent: opts.accent || 'var(--accent)',
+    headlineValue,
+    headlineLabel: opts.label,
+    subcomponents: opts.subcomponents || [],
+    insightText: '__loading__',
+    mentions: [],
+    _filter: opts.filter || {},
+  });
+
+  const params = new URLSearchParams({ metric: opts.metric });
+  if (opts.periodStart && opts.periodEnd) {
+    params.set('from', opts.periodStart);
+    params.set('to', opts.periodEnd);
+  } else if (opts.periodPreset) {
+    params.set('period', opts.periodPreset);
+  }
+  if (opts.agency) params.set('agency', opts.agency);
+
+  const startedAt = Date.now();
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_MS = 3000;
+
+  async function tick() {
+    try {
+      const res = await fetch('/api/eco-metric-insight?' + params.toString(), {
+        credentials: 'same-origin', cache: 'no-store',
+      });
+      if (res.status === 202) {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          setSlice((s) => s ? { ...s, insightText: 'Insight no disponible (timeout).' } : s);
+          return;
+        }
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      if (!res.ok) {
+        setSlice((s) => s ? { ...s, insightText: 'No se pudo cargar el insight.' } : s);
+        return;
+      }
+      const json = await res.json();
+      setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
+    } catch (_) {
+      setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
+    }
+  }
+  tick();
+}
+
 // Sanitiza HTML del briefing IA — solo permite <strong>/</strong>. El lambda
 // que genera el briefing ya hace este filtro server-side; esta función es
 // defensa en profundidad por si una fila vieja escapó el filtro o si en el
@@ -67,7 +130,7 @@ function sanitizeBriefingHtml(html) {
 }
 
 // =============== DASHBOARD ===============
-function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
+function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency }) {
   const m = D.CURRENT_METRICS;
   // Default: solo "Menciones" (issue #6). El usuario puede sumar series con
   // los chips, máx 3 a la vez.
@@ -86,6 +149,32 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   const activeBriefing = briefingByMode
     ? (briefingByMode[focus] || briefingByMode.signal || null)
     : D.BRIEFING;
+
+  // Helper para clicks en KPIs del Scorecard. Usa el period preset (no
+  // periodStart/periodEnd) porque DashboardScreen consume /api/eco-data que
+  // no expone esos campos; el endpoint /api/eco-metric-insight resolverá la
+  // ventana con closedWindowYmdInTZ del period preset.
+  function openKpiInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' }
+      : metric === 'nss' ? { sentiment: 'negativo' }
+      : metric === 'polarization' ? {}
+      : {};
+    openMetricInsightShared(setSlice, {
+      metric, value, accent,
+      label: labels[metric] || metric,
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter,
+    });
+  }
 
   const seriesConfig = [
     { key: 'nss', label: 'NSS', color: 'var(--accent)' },
@@ -282,6 +371,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
         <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
           onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
+
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
@@ -935,9 +1025,23 @@ function MentionsTable({ mentions, onMentionClick }) {
 }
 
 // =============== SENTIMENT ===============
-function SentimentScreen({ onMentionClick }) {
+function SentimentScreen({ onMentionClick, period, agency }) {
   const [slice, setSlice] = useState(null);
   const m = D.CURRENT_METRICS;
+
+  function openNssInsight() {
+    if (m.nss == null) return;
+    openMetricInsightShared(setSlice, {
+      metric: 'nss',
+      value: `${m.nss > 0 ? '+' : ''}${m.nss}`,
+      accent: 'var(--accent)',
+      label: 'Net Sentiment Score',
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter: {},
+    });
+  }
 
   function openSentimentSlice(name) {
     const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
@@ -1007,13 +1111,17 @@ function SentimentScreen({ onMentionClick }) {
       <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">Balance de sentimiento · 30 días</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8 }}>
+          <button onClick={openNssInsight}
+            className="row-hover"
+            title="Ver insight del NSS para el periodo"
+            style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
             <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>+{m.nss}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>NSS</div>
-            <div style={{ marginLeft: 24, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icons.ArrowRight size={14} color="var(--text-3)" />
+            <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Icons.ArrowDown size={12} /> 3.2 vs período anterior
             </div>
-          </div>
+          </button>
           <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 12, maxWidth: 640, lineHeight: 1.55 }}>
             Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
           </div>
@@ -2840,6 +2948,14 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     setData(null); setError(null);
     const params = new URLSearchParams({ period: period || '7D' });
     if (agency) params.set('agency', agency);
+    // Rango personalizado: cuando period === 'custom', el FilterBar habrá
+    // guardado eco.from/eco.to en localStorage; los pasamos al API para que
+    // sobrescriba la ventana derivada del period.
+    if (period === 'custom') {
+      const from = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.from')) || '';
+      const to = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.to')) || '';
+      if (from && to) { params.set('from', from); params.set('to', to); }
+    }
     const ctrl = new AbortController();
     fetch('/api/overview?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
@@ -2864,12 +2980,75 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     );
   }
 
+  function openSentimentSlice(name, count) {
+    const map = { negativo: 'Negativo', neutral: 'Neutral', positivo: 'Positivo' };
+    const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+    setSlice({
+      eyebrow: 'Sentimiento',
+      title: `Menciones ${map[name].toLowerCase()}`,
+      accent,
+      volume: count,
+      sentiment: {
+        pos: name === 'positivo' ? count : 0,
+        neu: name === 'neutral' ? count : 0,
+        neg: name === 'negativo' ? count : 0,
+      },
+      mentions: [],
+      _filter: { sentiment: name },
+    });
+  }
+
+  // openDaySlice — click en un día del gráfico de tendencias. Abre el modal
+  // con las menciones de ESE día específico, leyendo los conteos del propio
+  // datapoint. El _filter.day se interpreta como YYYY-MM-DD en TZ Puerto Rico
+  // por el endpoint /api/eco-mentions.
+  function openDaySlice(d) {
+    if (!d || !d.fullDate) return;
+    const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
+    const bias = (d.negative || 0) > (d.positive || 0) ? 'negativo'
+      : (d.positive || 0) > (d.negative || 0) ? 'positivo' : 'neutral';
+    const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
+    setSlice({
+      eyebrow: d.date || d.fullDate,
+      title: `Conversación del día`,
+      accent,
+      volume: total,
+      sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
+      mentions: [],
+      _filter: { day: d.fullDate },
+    });
+  }
+
+  // openMetricInsight — abre MetricInsightModal vía helper compartido.
+  function openMetricInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' } : {};
+    openMetricInsightShared(setSlice, {
+      metric,
+      value,
+      accent,
+      label: labels[metric] || metric,
+      periodLabel: data?.periodLabel,
+      periodStart: data?.periodStart,
+      periodEnd: data?.periodEnd,
+      agency,
+      subcomponents: [],
+      filter,
+    });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OverviewHero data={data} />
-      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} />
-      <OverviewHighlights metrics={data.currentMetrics} />
-      <OverviewTendencia dailySeries={data.dailySeries} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
+      <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
+      <OverviewTendencia dailySeries={data.dailySeries} onDayClick={openDaySlice} />
       <OverviewTopicos
         rows={data.topicsTable}
         totals={data.totals}
@@ -2892,6 +3071,9 @@ function OverviewScreen({ period, agency, onMentionClick }) {
           });
         }}
       />
+      {/* Insights va al FINAL, después de Topicos (orden explícito del
+          usuario: "necesito que salga de último después de los topicos"). */}
+      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
@@ -2901,10 +3083,12 @@ function OverviewHero({ data }) {
   const total = data.totals.total || 0;
   return (
     <div style={{ padding: '4px 4px 0' }}>
-      <div className="section-eyebrow">Overview · espejo del correo diario · {data.periodLabel}</div>
+      {/* Sin section-eyebrow: el periodo / fechas viven en el Header (chips +
+          calendar icon) y la palabra "Overview" ya está en el header / sidebar.
+          Repetirlas aquí era ruido (instrucción explícita del usuario). */}
       <h1 style={{
         fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
-        lineHeight: 1.2, margin: '6px 0 4px', letterSpacing: 'var(--letter-display)',
+        lineHeight: 1.2, margin: '0 0 4px', letterSpacing: 'var(--letter-display)',
         color: 'var(--text)',
       }}>
         Conversación pública de los últimos {data.dailySeries.length} días
@@ -2918,12 +3102,12 @@ function OverviewHero({ data }) {
   );
 }
 
-function OverviewTermometro({ totals, deltas }) {
+function OverviewTermometro({ totals, deltas, onSliceClick }) {
   const t = totals.total || 1;
   const cards = [
-    { name: 'Negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
-    { name: 'Neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
-    { name: 'Positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
+    { name: 'Negativo', sentKey: 'negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
+    { name: 'Neutral',  sentKey: 'neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
+    { name: 'Positivo', sentKey: 'positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
   ];
   return (
     <div>
@@ -2939,13 +3123,24 @@ function OverviewTermometro({ totals, deltas }) {
             : c.invert
               ? (c.delta > 0 ? 'var(--neg)' : c.delta < 0 ? 'var(--pos)' : 'var(--text-3)')
               : (c.delta > 0 ? 'var(--pos)' : c.delta < 0 ? 'var(--neg)' : 'var(--text-3)');
+          // Las cards del termómetro abren MentionsSliceModal con el sentimiento
+          // correspondiente. Usar <button> para teclado/aria; padding/estilos
+          // imitan el card. Sin underline o cursor pointer por defecto del btn.
           return (
-            <div key={c.name} className="card" style={{ padding: 16 }}>
+            <button key={c.name}
+              onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
+              className="card row-hover"
+              style={{
+                padding: 16, textAlign: 'left',
+                cursor: 'pointer', border: '1px solid var(--hairline)',
+                background: 'var(--canvas)',
+              }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   {c.name}
                 </div>
+                <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <div className="num" style={{ fontSize: 32, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
@@ -2957,7 +3152,7 @@ function OverviewTermometro({ totals, deltas }) {
                 {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
                 {Math.abs(Math.round(c.delta))}% vs ventana previa
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -2965,110 +3160,75 @@ function OverviewTermometro({ totals, deltas }) {
   );
 }
 
-function OverviewHighlights({ metrics }) {
+// OverviewHighlights — reducido a un único termómetro de Crisis. Antes había
+// 3 tarjetas (NSS · Riesgo, Volúmenes, Brand Health). Por petición explícita
+// del usuario quitamos NSS / Volúmenes / Brand Health del Overview (esas
+// métricas viven en el tab Scorecard); Crisis se queda como termómetro pero
+// ya no está fusionada con NSS — vive aquí en su propia card slim.
+//
+// Clickable: abre MetricInsightModal con insight LLM + subcomponentes
+// (severity/velocity/relevance/confidence del snapshot diario).
+function OverviewHighlights({ metrics, onOpenInsight }) {
   const m = metrics || {};
-  const fmtSigned = (v) => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(1);
+  if (m.crisisRiskScore == null) return null;
+  // Crisis Risk en escala 0–1 (backtest 482d, PR #37). Thresholds:
+  // NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
+  const score = m.crisisRiskScore;
+  const band = score >= 0.60 ? 'CRISIS'
+    : score >= 0.40 ? 'ALERTA'
+    : score >= 0.25 ? 'ELEVADO'
+    : 'NORMAL';
+  const bandColor = score >= 0.40 ? 'var(--neg)' : score >= 0.25 ? 'var(--warn)' : 'var(--pos)';
   return (
-    <div>
-      <div className="section-eyebrow" style={{ marginBottom: 8 }}>Highlights estratégicos</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        {/* NSS + Riesgo combinada */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.Activity size={14} color="var(--accent)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              NSS · Riesgo
-            </div>
+    <button
+      onClick={() => onOpenInsight && onOpenInsight('crisis', score.toFixed(2), 'var(--neg)')}
+      className="card row-hover"
+      style={{
+        padding: 16,
+        display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center',
+        cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
+        textAlign: 'left', width: '100%',
+      }}
+      title="Ver insight del riesgo de crisis para el periodo">
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Icons.Shield size={14} color="var(--neg)" />
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Riesgo de crisis
           </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {fmtSigned(m.nss)}
-          </div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 10, color: 'var(--text-3)' }}>
-            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss7d)}</strong></span>
-            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{fmtSigned(m.nss30d)}</strong></span>
-          </div>
-          {m.crisisRiskScore != null && (
-            <div style={{ marginTop: 14 }}>
-              {/* Crisis Risk: escala 0–1 (cálculo del backtest 482d). Thresholds:
-                  NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
-                  Versión previa usaba /3 con thresholds 0.75/1.5/2.25 que dejaba
-                  TODO en "NORMAL" porque el score nunca cruza 0.75 — error de
-                  escala que confundía al usuario. */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                <span>Riesgo · {m.crisisRiskScore.toFixed(2)}/1</span>
-                <span style={{ color: m.crisisRiskScore >= 0.40 ? 'var(--neg)' : m.crisisRiskScore >= 0.25 ? 'var(--warn)' : 'var(--pos)' }}>
-                  {m.crisisRiskScore >= 0.60 ? 'CRISIS' : m.crisisRiskScore >= 0.40 ? 'ALERTA' : m.crisisRiskScore >= 0.25 ? 'ELEVADO' : 'NORMAL'}
-                </span>
-              </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
-                <div style={{ position: 'absolute', left: `${Math.min(m.crisisRiskScore * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
-                <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
-              </div>
-            </div>
-          )}
+          <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
-
-        {/* Volúmenes */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.MessageSquare size={14} color="var(--text-2)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Volúmenes
-            </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div className="num" style={{ fontSize: 28, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {score.toFixed(2)}
           </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {fmt(m.totalMentions ?? 0)}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>menciones</div>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)' }}>
-            Alcance · <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(m.totalReach ?? 0)}</span> impresiones
-          </div>
-          {m.totalMentionsDelta != null && (
-            <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: m.totalMentionsDelta > 0 ? 'var(--neg)' : m.totalMentionsDelta < 0 ? 'var(--pos)' : 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {m.totalMentionsDelta > 0 ? '▲' : m.totalMentionsDelta < 0 ? '▼' : '·'}
-              {Math.abs(m.totalMentionsDelta).toFixed(1)}% vs ventana previa
-            </div>
-          )}
-        </div>
-
-        {/* Brand Health */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icons.Heart size={14} color="var(--pos)" />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Brand Health
-            </div>
-          </div>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>BHI · 0–1</div>
-          {m.brandHealthIndex != null && (
-            <div style={{ marginTop: 12 }}>
-              <BrandHealthMini value={m.brandHealthIndex} />
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>/1</div>
+          <span className={`pill pill-${score >= 0.40 ? 'neg' : score >= 0.25 ? 'warn' : 'pos'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
         </div>
       </div>
-    </div>
+      <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
+        <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: `${Math.min(score * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor}`, transform: 'translateX(-50%)' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)', letterSpacing: '0.04em' }}>
+          <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
+        </div>
+      </div>
+    </button>
   );
 }
 
-function OverviewTendencia({ dailySeries }) {
+function OverviewTendencia({ dailySeries, onDayClick }) {
   // Adapta dailySeries del API al shape que MultiLineChart espera (`date` + keys de las series).
+  // Guardamos fullDate (YYYY-MM-DD) para que el onPointClick pueda filtrar
+  // las menciones del día seleccionado en MentionsSliceModal (_filter.day).
   const chartData = (dailySeries || []).map((d) => ({
     date: d.dayLabel,
+    fullDate: d.date,
     negative: d.negative,
     neutral: d.neutral,
     positive: d.positive,
+    totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
   }));
   const series = [
     { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
@@ -3087,11 +3247,16 @@ function OverviewTendencia({ dailySeries }) {
       <div className="card-hd">
         <div>
           <div className="card-hd-title">02 · Tendencia · Día a día</div>
-          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico)</div>
+          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones</div>
         </div>
       </div>
       <div className="card-bd">
-        <MultiLineChart data={chartData} series={series} height={240} />
+        {/* Per-series normalization (cada línea con su propio min/max) +
+            smooth bezier — petición explícita del usuario: "me gustaba más
+            como se veía antes... me gustaban las líneas suavizadas". Con
+            shared-scale, los picos grandes (ej. neg=203) comprimían las
+            variaciones diarias normales en una banda plana al fondo. */}
+        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} smooth={true} />
       </div>
     </div>
   );
@@ -3198,6 +3363,148 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
           conteos más altos en la pestaña Tópicos por esa razón.
         </span>
       </div>
+    </div>
+  );
+}
+
+// OverviewInsights — 3 columnas (negativos / positivos / resumen general)
+// generadas por LLM y cacheadas por (agency, periodStart, periodEnd).
+// Patrón cache-or-202: si el endpoint devuelve 'ready' renderiza inmediato.
+// Si devuelve 'computing' arranca polling cada 3s hasta cap 90s.
+function OverviewInsights({ periodStart, periodEnd, agency }) {
+  const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
+  const pollRef = React.useRef(null);
+  const startedAt = React.useRef(0);
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_INTERVAL_MS = 3 * 1000;
+
+  React.useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    setState({ phase: 'loading', data: null, error: null });
+    startedAt.current = Date.now();
+    const ctrl = new AbortController();
+
+    async function fetchOnce() {
+      const params = new URLSearchParams({ from: periodStart, to: periodEnd });
+      if (agency) params.set('agency', agency);
+      try {
+        const res = await fetch('/api/eco-insights?' + params.toString(), {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
+        if (res.status === 202) {
+          setState((s) => ({ ...s, phase: 'computing' }));
+          return 'computing';
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setState({ phase: 'error', data: null, error: body.error || `HTTP ${res.status}` });
+          return 'error';
+        }
+        const json = await res.json();
+        setState({ phase: 'ready', data: json, error: null });
+        return 'ready';
+      } catch (e) {
+        if (e?.name === 'AbortError') return 'aborted';
+        setState({ phase: 'error', data: null, error: String(e?.message || e) });
+        return 'error';
+      }
+    }
+
+    async function loop() {
+      const status = await fetchOnce();
+      if (status === 'computing') {
+        if (Date.now() - startedAt.current > MAX_POLL_MS) {
+          setState({ phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' });
+          return;
+        }
+        pollRef.current = setTimeout(loop, POLL_INTERVAL_MS);
+      }
+    }
+    loop();
+
+    return () => {
+      ctrl.abort();
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [periodStart, periodEnd, agency]);
+
+  const eyebrow = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>02 · Insights · análisis IA del periodo</div>
+      {state.phase === 'computing' && (
+        <span style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+          GENERANDO…
+        </span>
+      )}
+      {state.phase === 'ready' && state.data?.stale && (
+        <span className="pill pill-info" style={{ fontSize: 9 }} title="Datos cacheados; el lambda está recomputando en background">
+          Actualizando…
+        </span>
+      )}
+    </div>
+  );
+
+  if (state.phase === 'error') {
+    return (
+      <div>
+        {eyebrow}
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          No fue posible cargar los insights del periodo: {state.error}
+        </div>
+      </div>
+    );
+  }
+
+  const cols = [
+    { key: 'negative', title: 'Negativos', accent: 'var(--neg)', items: state.data?.insights?.negative ?? [] },
+    { key: 'positive', title: 'Positivos', accent: 'var(--pos)', items: state.data?.insights?.positive ?? [] },
+    { key: 'general',  title: 'Resumen del periodo', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
+  ];
+  const isLoading = state.phase !== 'ready';
+  const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);
+
+  return (
+    <div>
+      {eyebrow}
+      {allEmpty ? (
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          Sin suficiente señal en el periodo seleccionado para generar insights.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {cols.map((col) => (
+            <div key={col.key} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${col.accent}` }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{col.title}</div>
+              {isLoading ? (
+                <>
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6 }} />
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6, width: '92%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '78%' }} />
+                </>
+              ) : col.items.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
+                </div>
+              ) : col.key === 'general' ? (
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(col.items[0]) }} />
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {col.items.map((it, i) => (
+                    <li key={i} style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 8 }}>
+                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 6 }} />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

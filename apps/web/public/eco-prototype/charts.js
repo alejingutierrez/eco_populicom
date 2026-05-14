@@ -1,5 +1,40 @@
 // SVG chart primitives — no external libs, tuned to theme via CSS vars
 
+/**
+ * Convierte un array de puntos [x,y] a un path SVG smooth usando Catmull-Rom
+ * splines. A diferencia del bezier con tangentes horizontales (donde el
+ * control point se centra en cx=(x0+x1)/2 con y=y_endpoint), Catmull-Rom usa
+ * tangentes basadas en el slope de los puntos VECINOS. Resultado:
+ *  - La curva pasa EXACTAMENTE por cada data point (sin overshoot).
+ *  - Los peaks son puntiagudos en su día real, NO extendidos lateralmente
+ *    (la "meseta" del bezier horizontal-tangent confundía al usuario sobre
+ *    qué label X correspondía a un peak visible).
+ *  - Tensión 0.5 = standard Catmull-Rom; 1.0 = más recto; 0 = más curvo.
+ *
+ * Conversión Catmull-Rom → cubic bezier:
+ *  Para el segmento P1→P2, los control points son:
+ *    cp1 = P1 + (P2 - P0) * tension / 6
+ *    cp2 = P2 - (P3 - P1) * tension / 6
+ *  Donde P0 y P3 son los puntos previo y siguiente (o reflexión en bordes).
+ */
+function catmullRomPath(pts, tension = 1) {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
+  let p = `M ${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || pts[i + 1];
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 6;
+    p += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return p;
+}
+
 function linePath(data, w, h, accessor = (d) => d, padding = 4, minY = null, maxY = null) {
   if (!data.length) return '';
   const vals = data.map(accessor);
@@ -114,7 +149,20 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 }
 
 // Multi-series line chart — stock-ticker style (crosshair, hover values, volume)
-function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, valueFormat }) {
+//
+// Props:
+//   sharedScale  (mio)    — todas las series comparten min=0/max=max(all);
+//                           para sentiment timeline donde pos/neg deben ser
+//                           comparables.
+//   smooth       (mio)    — usa Catmull-Rom para las líneas (peaks puntiagudos
+//                           sin "mesetas" laterales).
+//   yDomain      (main)   — par [min, max] absoluto, fuerza ese rango Y. Útil
+//                           en single-metric modal chart para mostrar el valor
+//                           real dentro del rango oficial de la métrica. Tiene
+//                           prioridad sobre sharedScale.
+//   valueFormat  (main)   — función custom para formatear valores en tooltip;
+//                           si no se pasa, usa el switch por key.
+function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
   const [hover, setHover] = React.useState(null); // index or null
@@ -124,13 +172,14 @@ function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, val
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
-  const padding = { t: 28, r: 20, b: 34, l: 20 };
+  // Padding left más amplio para que los Y-axis labels (números) quepan.
+  const padding = { t: 28, r: 20, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
-  // Guard: sin datos o sin series activas no podemos render — antes el
-  // `data[hoverIdx][s.key]` tiraba "Cannot read properties of undefined"
-  // y volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
+  // Guard de main: sin datos o sin series activas no podemos render — antes el
+  // `data[hoverIdx][s.key]` tiraba "Cannot read properties of undefined" y
+  // volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
     return (
       <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
@@ -139,22 +188,31 @@ function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, val
     );
   }
 
-  // Normalize each series. Por defecto auto-escala a min/max de los datos
-  // (útil para charts multi-métrica donde cada serie tiene escala propia).
-  // Si yDomain es un par [min, max] absoluto, se usa para TODAS las series
-  // — eso permite que un single-metric chart (ej. modal del KPI) muestre la
-  // línea en su posición real dentro del rango oficial de la métrica.
-  const normalized = series.map((s) => {
-    const vals = data.map((d) => d[s.key]);
-    let min, max;
-    if (Array.isArray(yDomain) && yDomain.length === 2) {
-      [min, max] = yDomain;
-    } else {
-      min = Math.min(...vals);
-      max = Math.max(...vals);
-    }
-    return { ...s, min, max, range: max - min || 1, vals };
-  });
+  // Normalize each series. Prioridad: yDomain absoluto (main, para modal KPI)
+  // > sharedScale (mio, para sentiment timeline) > escala por serie (default).
+  let normalized;
+  if (Array.isArray(yDomain) && yDomain.length === 2) {
+    const [yMin, yMax] = yDomain;
+    normalized = series.map((s) => ({
+      ...s, min: yMin, max: yMax, range: (yMax - yMin) || 1,
+      vals: data.map((d) => d[s.key]),
+    }));
+  } else if (sharedScale) {
+    const allVals = series.flatMap((s) => data.map((d) => d[s.key] || 0));
+    const sharedMin = 0;
+    const sharedMax = Math.max(1, ...allVals);
+    normalized = series.map((s) => ({
+      ...s, min: sharedMin, max: sharedMax, range: sharedMax - sharedMin || 1,
+      vals: data.map((d) => d[s.key] || 0),
+    }));
+  } else {
+    normalized = series.map((s) => {
+      const vals = data.map((d) => d[s.key]);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      return { ...s, min, max, range: max - min || 1, vals };
+    });
+  }
   const step = innerW / Math.max(1, data.length - 1);
   const hoverIdx = hover == null ? data.length - 1 : hover;
 
@@ -211,9 +269,18 @@ function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, val
           ))}
         </defs>
         <g transform={`translate(${padding.l},${padding.t})`}>
-          {/* subtle y gridlines */}
+          {/* Y-axis gridlines + labels. Cuando sharedScale, mostramos valores
+              numéricos en las gridlines. Si no, solo las líneas (cada serie
+              tiene escala propia, no aplicaría un solo eje). */}
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
-            <line key={i} x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
+            <g key={i}>
+              <line x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
+              {sharedScale && normalized[0] && (
+                <text x={-6} y={p * innerH + 3} fontSize="9" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                  {Math.round(normalized[0].max - (p * normalized[0].range))}
+                </text>
+              )}
+            </g>
           ))}
           {/* Y-axis tick labels — solo cuando hay un yDomain absoluto, para
               dar contexto de escala (ej. crisis 0/0.5/1, BHI 1/5.5/10). Sin
@@ -231,48 +298,95 @@ function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, val
             });
           })()}
 
-          {/* Primary series area fill (first one only) */}
-          {normalized[0] && (() => {
+          {/* Area fill SOLO cuando NO es sharedScale (donde tiene sentido
+              destacar la primera serie). En shared-scale sentiment charts,
+              el fill confundía visualmente. */}
+          {!sharedScale && normalized[0] && (() => {
             const s = normalized[0];
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
-            let p = `M ${pts[0][0]},${innerH} L ${pts[0][0]},${pts[0][1]}`;
-            for (let i = 1; i < pts.length; i++) {
-              const [x0, y0] = pts[i - 1];
-              const [x1, y1] = pts[i];
-              const cx = (x0 + x1) / 2;
-              p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
-            }
-            p += ` L ${pts[pts.length - 1][0]},${innerH} Z`;
+            // Reemplazo el M inicial del path Catmull-Rom por L para anexarlo al
+            // move-to bottom-left que abre el área.
+            const lineFromL = catmullRomPath(pts).replace(/^M /, 'L ');
+            const p = `M ${pts[0][0]},${innerH} ${lineFromL} L ${pts[pts.length - 1][0]},${innerH} Z`;
             return <path d={p} fill={`url(#mlg-${s.key})`} />;
           })()}
 
-          {/* Lines */}
+          {/* Lines — Catmull-Rom cuando smooth=true (pasa por cada punto sin
+              overshoot ni mesetas) o straight L cuando smooth=false. */}
           {normalized.map((s) => {
             const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
-            let p = `M ${pts[0][0]},${pts[0][1]}`;
-            for (let i = 1; i < pts.length; i++) {
-              const [x0, y0] = pts[i - 1];
-              const [x1, y1] = pts[i];
-              const cx = (x0 + x1) / 2;
-              p += ` C ${cx},${y0} ${cx},${y1} ${x1},${y1}`;
-            }
-            return <path key={s.key} d={p} stroke={s.color} strokeWidth="1.75" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            const useSmooth = smooth || (!sharedScale && pts.length > 2);
+            const p = useSmooth ? catmullRomPath(pts) : (() => {
+              let str = `M ${pts[0][0]},${pts[0][1]}`;
+              for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
+              return str;
+            })();
+            return <path key={s.key} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
 
-          {/* Crosshair + hover dots + right-edge value tags */}
-          {hover != null && (
-            <g>
-              <line x1={hoverIdx * step} y1={0} x2={hoverIdx * step} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
-              {normalized.map(s => {
-                const y = innerH - ((data[hoverIdx][s.key] - s.min) / s.range) * innerH;
+          {/* Dots SIEMPRE visibles en cada día — el usuario puede verificar
+              visualmente la posición exacta del peak y trazarla a la label X
+              correspondiente. Tamaño pequeño (1.8px) para no saturar; grande
+              (3.5px) en hover. */}
+          {normalized.map((s) => (
+            <g key={`${s.key}-dots`}>
+              {data.map((d, i) => {
+                const y = innerH - ((d[s.key] - s.min) / s.range) * innerH;
+                const isHover = hover === i;
                 return (
-                  <g key={s.key}>
-                    <circle cx={hoverIdx * step} cy={y} r="5" fill="var(--canvas)" stroke={s.color} strokeWidth="2" />
-                  </g>
+                  <circle key={i} cx={i * step} cy={y}
+                    r={isHover ? 3.5 : (data.length <= 14 ? 2.5 : 1.8)}
+                    fill={s.color} stroke="var(--canvas)" strokeWidth={isHover ? 1 : 0} />
                 );
               })}
             </g>
-          )}
+          ))}
+
+          {/* Crosshair + hover dots + tooltip flotante */}
+          {hover != null && (() => {
+            const xPos = hoverIdx * step;
+            // Tooltip anclado al cursor con fecha + valores exactos para
+            // eliminar ambiguedad cuando hay muchos días en pantalla (30D+).
+            const tooltipW = 180;
+            // Mostrar a la derecha por defecto, a la izquierda si está cerca
+            // del borde derecho.
+            const tooltipX = xPos + tooltipW + 8 > innerW ? xPos - tooltipW - 8 : xPos + 8;
+            const tooltipY = 0;
+            const lineCount = normalized.length;
+            const tooltipH = 22 + lineCount * 18;
+            const dotData = data[hoverIdx];
+            return (
+              <g>
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                {normalized.map(s => {
+                  const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
+                  return (
+                    <g key={s.key}>
+                      <circle cx={xPos} cy={y} r="5" fill="var(--canvas)" stroke={s.color} strokeWidth="2" />
+                    </g>
+                  );
+                })}
+                {/* Tooltip flotante — fondo + fecha + cada serie */}
+                <g transform={`translate(${tooltipX},${tooltipY})`}>
+                  <rect x={0} y={0} width={tooltipW} height={tooltipH} rx={6}
+                    fill="var(--canvas)" stroke="var(--hairline-strong)" strokeWidth="1"
+                    opacity="0.97" />
+                  <text x={10} y={15} fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
+                    {dotData.fullDate || dotData.date || ''}
+                  </text>
+                  {normalized.map((s, i) => (
+                    <g key={s.key}>
+                      <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={s.color} rx={2} />
+                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{s.label}</text>
+                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                        {fmtVal(s.key, dotData[s.key])}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+              </g>
+            );
+          })()}
 
           {/* Last-point value tags on the right edge */}
           {normalized.map(s => {
@@ -287,20 +401,32 @@ function MultiLineChart({ data, series, height = 260, onPointClick, yDomain, val
             );
           })}
 
-          {/* X axis date labels */}
+          {/* X axis date labels — densidad adaptativa: muestra hasta 14
+              labels cuando hay espacio para evitar ambiguedad visual entre
+              picos y la fecha mostrada. */}
           {(() => {
-            const xTickCount = Math.min(7, data.length);
-            // Guard against division-by-zero (data.length === 1 makes
-            // xTickCount-1 === 0, so the index becomes NaN and data[NaN]
-            // crashes "Cannot read properties of undefined").
+            // Estimación conservadora: cada label necesita ~50px para no chocar.
+            const maxLabels = Math.max(2, Math.floor(innerW / 50));
+            const xTickCount = Math.min(maxLabels, data.length);
             const denom = Math.max(1, xTickCount - 1);
             const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
-            return xIdxs
+            // Deduplicar índices (cuando data.length < xTickCount).
+            const seen = new Set();
+            const unique = xIdxs.filter((idx) => {
+              if (seen.has(idx)) return false;
+              seen.add(idx);
+              return true;
+            });
+            return unique
               .filter((idx) => data[idx] && data[idx].date)
               .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="9" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
               ));
           })()}
+          {/* Tick marks bajo cada día (útil cuando hay >14 días y no caben labels) */}
+          {data.length > 14 && data.map((_, i) => (
+            <line key={`tick-${i}`} x1={i * step} y1={innerH} x2={i * step} y2={innerH + 3} stroke="var(--hairline)" strokeWidth="1" />
+          ))}
         </g>
       </svg>
     </div>

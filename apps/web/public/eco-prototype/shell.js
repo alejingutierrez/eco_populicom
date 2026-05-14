@@ -2,6 +2,29 @@
 const { Icons } = window;
 const { useState, useEffect, useRef } = React;
 
+/**
+ * Construye los parámetros de ventana de tiempo para los endpoints de datos.
+ * Si el usuario está en rango personalizado (eco.period === 'custom' y
+ * eco.from/eco.to válidos en localStorage), retorna `{ period: 'custom',
+ * from, to }`. Si no, `{ period }`. Centralizado aquí para que
+ * CommandPalette, MentionDrawer y MentionsSliceModal envíen los mismos
+ * parámetros y queden alineados con el filtro del overview.
+ */
+function getPeriodParams() {
+  try {
+    const period = localStorage.getItem('eco.period') || '1M';
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from') || '';
+      const to = localStorage.getItem('eco.to') || '';
+      if (from && to) return { period, from, to };
+    }
+    return { period };
+  } catch (_) {
+    return { period: '1M' };
+  }
+}
+window.ecoGetPeriodParams = getPeriodParams;
+
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
   const D = window.ECO_DATA || {};
@@ -241,7 +264,30 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 }
 
 function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
-  const PERIODS = ['1D', '5D', '7D', '1M', '3M', '6M', '1A', 'Max'];
+  // Una sola fuente de control de periodo en TODA la aplicación: el Header.
+  // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
+  // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
+  // del usuario: "los filtros en el overview no deben estar en otro lugar
+  // diferente y ser diferentes visualmente a los que ya existen en el
+  // scorecard (que están en el header)".
+  const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
+  const isCustom = period === 'custom';
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
+  const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
+  const [draftFrom, setDraftFrom] = React.useState(lsFrom);
+  const [draftTo, setDraftTo] = React.useState(lsTo);
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  function applyCustomRange() {
+    if (!draftFrom || !draftTo || draftFrom > draftTo) return;
+    try {
+      localStorage.setItem('eco.from', draftFrom);
+      localStorage.setItem('eco.to', draftTo);
+      localStorage.setItem('eco.period', 'custom');
+    } catch (_) {}
+    window.location.reload();
+  }
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -282,17 +328,92 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         </select>
       </div>
 
-      {/* Period — estilo bolsa */}
+      {/* Period — estilo bolsa, único control de periodo de toda la app. */}
       <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
         {PERIODS.map((p) => (
-          <button key={p} onClick={() => setPeriod(p)} style={{
+          <button key={p} onClick={() => {
+            // Si el usuario venía de un rango personalizado, limpiar
+            // eco.from/eco.to antes de cambiar al preset para que el siguiente
+            // boot no envíe restos del rango anterior.
+            try {
+              localStorage.removeItem('eco.from');
+              localStorage.removeItem('eco.to');
+            } catch (_) {}
+            setPeriod(p);
+          }} style={{
             padding: '4px 10px', fontSize: 11, fontWeight: 600,
             borderRadius: 999,
-            background: period === p ? 'var(--canvas)' : 'transparent',
-            color: period === p ? 'var(--text)' : 'var(--text-3)',
-            boxShadow: period === p ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
+            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
+            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
           }}>{p}</button>
         ))}
+      </div>
+      {/* Calendar icon: abre popover con date inputs para rango custom. */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setCalendarOpen(v => !v)}
+          title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: isCustom ? 'var(--accent-fill)' : 'var(--canvas-2)',
+            color: isCustom ? 'var(--accent)' : 'var(--text-2)',
+            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline)'),
+            cursor: 'pointer',
+          }}>
+          <Icons.Calendar size={12} />
+          {isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : 'Fechas'}
+        </button>
+        {calendarOpen && (
+          <>
+            <div onClick={() => setCalendarOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+            <div className="card" style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
+              padding: 14, minWidth: 280,
+              boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Desde</span>
+                  <input type="date" value={draftFrom}
+                    onChange={(e) => setDraftFrom(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Hasta</span>
+                  <input type="date" value={draftTo}
+                    onChange={(e) => setDraftTo(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+              </div>
+              {draftFrom && draftTo && draftFrom > draftTo && (
+                <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
+                {isCustom && (
+                  <button className="btn" onClick={() => {
+                    try {
+                      localStorage.removeItem('eco.from');
+                      localStorage.removeItem('eco.to');
+                    } catch (_) {}
+                    setPeriod('7D');
+                  }} style={{ fontSize: 12 }} title="Limpiar rango y volver a 7D">Limpiar</button>
+                )}
+                <button className="btn btn-primary" onClick={applyCustomRange}
+                  disabled={!draftFrom || !draftTo || draftFrom > draftTo}
+                  style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Quick search — abre el command palette con foco real */}
@@ -325,8 +446,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       const agency = localStorage.getItem('eco.agency') || '';
-      const period = localStorage.getItem('eco.period') || '1M';
-      const params = new URLSearchParams({ q, agency, period, limit: '8' });
+      const params = new URLSearchParams({ q, agency, limit: '8', ...getPeriodParams() });
       fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
         .then((r) => r.ok ? r.json() : { mentions: [] })
         .then((j) => setLiveResults(j.mentions || []))
@@ -542,7 +662,11 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
     setRelated(null);
     const ctrl = new AbortController();
     const agency = (typeof window !== 'undefined' && localStorage.getItem('eco.agency')) || '';
-    const params = new URLSearchParams({ similar_to: mention.id, limit: '6' });
+    // similar_to (#41): embeddings-based similarity (la columna de pertinencia
+    // ya no se muestra; el related drawer ahora opera sobre cosine similarity).
+    // getPeriodParams (mio): respeta la ventana del usuario, así el drawer no
+    // mezcla menciones fuera del rango filtrado.
+    const params = new URLSearchParams({ similar_to: mention.id, limit: '6', ...getPeriodParams() });
     if (agency) params.set('agency', agency);
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { mentions: [] })
@@ -883,7 +1007,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
-        period: localStorage.getItem('eco.period') || '1M',
+        ...getPeriodParams(),
         limit: '20',
         ...filter,
       }).filter(([, v]) => v != null && v !== '')
@@ -895,7 +1019,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   }, [slice, topicMode]);
 
   if (!slice) return null;
-  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
+  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta, insightText, subcomponents, headlineValue } = slice;
   const volume = liveSlice ? liveSlice.total : slice.volume;
   const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
   const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
@@ -971,6 +1095,58 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Insight LLM (cuando el slice viene de un click en una métrica
+              sintética como Crisis, NSS, BHI). Va arriba del histogram +
+              mentions; explica el porqué del número para esta agencia. */}
+          {(insightText || headlineValue != null) && (
+            <div className="card" style={{
+              padding: 16, background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              {headlineValue != null && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <div className="num" style={{ fontSize: 32, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                    {headlineValue}
+                  </div>
+                  {slice.headlineLabel && (
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {slice.headlineLabel}
+                    </div>
+                  )}
+                </div>
+              )}
+              {insightText && (
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}
+                  dangerouslySetInnerHTML={{ __html: insightText }} />
+              )}
+              {insightText === '__loading__' && (
+                <>
+                  <div className="skeleton" style={{ height: 14 }} />
+                  <div className="skeleton" style={{ height: 14, width: '95%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '82%' }} />
+                </>
+              )}
+              {Array.isArray(subcomponents) && subcomponents.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 4 }}>Componentes</div>
+                  {subcomponents.map((sc, i) => {
+                    const pct = Math.max(0, Math.min(100, Number(sc.value) || 0));
+                    return (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 60px', gap: 10, alignItems: 'center', fontSize: 11 }}>
+                        <span style={{ color: 'var(--text-2)' }}>{sc.label}</span>
+                        <div style={{ height: 6, borderRadius: 3, background: 'var(--canvas)', overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: sc.color || accent }} />
+                        </div>
+                        <span className="num" style={{ textAlign: 'right', color: 'var(--text)', fontWeight: 600 }}>
+                          {sc.display ?? (Number.isFinite(Number(sc.value)) ? Number(sc.value).toFixed(2) : '—')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {histogram && histogram.values?.length > 0 && (() => {
             const maxH = Math.max(...histogram.values) || 1;
             const xLabels = histogram.xLabels || [];

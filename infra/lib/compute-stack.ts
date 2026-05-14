@@ -90,6 +90,7 @@ export class ComputeStack extends cdk.Stack {
         NEXT_PUBLIC_COGNITO_CLIENT_ID: props.userPoolClientId,
         RAW_BUCKET: props.rawBucket.bucketName,
         EXPORTS_BUCKET: props.exportsBucket.bucketName,
+        AI_TASKS_FUNCTION_NAME: 'eco-ai-tasks',
       },
       secrets: {
         DB_SECRET: ecs.Secret.fromSecretsManager(props.dbSecret),
@@ -125,10 +126,12 @@ export class ComputeStack extends cdk.Stack {
     }));
 
     // Permite a la API /api/reports/send-test invocar la Lambda eco-weekly-report
+    // y a /api/eco-insights / /api/eco-metric-insight invocar eco-ai-tasks async.
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['lambda:InvokeFunction'],
       resources: [
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-weekly-report`,
+        `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-ai-tasks`,
       ],
     }));
 

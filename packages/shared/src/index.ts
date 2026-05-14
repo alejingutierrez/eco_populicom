@@ -12,6 +12,7 @@ export * from './prompts/executive-briefing';
 export * from './prompts/briefing-emerging';
 export * from './prompts/briefing-crisis';
 export * from './prompts/metric-insight';
+export * from './prompts/metric-insight-cached';
 // `./bedrock` se importa directamente desde lambdas via
 // `@eco/shared/src/bedrock`. NO se re-exporta aquí porque trae el SDK
 // `@aws-sdk/client-bedrock-runtime` al grafo de webpack de apps/web, que

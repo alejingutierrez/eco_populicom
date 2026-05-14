@@ -12,7 +12,7 @@ import {
   alertRules,
   agencyBriefings,
 } from '@eco/database';
-import { sql, eq, and, gte, lte, desc, count, inArray } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
 import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -21,9 +21,45 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
+
+/**
+ * Parse y validación del rango personalizado from / to.
+ *
+ * `from` y `to` son YYYY-MM-DD en AST (TZ America/Puerto_Rico, UTC-4 sin DST).
+ * Como AST = UTC-4 constante, podemos derivar timestamps UTC exactos:
+ *   - sinceUtc:           `from`T04:00:00Z   (AST 00:00 del día `from`)
+ *   - untilExclusiveUtc:  `to`T04:00:00Z + 1 día  (AST 24:00 del día `to`)
+ *
+ * El upper bound es exclusivo (`lt`) para no incluir mediciones de un día
+ * adicional por error de comparación.
+ *
+ * Retorna null si los parámetros son inválidos (faltantes, mal formados, o
+ * `from` > `to`). En ese caso el caller cae al cálculo por `period`.
+ */
+function parseCustomRange(
+  fromParam: string | null,
+  toParam: string | null,
+): null | {
+  from: string;
+  to: string;
+  sinceUtc: Date;
+  untilExclusiveUtc: Date;
+  days: number;
+} {
+  if (!fromParam || !toParam) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromParam) || !/^\d{4}-\d{2}-\d{2}$/.test(toParam)) return null;
+  if (fromParam > toParam) return null;
+  const sinceUtc = new Date(`${fromParam}T04:00:00.000Z`);
+  const untilExclusiveUtc = new Date(`${toParam}T04:00:00.000Z`);
+  untilExclusiveUtc.setUTCDate(untilExclusiveUtc.getUTCDate() + 1);
+  if (Number.isNaN(sinceUtc.getTime()) || Number.isNaN(untilExclusiveUtc.getTime())) return null;
+  const days = Math.round((untilExclusiveUtc.getTime() - sinceUtc.getTime()) / 86400000);
+  return { from: fromParam, to: toParam, sinceUtc, untilExclusiveUtc, days };
+}
 
 type TimelineRow = {
   date: string;
@@ -131,7 +167,11 @@ export async function GET(request: NextRequest) {
   const start = Date.now();
   const { searchParams } = new URL(request.url);
   const periodKey = searchParams.get('period') ?? '1M';
-  const days = PERIOD_DAYS[periodKey] ?? 30;
+  // Rango personalizado: from / to en YYYY-MM-DD interpretados en TZ
+  // America/Puerto_Rico (UTC-4 sin DST). Solo se honran si vienen ambos y son
+  // un rango válido; cualquier desviación cae al cálculo por `period`.
+  const customRange = parseCustomRange(searchParams.get('from'), searchParams.get('to'));
+  const days = customRange ? customRange.days : (PERIOD_DAYS[periodKey] ?? 30);
 
   const db = getDb();
 
@@ -155,10 +195,22 @@ export async function GET(request: NextRequest) {
   // que NSS/BHI/Crisis/Polarization para el "scorecard" coincidan con los del
   // espejo del correo, y que el filtro de fecha del usuario cambie todas las
   // métricas (no solo el volumen).
-  const window = closedWindowYmdInTZ(days, new Date(), TZ);
+  //
+  // Para rangos custom (from/to), respetamos los YMD del usuario y derivamos
+  // la ventana previa de igual duración hacia atrás — eso permite calcular
+  // deltaVsPrev para periodos arbitrarios elegidos en el calendario.
+  const window = customRange
+    ? (() => {
+        const startYmd = customRange.from;
+        const endYmd = customRange.to;
+        const prevEndYmd = addDaysYmd(startYmd, -1);
+        const prevStartYmd = addDaysYmd(prevEndYmd, -(customRange.days - 1));
+        return { startYmd, endYmd, prevStartYmd, prevEndYmd };
+      })()
+    : closedWindowYmdInTZ(days, new Date(), TZ);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
-  // Para el filtro de mentions usamos el bordes de la ventana traducidos a
+  // Para el filtro de mentions usamos los bordes de la ventana traducidos a
   // UTC con offset -04:00 (AST sin DST).
   const since = new Date(`${startYmd}T00:00:00-04:00`);
   const until = new Date(`${endYmd}T23:59:59.999-04:00`);
@@ -335,7 +387,9 @@ export async function GET(request: NextRequest) {
     // semántica que el correo y /api/overview — el `count` que muestra el
     // dashboard ahora coincide byte-por-byte con el del Overview/correo.
     // El secondaryCount permite al UI comunicar "+N también lo tocan".
-    // `pool` ya fue resuelto arriba para loadMetricsForWindow.
+    // `pool` ya fue resuelto arriba para loadMetricsForWindow. La query usa
+    // bordes [since, until] para respetar tanto el preset (cerrado en AST)
+    // como el rango custom del calendario.
     const topicRowsRaw = await (pool as ReturnType<typeof getPool>).query<{
       slug: string;
       name: string;
@@ -360,6 +414,7 @@ export async function GET(request: NextRequest) {
                FROM mentions m
               WHERE m.agency_id = $1
                 AND m.published_at >= $2
+                AND m.published_at <= $3
            ) pt
            JOIN topics t ON t.id = pt.topic_id
           GROUP BY t.id, t.slug, t.name
@@ -371,6 +426,7 @@ export async function GET(request: NextRequest) {
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
             AND m.published_at >= $2
+            AND m.published_at <= $3
           GROUP BY mt.topic_id
        )
        SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive,
@@ -379,7 +435,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN multi mu ON mu.topic_id = p.topic_id
         ORDER BY p.primary_count DESC
         LIMIT 12`,
-      [agencyId, since.toISOString()],
+      [agencyId, since.toISOString(), until.toISOString()],
     );
 
     // Descripciones IA por tópico — pobladas por eco-ai-tasks (acción
@@ -605,11 +661,14 @@ export async function GET(request: NextRequest) {
       });
 
     // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
+    // since/until ya están computados desde la ventana cerrada (preset) o
+    // desde customRange — cubren ambos casos sin necesidad de branch.
     const emotionAgg = await db.execute<{ emotion: string; c: number | string }>(sql`
       SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
         AND m.published_at >= ${since.toISOString()}
+        AND m.published_at <= ${until.toISOString()}
       GROUP BY emotion
       ORDER BY c DESC
       LIMIT 20
@@ -1031,6 +1090,10 @@ export async function GET(request: NextRequest) {
     log.error('eco-data', 'handler failed', { msg: (err as Error).message });
     return NextResponse.json({ error: 'eco-data error', message: (err as Error).message }, { status: 500 });
   } finally {
-    log.info('eco-data', 'request complete', { latencyMs: Date.now() - start, period: periodKey });
+    log.info('eco-data', 'request complete', {
+      latencyMs: Date.now() - start,
+      period: customRange ? 'custom' : periodKey,
+      ...(customRange ? { from: customRange.from, to: customRange.to } : {}),
+    });
   }
 }

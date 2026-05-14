@@ -31,6 +31,11 @@ import {
   buildCrisisBriefingPrompt,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   buildTopicDescriptionPrompt,
+  INSIGHTS_SYSTEM_PROMPT,
+  buildSentimentInsightsPrompt,
+  buildPeriodSummaryPrompt,
+  CACHED_METRIC_INSIGHT_SYSTEM_PROMPT,
+  buildCachedMetricInsightPrompt,
   type BriefingAggregates,
   type BriefingOutput,
   type EmergingBriefingAggregates,
@@ -38,12 +43,46 @@ import {
   type EmergingTopic,
   type TopicAggregateForDescription,
   type TopicMentionSample,
+  type WeeklyAggregates,
+  type MetricKey,
+  type CachedMetricInsightInput,
 } from '@eco/shared';
-// `invokeClaude` se importa por deep-path para no traer el SDK Bedrock al
-// grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
+import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext } from './aggregates';
+// `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
+// al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
-// runtime instalado) lo importan directamente.
-import { invokeClaude } from '@eco/shared/src/bedrock';
+// runtime instalado) lo importan directamente. Tool-use con input_schema es
+// preferido vs JSON crudo (feedback_bedrock_tool_use).
+import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
+
+// JSON Schemas para tool-use. Bedrock garantiza el shape del input — el modelo
+// no puede devolver comillas/saltos sin escapar que rompan JSON.parse, problema
+// histórico documentado en feedback_bedrock_tool_use.
+const BRIEFING_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    narrative_html: {
+      type: 'string',
+      description: 'Narrativa de 1-2 oraciones con <strong> permitido solo para resaltar nombres propios/cifras.',
+    },
+    dominant_signal: { type: 'string', description: 'Ej: "Infraestructura · Negativa"' },
+    action_label: { type: 'string', description: 'Acción recomendada en gerundio/imperativo (max 80 chars)' },
+    action_tone: { type: 'string', enum: ['pos', 'neg', 'warn', 'neu'] },
+    reach_label: { type: 'string', description: 'Ej: "2.34M impresiones"' },
+  },
+  required: ['narrative_html', 'dominant_signal', 'action_label', 'action_tone', 'reach_label'],
+};
+
+const TOPIC_DESCRIPTION_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    description: {
+      type: 'string',
+      description: '2-3 oraciones describiendo el tópico, cada afirmación con número concreto + nombre propio.',
+    },
+  },
+  required: ['description'],
+};
 
 const bedrock = new BedrockRuntimeClient({});
 const sm = new SecretsManagerClient({});
@@ -56,11 +95,17 @@ const TZ = 'America/Puerto_Rico';
 
 let dbUrl: string | null = null;
 
-type Action = 'briefing' | 'topic-descriptions';
+type Action = 'briefing' | 'topic-descriptions' | 'period-insights' | 'metric-insight';
 
 interface InvokeEvent {
   action?: Action;
   agencySlug?: string;
+  /** YYYY-MM-DD (inclusive) — para period-insights y metric-insight. */
+  periodStart?: string;
+  /** YYYY-MM-DD (inclusive) — para period-insights y metric-insight. */
+  periodEnd?: string;
+  /** Solo para action='metric-insight'. */
+  metric?: MetricKey;
   dryRun?: boolean;
 }
 
@@ -107,6 +152,22 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
     } else if (action === 'topic-descriptions') {
       for (const a of agencies) {
         results.push(await generateTopicDescriptionsFor(client, a, dryRun));
+      }
+    } else if (action === 'period-insights') {
+      if (!event?.periodStart || !event?.periodEnd) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'period-insights requires periodStart + periodEnd (YYYY-MM-DD)' }) };
+      }
+      await ensureOverviewPeriodInsightsSchema(client);
+      for (const a of agencies) {
+        results.push(await generatePeriodInsightsFor(client, a, event.periodStart, event.periodEnd, dryRun));
+      }
+    } else if (action === 'metric-insight') {
+      if (!event?.periodStart || !event?.periodEnd || !event?.metric) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'metric-insight requires metric + periodStart + periodEnd' }) };
+      }
+      await ensureMetricInsightsSchema(client);
+      for (const a of agencies) {
+        results.push(await generateMetricInsightFor(client, a, event.metric, event.periodStart, event.periodEnd, dryRun));
       }
     } else {
       return { statusCode: 400, body: JSON.stringify({ error: `unknown action: ${action}` }) };
@@ -190,7 +251,11 @@ async function runBriefingMode(
   fallbackAgg: BriefingAggregates,
 ): Promise<BriefingModeResult> {
   try {
-    const text = await invokeClaude({
+    // Tool-use con input_schema (vs el invokeClaude + JSON.parse de main) —
+    // Bedrock garantiza el shape del input. Sin comillas/saltos rompiendo el
+    // parser (feedback_bedrock_tool_use). Mantenemos la abstracción
+    // runBriefingMode de main para los 3 modos (signal / emerging / crisis).
+    const parsed = await invokeClaudeWithTool<BriefingOutput>({
       client: bedrock,
       systemPrompt,
       userPrompt: buildPrompt(),
@@ -198,8 +263,12 @@ async function runBriefingMode(
       primaryModel: PRIMARY_MODEL,
       fallbackModel: FALLBACK_MODEL,
       temperature: 0,
+      tool: {
+        name: 'emit_briefing',
+        description: 'Emit the structured executive briefing.',
+        input_schema: BRIEFING_TOOL_SCHEMA,
+      },
     });
-    const parsed = JSON.parse(text) as BriefingOutput;
     return { output: validateBriefingOutput(parsed), fallback: false };
   } catch (err) {
     console.error(`[ai-tasks] briefing mode=${mode} failed:`, (err as Error).message);
@@ -628,7 +697,7 @@ async function generateTopicDescriptionsFor(
       }
       const samples = await loadTopicSamples(client, agency, t.id, since);
       const prompt = buildTopicDescriptionPrompt(agg, samples);
-      const text = await invokeClaude({
+      const parsed = await invokeClaudeWithTool<{ description?: string }>({
         client: bedrock,
         systemPrompt: TOPIC_DESCRIPTION_SYSTEM_PROMPT,
         userPrompt: prompt,
@@ -636,8 +705,12 @@ async function generateTopicDescriptionsFor(
         primaryModel: PRIMARY_MODEL,
         fallbackModel: FALLBACK_MODEL,
         temperature: 0,
+        tool: {
+          name: 'emit_topic_description',
+          description: 'Emit the structured topic description.',
+          input_schema: TOPIC_DESCRIPTION_TOOL_SCHEMA,
+        },
       });
-      const parsed = JSON.parse(text) as { description?: string };
       const description = (parsed.description ?? '').trim().slice(0, 800);
       if (!description) {
         updates.push({ topic: t.slug, status: 'skip', message: 'modelo devolvió vacío' });
@@ -653,6 +726,368 @@ async function generateTopicDescriptionsFor(
   }
 
   return { agencySlug: agency.slug, status: 'ok', output: updates };
+}
+
+// ============================================================
+// Period Insights generator (action='period-insights')
+// ============================================================
+//
+// Genera los 3 bloques de insights (negative/neutral/positive) y un párrafo
+// daily_summary para un periodo arbitrario (agency, periodStart, periodEnd).
+// Persiste en `overview_period_insights` con UPSERT. Sirve a /api/eco-insights.
+
+interface PeriodInsightsOutput {
+  negative: string[];
+  neutral: string[];
+  positive: string[];
+}
+
+const PERIOD_INSIGHTS_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    negative: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+      description: 'Hasta 3 insights de tono negativo, una oración cada uno (20–45 palabras).',
+    },
+    neutral: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+    },
+    positive: {
+      type: 'array',
+      maxItems: 3,
+      items: { type: 'string', minLength: 20, maxLength: 400 },
+    },
+  },
+  required: ['negative', 'neutral', 'positive'],
+};
+
+const DAILY_SUMMARY_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: {
+      type: 'string',
+      minLength: 80, maxLength: 1400,
+      description: 'Párrafo de 3–5 oraciones describiendo el PERIODO ENTERO (no solo el último día). Para 1D coincide con un daily summary; para 5D/7D/30D/custom describe la ventana completa.',
+    },
+  },
+  required: ['summary'],
+};
+
+async function generatePeriodInsightsFor(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  periodStart: string,
+  periodEnd: string,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  // Ventana previa de igual duración para deltaVsPrevWeek.
+  const fromDate = new Date(`${periodStart}T00:00:00Z`);
+  const toDate = new Date(`${periodEnd}T00:00:00Z`);
+  const days = Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1;
+  const prevEnd = new Date(fromDate.getTime() - 86400000);
+  const prevStart = new Date(prevEnd.getTime() - (days - 1) * 86400000);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const prevStartYmd = fmt(prevStart);
+  const prevEndYmd = fmt(prevEnd);
+
+  let aggregates: WeeklyAggregates;
+  try {
+    aggregates = await buildPeriodAggregates(client, agency, periodStart, periodEnd, prevStartYmd, prevEndYmd);
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: `aggregates failed: ${(err as Error).message}` };
+  }
+
+  if (aggregates.totals.total < 10) {
+    // No vale la pena gastar LLM para señal anémica. Persistimos fila vacía
+    // para que el endpoint la sirva sin reintentar.
+    const empty: PeriodInsightsOutput = { negative: [], neutral: [], positive: [] };
+    if (!dryRun) {
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, PRIMARY_MODEL);
+    }
+    return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: { ...empty, daily_summary: null } };
+  }
+
+  try {
+    const samples = await loadSamples(client, agency.id, periodStart, periodEnd);
+    const insightsPrompt = buildSentimentInsightsPrompt(aggregates, samples);
+    const insights = await invokeClaudeWithTool<PeriodInsightsOutput>({
+      client: bedrock,
+      systemPrompt: INSIGHTS_SYSTEM_PROMPT,
+      userPrompt: insightsPrompt,
+      maxTokens: 1500,
+      primaryModel: PRIMARY_MODEL,
+      fallbackModel: FALLBACK_MODEL,
+      temperature: 0,
+      tool: {
+        name: 'emit_period_insights',
+        description: 'Emit 3 sentiment-bucketed lists of insights.',
+        input_schema: PERIOD_INSIGHTS_TOOL_SCHEMA,
+      },
+    });
+
+    // Period summary: párrafo sobre el RANGO ENTERO (no solo el último día).
+    // Para 1D coincide semánticamente con un daily summary; para 5D/7D/30D
+    // describe la VENTANA COMPLETA. Petición explícita del usuario:
+    // "independiente que yo filtre 1D, 5D, 7D y 30D parece que los insights
+    // y resúmenes se siguen haciendo solo con el día anterior y eso está mal".
+    //
+    // maxTokens 1500 (igual que insights) — antes era 600 y truncaba el tool_use
+    // en periodos ≥7D devolviendo input vacío silenciosamente. Si el primer
+    // intento devuelve summary corto, reintentamos con 3000 tokens. Si tras eso
+    // sigue vacío, log VISIBLE para que se note en CloudWatch.
+    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples);
+    const trySummary = async (maxTokens: number): Promise<string | null> => {
+      const sum = await invokeClaudeWithTool<{ summary: string }>({
+        client: bedrock,
+        systemPrompt: INSIGHTS_SYSTEM_PROMPT,
+        userPrompt: summaryPrompt,
+        maxTokens,
+        primaryModel: PRIMARY_MODEL,
+        fallbackModel: FALLBACK_MODEL,
+        temperature: 0,
+        tool: {
+          name: 'emit_period_summary',
+          description: 'Emit a single paragraph summarizing the WHOLE period (not just the last day).',
+          input_schema: DAILY_SUMMARY_TOOL_SCHEMA,
+        },
+      });
+      const trimmed = (sum.summary ?? '').trim().slice(0, 1400);
+      return trimmed.length >= 80 ? trimmed : null;
+    };
+
+    let dailySummary: string | null = null;
+    try {
+      dailySummary = await trySummary(1500);
+      if (!dailySummary) {
+        console.warn(`[ai-tasks] period_summary returned empty/short for ${agency.slug} ${periodStart}→${periodEnd} at maxTokens=1500; retrying with 3000`);
+        dailySummary = await trySummary(3000);
+      }
+    } catch (err) {
+      console.warn(`[ai-tasks] period_summary error for ${agency.slug} ${periodStart}→${periodEnd}: ${(err as Error).message}`);
+      try {
+        dailySummary = await trySummary(3000);
+      } catch (err2) {
+        console.warn(`[ai-tasks] period_summary retry also failed: ${(err2 as Error).message}`);
+      }
+    }
+    if (!dailySummary) {
+      // El usuario reportó que para 2026-04-12→2026-05-11 no se generó resumen
+      // — antes esto era silencioso (null persistido). Ahora ERROR explícito.
+      console.error(`[ai-tasks] period_summary FINAL NULL for ${agency.slug} ${periodStart}→${periodEnd}`);
+    }
+
+    const validated: PeriodInsightsOutput = {
+      negative: Array.isArray(insights.negative) ? insights.negative.slice(0, 3) : [],
+      neutral: Array.isArray(insights.neutral) ? insights.neutral.slice(0, 3) : [],
+      positive: Array.isArray(insights.positive) ? insights.positive.slice(0, 3) : [],
+    };
+
+    if (!dryRun) {
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, PRIMARY_MODEL);
+    }
+    return {
+      agencySlug: agency.slug,
+      status: 'ok',
+      output: { ...validated, daily_summary: dailySummary },
+    };
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
+  }
+}
+
+// ============================================================
+// Metric Insight generator (action='metric-insight')
+// ============================================================
+
+const METRIC_INSIGHT_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    insight: {
+      type: 'string',
+      minLength: 80, maxLength: 1400,
+      description: 'Párrafo de 3-5 oraciones describiendo POR QUÉ el valor de la métrica es lo que es para esta agencia en este periodo. Inline <strong> permitido.',
+    },
+  },
+  required: ['insight'],
+};
+
+function subcomponentsFor(metric: MetricKey, snapshot: Record<string, number | null>): Record<string, number | null> {
+  // Mapea las columnas crudas de daily_metric_snapshots a labels humanos por
+  // métrica. El prompt los usa como contexto SIN explicar la fórmula.
+  if (metric === 'crisis') {
+    return {
+      'severity (share negativo)': snapshot.crisis_severity ?? null,
+      'velocity (z-score volumen)': snapshot.crisis_velocity ?? null,
+      'relevance (ratio pertinencia)': snapshot.crisis_relevance ?? null,
+      'confidence (log10 menciones)': snapshot.crisis_confidence ?? null,
+    };
+  }
+  if (metric === 'bhi') {
+    return {
+      'nss normalizado (0-1)': snapshot.nss != null ? (Number(snapshot.nss) + 100) / 200 : null,
+      'engagement rate': snapshot.engagement_rate ?? null,
+      'amplification rate': snapshot.amplification_rate ?? null,
+      'volume (menciones del día)': snapshot.total_mentions ?? null,
+    };
+  }
+  if (metric === 'nss') {
+    return {
+      'positivas (día)': snapshot.positive_count ?? null,
+      'neutras (día)': snapshot.neutral_count ?? null,
+      'negativas (día)': snapshot.negative_count ?? null,
+      'nss rolling 7d': snapshot.nss_7d ?? null,
+      'nss rolling 30d': snapshot.nss_30d ?? null,
+    };
+  }
+  if (metric === 'polarization') {
+    return {
+      'polarization index': snapshot.polarization_index ?? null,
+      'positivas (día)': snapshot.positive_count ?? null,
+      'negativas (día)': snapshot.negative_count ?? null,
+      'neutras (día)': snapshot.neutral_count ?? null,
+    };
+  }
+  if (metric === 'volume') {
+    return {
+      'total menciones del periodo': null, // se inyecta vía totalMentions
+      'volume anomaly z-score': snapshot.volume_anomaly_zscore ?? null,
+      'reputation momentum': snapshot.reputation_momentum ?? null,
+    };
+  }
+  return {};
+}
+
+function snapshotValueFor(metric: MetricKey, snapshot: Record<string, number | null>, totalMentions: number): number | null {
+  if (metric === 'crisis') return snapshot.crisis_risk_score ?? null;
+  if (metric === 'bhi') return snapshot.brand_health_index ?? null;
+  if (metric === 'nss') return snapshot.nss ?? null;
+  if (metric === 'polarization') return snapshot.polarization_index ?? null;
+  if (metric === 'volume') return totalMentions;
+  return null;
+}
+
+async function generateMetricInsightFor(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  metric: MetricKey,
+  periodStart: string,
+  periodEnd: string,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  try {
+    const ctx = await loadMetricInsightContext(client, agency, periodStart, periodEnd);
+    const value = snapshotValueFor(metric, ctx.snapshot, ctx.totalMentions);
+    const promptInput: CachedMetricInsightInput = {
+      metric,
+      agencyName: agency.name,
+      agencyShortName: agencyShortName(agency.slug),
+      periodStart,
+      periodEnd,
+      value,
+      subcomponents: subcomponentsFor(metric, ctx.snapshot),
+      topTopics: ctx.topTopics,
+      topAuthors: ctx.topAuthors,
+      topMunicipalities: ctx.topMunicipalities,
+      totalMentions: ctx.totalMentions,
+      totalMentionsDelta: ctx.totalMentionsDelta,
+    };
+    if (ctx.totalMentions < 5) {
+      const fallback = `No hay señal suficiente (<strong>${ctx.totalMentions}</strong> menciones) en el periodo seleccionado para describir el valor de la métrica.`;
+      if (!dryRun) {
+        await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, fallback, PRIMARY_MODEL);
+      }
+      return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal', output: { metric, insight: fallback } };
+    }
+    const prompt = buildCachedMetricInsightPrompt(promptInput);
+    const parsed = await invokeClaudeWithTool<{ insight: string }>({
+      client: bedrock,
+      systemPrompt: CACHED_METRIC_INSIGHT_SYSTEM_PROMPT,
+      userPrompt: prompt,
+      maxTokens: 800,
+      primaryModel: PRIMARY_MODEL,
+      fallbackModel: FALLBACK_MODEL,
+      temperature: 0,
+      tool: {
+        name: 'emit_metric_insight',
+        description: 'Emit the structured one-paragraph metric insight.',
+        input_schema: METRIC_INSIGHT_TOOL_SCHEMA,
+      },
+    });
+    const insight = sanitizeStrongOnly(String(parsed.insight ?? '').trim()).slice(0, 1400);
+    if (!insight) {
+      return { agencySlug: agency.slug, status: 'error', message: 'modelo devolvió vacío' };
+    }
+    if (!dryRun) {
+      await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, insight, PRIMARY_MODEL);
+    }
+    return { agencySlug: agency.slug, status: 'ok', output: { metric, insight } };
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
+  }
+}
+
+async function persistMetricInsight(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agencyId: string,
+  metric: MetricKey,
+  periodStart: string,
+  periodEnd: string,
+  insight: string,
+  modelUsed: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO metric_insights_cache
+       (agency_id, metric, period_start_date, period_end_date,
+        insight_text, model_used, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT ON CONSTRAINT uq_metric_insights_agency_metric_range
+     DO UPDATE SET
+       insight_text = EXCLUDED.insight_text,
+       model_used   = EXCLUDED.model_used,
+       generated_at = NOW()`,
+    [agencyId, metric, periodStart, periodEnd, insight, modelUsed],
+  );
+}
+
+async function persistPeriodInsights(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agencyId: string,
+  periodStart: string,
+  periodEnd: string,
+  insights: PeriodInsightsOutput,
+  dailySummary: string | null,
+  modelUsed: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO overview_period_insights
+       (agency_id, period_start_date, period_end_date,
+        negative_insights, neutral_insights, positive_insights,
+        daily_summary, model_used, generated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, NOW())
+     ON CONFLICT ON CONSTRAINT uq_overview_period_insights_agency_range
+     DO UPDATE SET
+       negative_insights = EXCLUDED.negative_insights,
+       neutral_insights  = EXCLUDED.neutral_insights,
+       positive_insights = EXCLUDED.positive_insights,
+       daily_summary     = EXCLUDED.daily_summary,
+       model_used        = EXCLUDED.model_used,
+       generated_at      = NOW()`,
+    [
+      agencyId, periodStart, periodEnd,
+      JSON.stringify(insights.negative),
+      JSON.stringify(insights.neutral),
+      JSON.stringify(insights.positive),
+      dailySummary, modelUsed,
+    ],
+  );
 }
 
 async function loadTopicAggregate(
@@ -776,6 +1211,53 @@ async function loadAgencies(client: any, slugFilter: string | null): Promise<Age
     `SELECT id, slug, name FROM agencies WHERE is_active = true ORDER BY slug`,
   );
   return res.rows;
+}
+
+async function ensureMetricInsightsSchema(client: any): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "metric_insights_cache" (
+      "id"                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "agency_id"           UUID NOT NULL REFERENCES "agencies"("id") ON DELETE CASCADE,
+      "metric"              VARCHAR(24) NOT NULL,
+      "period_start_date"   DATE NOT NULL,
+      "period_end_date"     DATE NOT NULL,
+      "insight_text"        TEXT NOT NULL,
+      "model_used"          TEXT NOT NULL,
+      "generated_at"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "uq_metric_insights_agency_metric_range"
+        UNIQUE ("agency_id", "metric", "period_start_date", "period_end_date")
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS "idx_metric_insights_recent"
+      ON "metric_insights_cache"("agency_id", "metric", "period_end_date" DESC)
+  `);
+}
+
+async function ensureOverviewPeriodInsightsSchema(client: any): Promise<void> {
+  // Self-heal idempotente — espejo de la migración 0003. Permite que el lambda
+  // funcione aunque el endpoint o el infra-team aún no haya corrido la
+  // migración formal.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "overview_period_insights" (
+      "id"                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "agency_id"           UUID NOT NULL REFERENCES "agencies"("id") ON DELETE CASCADE,
+      "period_start_date"   DATE NOT NULL,
+      "period_end_date"     DATE NOT NULL,
+      "negative_insights"   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "neutral_insights"    JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "positive_insights"   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      "daily_summary"       TEXT,
+      "model_used"          TEXT NOT NULL,
+      "generated_at"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "uq_overview_period_insights_agency_range"
+        UNIQUE ("agency_id", "period_start_date", "period_end_date")
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS "idx_overview_period_insights_recent"
+      ON "overview_period_insights"("agency_id", "period_end_date" DESC)
+  `);
 }
 
 async function ensureBriefingsSchema(client: any): Promise<void> {
