@@ -3,11 +3,12 @@
  * Invoked manually via AWS CLI, not scheduled.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 
-export const handler = async (event: { action?: string; query?: string; queryIds?: number[] }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -213,6 +214,100 @@ export const handler = async (event: { action?: string; query?: string; queryIds
           WHERE table_name = 'daily_metric_snapshots' ORDER BY column_name`,
       );
       return { statusCode: 200, body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name) }, null, 2) };
+    }
+
+    if (action === 'add-embeddings-column') {
+      // Migración 0004: pgvector + columna embedding + índice ivfflat.
+      // Idempotente — IF NOT EXISTS en todo.
+      const stmts = [
+        `CREATE EXTENSION IF NOT EXISTS vector`,
+        `ALTER TABLE mentions ADD COLUMN IF NOT EXISTS embedding vector(1024)`,
+        `ALTER TABLE mentions ADD COLUMN IF NOT EXISTS embedded_at timestamp with time zone`,
+        `CREATE INDEX IF NOT EXISTS idx_mentions_embedding ON mentions USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) { await client.query(s); applied.push(s); }
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'mentions' AND column_name IN ('embedding','embedded_at')`,
+      );
+      const counts = await client.query(
+        `SELECT COUNT(*)::int AS total, COUNT(embedding)::int AS with_embedding FROM mentions`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name), counts: counts.rows[0] }, null, 2),
+      };
+    }
+
+    if (action === 'backfill-embeddings') {
+      // Recorre menciones con embedding IS NULL (de la agencia indicada o
+      // todas) y las puebla en lotes con concurrencia 5 contra Bedrock. Es
+      // idempotente y se puede invocar repetidamente — cada corrida procesa
+      // hasta `limit` menciones (default 1000) y reporta cuánto queda.
+      const wantLimit = Math.max(1, Math.min(5000, Number(event.limit ?? 1000)));
+      const agencySlug = event.agencySlug ?? null;
+      const params: unknown[] = [];
+      let where = 'WHERE embedding IS NULL';
+      if (agencySlug) {
+        params.push(agencySlug);
+        where += ` AND agency_id = (SELECT id FROM agencies WHERE slug = $${params.length})`;
+      }
+      params.push(wantLimit);
+      const sel = await client.query(
+        `SELECT id, title, snippet
+           FROM mentions
+           ${where}
+           ORDER BY published_at DESC
+           LIMIT $${params.length}`,
+        params,
+      );
+      const rows = sel.rows as Array<{ id: string; title: string | null; snippet: string | null }>;
+      console.log(`backfill-embeddings: ${rows.length} pending in this batch`);
+
+      const concurrency = 5;
+      let succeeded = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (let i = 0; i < rows.length; i += concurrency) {
+        const chunk = rows.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map(async (row) => {
+          const input = buildEmbeddingInput(row.title, row.snippet);
+          if (!input) { skipped += 1; return; }
+          const vec = await embedText(input);
+          if (!vec) { failed += 1; return; }
+          await client.query(
+            'UPDATE mentions SET embedding = $1::vector, embedded_at = NOW() WHERE id = $2',
+            [toPgvectorLiteral(vec), row.id],
+          );
+          succeeded += 1;
+        }));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            failed += 1;
+            console.warn('backfill-embeddings row failed:', r.reason);
+          }
+        }
+      }
+
+      const remaining = await client.query(
+        agencySlug
+          ? `SELECT COUNT(*)::int AS c FROM mentions
+              WHERE embedding IS NULL AND agency_id = (SELECT id FROM agencies WHERE slug = $1)`
+          : `SELECT COUNT(*)::int AS c FROM mentions WHERE embedding IS NULL`,
+        agencySlug ? [agencySlug] : [],
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          succeeded,
+          skipped,
+          failed,
+          remaining: remaining.rows[0].c,
+          agencySlug,
+        }, null, 2),
+      };
     }
 
     return { statusCode: 200, body: `Action '${action}' completed successfully` };

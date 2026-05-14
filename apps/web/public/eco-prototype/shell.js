@@ -654,17 +654,20 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
-  // Fetch a handful of mentions in the same topic (or subtopic if present)
-  // whenever a mention is opened. Falls back to municipality when no topic.
+  // Relacionadas por similitud coseno sobre embeddings (Titan Embed v2). Si
+  // la mención fuente aún no tiene embedding (backfill pendiente), el backend
+  // hace fallback a "mismo topic principal".
   React.useEffect(() => {
     if (!mention) return;
     setRelated(null);
     const ctrl = new AbortController();
     const agency = (typeof window !== 'undefined' && localStorage.getItem('eco.agency')) || '';
-    const params = new URLSearchParams({ limit: '6', ...getPeriodParams() });
+    // similar_to (#41): embeddings-based similarity (la columna de pertinencia
+    // ya no se muestra; el related drawer ahora opera sobre cosine similarity).
+    // getPeriodParams (mio): respeta la ventana del usuario, así el drawer no
+    // mezcla menciones fuera del rango filtrado.
+    const params = new URLSearchParams({ similar_to: mention.id, limit: '6', ...getPeriodParams() });
     if (agency) params.set('agency', agency);
-    if (mention.topic) params.set('topic', mention.topic);
-    else if (mention.municipality) params.set('municipality', mention.municipality.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { mentions: [] })
       .then((j) => setRelated((j.mentions || []).filter((m) => m.id !== mention.id).slice(0, 5)))
@@ -686,7 +689,6 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: 'var(--text-2)' }}>
               <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
-              <span className={`pill pill-warn`}>Pertinencia {mention.pertinence}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
             <h2 style={{ margin: '4px 0 8px', fontSize: 20, fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
@@ -699,32 +701,52 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           <hr className="hr" />
 
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Métricas</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              {[
-                { label: 'Engagement', v: mention.engagement },
-                { label: 'Likes', v: mention.likes },
-                { label: 'Comentarios', v: mention.comments },
-                { label: 'Compartidas', v: mention.shares },
-              ].map((m) => (
-                <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
-                  <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v.toLocaleString('es-PR')}</div>
+          {(() => {
+            // Solo mostrar métricas con valor > 0. Si todas son 0 (ej. tweet
+            // huérfano), ocultar toda la sección.
+            const metrics = [
+              { label: 'Engagement', v: Number(mention.engagement) || 0 },
+              { label: 'Likes', v: Number(mention.likes) || 0 },
+              { label: 'Comentarios', v: Number(mention.comments) || 0 },
+              { label: 'Compartidas', v: Number(mention.shares) || 0 },
+            ].filter((m) => m.v > 0);
+            if (metrics.length === 0) return null;
+            const cols = Math.min(4, metrics.length);
+            return (
+              <div>
+                <div className="section-eyebrow" style={{ marginBottom: 10 }}>Métricas</div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>
+                  {metrics.map((m) => (
+                    <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
+                      <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v.toLocaleString('es-PR')}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
-            <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                <Icons.Sparkles size={12} /> {mention.summary ? 'Claude · Bedrock' : 'Sin resumen IA'}
               </div>
-              {mention.summary || mention.snippet || 'No hay resumen disponible para esta mención.'}
+            );
+          })()}
+
+          {mention.summary ? (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
+              <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <Icons.Sparkles size={12} /> Claude · Bedrock
+                </div>
+                {mention.summary}
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {mention.snippet && (mention.snippet.trim() !== (mention.title || '').trim()) ? (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Contenido</div>
+              <div style={{ padding: 14, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
+                {mention.snippet}
+              </div>
+            </div>
+          ) : null}
 
           {mention.emotions?.length > 0 && (
             <div>
@@ -858,23 +880,6 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
               disabled={!mention.url}
               onClick={() => mention.url && window.open(mention.url, '_blank', 'noopener,noreferrer')}>
               <Icons.ExternalLink size={13} /> Ver original
-            </button>
-            <button className="btn"
-              onClick={() => {
-                const url = mention.url || '';
-                const text = `${mention.title || ''}\n${url}`;
-                if (navigator.share) {
-                  navigator.share({ title: mention.title, text, url }).catch(() => {});
-                } else if (navigator.clipboard) {
-                  navigator.clipboard.writeText(text);
-                }
-              }}>
-              <Icons.ExternalLink size={13} /> Compartir
-            </button>
-            <button className="btn"
-              title="Copiar URL"
-              onClick={() => navigator.clipboard && mention.url && navigator.clipboard.writeText(mention.url)}>
-              <Icons.Download size={13} />
             </button>
           </div>
         </div>
