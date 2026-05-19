@@ -307,19 +307,37 @@ function mentionCard(
 }
 
 // ------------------------------------------------------------
-// Driver list
+// Driver list — número en círculo a la izquierda + texto.
+//
+// Layout sin tabla anidada: usa un solo <td> con tabla interna de 2
+// columnas anchas fijas para que Gmail respete el espaciado entre el
+// círculo y el contenido (Gmail strippea muchos paddings cuando hay
+// <td>s directos sin width explícito, dando lugar al efecto "número
+// pegado al borde" del primer release).
 // ------------------------------------------------------------
 
 function driverItem(label: string, description: string, idx: number, total: number): string {
   const isLast = idx === total - 1;
   const border = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
   return `<tr>
-    <td style="padding:14px 16px 14px 0;${border}width:32px;vertical-align:top;">
-      <div style="display:inline-block;background:${COLORS.alertSoft};color:${COLORS.alerta};width:24px;height:24px;border-radius:12px;text-align:center;line-height:24px;font-size:11.5px;font-weight:700;">${idx + 1}</div>
-    </td>
-    <td style="padding:14px 0 14px 0;${border}">
-      <div class="force-text-dark" style="font-size:13px;font-weight:700;color:${COLORS.ink};">${esc(label)}</div>
-      <div class="force-text-soft" style="font-size:12.5px;line-height:1.55;color:${COLORS.inkSoft};margin-top:2px;">${esc(description)}</div>
+    <td style="padding:16px 18px;${border}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td valign="top" width="36" style="width:36px;padding-right:14px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.alertSoft}" style="background:${COLORS.alertSoft};background-color:${COLORS.alertSoft};border-radius:14px;width:28px;height:28px;">
+              <tr>
+                <td align="center" valign="middle" width="28" height="28" style="width:28px;height:28px;text-align:center;vertical-align:middle;color:${COLORS.alerta};font-size:13px;font-weight:700;font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;line-height:1;">
+                  ${idx + 1}
+                </td>
+              </tr>
+            </table>
+          </td>
+          <td valign="top">
+            <div class="force-text-dark" style="font-size:13.5px;font-weight:700;color:${COLORS.ink};line-height:1.35;letter-spacing:-0.005em;">${esc(label)}</div>
+            <div class="force-text-soft" style="font-size:12.5px;line-height:1.6;color:${COLORS.inkSoft};margin-top:4px;">${esc(description)}</div>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>`;
 }

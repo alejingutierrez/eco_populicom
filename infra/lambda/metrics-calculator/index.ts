@@ -933,9 +933,88 @@ async function fetchOgImage(url: string, timeoutMs = 3000): Promise<string | nul
     // ponen rutas tipo /favicon o /logo.svg como og:image y eso queda feo
     // en el hero. No es una validación perfecta — es heurística.
     if (img.endsWith('.svg')) return null;
-    return img;
+
+    // Gmail rechaza URLs largas en su proxy de imágenes (ci3.googleusercontent.com).
+    // El límite empírico está alrededor de 2KB; cortamos antes para no quemar
+    // una imagen que el cliente igualmente no va a renderizar.
+    if (img.length > 1500) return null;
+
+    // Validación final: HEAD a la URL de la imagen para confirmar que es
+    // realmente una imagen (no HTML, no redirect a login, no 404). Sin esto,
+    // og:image apuntando a páginas autenticadas (FB / X privado / Insta) o a
+    // redirects que terminan en CDN bloqueado dejaba el correo con cajas
+    // grises en Gmail.
+    const ok = await validateImageUrl(img, timeoutMs);
+    return ok ? img : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Comprueba que `url` apunte a una imagen real, mediante un HEAD request.
+ * Aceptamos solo `image/(jpeg|png|webp|gif)` con tamaño razonable (≥ 1KB y
+ * ≤ 8MB). Si el servidor no soporta HEAD (algunos CDNs devuelven 405),
+ * caemos a un GET parcial leyendo solo la primera respuesta.
+ */
+async function validateImageUrl(url: string, timeoutMs: number): Promise<boolean> {
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+  const MIN_BYTES = 1024;
+  const MAX_BYTES = 8 * 1024 * 1024;
+
+  const checkHeaders = (resp: Response): boolean => {
+    if (!resp.ok) return false;
+    const ct = (resp.headers.get('content-type') ?? '').toLowerCase().split(';')[0].trim();
+    if (!allowedTypes.includes(ct)) return false;
+    const len = Number(resp.headers.get('content-length') ?? '0');
+    if (len && (len < MIN_BYTES || len > MAX_BYTES)) return false;
+    return true;
+  };
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
+        'Accept': 'image/*',
+      },
+    });
+    clearTimeout(timer);
+    if (resp.status === 405 || resp.status === 501) {
+      // Server no soporta HEAD — fallback a GET con Range request.
+      return await validateViaRangeGet(url, timeoutMs);
+    }
+    return checkHeaders(resp);
+  } catch {
+    return false;
+  }
+}
+
+async function validateViaRangeGet(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
+        'Accept': 'image/*',
+        // Pedimos solo los primeros 2KB — suficiente para confirmar magic bytes.
+        'Range': 'bytes=0-2047',
+      },
+    });
+    clearTimeout(timer);
+    if (!resp.ok && resp.status !== 206) return false;
+    const ct = (resp.headers.get('content-type') ?? '').toLowerCase().split(';')[0].trim();
+    return ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'].includes(ct);
+  } catch {
+    return false;
   }
 }
 
