@@ -9,6 +9,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -34,6 +35,13 @@ export class WorkersStack extends cdk.Stack {
     super(scope, id, props);
 
     const privateSubnets = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
+
+    // Adopt the pre-existing CloudWatch Log Groups (auto-created by Lambda on
+    // first invocation). Newer aws-cdk-lib defaults to creating its own
+    // LogGroup resources per function, which clashes with the existing ones
+    // and fails the deploy. Importing by name tells CDK to use them as-is.
+    const importLogGroup = (id: string, fnName: string) =>
+      logs.LogGroup.fromLogGroupName(this, id, `/aws/lambda/${fnName}`);
 
     // Brandwatch API token — stored in Secrets Manager so rotation does not
     // require a CDK redeploy. The secret itself is managed outside this stack
@@ -80,6 +88,7 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         BRANDWATCH_TOKEN_SECRET_ARN: brandwatchTokenSecret.secretArn,
       },
+      logGroup: importLogGroup('IngestionLogGroup', 'eco-ingestion'),
       bundling: bundlingOptions,
     });
 
@@ -124,6 +133,7 @@ export class WorkersStack extends cdk.Stack {
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
       },
+      logGroup: importLogGroup('ProcessorLogGroup', 'eco-processor'),
       bundling: bundlingOptions,
     });
 
@@ -164,6 +174,7 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         SES_FROM_EMAIL: 'noreply@populicom.com',
       },
+      logGroup: importLogGroup('AlertsLogGroup', 'eco-alerts'),
       bundling: bundlingOptions,
     });
 
@@ -183,26 +194,47 @@ export class WorkersStack extends cdk.Stack {
     }));
 
     // ---- eco-metrics-calculator Lambda ----
+    // Además de los snapshots diarios, este lambda evalúa reglas
+    // `crisis_threshold` en alert_rules: si el Crisis Score del día supera el
+    // umbral configurado, genera un editorial con Bedrock y envía un correo
+    // de alerta vía SES (mismo patrón individual-por-recipient que weekly-report).
     this.metricsCalculatorFunction = new NodejsFunction(this, 'MetricsCalculatorFunction', {
       functionName: 'eco-metrics-calculator',
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../lambda/metrics-calculator/index.ts'),
       handler: 'handler',
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+      // Bumpeado a 2 min porque el path de crisis añade fetch de samples +
+      // llamada a Bedrock + N envíos SES individuales. El path normal
+      // (sin crisis) sigue terminando en < 10 s.
+      timeout: cdk.Duration.minutes(2),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        SES_FROM_EMAIL: 'agutierrez@populicom.com',
+        SES_FROM_NAME: 'ECO Radar',
+        DASHBOARD_BASE_URL: 'https://app.populicom.com',
       },
+      logGroup: importLogGroup('MetricsCalcLogGroup', 'eco-metrics-calculator'),
       bundling: bundlingOptions,
     });
 
-    // Grant DB access for metrics calculator
+    // DB + Bedrock + SES — el path de detección de crisis necesita los tres.
     this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
     }));
 
     // EventBridge schedule: every 10 minutes (computes today's snapshot only)
@@ -239,10 +271,11 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         SES_FROM_EMAIL: 'agutierrez@populicom.com',
-        SES_FROM_NAME: 'Populicom Radar',
+        SES_FROM_NAME: 'ECO Radar',
         REPORT_RECIPIENTS: 'agutierrez@populicom.com',
         AGENCY_SLUG: 'ddecpr',
       },
+      logGroup: importLogGroup('WeeklyReportLogGroup', 'eco-weekly-report'),
       bundling: bundlingOptions,
     });
 
@@ -292,6 +325,7 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
       },
+      logGroup: importLogGroup('AiTasksLogGroup', 'eco-ai-tasks'),
       bundling: bundlingOptions,
     });
 

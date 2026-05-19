@@ -93,7 +93,11 @@ REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
 7. **Consistencia entre ejecuciones**: si los datos son similares, los insights deben referirse a los mismos mecanismos dominantes. No reordenes para parecer novedoso.
 
-8. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
+8. **PROHIBIDOS los handles personales y nombres de ciudadanos privados.** No menciones @handles ni nombres de personas individuales (ej. "@juanperez", "el ciudadano Juan Pérez", "el usuario @maria_pr"). **SÍ puedes mencionar medios de prensa** y cuentas oficiales de medios (ej. "ElNuevoDia.com", "PrimeraHora", "Notiuno", "Telemundo Puerto Rico", "WAPA TV", "@elnuevodia"). También puedes mencionar **cuentas institucionales** (la propia agencia, organismos oficiales) y **funcionarios públicos por su cargo** ("el Secretario del DDEC", "la senadora por Ponce") sin nombre personal. Cuando el dato relevante venga de un autor individual sin perfil público, agrégalo como "un usuario en Twitter" o "comentaristas en Facebook" — sin nombre ni @.
+
+9. **PROHIBIDO inventar hechos específicos.** Lugares, fechas, números de eventos (ej. "la quinta vista del Senado fue en Ponce"), nombres de iniciativas o cargos no presentes en los textos de la muestra. Si una mención no especifica EXPLÍCITAMENTE el lugar donde ocurrió un evento, **no infieras ni inventes uno** — describe el evento sin lugar o omite el dato. Mejor un insight más corto y verdadero que uno completo pero alucinado.
+
+10. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
 
 EJEMPLOS DE INSIGHTS ACEPTABLES (referenciales — adapta al dominio):
 - "La negatividad en Permisos / Reforma (PS 1183) muestra arquitectura institucional: Junta de Planificación objeta formalmente, NotiCel y Centro de Periodismo Investigativo le dan cobertura, y organizaciones comunitarias usan el lenguaje técnico de la ley — no es opinión espontánea, es resistencia organizada con vocación de duración."
@@ -105,6 +109,8 @@ EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
 - "Se debería mejorar la comunicación." ← prescriptivo.
 - "La comunidad está preocupada por el servicio." ← sin número, sin actor identificado.
 - "El volumen creció 34%." ← dato sin mecanismo ni actor.
+- "@juanperezpr lidera la crítica con 12 menciones." ← handle personal de ciudadano privado (cuentas institucionales sí, personales no).
+- "La quinta vista del Senado fue en Ponce." ← hecho inventado / no presente literal en las menciones.
 `.trim();
 
 // ============================================================
@@ -267,7 +273,11 @@ Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${to
 4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
 5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
 
-PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
+PROHIBIDO:
+- Recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias.
+- **Handles personales o nombres de ciudadanos privados.** No menciones @handles individuales ni nombres propios de personas (excepto funcionarios públicos por su cargo). SÍ puedes mencionar **medios** ("ElNuevoDia.com", "Notiuno", "PrimeraHora"). Para autores individuales sin perfil público, usa giros como "un usuario en Twitter", "comentaristas en Facebook".
+- **Inventar hechos específicos** (lugares, fechas, números de eventos, nombres de iniciativas) no presentes literalmente en las muestras. Si una mención no especifica el lugar donde ocurrió un evento, no infieras uno — describe el evento sin lugar.
+- NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 {

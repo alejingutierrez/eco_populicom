@@ -1929,6 +1929,103 @@ function GeographyScreen({ onMentionClick }) {
   );
 }
 
+// =============== CRISIS ALERTS TAB (embed de /settings/alerts) ===============
+// Configurador de la regla `crisis_threshold`: umbrales, cooldown y destinatarios.
+// El backend es metrics-calculator (cron c/10 min). Aquí solo se persiste la regla
+// en alert_rules; la próxima evaluación la lee automáticamente.
+function CrisisAlertsTab() {
+  const [config, setConfig] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const iframeRef = useRef(null);
+
+  const reloadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cfg, hist] = await Promise.all([
+        fetch('/api/alerts/crisis-config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch('/api/alerts/history?agencySlug=ddecpr&limit=10').then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+      ]);
+      setConfig(cfg.config ?? null);
+      setHistory(hist.history ?? []);
+    } catch (err) {
+      console.error('crisis tab load failed', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { reloadAll(); }, [reloadAll]);
+
+  const isActive = config?.isActive ?? false;
+  const crisisMin = config?.crisisMin ?? 0.40;
+  const cooldownHours = config?.cooldownHours ?? 12;
+  const recipientsCount = config?.notifyEmails?.length ?? 0;
+  const lastFire = history[0] || null;
+  const lastFireLabel = lastFire ? new Date(lastFire.triggeredAt).toLocaleString('es-PR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* KPIs operativos */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <KpiCard
+          label="Estado del disparador"
+          value={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
+          sub={isActive ? 'evalúa cada 10 min' : 'no se enviarán alertas'}
+          icon="Bell"
+          accent={isActive ? 'var(--pos)' : 'var(--text-3)'}
+        />
+        <KpiCard
+          label="Umbral de disparo"
+          value={loading ? '…' : crisisMin.toFixed(2)}
+          sub="Crisis Score (0–1)"
+          icon="Shield"
+          accent="var(--neg)"
+        />
+        <KpiCard
+          label="Cooldown"
+          value={loading ? '…' : `${cooldownHours}h`}
+          sub="entre alertas"
+          icon="Calendar"
+          accent="var(--text-2)"
+        />
+        <KpiCard
+          label="Destinatarios"
+          value={loading ? '…' : String(recipientsCount)}
+          sub={lastFire ? `último: ${lastFireLabel.split(',')[0]}` : 'sin envíos aún'}
+          icon="Mail"
+          accent="var(--text-2)"
+        />
+      </div>
+
+      {/* Form embebido */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Configuración de la alerta de crisis</div>
+            <div className="card-hd-sub">Edita umbrales, cooldown y destinatarios. Los cambios aplican desde el siguiente ciclo (≤ 10 min).</div>
+          </div>
+          <button className="chip" onClick={() => { reloadAll(); if (iframeRef.current) iframeRef.current.src = iframeRef.current.src; }}>
+            Recargar
+          </button>
+        </div>
+        <iframe
+          ref={iframeRef}
+          src="/settings/alerts?embed=1"
+          title="Configuración de alertas de crisis"
+          style={{
+            width: '100%',
+            height: 1100,
+            border: 'none',
+            background: 'transparent',
+            display: 'block',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // =============== REPORTS TAB (embed de /settings/reports) ===============
 // Esta pestaña vive dentro de Alertas y embebe la página real de configuración
 // de reportes (Next.js) vía iframe. Muestra KPIs operativos arriba (próximo
@@ -2102,10 +2199,11 @@ function AlertsScreen({ onMentionClick }) {
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
+        <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>
         <div style={{ flex: 1 }} />
-        {tab !== 'reports' && (
+        {tab !== 'reports' && tab !== 'crisis' && (
           <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
         )}
       </div>
@@ -2179,6 +2277,8 @@ function AlertsScreen({ onMentionClick }) {
       )}
 
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
+
+      {tab === 'crisis' && <CrisisAlertsTab />}
 
       {tab === 'reports' && <ReportsTab />}
 
