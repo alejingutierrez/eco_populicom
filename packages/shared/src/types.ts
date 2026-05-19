@@ -108,7 +108,18 @@ export interface KeywordConfig {
   sentiment?: Sentiment;
 }
 
+export interface CrisisThresholdConfig {
+  type: 'crisis_threshold';
+  /** Score mínimo del Crisis Risk (0–1) que dispara la alerta. Default: 0.40. */
+  crisis_min: number;
+  /** Severidad mínima (0–1) que debe acompañar al score. Default: 0.50. */
+  severity_min: number;
+  /** Ventana en horas durante la cual no se vuelve a disparar la misma regla aunque siga el score elevado. Default: 12. */
+  cooldown_hours: number;
+}
+
 export type AlertConfig =
   | VolumeSpikeConfig
   | NegativeSentimentConfig
-  | KeywordConfig;
+  | KeywordConfig
+  | CrisisThresholdConfig;

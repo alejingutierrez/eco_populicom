@@ -525,26 +525,49 @@ async function fireCrisisAlert(
 
   // 4. Muestra de menciones negativas para el LLM (texto largo) y separadamente
   // las "voces destacadas" para el template (snippet recortado + URL).
+  //
+  // Orden: primero por pertinencia (alta > media), después por bonus si el
+  // tópico principal de la mención coincide con uno de los tópicos negativos
+  // dominantes del periodo (= la "crisis"), después por engagement. Así la
+  // primera muestra con og:image válida sirve como hero — y la elegida es
+  // intrínsecamente la más relevante a la crisis, no la que más likes tuvo
+  // (que puede ser un meme tangencial).
+  const topNegTopics = topicsRows.map((t) => t.topic);
   const samplesResult = await client.query(
-    `SELECT m.id,
+    `WITH primary_topic AS (
+       SELECT mt.mention_id,
+              t.name AS topic_name
+         FROM mention_topics mt
+         JOIN topics t ON t.id = mt.topic_id
+         JOIN (
+           SELECT mention_id, MAX(confidence) AS max_conf
+             FROM mention_topics
+            GROUP BY mention_id
+         ) pk ON pk.mention_id = mt.mention_id AND pk.max_conf = mt.confidence
+     )
+     SELECT m.id,
             m.title, m.snippet, m.url,
             COALESCE(m.content_source_name, m.domain) AS source,
             m.page_type,
             m.nlp_pertinence AS pertinence,
             COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-            (SELECT t.name FROM mention_topics mt
-               JOIN topics t ON t.id = mt.topic_id
-              WHERE mt.mention_id = m.id
-              ORDER BY mt.confidence DESC NULLS LAST LIMIT 1) AS topic,
+            pt.topic_name AS topic,
             m.published_at
        FROM mentions m
+       LEFT JOIN primary_topic pt ON pt.mention_id = m.id
       WHERE m.agency_id = $1
         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
         AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
         AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')
-      ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+      ORDER BY
+        CASE WHEN m.nlp_pertinence = 'alta' THEN 0
+             WHEN m.nlp_pertinence = 'media' THEN 1
+             ELSE 2 END,
+        CASE WHEN pt.topic_name = ANY($3::text[]) THEN 0 ELSE 1 END,
+        COALESCE(m.engagement_score, 0) DESC,
+        m.published_at DESC
       LIMIT 10`,
-    [agency.id, today],
+    [agency.id, today, topNegTopics],
   );
   type SampleRow = {
     id: string;
