@@ -95,7 +95,15 @@ REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
 8. **PROHIBIDOS los handles personales y nombres de ciudadanos privados.** No menciones @handles ni nombres de personas individuales (ej. "@juanperez", "el ciudadano Juan Pérez", "el usuario @maria_pr"). **SÍ puedes mencionar medios de prensa** y cuentas oficiales de medios (ej. "ElNuevoDia.com", "PrimeraHora", "Notiuno", "Telemundo Puerto Rico", "WAPA TV", "@elnuevodia"). También puedes mencionar **cuentas institucionales** (la propia agencia, organismos oficiales) y **funcionarios públicos por su cargo** ("el Secretario del DDEC", "la senadora por Ponce") sin nombre personal. Cuando el dato relevante venga de un autor individual sin perfil público, agrégalo como "un usuario en Twitter" o "comentaristas en Facebook" — sin nombre ni @.
 
-9. **PROHIBIDO inventar hechos específicos.** Lugares, fechas, números de eventos (ej. "la quinta vista del Senado fue en Ponce"), nombres de iniciativas o cargos no presentes en los textos de la muestra. Si una mención no especifica EXPLÍCITAMENTE el lugar donde ocurrió un evento, **no infieras ni inventes uno** — describe el evento sin lugar o omite el dato. Mejor un insight más corto y verdadero que uno completo pero alucinado.
+9. **PROHIBIDO inventar hechos específicos** — y muy especialmente PROHIBIDO inferir lugares.
+
+   **REGLA GEOGRÁFICA ESTRICTA:**
+   - NO confundas la ubicación del MEDIO con la ubicación del EVENTO. Que un periódico de Ponce cubra una noticia NO significa que el evento ocurrió en Ponce. Que un usuario tuitee desde Bayamón NO significa que la queja sea sobre Bayamón.
+   - El campo \`muni=\` de cada muestra es una **etiqueta automática** que el NLP asigna por menciones de palabras o por proximidad geográfica del medio — **NO es ground truth del lugar del evento**. Úsalo SOLO como pista débil, jamás como dato cited.
+   - **Menciona un lugar solo si está LITERAL en el texto de UNA mención** y el texto lo conecta inequívocamente al evento, no al medio ni al autor. Si dudas: omite el lugar.
+   - PROHIBIDOS también: fechas que no aparezcan literal en las muestras o agregados, números de eventos ("la quinta vista", "el tercer informe") salvo que el texto lo diga, nombres de iniciativas o cargos no presentes literal.
+
+   Si el evento es nacional, regional o no localizado, descríbelo sin lugar. Mejor un insight más corto y verdadero que uno completo pero geográficamente alucinado.
 
 10. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
 
@@ -111,6 +119,7 @@ EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
 - "El volumen creció 34%." ← dato sin mecanismo ni actor.
 - "@juanperezpr lidera la crítica con 12 menciones." ← handle personal de ciudadano privado (cuentas institucionales sí, personales no).
 - "La quinta vista del Senado fue en Ponce." ← hecho inventado / no presente literal en las menciones.
+- "La protesta se concentró en Ponce" (cuando lo único que respalda Ponce es que el medio cubriendo es de Ponce) ← inferencia geográfica prohibida: medio ≠ lugar del evento.
 `.trim();
 
 // ============================================================
@@ -268,7 +277,7 @@ ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muest
 TAREA:
 Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. Debe:
 1. Indicar el volumen total de menciones del día y qué sentimiento dominó (con % explícito).
-2. Señalar en qué **1–3 tópicos de conversación concretos** se concentró el día, citando el número de menciones por tópico. Menciona municipios SOLO si un tópico específico se concentra claramente en 1–2 municipios; no fuerces geografía.
+2. Señalar en qué **1–3 tópicos de conversación concretos** se concentró el día, citando el número de menciones por tópico. **NO menciones municipios** salvo que el texto de UNA mención los nombre literalmente en relación al evento; el campo \`muni=\` de las muestras es etiqueta NLP automática (puede confundir ubicación del medio con ubicación del evento) y no es ground truth.
 3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. el día anterior.
 4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
 5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
@@ -276,7 +285,7 @@ Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${to
 PROHIBIDO:
 - Recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias.
 - **Handles personales o nombres de ciudadanos privados.** No menciones @handles individuales ni nombres propios de personas (excepto funcionarios públicos por su cargo). SÍ puedes mencionar **medios** ("ElNuevoDia.com", "Notiuno", "PrimeraHora"). Para autores individuales sin perfil público, usa giros como "un usuario en Twitter", "comentaristas en Facebook".
-- **Inventar hechos específicos** (lugares, fechas, números de eventos, nombres de iniciativas) no presentes literalmente en las muestras. Si una mención no especifica el lugar donde ocurrió un evento, no infieras uno — describe el evento sin lugar.
+- **Inventar hechos específicos** (lugares, fechas, números de eventos, nombres de iniciativas) no presentes literalmente en las muestras. **Especial cuidado con lugares**: que un medio de Ponce cubra una noticia no significa que el evento haya ocurrido en Ponce — son cosas distintas. Solo menciona el lugar si el texto de UNA mención lo enlaza al evento de manera explícita.
 - NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
@@ -393,10 +402,14 @@ function translateSentiment(s: 'negative' | 'neutral' | 'positive'): string {
 }
 
 function formatSample(i: number, m: MentionSample): string {
-  const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 320);
+  // Texto: 600 chars (antes 320). Más contexto al LLM para distinguir ironía,
+  // detalle de eventos, lugares LITERALES en la mención (vs. inferidos por NLP).
+  const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 600);
   const dateShort = m.createdAt.slice(0, 10);
+  // `muniNLP=` deja explícito que es etiqueta automática (no es el lugar del
+  // evento). El prompt prohíbe usarlo como ground truth.
   const meta = [
-    m.municipality ? `muni=${m.municipality}` : null,
+    m.municipality ? `muniNLP=${m.municipality}` : null,
     m.topic ? `topic=${m.topic}` : null,
     m.subtopic ? `sub=${m.subtopic}` : null,
     m.source ? `src=${m.source}` : null,

@@ -104,7 +104,16 @@ REGLAS INNEGOCIABLES:
 
 4. **Cita voces concretas cuando ayuden a entender el enojo del público.** Cuando uses una frase de la muestra, parafrásala (no la copies literal larga). PROHIBIDO citar @handles personales o nombres de ciudadanos privados; en su lugar identifica el **tipo de canal o medio** ("comentaristas en Facebook", "un editorial en ElNuevoDia.com", "Notiuno cubrió el tema"). SÍ puedes nombrar funcionarios públicos por su cargo ("el Secretario del DDEC") y medios de prensa por su nombre ("ElNuevoDia.com", "PrimeraHora", "Telemundo PR", "WAPA TV", "Notiuno"). NO uses el nombre personal de un ciudadano aunque aparezca en una mención.
 
-5. **PROHIBIDO inventar hechos específicos.** Lugares (ej. "la vista del Senado fue en Ponce"), fechas, números de eventos, nombres de iniciativas o cargos no presentes literalmente en los textos de la muestra. Si una mención no especifica EXPLÍCITAMENTE el lugar donde ocurrió un evento, **describe el evento sin lugar** — no infieras ni alucines. Mejor un editorial más corto y verdadero que uno completo pero con datos inventados. Aplica también a drivers, closing y representativeVoices.
+5. **PROHIBIDO inventar hechos específicos** — con énfasis en LUGARES.
+
+   **REGLA GEOGRÁFICA ESTRICTA:**
+   - NO confundas la ubicación del MEDIO con la ubicación del EVENTO. Que un periódico de Ponce cubra una noticia NO significa que el evento ocurrió en Ponce.
+   - El campo \`topNegativeMunicipalities\` y los \`muniNLP=\` de las muestras vienen de etiquetado automático del NLP — **NO son ground truth del lugar del evento**. Pueden reflejar dónde está el medio, dónde está el autor, o palabras sueltas, no necesariamente dónde ocurrió.
+   - **Menciona un lugar SOLO si lo ves LITERAL en el texto de UNA mención y el texto lo enlaza al evento**, no al medio ni al autor. Si dudas: omite el lugar y describe el evento sin localización.
+
+   También prohibido: fechas que no aparezcan literal, números de eventos ("la vista del Senado fue en Ponce" o "la quinta visita"), nombres de iniciativas, cargos o iniciativas legislativas no presentes literal.
+
+   Aplica a TODOS los campos del output: headline, lede, bodyParagraphsHtml, drivers, closing y representativeVoices. Mejor un editorial más corto y verdadero que uno completo pero con datos inventados.
 
 6. **Idioma**: español de Puerto Rico, tono profesional-clínico tipo briefing ejecutivo. Sin emojis, sin signos de exclamación, sin verbos de prensa amarilla ("estallar", "explotar", "se desata", "arde", "se prende").
 
@@ -144,13 +153,17 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
       }).join('\n')
     : '- (sin concentración geográfica negativa medible)';
 
+  // Hasta 20 muestras con 600 chars c/u — antes 10 × 280. El LLM necesita
+  // ver el texto completo para distinguir el lugar del EVENTO (literal en el
+  // texto) del lugar del MEDIO (etiqueta automática), y para construir
+  // análisis con más profundidad sobre actores y mecanismos.
   const samplesBlock = inp.sampleMentions.length > 0
     ? inp.sampleMentions
-        .slice(0, 10)
+        .slice(0, 20)
         .map((s, i) => {
-          const channel = s.source ? ` [${s.source}]` : s.pageType ? ` [${s.pageType}]` : '';
+          const channel = s.source ? ` [medio=${s.source}]` : s.pageType ? ` [canal=${s.pageType}]` : '';
           const topic = s.topic ? ` (${s.topic})` : '';
-          const text = (s.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 280);
+          const text = (s.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 600);
           return `${i + 1}.${channel}${topic} ${text}`;
         })
         .join('\n')
