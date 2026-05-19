@@ -523,16 +523,29 @@ async function fireCrisisAlert(
     negative: number;
   }>;
 
-  // 4. Muestra de menciones negativas para el LLM (texto largo) y separadamente
-  // las "voces destacadas" para el template (snippet recortado + URL).
+  // 4. Muestra de menciones negativas para el LLM y para las voces destacadas.
   //
-  // Orden: primero por pertinencia (alta > media), después por bonus si el
-  // tópico principal de la mención coincide con uno de los tópicos negativos
-  // dominantes del periodo (= la "crisis"), después por engagement. Así la
-  // primera muestra con og:image válida sirve como hero — y la elegida es
-  // intrínsecamente la más relevante a la crisis, no la que más likes tuvo
-  // (que puede ser un meme tangencial).
+  // Ranking de relevancia (score híbrido):
+  //
+  //   score = pertinence_w × (1 + ln(1 + engagement)) × topic_w
+  //
+  // donde:
+  //   - pertinence_w: alta=3, media=2  (baja ya está filtrada).
+  //   - engagement: likes+comentarios+shares. `1 + ln(1+e)` arranca en 1
+  //     (no en 0 como `ln(1+e)`) — así dos menciones con engagement=0 aún
+  //     se diferencian por pertinencia y tópico. Para engagement=100 da ~5.6;
+  //     para 10000 da ~10.2. Logarítmico para que un viral no aplaste a
+  //     menciones pertinentes pero menos visibles.
+  //   - topic_w: 3 si el tópico es el dominante del día (=topicsRows[0]),
+  //     2 si está en los top-3 pero no es el dominante, 1 si no está.
+  //     El boost al dominante alinea el hero con el ángulo del editorial.
+  //
+  // El hero se elige entre las que tienen og:image válida — pick por score
+  // máximo (no por orden de aparición), así si la mención #1 en relevancia
+  // no expone og pero la #3 sí, gana #3 sobre #4 aunque ambas tengan og
+  // (siempre y cuando #3 > #4 en score).
   const topNegTopics = topicsRows.map((t) => t.topic);
+  const dominantNegTopic = topicsRows[0]?.topic ?? null;
   const samplesResult = await client.query(
     `WITH primary_topic AS (
        SELECT mt.mention_id,
@@ -544,30 +557,43 @@ async function fireCrisisAlert(
              FROM mention_topics
             GROUP BY mention_id
          ) pk ON pk.mention_id = mt.mention_id AND pk.max_conf = mt.confidence
+     ),
+     scored AS (
+       SELECT m.id,
+              m.title, m.snippet, m.url,
+              COALESCE(m.content_source_name, m.domain) AS source,
+              m.page_type,
+              m.nlp_pertinence AS pertinence,
+              COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+              pt.topic_name AS topic,
+              m.published_at,
+              COALESCE(m.engagement_score, 0) AS engagement,
+              (CASE m.nlp_pertinence WHEN 'alta' THEN 3 WHEN 'media' THEN 2 ELSE 1 END)
+                * (1 + LN(1 + GREATEST(0, COALESCE(m.engagement_score, 0))))
+                * (CASE
+                     WHEN pt.topic_name = $4 THEN 3
+                     WHEN pt.topic_name = ANY($3::text[]) THEN 2
+                     ELSE 1
+                   END)
+                AS relevance_score
+         FROM mentions m
+         LEFT JOIN primary_topic pt ON pt.mention_id = m.id
+        WHERE m.agency_id = $1
+          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+          AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
+          AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')
      )
-     SELECT m.id,
-            m.title, m.snippet, m.url,
-            COALESCE(m.content_source_name, m.domain) AS source,
-            m.page_type,
-            m.nlp_pertinence AS pertinence,
-            COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-            pt.topic_name AS topic,
-            m.published_at
-       FROM mentions m
-       LEFT JOIN primary_topic pt ON pt.mention_id = m.id
-      WHERE m.agency_id = $1
-        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
-        AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
-        AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')
-      ORDER BY
-        CASE WHEN m.nlp_pertinence = 'alta' THEN 0
-             WHEN m.nlp_pertinence = 'media' THEN 1
-             ELSE 2 END,
-        CASE WHEN pt.topic_name = ANY($3::text[]) THEN 0 ELSE 1 END,
-        COALESCE(m.engagement_score, 0) DESC,
-        m.published_at DESC
+     SELECT *
+       FROM scored
+      ORDER BY relevance_score DESC,
+               -- Tiebreaker explícito por si dos menciones empatan en score.
+               CASE pertinence WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
+               CASE WHEN topic = $4 THEN 0
+                    WHEN topic = ANY($3::text[]) THEN 1
+                    ELSE 2 END,
+               published_at DESC
       LIMIT 10`,
-    [agency.id, today, topNegTopics],
+    [agency.id, today, topNegTopics, dominantNegTopic],
   );
   type SampleRow = {
     id: string;
@@ -580,6 +606,8 @@ async function fireCrisisAlert(
     sentiment: string | null;
     topic: string | null;
     published_at: string;
+    engagement: number | string;
+    relevance_score: number | string;
   };
   const sampleRows = samplesResult.rows as SampleRow[];
 
@@ -643,12 +671,39 @@ async function fireCrisisAlert(
     buildScoreTrendUrl(client, agency.id, today),
     Promise.all(top6.map((r: SampleRow) => r.url ? fetchOgImage(r.url) : Promise.resolve(null))),
   ]);
-  const heroImageUrl = ogImages.find((img) => img != null) ?? null;
-  const heroImageIdx = heroImageUrl ? ogImages.findIndex((img) => img === heroImageUrl) : -1;
+  // Pick por SCORE máximo entre las og-válidas (no por orden de aparición):
+  // si la #1 en relevancia general no expone og, pero la #3 sí y la #5 también,
+  // gana la de mayor relevance_score entre #3 y #5 — no la que vino primera.
+  // El array ya viene ordenado DESC por score, así que el primer índice
+  // ogImages[i] != null es también el de mayor score entre los og-válidos.
+  const heroImageIdx = ogImages.findIndex((img) => img != null);
+  const heroImageUrl = heroImageIdx >= 0 ? ogImages[heroImageIdx]! : null;
   const heroMention = heroImageIdx >= 0 ? top6[heroImageIdx] : null;
   const heroImageCaption = heroMention
     ? `Foto: ${heroMention.source ?? heroMention.page_type ?? 'fuente'} · ${formatShortTimestamp(heroMention.published_at, REPORT_TIMEZONE)}`
     : null;
+
+  // Diagnóstico: imprime el ranking de las 6 candidatas + cuál ganó el hero.
+  // Permite verificar a posteriori que la combinación score+og:image válida
+  // produce la mención más relevante a la crisis. Importante porque la
+  // calidad subjetiva ("¿esa foto tiene que ver con la crisis?") solo es
+  // medible en backtest contra los logs.
+  if (top6.length > 0) {
+    const ranking = top6.map((r: SampleRow, i) => {
+      const isHero = i === heroImageIdx;
+      const og = ogImages[i] != null ? 'og:✓' : 'og:✗';
+      const score = typeof r.relevance_score === 'string' ? Number(r.relevance_score) : r.relevance_score;
+      const eng = typeof r.engagement === 'string' ? Number(r.engagement) : r.engagement;
+      const topicMark = topNegTopics.includes(r.topic ?? '') ? '★' : ' ';
+      return `${isHero ? '🏆' : '  '} #${i + 1} ${og} pert=${r.pertinence ?? '?'} eng=${eng} topic=${topicMark}${r.topic ?? '—'} score=${(score ?? 0).toFixed(2)} src=${r.source ?? r.page_type ?? '?'}`;
+    }).join('\n');
+    console.log(`[crisis] ${agency.slug} hero selection ranking:\n${ranking}`);
+    if (heroMention) {
+      console.log(`[crisis] ${agency.slug} hero selected: id=${heroMention.id} url=${heroMention.url} img=${heroImageUrl}`);
+    } else {
+      console.log(`[crisis] ${agency.slug} no hero — ninguna candidata tuvo og:image válido`);
+    }
+  }
 
   // 8. Render HTML.
   const renderData: CrisisAlertRenderData = {
