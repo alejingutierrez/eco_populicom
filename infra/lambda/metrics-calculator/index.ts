@@ -592,7 +592,7 @@ async function fireCrisisAlert(
                     WHEN topic = ANY($3::text[]) THEN 1
                     ELSE 2 END,
                published_at DESC
-      LIMIT 10`,
+      LIMIT 20`,
     [agency.id, today, topNegTopics, dominantNegTopic],
   );
   type SampleRow = {
