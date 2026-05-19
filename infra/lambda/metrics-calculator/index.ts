@@ -48,10 +48,20 @@ let schemaEnsured = false;
 interface InvokePayload {
   /** Backfill mode (recalcula snapshots históricos). */
   backfill?: boolean;
-  /** Fuerza la evaluación de crisis aunque ya haya un envío reciente — para tests. */
+  /**
+   * Fuerza la evaluación de crisis: brinca tanto el threshold como el
+   * cooldown. Útil para tests manuales y para regenerar editoriales.
+   */
   forceCrisis?: boolean;
   /** Si se especifica, solo evalúa crisis para esa agencia. */
   agencySlug?: string;
+  /**
+   * Override de destinatarios solo para esta invocación. Si se pasa, NO se
+   * tocan los `notify_emails` de la regla — solo se envía a estos correos.
+   * Útil con `forceCrisis` para mandar un test a un único correo sin avisar
+   * a toda la lista de la regla.
+   */
+  recipientsOverride?: string[];
 }
 
 export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: number; body: string }> => {
@@ -106,7 +116,13 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       computed++;
 
       try {
-        const fired = await evaluateCrisisAlerts(client, agency, today, event.forceCrisis === true);
+        const fired = await evaluateCrisisAlerts(
+          client,
+          agency,
+          today,
+          event.forceCrisis === true,
+          event.recipientsOverride,
+        );
         alertsFired += fired;
       } catch (err) {
         console.error(`[crisis] ${agency.slug} evaluation failed:`, err);
@@ -338,6 +354,7 @@ async function evaluateCrisisAlerts(
   agency: AgencyRow,
   today: string,
   force: boolean,
+  recipientsOverride?: string[],
 ): Promise<number> {
   const rulesResult = await client.query(
     `SELECT id, name, config, notify_emails
@@ -365,7 +382,7 @@ async function evaluateCrisisAlerts(
 
     const crisis = snap.crisis_risk_score ?? 0;
     const severity = snap.crisis_severity ?? 0;
-    if (crisis < threshold || severity < severityMin) {
+    if (!force && (crisis < threshold || severity < severityMin)) {
       console.log(`[crisis] ${agency.slug} below threshold (crisis=${crisis} sev=${severity} min=${threshold}/${severityMin})`);
       continue;
     }
@@ -388,14 +405,17 @@ async function evaluateCrisisAlerts(
       }
     }
 
-    const recipients = Array.isArray(rule.notify_emails) ? rule.notify_emails.filter(Boolean) : [];
+    const baseRecipients = Array.isArray(rule.notify_emails) ? rule.notify_emails.filter(Boolean) : [];
+    const recipients = recipientsOverride && recipientsOverride.length > 0
+      ? recipientsOverride
+      : baseRecipients;
     if (recipients.length === 0) {
       console.warn(`[crisis] ${agency.slug} rule ${rule.id} has no recipients`);
       continue;
     }
 
     try {
-      await fireCrisisAlert(client, agency, rule, snap, recipients, today);
+      await fireCrisisAlert(client, agency, rule, snap, recipients, today, { previewOnly: false });
       fired++;
     } catch (err) {
       console.error(`[crisis] ${agency.slug} fire failed:`, err);
@@ -437,7 +457,8 @@ async function fireCrisisAlert(
   snap: SnapshotRow,
   recipients: string[],
   today: string,
-): Promise<void> {
+  opts: { previewOnly: boolean } = { previewOnly: false },
+): Promise<string> {
   console.log(`[crisis] ${agency.slug} firing rule ${rule.name} (score=${snap.crisis_risk_score})`);
 
   // 1. Contexto cuantitativo: día previo + 24h ago para delta.
@@ -506,7 +527,9 @@ async function fireCrisisAlert(
   // las "voces destacadas" para el template (snippet recortado + URL).
   const samplesResult = await client.query(
     `SELECT m.id,
-            m.title, m.snippet, m.url, m.source, m.page_type,
+            m.title, m.snippet, m.url,
+            COALESCE(m.content_source_name, m.domain) AS source,
+            m.page_type,
             m.nlp_pertinence AS pertinence,
             COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
             (SELECT t.name FROM mention_topics mt
@@ -630,6 +653,12 @@ async function fireCrisisAlert(
   const html = renderCrisisAlertHtml(renderData);
   const subject = `[${bandLabelEs(band)}] ${agencyShortName(agency.slug)} · ${truncate(editorial.headline, 80)}`;
 
+  // PreviewOnly: salimos sin SES ni alert_history. Útil para iterar el template.
+  if (opts.previewOnly) {
+    console.log(`[crisis] ${agency.slug} previewOnly — skip SES + alert_history`);
+    return html;
+  }
+
   // 9. Enviar individual por destinatario (mismo patrón que weekly-report).
   const sent: string[] = [];
   const failed: { email: string; error: string }[] = [];
@@ -686,6 +715,7 @@ async function fireCrisisAlert(
       sent.length > 0 ? new Date() : null,
     ],
   );
+  return html;
 }
 
 // ============================================================
