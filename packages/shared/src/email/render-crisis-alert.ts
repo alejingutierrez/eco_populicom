@@ -61,6 +61,8 @@ export interface CrisisAlertRenderData {
     snippet: string;
     url: string | null;
     publishedAtLabel: string;
+    /** Opcional: og:image scrappeada de la URL. Si falta, se renderiza sin foto. */
+    imageUrl?: string | null;
   }>;
 
   /**
@@ -69,11 +71,25 @@ export interface CrisisAlertRenderData {
    */
   scoreTrendImageUrl: string;
 
+  /**
+   * Imagen "hero" del periodo. Se obtiene scrappeando el og:image de la
+   * mención más relevante (top engagement entre las negativas). Si ninguna
+   * mención expone una imagen utilizable, se deja vacío y se oculta el bloque.
+   */
+  heroImageUrl?: string | null;
+  /** Pie de foto opcional (ej. "Captura · ElNuevoDia.com · 18 may"). */
+  heroImageCaption?: string | null;
+
   /** Salida editorial del LLM. */
   editorial: {
     headline: string;
     lede: string;
     bodyParagraphsHtml: string[];
+    representativeVoices: Array<{
+      quote: string;
+      attribution: string;
+      tone: 'negative' | 'neutral' | 'positive';
+    }>;
     drivers: Array<{ label: string; description: string }>;
     closing: string;
   };
@@ -174,20 +190,85 @@ function indicatorTile(label: string, value: string, accentColor: string, hint: 
 }
 
 // ------------------------------------------------------------
-// Topic / municipality row con barra de share negativo
+// Concentración: una fila por concepto (tópico o municipio). Layout:
+// kicker | nombre | barra horizontal | conteo y %. Stacked verticalmente
+// para evitar la asimetría visual que producía el grid de 2 columnas
+// cuando las cuentas de cada lado eran desiguales.
 // ------------------------------------------------------------
 
-function negShareRow(name: string, negative: number, total: number, share: number): string {
+function concentrationRow(
+  kind: 'TÓPICO' | 'MUNICIPIO',
+  name: string,
+  negative: number,
+  total: number,
+  share: number,
+  isLast: boolean,
+): string {
   const pct = Math.round(share * 100);
+  // Barra: ancho proporcional al share. Min 4% para que siempre se vea algo.
+  const barWidth = Math.max(4, pct);
+  const border = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
   return `<tr>
-    <td class="force-text-dark" style="padding:10px 14px;font-size:13px;color:${COLORS.ink};border-bottom:1px solid ${COLORS.borderSoft};">${esc(name)}</td>
-    <td align="right" class="force-text-soft" style="padding:10px 12px;font-size:12.5px;color:${COLORS.inkSoft};white-space:nowrap;border-bottom:1px solid ${COLORS.borderSoft};">${fmtInt(negative)} / ${fmtInt(total)}</td>
-    <td align="right" class="force-text-dark" style="padding:10px 14px;font-size:13px;font-weight:700;color:${COLORS.alerta};white-space:nowrap;border-bottom:1px solid ${COLORS.borderSoft};">${pct}%</td>
+    <td style="padding:14px 16px;${border}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td valign="top">
+            <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px;">${esc(kind)}</div>
+            <div class="force-text-dark" style="font-size:14px;font-weight:600;color:${COLORS.ink};line-height:1.3;">${esc(name)}</div>
+          </td>
+          <td align="right" valign="top" style="white-space:nowrap;padding-left:12px;">
+            <div class="force-text-dark" style="font-size:18px;font-weight:700;color:${COLORS.alerta};line-height:1;letter-spacing:-0.01em;">${pct}%</div>
+            <div class="force-text-soft" style="margin-top:3px;font-size:11px;color:${COLORS.inkMute};">${fmtInt(negative)} de ${fmtInt(total)} negativas</div>
+          </td>
+        </tr>
+      </table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;border-collapse:separate;border-radius:3px;overflow:hidden;background:${COLORS.borderSoft};">
+        <tr>
+          <td bgcolor="${COLORS.alerta}" style="background:${COLORS.alerta};background-color:${COLORS.alerta};width:${barWidth}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>
+          <td style="width:${100 - barWidth}%;height:6px;line-height:6px;font-size:0;padding:0;background:${COLORS.borderSoft};">&nbsp;</td>
+        </tr>
+      </table>
+    </td>
   </tr>`;
 }
 
 // ------------------------------------------------------------
-// Highlighted mention card
+// Pull-quote: la frase parafraseada del LLM con su atribución
+// ------------------------------------------------------------
+
+function pullQuote(
+  quote: string,
+  attribution: string,
+  tone: 'negative' | 'neutral' | 'positive',
+  isLast: boolean,
+): string {
+  const toneColor = tone === 'negative' ? COLORS.alerta
+                  : tone === 'positive' ? '#1F8A47'
+                  : COLORS.inkSoft;
+  const border = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
+  return `<tr>
+    <td style="padding:18px 20px;${border}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td valign="top" style="width:6px;padding-right:14px;">
+            <div style="width:3px;background:${toneColor};height:100%;min-height:48px;border-radius:2px;"></div>
+          </td>
+          <td valign="top">
+            <p class="force-text-dark" style="margin:0 0 8px 0;font-size:15px;line-height:1.55;color:${COLORS.ink};font-style:italic;letter-spacing:-0.005em;">
+              &ldquo;${esc(quote)}&rdquo;
+            </p>
+            <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;">
+              ${esc(attribution)}
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>`;
+}
+
+// ------------------------------------------------------------
+// Highlighted mention card — incluye thumbnail si imageUrl está presente
 // ------------------------------------------------------------
 
 function mentionCard(
@@ -198,15 +279,29 @@ function mentionCard(
   const link = m.url
     ? `<a href="${esc(m.url)}" style="color:${COLORS.brand};text-decoration:none;font-size:11.5px;font-weight:600;">Ver mención →</a>`
     : '';
+  const thumb = m.imageUrl
+    ? `<td valign="top" style="width:76px;padding-right:14px;">
+        <a href="${esc(m.url ?? '#')}" style="text-decoration:none;display:block;">
+          <img src="${esc(m.imageUrl)}" alt="" width="76" height="76" style="display:block;width:76px;height:76px;object-fit:cover;border-radius:6px;border:1px solid ${COLORS.borderSoft};">
+        </a>
+      </td>`
+    : '';
   return `<tr>
     <td style="padding:14px 16px;${border}">
-      <div class="force-text-soft" style="font-size:10.5px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;margin-bottom:4px;">
-        ${esc(m.sourceLabel)} <span style="color:${COLORS.borderSoft};">·</span> ${esc(m.publishedAtLabel)}
-      </div>
-      <div class="force-text-dark" style="font-size:13px;line-height:1.55;color:${COLORS.ink};">
-        ${esc(m.snippet)}
-      </div>
-      ${link ? `<div style="margin-top:6px;">${link}</div>` : ''}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          ${thumb}
+          <td valign="top">
+            <div class="force-text-soft" style="font-size:10.5px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;margin-bottom:4px;">
+              ${esc(m.sourceLabel)} <span style="color:${COLORS.borderSoft};">·</span> ${esc(m.publishedAtLabel)}
+            </div>
+            <div class="force-text-dark" style="font-size:13px;line-height:1.55;color:${COLORS.ink};">
+              ${esc(m.snippet)}
+            </div>
+            ${link ? `<div style="margin-top:6px;">${link}</div>` : ''}
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>`;
 }
@@ -253,22 +348,30 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
     ? `${fmtInt(v.totalMentions)} menciones &nbsp;·&nbsp; <strong style="color:${COLORS.alerta};">${fmtInt(v.negativeCount)} negativas</strong> (${fmtPct(v.negativeShare)}). Día previo: ${fmtInt(v.prevDayTotal)} / ${fmtInt(v.prevDayNegative ?? 0)} neg.`
     : `${fmtInt(v.totalMentions)} menciones &nbsp;·&nbsp; <strong style="color:${COLORS.alerta};">${fmtInt(v.negativeCount)} negativas</strong> (${fmtPct(v.negativeShare)}).`;
 
-  const topicsRows = data.topNegativeTopics.length > 0
-    ? data.topNegativeTopics
-        .slice(0, 5)
-        .map((t) => negShareRow(t.topic, t.negative, t.total, t.negativeShare))
-        .join('')
-    : `<tr><td colspan="3" style="padding:14px 16px;font-size:12px;color:${COLORS.inkMute};font-style:italic;">Sin concentración por tópico medible.</td></tr>`;
+  // Concentración: un solo bloque vertical con tópicos + municipios. Ordenado
+  // por share descendente. Cada tipo se mantiene en un sub-bloque separado
+  // visualmente con su propio kicker para no fragmentar lectura.
+  const topicConcentrationItems = data.topNegativeTopics
+    .slice(0, 3)
+    .map((t, i, arr) => concentrationRow('TÓPICO', t.topic, t.negative, t.total, t.negativeShare, i === arr.length - 1));
+  const muniConcentrationItems = data.topNegativeMunicipalities
+    .slice(0, 3)
+    .map((mu, i, arr) => {
+      const share = mu.total > 0 ? mu.negative / mu.total : 0;
+      return concentrationRow('MUNICIPIO', mu.municipality, mu.negative, mu.total, share, i === arr.length - 1);
+    });
 
-  const muniRows = data.topNegativeMunicipalities.length > 0
-    ? data.topNegativeMunicipalities
-        .slice(0, 5)
-        .map((mu) => {
-          const share = mu.total > 0 ? mu.negative / mu.total : 0;
-          return negShareRow(mu.municipality, mu.negative, mu.total, share);
-        })
-        .join('')
-    : `<tr><td colspan="3" style="padding:14px 16px;font-size:12px;color:${COLORS.inkMute};font-style:italic;">Sin concentración geográfica medible.</td></tr>`;
+  const topicsBlock = topicConcentrationItems.length > 0
+    ? `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:12px;">
+        ${topicConcentrationItems.join('')}
+      </table>`
+    : `<div class="force-text-soft" style="padding:14px 16px;font-size:12px;color:${COLORS.inkMute};font-style:italic;background:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:12px;">Sin concentración por tópico medible.</div>`;
+
+  const muniBlock = muniConcentrationItems.length > 0
+    ? `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
+        ${muniConcentrationItems.join('')}
+      </table>`
+    : '';
 
   const drivers = data.editorial.drivers
     .slice(0, 3)
@@ -286,10 +389,44 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
     .filter((p) => p && p.trim().length > 0)
     .slice(0, 4)
     .map(
-      (p) =>
-        `<p class="force-text-dark" style="margin:0 0 12px 0;font-size:14px;line-height:1.65;color:${COLORS.ink};">${p}</p>`,
+      (p, i) => {
+        // El primer párrafo es el "lede secundario" — un poco más grande
+        // que los demás para abrir la lectura como un editorial de prensa.
+        const size = i === 0 ? '14.5px' : '14px';
+        const weight = i === 0 ? 500 : 400;
+        return `<p class="force-text-dark" style="margin:0 0 12px 0;font-size:${size};line-height:1.65;color:${COLORS.ink};font-weight:${weight};">${p}</p>`;
+      },
     )
     .join('');
+
+  const voicesBlock = data.editorial.representativeVoices && data.editorial.representativeVoices.length > 0
+    ? `<tr>
+        <td class="px-32" style="padding:6px 32px 8px 32px;">
+          <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">02b · Voces representativas</div>
+          <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
+            ${data.editorial.representativeVoices.slice(0, 3).map((v, i, arr) => pullQuote(v.quote, v.attribution, v.tone, i === arr.length - 1)).join('')}
+          </table>
+        </td>
+      </tr>`
+    : '';
+
+  // Hero image (opcional): se renderiza después del lede como gancho visual.
+  // Cuando no hay og:image utilizable, se omite y la jerarquía cae natural
+  // sobre los indicadores.
+  const heroImageBlock = data.heroImageUrl
+    ? `<tr>
+        <td class="px-32" style="padding:6px 32px 6px 32px;">
+          <div style="position:relative;border-radius:8px;overflow:hidden;border:1px solid ${COLORS.border};background:${COLORS.surface};">
+            <img src="${esc(data.heroImageUrl)}" alt="${esc(data.editorial.headline)}" width="536" style="display:block;width:100%;max-width:536px;height:auto;border:0;">
+            ${data.heroImageCaption
+              ? `<div class="force-text-soft" style="padding:8px 14px;font-size:11px;color:${COLORS.inkMute};letter-spacing:0.05em;line-height:1.5;border-top:1px solid ${COLORS.borderSoft};background:${COLORS.page};">
+                  ${esc(data.heroImageCaption)}
+                </div>`
+              : ''}
+          </div>
+        </td>
+      </tr>`
+    : '';
 
   const trendBlock = data.scoreTrendImageUrl
     ? `<tr>
@@ -382,6 +519,8 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
+          ${heroImageBlock}
+
           <!-- INDICADORES -->
           <tr>
             <td class="px-32" style="padding:6px 32px 12px 32px;">
@@ -403,6 +542,8 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
+          ${voicesBlock}
+
           ${trendBlock}
 
           <!-- DRIVERS -->
@@ -415,38 +556,19 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
-          <!-- TÓPICOS Y MUNICIPIOS -->
+          <!-- CONCENTRACIÓN — stacked vertical con barras de progreso -->
           <tr>
             <td class="px-32" style="padding:18px 32px 6px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">04 · Concentración</div>
-
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:14px;">
-                <tr>
-                  <td class="stack" valign="top" width="50%" style="padding-right:8px;">
-                    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                      <tr>
-                        <td style="padding:10px 14px;background:${COLORS.page};border-bottom:1px solid ${COLORS.borderSoft};font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Tópicos</td>
-                      </tr>
-                      ${topicsRows}
-                    </table>
-                  </td>
-                  <td class="stack stack-pad" valign="top" width="50%" style="padding-left:8px;">
-                    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                      <tr>
-                        <td style="padding:10px 14px;background:${COLORS.page};border-bottom:1px solid ${COLORS.borderSoft};font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Municipios</td>
-                      </tr>
-                      ${muniRows}
-                    </table>
-                  </td>
-                </tr>
-              </table>
+              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">04 · Dónde se concentra</div>
+              ${topicsBlock}
+              ${muniBlock}
             </td>
           </tr>
 
-          <!-- VOCES -->
+          <!-- ENLACES Y FUENTES — la lista cruda con thumbnails -->
           <tr>
-            <td class="px-32" style="padding:8px 32px 8px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">05 · Voces destacadas</div>
+            <td class="px-32" style="padding:14px 32px 8px 32px;">
+              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">05 · Enlaces y fuentes</div>
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
                 ${mentionsRows}
               </table>

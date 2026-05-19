@@ -62,11 +62,26 @@ export interface CrisisEditorialOutput {
   /** Lede de 1–2 oraciones ≤ 50 palabras. Sin recomendaciones. */
   lede: string;
   /**
-   * Cuerpo editorial: 2–3 párrafos cortos (≤ 60 palabras cada uno), en HTML
+   * Cuerpo editorial: 3–4 párrafos cortos (≤ 70 palabras cada uno), en HTML
    * mínimo (`<strong>` permitido, nada más). Describe qué pasó, cuándo, y
    * qué voces predominan. NO recomienda acciones.
    */
   bodyParagraphsHtml: string[];
+  /**
+   * 3 voces representativas del periodo, parafraseadas (no copy literal extenso).
+   * Cada voz debe ser una frase con sustancia, no una etiqueta. La atribución
+   * usa el medio o tipo de canal observado en la muestra (ej. "Twitter",
+   * "Comentario en Facebook", "ElNuevoDia.com"). El tono cita la queja/elogio
+   * tal como la audiencia lo expresa.
+   */
+  representativeVoices: Array<{
+    /** Frase parafraseada (entre comillas en el render). ≤ 30 palabras. */
+    quote: string;
+    /** Atribución corta. Ej: "Comentario en Facebook · 18 may". */
+    attribution: string;
+    /** Tono dominante de la voz, mapeo a color. */
+    tone: 'negative' | 'neutral' | 'positive';
+  }>;
   /** 3 drivers concretos: cada uno con título corto + descripción 1 oración. */
   drivers: Array<{
     label: string;
@@ -169,7 +184,8 @@ TAREA:
 Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 - \`headline\`: titular ≤ 120 caracteres, factual.
 - \`lede\`: 1–2 oraciones (≤ 50 palabras) que abran como un párrafo de prensa serio. Si la banda es NORMAL, empieza con "Sin señales de crisis en el periodo."; si es ELEVADO, "Se observan señales elevadas en <tópico>".
-- \`bodyParagraphsHtml\`: 2–3 párrafos cortos (≤ 60 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. Cubre qué pasó, dónde, y cómo se está expresando el público (parafraseando voces de la muestra).
+- \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primer párrafo abre con qué pasó (volumen, share negativo, salto vs día previo, tópico principal). El segundo describe el contenido dominante de las críticas: qué dice puntualmente la audiencia, con paráfrasis breves de la muestra. El tercero (si aplica) ubica la concentración geográfica/temporal y conecta con el día previo. Sin recomendaciones.
+- \`representativeVoices\`: arreglo de exactamente 3 voces representativas extraídas/parafraseadas de la muestra de menciones. Cada una con \`quote\` (paráfrasis ≤ 30 palabras, sin comillas dentro), \`attribution\` (\`Tipo de canal · día\`, ej. \`Comentario en Facebook · 18 may\`) y \`tone\` (\`negative\`, \`neutral\` o \`positive\`). Selecciona voces DIFERENTES entre sí — distintos tópicos o ángulos del enojo/elogio, no la misma queja repetida.
 - \`drivers\`: 3 objetos \`{label, description}\`. \`label\` ≤ 5 palabras (ej. "Concentración negativa", "Salto de volumen", "Pertinencia alta"). \`description\` 1 oración respaldada por un número.
 - \`closing\`: 1 oración (≤ 30 palabras) que contextualice el momento sin recomendar acciones.
 `.trim();

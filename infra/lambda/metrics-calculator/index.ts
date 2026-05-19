@@ -612,8 +612,20 @@ async function fireCrisisAlert(
 
   const editorial = await generateCrisisEditorial(editorialInputs);
 
-  // 7. Trend chart (últimos 14 días de crisis_risk_score).
-  const trendImageUrl = await buildScoreTrendUrl(client, agency.id, today);
+  // 7. Trend chart (últimos 14 días de crisis_risk_score) + OG images en paralelo.
+  // El fetch de og:image es best-effort: cada URL tiene 3s de timeout y si no
+  // hay og:image utilizable el bloque visual simplemente se omite.
+  const top6 = sampleRows.slice(0, 6);
+  const [trendImageUrl, ogImages] = await Promise.all([
+    buildScoreTrendUrl(client, agency.id, today),
+    Promise.all(top6.map((r: SampleRow) => r.url ? fetchOgImage(r.url) : Promise.resolve(null))),
+  ]);
+  const heroImageUrl = ogImages.find((img) => img != null) ?? null;
+  const heroImageIdx = heroImageUrl ? ogImages.findIndex((img) => img === heroImageUrl) : -1;
+  const heroMention = heroImageIdx >= 0 ? top6[heroImageIdx] : null;
+  const heroImageCaption = heroMention
+    ? `Foto: ${heroMention.source ?? heroMention.page_type ?? 'fuente'} · ${formatShortTimestamp(heroMention.published_at, REPORT_TIMEZONE)}`
+    : null;
 
   // 8. Render HTML.
   const renderData: CrisisAlertRenderData = {
@@ -639,13 +651,16 @@ async function fireCrisisAlert(
     },
     topNegativeTopics: editorialInputs.topNegativeTopics,
     topNegativeMunicipalities: editorialInputs.topNegativeMunicipalities,
-    highlightedMentions: sampleRows.slice(0, 6).map((r: SampleRow) => ({
+    highlightedMentions: top6.map((r: SampleRow, i) => ({
       sourceLabel: r.source ?? r.page_type ?? 'Fuente desconocida',
       snippet: truncate(r.snippet ?? r.title ?? '', 240),
       url: r.url ?? null,
       publishedAtLabel: formatShortTimestamp(r.published_at, REPORT_TIMEZONE),
+      imageUrl: ogImages[i] ?? null,
     })),
     scoreTrendImageUrl: trendImageUrl,
+    heroImageUrl,
+    heroImageCaption,
     editorial,
     dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
   };
@@ -735,7 +750,21 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
         bodyParagraphsHtml: {
           type: 'array',
           items: { type: 'string' },
-          description: '2–3 párrafos en HTML mínimo (solo <strong>).',
+          description: '3–4 párrafos en HTML mínimo (solo <strong>).',
+        },
+        representativeVoices: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              quote: { type: 'string', description: 'Paráfrasis ≤ 30 palabras, sin comillas dentro.' },
+              attribution: { type: 'string', description: 'Tipo de canal · día. Ej: "Comentario en Facebook · 18 may".' },
+              tone: { type: 'string', enum: ['negative', 'neutral', 'positive'] },
+            },
+            required: ['quote', 'attribution', 'tone'],
+            additionalProperties: false,
+          },
+          description: 'Exactamente 3 voces representativas (parafraseadas, diferentes entre sí).',
         },
         drivers: {
           type: 'array',
@@ -752,7 +781,7 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
         },
         closing: { type: 'string', description: 'Frase de cierre contextual.' },
       },
-      required: ['headline', 'lede', 'bodyParagraphsHtml', 'drivers', 'closing'],
+      required: ['headline', 'lede', 'bodyParagraphsHtml', 'representativeVoices', 'drivers', 'closing'],
       additionalProperties: false,
     },
   };
@@ -788,6 +817,14 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
         bodyParagraphsHtml: Array.isArray(parsed.bodyParagraphsHtml)
           ? parsed.bodyParagraphsHtml.filter((p): p is string => typeof p === 'string').slice(0, 4)
           : [],
+        representativeVoices: Array.isArray(parsed.representativeVoices)
+          ? parsed.representativeVoices
+              .filter((v: any): v is { quote: string; attribution: string; tone: 'negative' | 'neutral' | 'positive' } =>
+                v && typeof v.quote === 'string' && typeof v.attribution === 'string'
+                && (v.tone === 'negative' || v.tone === 'neutral' || v.tone === 'positive'),
+              )
+              .slice(0, 3)
+          : [],
         drivers: Array.isArray(parsed.drivers)
           ? parsed.drivers
               .filter((d: any): d is { label: string; description: string } =>
@@ -811,6 +848,7 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
     bodyParagraphsHtml: [
       `Se registraron ${inputs.totalMentions} menciones, ${inputs.negativeCount} negativas (${Math.round(inputs.negativeShare * 100)}%).`,
     ],
+    representativeVoices: [],
     drivers: [
       { label: 'Concentración negativa', description: `Severidad ${inputs.crisisSeverity.toFixed(2)}.` },
       { label: 'Velocidad', description: `Velocidad ${inputs.crisisVelocity.toFixed(2)}.` },
@@ -818,6 +856,87 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
     ],
     closing: 'Editorial no disponible; revisar el dashboard para contexto completo.',
   };
+}
+
+// ============================================================
+// Open Graph image fetcher
+// ============================================================
+
+/**
+ * Hace best-effort scrape del `og:image` (con fallback a `twitter:image`)
+ * de una URL. Timeout corto (3s) y catch-all para que un solo URL lento o
+ * bloqueado no tumbe el correo. Devuelve null cuando no hay imagen utilizable.
+ *
+ * Limitaciones conocidas (todas se traducen en null y se omiten):
+ * - URLs detrás de auth (Facebook, X protegido) — el HTML no expone og:image.
+ * - URLs que bloquean User-Agent genérico (algunos CDNs antibot).
+ * - URLs que devuelven SPA shell sin meta tags pre-renderizados.
+ */
+async function fetchOgImage(url: string, timeoutMs = 3000): Promise<string | null> {
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        // UA "realista" para que CDNs / sitios de noticias no nos sirvan página de bot.
+        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const ct = resp.headers.get('content-type') ?? '';
+    if (!ct.toLowerCase().includes('html')) return null;
+
+    // Lee solo los primeros 64KB del HTML — los <meta> de OG siempre van en <head>.
+    // Esto evita descargar megas innecesarios en sitios pesados.
+    const reader = resp.body?.getReader();
+    if (!reader) return null;
+    const decoder = new TextDecoder('utf-8');
+    let html = '';
+    const MAX_BYTES = 64 * 1024;
+    let read = 0;
+    while (read < MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+      read += value.length;
+      if (html.includes('</head>')) break;
+    }
+    try { await reader.cancel(); } catch { /* ignore */ }
+
+    // Match flexible: content antes O después de property/name.
+    const patterns: RegExp[] = [
+      /<meta\s+[^>]*property=["'](?:og:image(?::secure_url|:url)?|twitter:image(?::src)?)["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:image(?::secure_url|:url)?|twitter:image(?::src)?)["']/i,
+      /<meta\s+[^>]*name=["'](?:twitter:image(?::src)?)["'][^>]*content=["']([^"']+)["']/i,
+    ];
+    let img: string | null = null;
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1]) { img = m[1].trim(); break; }
+    }
+    if (!img) return null;
+
+    // Normaliza URLs relativas / protocol-relative.
+    if (img.startsWith('//')) img = 'https:' + img;
+    if (img.startsWith('/')) {
+      const u = new URL(url);
+      img = `${u.origin}${img}`;
+    }
+    if (!/^https?:\/\//i.test(img)) return null;
+
+    // Sanity: solo extensiones / paths que parecen imágenes. Algunos sitios
+    // ponen rutas tipo /favicon o /logo.svg como og:image y eso queda feo
+    // en el hero. No es una validación perfecta — es heurística.
+    if (img.endsWith('.svg')) return null;
+    return img;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================
