@@ -102,13 +102,15 @@ REGLAS INNEGOCIABLES:
 
 3. **Cada afirmación cuantitativa debe estar respaldada por un número del contexto:** crisisRiskScore, crisisSeverity, crisisVelocity, volumeAnomalyZscore, %neg del tópico, total de menciones, salto vs día anterior.
 
-4. **Cita voces concretas cuando ayuden a entender el enojo del público.** Cuando uses una frase de la muestra, parafrásala (no la copies literal larga) e identifica el medio o tipo de canal cuando sea relevante.
+4. **Cita voces concretas cuando ayuden a entender el enojo del público.** Cuando uses una frase de la muestra, parafrásala (no la copies literal larga). PROHIBIDO citar @handles personales o nombres de ciudadanos privados; en su lugar identifica el **tipo de canal o medio** ("comentaristas en Facebook", "un editorial en ElNuevoDia.com", "Notiuno cubrió el tema"). SÍ puedes nombrar funcionarios públicos por su cargo ("el Secretario del DDEC") y medios de prensa por su nombre ("ElNuevoDia.com", "PrimeraHora", "Telemundo PR", "WAPA TV", "Notiuno"). NO uses el nombre personal de un ciudadano aunque aparezca en una mención.
 
-5. **Idioma**: español de Puerto Rico, tono profesional-clínico tipo briefing ejecutivo. Sin emojis, sin signos de exclamación, sin verbos de prensa amarilla ("estallar", "explotar", "se desata", "arde", "se prende").
+5. **PROHIBIDO inventar hechos específicos.** Lugares (ej. "la vista del Senado fue en Ponce"), fechas, números de eventos, nombres de iniciativas o cargos no presentes literalmente en los textos de la muestra. Si una mención no especifica EXPLÍCITAMENTE el lugar donde ocurrió un evento, **describe el evento sin lugar** — no infieras ni alucines. Mejor un editorial más corto y verdadero que uno completo pero con datos inventados. Aplica también a drivers, closing y representativeVoices.
 
-6. **Salida HTML restringida**: SOLO \`<strong>\` para resaltar nombres, números o tópicos críticos. Ninguna otra etiqueta. Sin links, sin listas, sin headers.
+6. **Idioma**: español de Puerto Rico, tono profesional-clínico tipo briefing ejecutivo. Sin emojis, sin signos de exclamación, sin verbos de prensa amarilla ("estallar", "explotar", "se desata", "arde", "se prende").
 
-7. **Drivers describen, no prescriben.** "Concentración negativa en Servicios básicos (46% neg)" sí; "Atender la queja de servicios básicos" no.
+7. **Salida HTML restringida**: SOLO \`<strong>\` para resaltar nombres, números o tópicos críticos. Ninguna otra etiqueta. Sin links, sin listas, sin headers.
+
+8. **Drivers describen, no prescriben.** "Concentración negativa en Servicios básicos (46% neg)" sí; "Atender la queja de servicios básicos" no.
 `.trim();
 
 /**
@@ -185,7 +187,11 @@ Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 - \`headline\`: titular ≤ 120 caracteres, factual.
 - \`lede\`: 1–2 oraciones (≤ 50 palabras) que abran como un párrafo de prensa serio. Si la banda es NORMAL, empieza con "Sin señales de crisis en el periodo."; si es ELEVADO, "Se observan señales elevadas en <tópico>".
 - \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primer párrafo abre con qué pasó (volumen, share negativo, salto vs día previo, tópico principal). El segundo describe el contenido dominante de las críticas: qué dice puntualmente la audiencia, con paráfrasis breves de la muestra. El tercero (si aplica) ubica la concentración geográfica/temporal y conecta con el día previo. Sin recomendaciones.
-- \`representativeVoices\`: arreglo de exactamente 3 voces representativas extraídas/parafraseadas de la muestra de menciones. Cada una con \`quote\` (paráfrasis ≤ 30 palabras, sin comillas dentro), \`attribution\` (\`Tipo de canal · día\`, ej. \`Comentario en Facebook · 18 may\`) y \`tone\` (\`negative\`, \`neutral\` o \`positive\`). Selecciona voces DIFERENTES entre sí — distintos tópicos o ángulos del enojo/elogio, no la misma queja repetida.
+- \`representativeVoices\`: arreglo de exactamente 3 voces representativas extraídas/parafraseadas de la muestra de menciones. Cada una con:
+  - \`quote\`: paráfrasis ≤ 30 palabras, sin comillas dentro. NO copies literal extenso (riesgo legal con medios protegidos).
+  - \`attribution\`: \`Tipo de canal o medio · día\` (ej. \`Comentario en Facebook · 18 may\`, \`Editorial en ElNuevoDia.com · 18 may\`, \`Reportaje en Notiuno · 18 may\`). **PROHIBIDO atribuir a un @handle personal o a un nombre de ciudadano privado.** Para autores individuales sin perfil público, usa "Comentario en Twitter", "Usuario en Facebook", "Comentario público". SÍ puedes usar nombres de medios y handles oficiales de medios. SÍ puedes usar cargos públicos ("el Secretario").
+  - \`tone\`: \`negative\`, \`neutral\` o \`positive\`.
+  Selecciona voces DIFERENTES entre sí — distintos tópicos o ángulos del enojo/elogio, no la misma queja repetida.
 - \`drivers\`: 3 objetos \`{label, description}\`. \`label\` ≤ 5 palabras (ej. "Concentración negativa", "Salto de volumen", "Pertinencia alta"). \`description\` 1 oración respaldada por un número.
 - \`closing\`: 1 oración (≤ 30 palabras) que contextualice el momento sin recomendar acciones.
 `.trim();
