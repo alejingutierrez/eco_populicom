@@ -70,9 +70,10 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       schemaEnsured = true;
     }
 
-    const agenciesResult = await client.query<{ id: string; slug: string; name: string }>(
+    const agenciesResult = await client.query(
       "SELECT id, slug, name FROM agencies WHERE is_active = true",
     );
+    const agencies = agenciesResult.rows as Array<{ id: string; slug: string; name: string }>;
 
     if (isBackfill) {
       const datesResult = await client.query(
@@ -84,7 +85,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
         typeof r.d === 'string' ? r.d : r.d.toISOString().split('T')[0],
       );
       let computed = 0;
-      for (const agency of agenciesResult.rows) {
+      for (const agency of agencies) {
         for (const date of dates) {
           await computeForAgency(client, agency.id, date);
           computed++;
@@ -99,7 +100,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
     let computed = 0;
     let alertsFired = 0;
 
-    for (const agency of agenciesResult.rows) {
+    for (const agency of agencies) {
       if (event.agencySlug && agency.slug !== event.agencySlug) continue;
       await computeForAgency(client, agency.id, today);
       computed++;
@@ -338,7 +339,7 @@ async function evaluateCrisisAlerts(
   today: string,
   force: boolean,
 ): Promise<number> {
-  const rulesResult = await client.query<CrisisRuleRow>(
+  const rulesResult = await client.query(
     `SELECT id, name, config, notify_emails
        FROM alert_rules
       WHERE agency_id = $1
@@ -346,7 +347,8 @@ async function evaluateCrisisAlerts(
         AND config->>'type' = 'crisis_threshold'`,
     [agency.id],
   );
-  if (rulesResult.rows.length === 0) return 0;
+  const rules: CrisisRuleRow[] = rulesResult.rows;
+  if (rules.length === 0) return 0;
 
   const snap = await getTodaySnapshot(client, agency.id, today);
   if (!snap) {
@@ -355,7 +357,7 @@ async function evaluateCrisisAlerts(
   }
 
   let fired = 0;
-  for (const rule of rulesResult.rows) {
+  for (const rule of rules) {
     const cfg = rule.config;
     const threshold = cfg.crisis_min ?? 0.4;
     const severityMin = cfg.severity_min ?? 0;
@@ -369,14 +371,15 @@ async function evaluateCrisisAlerts(
     }
 
     if (!force) {
-      const recent = await client.query<{ triggered_at: string }>(
+      const recent = await client.query(
         `SELECT triggered_at FROM alert_history
           WHERE alert_rule_id = $1 AND notification_sent = true
           ORDER BY triggered_at DESC LIMIT 1`,
         [rule.id],
       );
-      if (recent.rows.length > 0) {
-        const lastTs = new Date(recent.rows[0].triggered_at).getTime();
+      const recentRows = recent.rows as Array<{ triggered_at: string }>;
+      if (recentRows.length > 0) {
+        const lastTs = new Date(recentRows[0].triggered_at).getTime();
         const hoursAgo = (Date.now() - lastTs) / (1000 * 60 * 60);
         if (hoursAgo < cooldownH) {
           console.log(`[crisis] ${agency.slug} cooldown active (${hoursAgo.toFixed(1)}h < ${cooldownH}h)`);
@@ -412,14 +415,15 @@ interface SnapshotRow {
 }
 
 async function getTodaySnapshot(client: any, agencyId: string, today: string): Promise<SnapshotRow | null> {
-  const r = await client.query<SnapshotRow>(
+  const r = await client.query(
     `SELECT crisis_risk_score, crisis_severity, crisis_velocity, crisis_relevance,
             volume_anomaly_zscore, total_mentions, negative_count
        FROM daily_metric_snapshots
       WHERE agency_id = $1 AND date = $2::date`,
     [agencyId, today],
   );
-  return r.rows[0] ?? null;
+  const rows = r.rows as SnapshotRow[];
+  return rows[0] ?? null;
 }
 
 // ============================================================
@@ -438,25 +442,21 @@ async function fireCrisisAlert(
 
   // 1. Contexto cuantitativo: día previo + 24h ago para delta.
   const yesterday = addDaysYmd(today, -1);
-  const prev = await client.query<{
-    crisis_risk_score: number | null;
-    total_mentions: number;
-    negative_count: number;
-  }>(
+  const prev = await client.query(
     `SELECT crisis_risk_score, total_mentions, negative_count
        FROM daily_metric_snapshots
       WHERE agency_id = $1 AND date = $2::date`,
     [agency.id, yesterday],
   );
-  const prevSnap = prev.rows[0] ?? null;
+  const prevRows = prev.rows as Array<{
+    crisis_risk_score: number | null;
+    total_mentions: number;
+    negative_count: number;
+  }>;
+  const prevSnap = prevRows[0] ?? null;
 
   // 2. Top tópicos con concentración negativa (del día detonante).
-  const topicsResult = await client.query<{
-    topic: string;
-    total: number;
-    negative: number;
-    neg_share: number;
-  }>(
+  const topicsResult = await client.query(
     `SELECT t.name AS topic,
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
@@ -473,13 +473,15 @@ async function fireCrisisAlert(
       LIMIT 3`,
     [agency.id, today],
   );
-
-  // 3. Top municipios negativos.
-  const muniResult = await client.query<{
-    municipality: string;
+  const topicsRows = topicsResult.rows as Array<{
+    topic: string;
     total: number;
     negative: number;
-  }>(
+    neg_share: number;
+  }>;
+
+  // 3. Top municipios negativos.
+  const muniResult = await client.query(
     `SELECT mu.name AS municipality,
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative
@@ -494,21 +496,15 @@ async function fireCrisisAlert(
       LIMIT 3`,
     [agency.id, today],
   );
+  const muniRows = muniResult.rows as Array<{
+    municipality: string;
+    total: number;
+    negative: number;
+  }>;
 
   // 4. Muestra de menciones negativas para el LLM (texto largo) y separadamente
   // las "voces destacadas" para el template (snippet recortado + URL).
-  const samplesResult = await client.query<{
-    id: string;
-    title: string | null;
-    snippet: string | null;
-    url: string | null;
-    source: string | null;
-    page_type: string | null;
-    pertinence: string | null;
-    sentiment: string | null;
-    topic: string | null;
-    published_at: string;
-  }>(
+  const samplesResult = await client.query(
     `SELECT m.id,
             m.title, m.snippet, m.url, m.source, m.page_type,
             m.nlp_pertinence AS pertinence,
@@ -527,8 +523,21 @@ async function fireCrisisAlert(
       LIMIT 10`,
     [agency.id, today],
   );
+  type SampleRow = {
+    id: string;
+    title: string | null;
+    snippet: string | null;
+    url: string | null;
+    source: string | null;
+    page_type: string | null;
+    pertinence: string | null;
+    sentiment: string | null;
+    topic: string | null;
+    published_at: string;
+  };
+  const sampleRows = samplesResult.rows as SampleRow[];
 
-  const samples: MentionSample[] = samplesResult.rows.map((r) => ({
+  const samples: MentionSample[] = sampleRows.map((r: SampleRow) => ({
     id: r.id,
     createdAt: typeof r.published_at === 'string' ? r.published_at : new Date(r.published_at).toISOString(),
     text: [r.title, r.snippet].filter(Boolean).join(' — '),
@@ -564,13 +573,13 @@ async function fireCrisisAlert(
     negativeShare: snap.total_mentions > 0 ? snap.negative_count / snap.total_mentions : 0,
     prevDayTotal: prevSnap?.total_mentions ?? null,
     prevDayNegative: prevSnap?.negative_count ?? null,
-    topNegativeTopics: topicsResult.rows.map((t) => ({
+    topNegativeTopics: topicsRows.map((t) => ({
       topic: t.topic,
       total: t.total,
       negative: t.negative,
       negativeShare: t.neg_share ?? 0,
     })),
-    topNegativeMunicipalities: muniResult.rows.map((m) => ({
+    topNegativeMunicipalities: muniRows.map((m) => ({
       municipality: m.municipality,
       total: m.total,
       negative: m.negative,
@@ -607,7 +616,7 @@ async function fireCrisisAlert(
     },
     topNegativeTopics: editorialInputs.topNegativeTopics,
     topNegativeMunicipalities: editorialInputs.topNegativeMunicipalities,
-    highlightedMentions: samplesResult.rows.slice(0, 6).map((r) => ({
+    highlightedMentions: sampleRows.slice(0, 6).map((r: SampleRow) => ({
       sourceLabel: r.source ?? r.page_type ?? 'Fuente desconocida',
       snippet: truncate(r.snippet ?? r.title ?? '', 240),
       url: r.url ?? null,
@@ -663,7 +672,7 @@ async function fireCrisisAlert(
       lede: editorial.lede,
     },
   };
-  const mentionIds = samplesResult.rows.slice(0, 6).map((r) => r.id);
+  const mentionIds = sampleRows.slice(0, 6).map((r: SampleRow) => r.id);
   await client.query(
     `INSERT INTO alert_history
        (alert_rule_id, agency_id, triggered_at, mention_ids, details, notification_sent, sent_at)
@@ -786,7 +795,7 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
 // ============================================================
 
 async function buildScoreTrendUrl(client: any, agencyId: string, today: string): Promise<string> {
-  const result = await client.query<{ date: string; crisis_risk_score: number | null }>(
+  const result = await client.query(
     `SELECT to_char(date, 'YYYY-MM-DD') AS date, crisis_risk_score
        FROM daily_metric_snapshots
       WHERE agency_id = $1 AND date <= $2::date
@@ -794,7 +803,7 @@ async function buildScoreTrendUrl(client: any, agencyId: string, today: string):
       LIMIT 14`,
     [agencyId, today],
   );
-  const rows = result.rows.slice().reverse();
+  const rows = (result.rows as Array<{ date: string; crisis_risk_score: number | null }>).slice().reverse();
   if (rows.length < 2) return '';
 
   const labels = rows.map((r) => formatShortDay(r.date));
