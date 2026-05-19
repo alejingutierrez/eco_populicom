@@ -1,48 +1,80 @@
 /**
  * Metrics Calculator Lambda
  *
- * Computes 8 composite metrics from raw mention data and upserts
- * daily snapshots into daily_metric_snapshots table.
+ * 1. Calcula las 8 métricas compuestas a partir de la tabla `mentions` y las
+ *    upsertea en `daily_metric_snapshots`.
+ * 2. Evalúa reglas de tipo `crisis_threshold` configuradas en `alert_rules`.
+ *    Si el `crisis_risk_score` de hoy supera el umbral y se respeta el
+ *    cooldown, dispara un correo editorial vía SES con el render de
+ *    `@eco/shared/render-crisis-alert`.
  *
- * Trigger: EventBridge every 10 minutes (offset from ingestion).
+ * Trigger: EventBridge cada 10 min (offset del cron de ingesta).
  *
- * Las fórmulas de cálculo viven en `@eco/shared/metrics` (single source of
- * truth, compartido con `/api/eco-data` y `/api/ai/metric-insight`).
+ * Las fórmulas viven en `@eco/shared/metrics` — single source of truth para
+ * `/api/eco-data`, `/api/ai/metric-insight` y este lambda.
  */
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import {
+  CRISIS_EDITORIAL_SYSTEM_PROMPT,
+  buildCrisisEditorialPrompt,
   calculateMetrics,
+  renderCrisisAlertHtml,
+  type CrisisAlertRenderData,
+  type CrisisEditorialInputs,
+  type CrisisEditorialOutput,
   type DailyAggregates,
   type HistoricalSnapshot,
+  type MentionSample,
 } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
+const bedrock = new BedrockRuntimeClient({});
+const ses = new SESClient({});
+
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
+const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
+const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'agutierrez@populicom.com';
+const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
+const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://app.populicom.com';
+
+const REPORT_TIMEZONE = 'America/Puerto_Rico';
 
 let dbUrl: string | null = null;
+let schemaEnsured = false;
 
-export const handler = async (event?: { backfill?: boolean }): Promise<{ statusCode: number; body: string }> => {
-  const isBackfill = event?.backfill === true;
-  console.log(`Metrics calculator invoked${isBackfill ? ' (backfill mode)' : ''}`);
+interface InvokePayload {
+  /** Backfill mode (recalcula snapshots históricos). */
+  backfill?: boolean;
+  /** Fuerza la evaluación de crisis aunque ya haya un envío reciente — para tests. */
+  forceCrisis?: boolean;
+  /** Si se especifica, solo evalúa crisis para esa agencia. */
+  agencySlug?: string;
+}
 
-  if (!dbUrl) {
-    dbUrl = await getDatabaseUrl();
-  }
+export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: number; body: string }> => {
+  const isBackfill = event.backfill === true;
+  console.log(`[metrics-calculator] invoked${isBackfill ? ' (backfill)' : ''}`);
+
+  if (!dbUrl) dbUrl = await getDatabaseUrl();
 
   const pg = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
 
   try {
-    // Get all active agencies
-    const agenciesResult = await client.query(
-      "SELECT id FROM agencies WHERE is_active = true",
+    if (!schemaEnsured) {
+      await ensureCrisisSchema(client);
+      schemaEnsured = true;
+    }
+
+    const agenciesResult = await client.query<{ id: string; slug: string; name: string }>(
+      "SELECT id, slug, name FROM agencies WHERE is_active = true",
     );
 
     if (isBackfill) {
-      // Backfill: compute for every AST (America/Puerto_Rico) calendar day that
-      // has mentions. Grouping in UTC would shift late-evening AST mentions
-      // into the next UTC day and create mismatched snapshot rows.
       const datesResult = await client.query(
         `SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS d
          FROM mentions
@@ -51,7 +83,6 @@ export const handler = async (event?: { backfill?: boolean }): Promise<{ statusC
       const dates = datesResult.rows.map((r: any) =>
         typeof r.d === 'string' ? r.d : r.d.toISOString().split('T')[0],
       );
-
       let computed = 0;
       for (const agency of agenciesResult.rows) {
         for (const date of dates) {
@@ -59,44 +90,44 @@ export const handler = async (event?: { backfill?: boolean }): Promise<{ statusC
           computed++;
         }
       }
-
-      console.log(`Backfilled ${computed} snapshots across ${dates.length} days`);
-      return { statusCode: 200, body: `Backfilled ${computed} snapshots across ${dates.length} days` };
+      console.log(`[metrics-calculator] backfilled ${computed} snapshots across ${dates.length} days`);
+      return { statusCode: 200, body: `Backfilled ${computed} snapshots` };
     }
 
-    // Normal mode: compute for today only. "Today" is the AST calendar day
-    // (not UTC) so the running snapshot matches the frontend and Brandwatch.
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Puerto_Rico',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
-
+    // Modo normal: compute hoy y evalúa crisis.
+    const today = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
     let computed = 0;
+    let alertsFired = 0;
+
     for (const agency of agenciesResult.rows) {
+      if (event.agencySlug && agency.slug !== event.agencySlug) continue;
       await computeForAgency(client, agency.id, today);
       computed++;
+
+      try {
+        const fired = await evaluateCrisisAlerts(client, agency, today, event.forceCrisis === true);
+        alertsFired += fired;
+      } catch (err) {
+        console.error(`[crisis] ${agency.slug} evaluation failed:`, err);
+      }
     }
 
-    console.log(`Computed metrics for ${computed} agencies on ${today}`);
-    return { statusCode: 200, body: `Computed metrics for ${computed} agencies` };
+    console.log(`[metrics-calculator] computed=${computed} crisisFired=${alertsFired}`);
+    return { statusCode: 200, body: `Computed ${computed} agencies, ${alertsFired} crisis alerts` };
   } finally {
     await client.end();
   }
 };
 
+// ============================================================
+// Daily metric snapshot
+// ============================================================
+
 async function computeForAgency(client: any, agencyId: string, today: string): Promise<void> {
-  // Step 1: Get today's raw aggregates from mentions table
   const agg = await getDailyAggregates(client, agencyId, today);
-
-  // Step 2: Get historical snapshots (last 30 days) for rolling windows
   const history = await getHistoricalSnapshots(client, agencyId, today);
-
-  // Step 3: Calculate all 8 metrics
   const metrics = calculateMetrics(agg, history);
 
-  // Step 4: Upsert into daily_metric_snapshots
   await client.query(
     `INSERT INTO daily_metric_snapshots (
       agency_id, date,
@@ -152,10 +183,6 @@ async function computeForAgency(client: any, agencyId: string, today: string): P
 }
 
 async function getDailyAggregates(client: any, agencyId: string, date: string): Promise<DailyAggregates> {
-  // Group by the Puerto Rico calendar day (AST, UTC-4), not UTC. Otherwise
-  // mentions published 20:00–23:59 AST shift into the next UTC date and the
-  // daily snapshot no longer matches what Brandwatch (and our own AST frontend)
-  // reports for that day.
   const result = await client.query(
     `SELECT
       COUNT(*)::int AS total_mentions,
@@ -174,7 +201,6 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
       AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date`,
     [agencyId, date],
   );
-
   const row = result.rows[0];
   return {
     totalMentions: row.total_mentions,
@@ -201,7 +227,6 @@ async function getHistoricalSnapshots(client: any, agencyId: string, today: stri
      LIMIT 30`,
     [agencyId, today],
   );
-
   return result.rows.map((r: any) => ({
     date: r.date,
     totalMentions: r.total_mentions,
@@ -213,14 +238,697 @@ async function getHistoricalSnapshots(client: any, agencyId: string, today: stri
   }));
 }
 
-// `calculateMetrics` (la fórmula completa) y los tipos `DailyAggregates` /
-// `HistoricalSnapshot` viven en `@eco/shared/metrics`. Mismo algoritmo,
-// reutilizado también por /api/eco-data y /api/ai/metric-insight.
+// ============================================================
+// Crisis schema bootstrap (idempotent)
+// ============================================================
+
+/**
+ * Asegura que las tablas de alertas existan y que haya al menos una regla
+ * `crisis_threshold` seedada para cada agencia activa cuyo `report_configs`
+ * tenga recipients (para no enviar a vacío). Las reglas no se sobreescriben
+ * si la UI ya las tocó.
+ */
+async function ensureCrisisSchema(client: any): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS alert_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+      name VARCHAR(120) NOT NULL,
+      config JSONB NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      notify_emails JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS alert_history (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      alert_rule_id UUID NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+      agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+      triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      mention_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      details JSONB,
+      notification_sent BOOLEAN NOT NULL DEFAULT false,
+      sent_at TIMESTAMPTZ
+    );
+  `);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_alert_rules_agency_active ON alert_rules(agency_id, is_active);`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_alert_history_rule_triggered ON alert_history(alert_rule_id, triggered_at DESC);`);
+
+  // Seed: una regla crisis_threshold por agencia activa que tenga recipients
+  // en report_configs. Solo inserta si no existe ya alguna regla del mismo
+  // type para esa agencia.
+  await client.query(`
+    INSERT INTO alert_rules (agency_id, name, config, is_active, notify_emails)
+    SELECT a.id,
+           'Crisis Score · umbral',
+           jsonb_build_object(
+             'type', 'crisis_threshold',
+             'crisis_min', 0.40,
+             'severity_min', 0.50,
+             'cooldown_hours', 12
+           ),
+           true,
+           COALESCE(rc.recipients, '[]'::jsonb)
+      FROM agencies a
+      LEFT JOIN report_configs rc ON rc.agency_id = a.id
+     WHERE a.is_active = true
+       AND COALESCE(jsonb_array_length(rc.recipients), 0) > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM alert_rules ar
+          WHERE ar.agency_id = a.id
+            AND ar.config->>'type' = 'crisis_threshold'
+       );
+  `);
+
+  console.log('[metrics-calculator] crisis schema ensured');
+}
+
+// ============================================================
+// Crisis alert evaluation
+// ============================================================
+
+interface CrisisRuleConfig {
+  type: 'crisis_threshold';
+  /** Score mínimo para disparar (default 0.40). */
+  crisis_min?: number;
+  /** Severidad mínima opcional (default 0). */
+  severity_min?: number;
+  /** Cooldown en horas (default 12). */
+  cooldown_hours?: number;
+}
+
+interface CrisisRuleRow {
+  id: string;
+  name: string;
+  config: CrisisRuleConfig;
+  notify_emails: string[];
+}
+
+interface AgencyRow {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+async function evaluateCrisisAlerts(
+  client: any,
+  agency: AgencyRow,
+  today: string,
+  force: boolean,
+): Promise<number> {
+  const rulesResult = await client.query<CrisisRuleRow>(
+    `SELECT id, name, config, notify_emails
+       FROM alert_rules
+      WHERE agency_id = $1
+        AND is_active = true
+        AND config->>'type' = 'crisis_threshold'`,
+    [agency.id],
+  );
+  if (rulesResult.rows.length === 0) return 0;
+
+  const snap = await getTodaySnapshot(client, agency.id, today);
+  if (!snap) {
+    console.log(`[crisis] ${agency.slug} no snapshot for ${today}`);
+    return 0;
+  }
+
+  let fired = 0;
+  for (const rule of rulesResult.rows) {
+    const cfg = rule.config;
+    const threshold = cfg.crisis_min ?? 0.4;
+    const severityMin = cfg.severity_min ?? 0;
+    const cooldownH = cfg.cooldown_hours ?? 12;
+
+    const crisis = snap.crisis_risk_score ?? 0;
+    const severity = snap.crisis_severity ?? 0;
+    if (crisis < threshold || severity < severityMin) {
+      console.log(`[crisis] ${agency.slug} below threshold (crisis=${crisis} sev=${severity} min=${threshold}/${severityMin})`);
+      continue;
+    }
+
+    if (!force) {
+      const recent = await client.query<{ triggered_at: string }>(
+        `SELECT triggered_at FROM alert_history
+          WHERE alert_rule_id = $1 AND notification_sent = true
+          ORDER BY triggered_at DESC LIMIT 1`,
+        [rule.id],
+      );
+      if (recent.rows.length > 0) {
+        const lastTs = new Date(recent.rows[0].triggered_at).getTime();
+        const hoursAgo = (Date.now() - lastTs) / (1000 * 60 * 60);
+        if (hoursAgo < cooldownH) {
+          console.log(`[crisis] ${agency.slug} cooldown active (${hoursAgo.toFixed(1)}h < ${cooldownH}h)`);
+          continue;
+        }
+      }
+    }
+
+    const recipients = Array.isArray(rule.notify_emails) ? rule.notify_emails.filter(Boolean) : [];
+    if (recipients.length === 0) {
+      console.warn(`[crisis] ${agency.slug} rule ${rule.id} has no recipients`);
+      continue;
+    }
+
+    try {
+      await fireCrisisAlert(client, agency, rule, snap, recipients, today);
+      fired++;
+    } catch (err) {
+      console.error(`[crisis] ${agency.slug} fire failed:`, err);
+    }
+  }
+  return fired;
+}
+
+interface SnapshotRow {
+  crisis_risk_score: number | null;
+  crisis_severity: number | null;
+  crisis_velocity: number | null;
+  crisis_relevance: number | null;
+  volume_anomaly_zscore: number | null;
+  total_mentions: number;
+  negative_count: number;
+}
+
+async function getTodaySnapshot(client: any, agencyId: string, today: string): Promise<SnapshotRow | null> {
+  const r = await client.query<SnapshotRow>(
+    `SELECT crisis_risk_score, crisis_severity, crisis_velocity, crisis_relevance,
+            volume_anomaly_zscore, total_mentions, negative_count
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1 AND date = $2::date`,
+    [agencyId, today],
+  );
+  return r.rows[0] ?? null;
+}
+
+// ============================================================
+// Crisis alert: build context, generate editorial, render, send
+// ============================================================
+
+async function fireCrisisAlert(
+  client: any,
+  agency: AgencyRow,
+  rule: CrisisRuleRow,
+  snap: SnapshotRow,
+  recipients: string[],
+  today: string,
+): Promise<void> {
+  console.log(`[crisis] ${agency.slug} firing rule ${rule.name} (score=${snap.crisis_risk_score})`);
+
+  // 1. Contexto cuantitativo: día previo + 24h ago para delta.
+  const yesterday = addDaysYmd(today, -1);
+  const prev = await client.query<{
+    crisis_risk_score: number | null;
+    total_mentions: number;
+    negative_count: number;
+  }>(
+    `SELECT crisis_risk_score, total_mentions, negative_count
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1 AND date = $2::date`,
+    [agency.id, yesterday],
+  );
+  const prevSnap = prev.rows[0] ?? null;
+
+  // 2. Top tópicos con concentración negativa (del día detonante).
+  const topicsResult = await client.query<{
+    topic: string;
+    total: number;
+    negative: number;
+    neg_share: number;
+  }>(
+    `SELECT t.name AS topic,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative,
+            (COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::float
+              / NULLIF(COUNT(*), 0)) AS neg_share
+       FROM mentions m
+       JOIN mention_topics mt ON mt.mention_id = m.id
+       JOIN topics t ON t.id = mt.topic_id
+      WHERE m.agency_id = $1
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+      GROUP BY t.id, t.name
+     HAVING COUNT(*) >= 3
+      ORDER BY neg_share DESC, total DESC
+      LIMIT 3`,
+    [agency.id, today],
+  );
+
+  // 3. Top municipios negativos.
+  const muniResult = await client.query<{
+    municipality: string;
+    total: number;
+    negative: number;
+  }>(
+    `SELECT mu.name AS municipality,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo')::int AS negative
+       FROM mentions m
+       JOIN mention_municipalities mm ON mm.mention_id = m.id
+       JOIN municipalities mu ON mu.id = mm.municipality_id
+      WHERE m.agency_id = $1
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+        AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
+      GROUP BY mu.id, mu.name
+      ORDER BY negative DESC
+      LIMIT 3`,
+    [agency.id, today],
+  );
+
+  // 4. Muestra de menciones negativas para el LLM (texto largo) y separadamente
+  // las "voces destacadas" para el template (snippet recortado + URL).
+  const samplesResult = await client.query<{
+    id: string;
+    title: string | null;
+    snippet: string | null;
+    url: string | null;
+    source: string | null;
+    page_type: string | null;
+    pertinence: string | null;
+    sentiment: string | null;
+    topic: string | null;
+    published_at: string;
+  }>(
+    `SELECT m.id,
+            m.title, m.snippet, m.url, m.source, m.page_type,
+            m.nlp_pertinence AS pertinence,
+            COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+            (SELECT t.name FROM mention_topics mt
+               JOIN topics t ON t.id = mt.topic_id
+              WHERE mt.mention_id = m.id
+              ORDER BY mt.confidence DESC NULLS LAST LIMIT 1) AS topic,
+            m.published_at
+       FROM mentions m
+      WHERE m.agency_id = $1
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+        AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
+        AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')
+      ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+      LIMIT 10`,
+    [agency.id, today],
+  );
+
+  const samples: MentionSample[] = samplesResult.rows.map((r) => ({
+    id: r.id,
+    createdAt: typeof r.published_at === 'string' ? r.published_at : new Date(r.published_at).toISOString(),
+    text: [r.title, r.snippet].filter(Boolean).join(' — '),
+    sentiment: (r.sentiment?.startsWith('neg') ? 'negative'
+              : r.sentiment?.startsWith('pos') ? 'positive'
+              : 'neutral'),
+    topic: r.topic,
+    source: r.source,
+    url: r.url,
+    pageType: r.page_type,
+    pertinence: (r.pertinence === 'alta' || r.pertinence === 'media' || r.pertinence === 'baja') ? r.pertinence : null,
+  }));
+
+  // 5. Banda según el score.
+  const crisis = snap.crisis_risk_score ?? 0;
+  const band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS' =
+    crisis >= 0.60 ? 'CRISIS' : crisis >= 0.40 ? 'ALERTA' : crisis >= 0.25 ? 'ELEVADO' : 'NORMAL';
+
+  // 6. Generar editorial con Bedrock tool-use.
+  const editorialInputs: CrisisEditorialInputs = {
+    agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
+    generatedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
+    band,
+    crisisRiskScore: snap.crisis_risk_score ?? 0,
+    crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
+    crisisSeverity: snap.crisis_severity ?? 0,
+    crisisVelocity: snap.crisis_velocity ?? 0,
+    crisisRelevance: snap.crisis_relevance ?? 0,
+    volumeAnomalyZscore: snap.volume_anomaly_zscore,
+    totalMentions: snap.total_mentions,
+    negativeCount: snap.negative_count,
+    negativeShare: snap.total_mentions > 0 ? snap.negative_count / snap.total_mentions : 0,
+    prevDayTotal: prevSnap?.total_mentions ?? null,
+    prevDayNegative: prevSnap?.negative_count ?? null,
+    topNegativeTopics: topicsResult.rows.map((t) => ({
+      topic: t.topic,
+      total: t.total,
+      negative: t.negative,
+      negativeShare: t.neg_share ?? 0,
+    })),
+    topNegativeMunicipalities: muniResult.rows.map((m) => ({
+      municipality: m.municipality,
+      total: m.total,
+      negative: m.negative,
+    })),
+    sampleMentions: samples,
+  };
+
+  const editorial = await generateCrisisEditorial(editorialInputs);
+
+  // 7. Trend chart (últimos 14 días de crisis_risk_score).
+  const trendImageUrl = await buildScoreTrendUrl(client, agency.id, today);
+
+  // 8. Render HTML.
+  const renderData: CrisisAlertRenderData = {
+    agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
+    detectedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
+    triggerDayLabel: formatShortDay(today),
+    band,
+    metrics: {
+      crisisRiskScore: snap.crisis_risk_score ?? 0,
+      crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
+      crisisSeverity: snap.crisis_severity ?? 0,
+      crisisVelocity: snap.crisis_velocity ?? 0,
+      crisisRelevance: snap.crisis_relevance ?? 0,
+      volumeAnomalyZscore: snap.volume_anomaly_zscore,
+    },
+    volume: {
+      totalMentions: snap.total_mentions,
+      negativeCount: snap.negative_count,
+      negativeShare: snap.total_mentions > 0 ? snap.negative_count / snap.total_mentions : 0,
+      prevDayTotal: prevSnap?.total_mentions ?? null,
+      prevDayNegative: prevSnap?.negative_count ?? null,
+    },
+    topNegativeTopics: editorialInputs.topNegativeTopics,
+    topNegativeMunicipalities: editorialInputs.topNegativeMunicipalities,
+    highlightedMentions: samplesResult.rows.slice(0, 6).map((r) => ({
+      sourceLabel: r.source ?? r.page_type ?? 'Fuente desconocida',
+      snippet: truncate(r.snippet ?? r.title ?? '', 240),
+      url: r.url ?? null,
+      publishedAtLabel: formatShortTimestamp(r.published_at, REPORT_TIMEZONE),
+    })),
+    scoreTrendImageUrl: trendImageUrl,
+    editorial,
+    dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
+  };
+
+  const html = renderCrisisAlertHtml(renderData);
+  const subject = `[${bandLabelEs(band)}] ${agencyShortName(agency.slug)} · ${truncate(editorial.headline, 80)}`;
+
+  // 9. Enviar individual por destinatario (mismo patrón que weekly-report).
+  const sent: string[] = [];
+  const failed: { email: string; error: string }[] = [];
+  let firstMessageId: string | undefined;
+  for (const recipient of recipients) {
+    try {
+      const result = await ses.send(new SendEmailCommand({
+        Source: `${SES_FROM_NAME} <${SES_FROM_EMAIL}>`,
+        Destination: { ToAddresses: [recipient] },
+        Message: {
+          Subject: { Data: subject, Charset: 'UTF-8' },
+          Body: { Html: { Data: html, Charset: 'UTF-8' } },
+        },
+      }));
+      sent.push(recipient);
+      if (!firstMessageId) firstMessageId = result.MessageId;
+      console.log(`[crisis] ${agency.slug} sent to=${recipient} messageId=${result.MessageId}`);
+    } catch (err: any) {
+      failed.push({ email: recipient, error: String(err?.message ?? err) });
+      console.warn(`[crisis] ${agency.slug} SKIPPED ${recipient}: ${err?.message ?? err}`);
+    }
+  }
+
+  // 10. Log alert_history (siempre, incluso si SES falló para 0 recipients).
+  const details = {
+    band,
+    crisis_risk_score: snap.crisis_risk_score,
+    crisis_severity: snap.crisis_severity,
+    crisis_velocity: snap.crisis_velocity,
+    crisis_relevance: snap.crisis_relevance,
+    volume_anomaly_zscore: snap.volume_anomaly_zscore,
+    total_mentions: snap.total_mentions,
+    negative_count: snap.negative_count,
+    trigger_day: today,
+    recipients_sent: sent,
+    recipients_failed: failed.map((f) => f.email),
+    message_id: firstMessageId ?? null,
+    editorial: {
+      headline: editorial.headline,
+      lede: editorial.lede,
+    },
+  };
+  const mentionIds = samplesResult.rows.slice(0, 6).map((r) => r.id);
+  await client.query(
+    `INSERT INTO alert_history
+       (alert_rule_id, agency_id, triggered_at, mention_ids, details, notification_sent, sent_at)
+     VALUES ($1, $2, NOW(), $3::jsonb, $4::jsonb, $5, $6)`,
+    [
+      rule.id,
+      agency.id,
+      JSON.stringify(mentionIds),
+      JSON.stringify(details),
+      sent.length > 0,
+      sent.length > 0 ? new Date() : null,
+    ],
+  );
+}
+
+// ============================================================
+// Bedrock tool-use
+// ============================================================
+
+async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<CrisisEditorialOutput> {
+  const userPrompt = buildCrisisEditorialPrompt(inputs);
+  const tool = {
+    name: 'submit_crisis_editorial',
+    description: 'Entrega el editorial de crisis como un objeto estructurado.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        headline: { type: 'string', description: 'Titular ≤ 120 caracteres.' },
+        lede: { type: 'string', description: '1–2 oraciones de apertura.' },
+        bodyParagraphsHtml: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '2–3 párrafos en HTML mínimo (solo <strong>).',
+        },
+        drivers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'Etiqueta ≤ 5 palabras.' },
+              description: { type: 'string', description: 'Descripción 1 oración.' },
+            },
+            required: ['label', 'description'],
+            additionalProperties: false,
+          },
+          description: 'Exactamente 3 drivers descriptivos.',
+        },
+        closing: { type: 'string', description: 'Frase de cierre contextual.' },
+      },
+      required: ['headline', 'lede', 'bodyParagraphsHtml', 'drivers', 'closing'],
+      additionalProperties: false,
+    },
+  };
+
+  const models = [BEDROCK_MODEL_ID, BEDROCK_FALLBACK_MODEL_ID].filter((m, i, arr) => m && arr.indexOf(m) === i);
+  let lastErr: unknown = null;
+  for (const modelId of models) {
+    try {
+      const response = await bedrock.send(new InvokeModelCommand({
+        modelId,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 1500,
+          system: CRISIS_EDITORIAL_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userPrompt }],
+          temperature: 0,
+          tools: [tool],
+          tool_choice: { type: 'tool', name: tool.name },
+        }),
+      }));
+      const body = JSON.parse(new TextDecoder().decode(response.body));
+      const content: Array<{ type: string; name?: string; input?: unknown }> = body.content ?? [];
+      const toolUse = content.find((b) => b.type === 'tool_use' && b.name === tool.name);
+      if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
+        throw new Error(`No tool_use block in ${modelId} response`);
+      }
+      const parsed = toolUse.input as Partial<CrisisEditorialOutput>;
+      return {
+        headline: String(parsed.headline ?? 'Alerta de crisis').slice(0, 200),
+        lede: String(parsed.lede ?? ''),
+        bodyParagraphsHtml: Array.isArray(parsed.bodyParagraphsHtml)
+          ? parsed.bodyParagraphsHtml.filter((p): p is string => typeof p === 'string').slice(0, 4)
+          : [],
+        drivers: Array.isArray(parsed.drivers)
+          ? parsed.drivers
+              .filter((d: any): d is { label: string; description: string } =>
+                d && typeof d.label === 'string' && typeof d.description === 'string',
+              )
+              .slice(0, 3)
+          : [],
+        closing: String(parsed.closing ?? ''),
+      };
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[crisis] model ${modelId} failed:`, (err as Error).message);
+    }
+  }
+  // Fallback editorial mínimo si Bedrock falla completo — el correo igual sale,
+  // pero sin narrativa. Mejor un correo plano que un correo nunca.
+  console.error('[crisis] editorial generation failed completely', lastErr);
+  return {
+    headline: `Alerta · ${inputs.agencyShortName}: indicadores de crisis elevados`,
+    lede: `El Crisis Score del día (${inputs.crisisRiskScore.toFixed(2)}) supera el umbral configurado.`,
+    bodyParagraphsHtml: [
+      `Se registraron ${inputs.totalMentions} menciones, ${inputs.negativeCount} negativas (${Math.round(inputs.negativeShare * 100)}%).`,
+    ],
+    drivers: [
+      { label: 'Concentración negativa', description: `Severidad ${inputs.crisisSeverity.toFixed(2)}.` },
+      { label: 'Velocidad', description: `Velocidad ${inputs.crisisVelocity.toFixed(2)}.` },
+      { label: 'Relevancia', description: `Relevancia ${inputs.crisisRelevance.toFixed(2)}.` },
+    ],
+    closing: 'Editorial no disponible; revisar el dashboard para contexto completo.',
+  };
+}
+
+// ============================================================
+// Trend chart (QuickChart)
+// ============================================================
+
+async function buildScoreTrendUrl(client: any, agencyId: string, today: string): Promise<string> {
+  const result = await client.query<{ date: string; crisis_risk_score: number | null }>(
+    `SELECT to_char(date, 'YYYY-MM-DD') AS date, crisis_risk_score
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1 AND date <= $2::date
+      ORDER BY date DESC
+      LIMIT 14`,
+    [agencyId, today],
+  );
+  const rows = result.rows.slice().reverse();
+  if (rows.length < 2) return '';
+
+  const labels = rows.map((r) => formatShortDay(r.date));
+  const data = rows.map((r) => r.crisis_risk_score == null ? 0 : Math.round(r.crisis_risk_score * 1000) / 1000);
+
+  const config = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Crisis Score',
+          data,
+          borderColor: '#C8462F',
+          backgroundColor: 'rgba(200,70,47,0.10)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#FFFFFF',
+          pointBorderColor: '#C8462F',
+          pointBorderWidth: 1.5,
+          tension: 0.3,
+          fill: true,
+        },
+        // Línea de umbral 0.4
+        {
+          label: 'Umbral 0.40',
+          data: rows.map(() => 0.40),
+          borderColor: '#8A93A0',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
+      plugins: { legend: { display: false }, title: { display: false } },
+      scales: {
+        y: { beginAtZero: true, max: 1, grid: { color: '#EEF0F4', drawBorder: false },
+          ticks: { font: { size: 10 }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
+        x: { grid: { display: false, drawBorder: false },
+          ticks: { font: { size: 11 }, color: '#4A5563', padding: 6 } },
+      },
+    },
+  };
+  return `https://quickchart.io/chart?v=4&w=540&h=200&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function agencyShortName(slug: string): string {
+  const map: Record<string, string> = { aaa: 'AAA', ddecpr: 'DDEC' };
+  return map[slug] ?? slug.toUpperCase();
+}
+
+function bandLabelEs(band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS'): string {
+  if (band === 'CRISIS') return 'Crisis';
+  if (band === 'ALERTA') return 'Alerta';
+  if (band === 'ELEVADO') return 'Elevado';
+  return 'Normal';
+}
+
+function truncate(s: string, max: number): string {
+  if (!s) return '';
+  const clean = s.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  return clean.slice(0, max - 1).trimEnd() + '…';
+}
+
+const ES_MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+function ymdInTimeZone(utc: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(utc).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function formatShortDay(ymd: string | Date): string {
+  const s = typeof ymd === 'string' ? ymd : ymd.toISOString().slice(0, 10);
+  const [, m, d] = s.split('-').map(Number);
+  return `${d} ${ES_MONTH_SHORT[m - 1]}`;
+}
+
+function formatTimestampLabel(utc: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(utc).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const day = Number(parts.day);
+  const month = ES_MONTH_SHORT[Number(parts.month) - 1] ?? '';
+  const hour = Number(parts.hour);
+  const minute = parts.minute ?? '00';
+  const ampm = (parts.dayPeriod ?? '').toLowerCase().startsWith('p') ? 'p.m.' : 'a.m.';
+  return `${day} ${month} · ${hour}:${minute} ${ampm} AST`;
+}
+
+function formatShortTimestamp(iso: string | Date, timeZone: string): string {
+  const dt = typeof iso === 'string' ? new Date(iso) : iso;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, month: '2-digit', day: '2-digit',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(dt).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const day = Number(parts.day);
+  const month = ES_MONTH_SHORT[Number(parts.month) - 1] ?? '';
+  const hour = Number(parts.hour);
+  const minute = parts.minute ?? '00';
+  const ampm = (parts.dayPeriod ?? '').toLowerCase().startsWith('p') ? 'p.m.' : 'a.m.';
+  return `${day} ${month}, ${hour}:${minute} ${ampm}`;
+}
 
 async function getDatabaseUrl(): Promise<string> {
-  const secret = await sm.send(
-    new GetSecretValueCommand({ SecretId: DB_SECRET_ARN }),
-  );
+  const secret = await sm.send(new GetSecretValueCommand({ SecretId: DB_SECRET_ARN }));
   const parsed = JSON.parse(secret.SecretString!);
   return `postgresql://${parsed.username}:${encodeURIComponent(parsed.password)}@${parsed.host}:${parsed.port}/${parsed.dbname}`;
 }

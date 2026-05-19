@@ -183,26 +183,46 @@ export class WorkersStack extends cdk.Stack {
     }));
 
     // ---- eco-metrics-calculator Lambda ----
+    // Además de los snapshots diarios, este lambda evalúa reglas
+    // `crisis_threshold` en alert_rules: si el Crisis Score del día supera el
+    // umbral configurado, genera un editorial con Bedrock y envía un correo
+    // de alerta vía SES (mismo patrón individual-por-recipient que weekly-report).
     this.metricsCalculatorFunction = new NodejsFunction(this, 'MetricsCalculatorFunction', {
       functionName: 'eco-metrics-calculator',
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../lambda/metrics-calculator/index.ts'),
       handler: 'handler',
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+      // Bumpeado a 2 min porque el path de crisis añade fetch de samples +
+      // llamada a Bedrock + N envíos SES individuales. El path normal
+      // (sin crisis) sigue terminando en < 10 s.
+      timeout: cdk.Duration.minutes(2),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        SES_FROM_EMAIL: 'agutierrez@populicom.com',
+        SES_FROM_NAME: 'ECO Radar',
+        DASHBOARD_BASE_URL: 'https://app.populicom.com',
       },
       bundling: bundlingOptions,
     });
 
-    // Grant DB access for metrics calculator
+    // DB + Bedrock + SES — el path de detección de crisis necesita los tres.
     this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
     }));
 
     // EventBridge schedule: every 10 minutes (computes today's snapshot only)

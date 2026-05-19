@@ -6,11 +6,13 @@ export * from './format-period';
 export * from './aggregations';
 export * from './metrics';
 export * from './email/render-weekly-report';
+export * from './email/render-crisis-alert';
 export * from './prompts/weekly-report-insights';
 export * from './prompts/topic-description';
 export * from './prompts/executive-briefing';
 export * from './prompts/briefing-emerging';
 export * from './prompts/briefing-crisis';
+export * from './prompts/crisis-editorial';
 export * from './prompts/metric-insight';
 export * from './prompts/metric-insight-cached';
 // `./bedrock` se importa directamente desde lambdas via
