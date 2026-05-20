@@ -53,13 +53,17 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
   } finally { await client.end(); }
 }
 
-export const handler = async (event: SQSEvent): Promise<void> => {
-  console.log(`Processing ${event.Records.length} records`);
+type ReprocessEvent = { action: 'reprocess-nlp-errors' };
+type ProcessorEvent = SQSEvent | ReprocessEvent;
 
+function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
+  return typeof (e as ReprocessEvent).action === 'string' && (e as ReprocessEvent).action === 'reprocess-nlp-errors';
+}
+
+export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   if (!dbUrl) {
     dbUrl = await getDatabaseUrl();
   }
-
   if (!agencyMap) {
     agencyMap = await loadAgencyMap(dbUrl);
     console.log(`Agency map loaded: ${agencyMap.size} query-to-agency mappings`);
@@ -68,6 +72,16 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   const pg = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
+
+  if (isReprocessEvent(event)) {
+    try {
+      return await reprocessNlpErrors(client);
+    } finally {
+      await client.end();
+    }
+  }
+
+  console.log(`Processing ${event.Records.length} records`);
 
   try {
     // Batch dedup: one SELECT filters out mentions already in DB.
@@ -114,6 +128,7 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   } finally {
     await client.end();
   }
+  return;
 };
 
 async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
@@ -147,8 +162,25 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const isDuplicate = duplicate.rows.length > 0;
   const duplicateOfId = isDuplicate ? duplicate.rows[0].id : null;
 
-  // Call Claude Opus via Bedrock for NLP analysis
-  const nlp = await analyzeWithClaude(mention, agency);
+  // Skip-empty: Brandwatch ocasionalmente entrega menciones sin título ni
+  // snippet. Sin texto el LLM no puede asignar tópico (queda 'Sin clasificar'
+  // en el reporte) — bypass Bedrock, persiste con pertinencia=baja.
+  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim();
+
+  let nlp: NlpAnalysis;
+  if (isEmpty) {
+    console.log(`[${agency.slug}] Skip-empty: mention ${resourceId} has no title or snippet — bypassing Bedrock`);
+    nlp = {
+      sentiment: 'neutral',
+      emotions: [],
+      pertinence: 'baja',
+      topics: [],
+      municipalities: [],
+      summary: 'Mención sin contenido textual',
+    };
+  } else {
+    nlp = await analyzeWithClaude(mention, agency);
+  }
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
@@ -319,15 +351,7 @@ Fuente: ${mention.contentSourceName ?? mention.domain} (${mention.domain})
 Autor: ${mention.author ?? 'Desconocido'}
 Fecha: ${mention.date}${bwSentimentHint}
 
-Responde SOLO con JSON válido (sin markdown, sin backticks):
-{
-  "sentiment": "negativo" | "neutral" | "positivo",
-  "emotions": [],
-  "pertinence": "alta" | "media" | "baja",
-  "topics": [{ "topic_slug": "...", "subtopic_slug": "...", "confidence": 0.0 }],
-  "municipalities": [],
-  "summary": "Resumen de una línea"
-}
+Llama a la herramienta classify_mention con los campos correctos.
 
 REGLAS DE SENTIMIENTO (muy importantes — los datos actuales tienen sesgo positivo):
 - "positivo" EXCLUSIVAMENTE cuando el autor/medio expresa evaluación explícitamente favorable hacia ${agency.name}: elogios, logros celebrados por la ciudadanía, resolución de problemas agradecida, decisiones aplaudidas. Señales: "felicita", "excelente", "gracias a", "aplauden", "reconocimiento".
@@ -362,7 +386,42 @@ MUNICIPALITIES:
     modelsToTry.push(BEDROCK_FALLBACK_MODEL_ID);
   }
 
-  let text: string | null = null;
+  // Bedrock tool-use con input_schema: garantiza un objeto estructurado y
+  // elimina parse-errors de JSON crudo (rompe con `"`/`\n` mal escapados).
+  const classifyTool = {
+    name: 'classify_mention',
+    description: 'Registra la clasificación NLP de una mención de social listening sobre la agencia.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sentiment: { type: 'string', enum: ['negativo', 'neutral', 'positivo'] },
+        emotions: {
+          type: 'array',
+          maxItems: 3,
+          items: { type: 'string', enum: ['frustración', 'enojo', 'alivio', 'gratitud', 'preocupación', 'sarcasmo', 'indiferencia'] },
+        },
+        pertinence: { type: 'string', enum: ['alta', 'media', 'baja'] },
+        topics: {
+          type: 'array',
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              topic_slug: { type: 'string' },
+              subtopic_slug: { type: 'string' },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+            },
+            required: ['topic_slug', 'confidence'],
+          },
+        },
+        municipalities: { type: 'array', items: { type: 'string' } },
+        summary: { type: 'string' },
+      },
+      required: ['sentiment', 'pertinence', 'summary'],
+    },
+  };
+
+  let parsed: NlpAnalysis | null = null;
   let lastErr: unknown = null;
   for (const modelId of modelsToTry) {
     try {
@@ -374,13 +433,21 @@ MUNICIPALITIES:
           body: JSON.stringify({
             anthropic_version: 'bedrock-2023-05-31',
             max_tokens: 1024,
-            messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
+            messages: [{ role: 'user', content: prompt }],
+            tools: [classifyTool],
+            tool_choice: { type: 'tool', name: 'classify_mention' },
           }),
         }),
       );
       const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-      text = responseBody.content[0].text;
+      const blocks = (responseBody.content ?? []) as Array<{ type: string; input?: unknown }>;
+      const toolUse = blocks.find((b) => b.type === 'tool_use');
+      if (!toolUse?.input) {
+        lastErr = new Error(`Bedrock returned no tool_use block (stop_reason=${responseBody.stop_reason})`);
+        continue;
+      }
+      parsed = toolUse.input as NlpAnalysis;
       break;
     } catch (err) {
       lastErr = err;
@@ -392,17 +459,9 @@ MUNICIPALITIES:
       throw err;
     }
   }
-  if (text === null) {
-    throw lastErr ?? new Error('No Bedrock model produced a response');
-  }
 
-  try {
-    // Strip markdown code fences if present
-    const cleanText = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleanText) as NlpAnalysis;
-    return validateNlpResult(parsed, agency.slug);
-  } catch (err) {
-    console.error(`[${agency.slug}] Failed to parse NLP response for ${mention.resourceId}:`, text);
+  if (parsed === null) {
+    console.error(`[${agency.slug}] Bedrock failed for ${mention.resourceId}:`, lastErr);
     return {
       sentiment: 'neutral',
       emotions: [],
@@ -412,6 +471,8 @@ MUNICIPALITIES:
       summary: 'Error en análisis NLP',
     };
   }
+
+  return validateNlpResult(parsed, agency.slug);
 }
 
 function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
@@ -436,6 +497,103 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
     municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
     summary: (raw.summary ?? '').slice(0, 500),
   };
+}
+
+async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number; failed: number; details: any[] }> {
+  const errors = await pgClient.query(`
+    SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
+           m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
+           m.author, m.published_at, m.bw_sentiment, m.language,
+           m.agency_id, a.slug AS agency_slug, a.name AS agency_name
+      FROM mentions m JOIN agencies a ON a.id = m.agency_id
+     WHERE m.nlp_summary = 'Error en análisis NLP'
+     ORDER BY m.published_at DESC`);
+
+  console.log(`[reprocess-nlp-errors] Found ${errors.rows.length} mentions to retry`);
+
+  const details: any[] = [];
+  let reprocessed = 0;
+  let failed = 0;
+
+  for (const row of errors.rows) {
+    const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name };
+    const mention: BrandwatchMention = {
+      resourceId: row.bw_resource_id,
+      guid: row.bw_guid,
+      queryId: row.bw_query_id,
+      queryName: row.bw_query_name,
+      title: row.title,
+      snippet: row.snippet,
+      url: row.url,
+      domain: row.domain,
+      contentSource: row.content_source,
+      contentSourceName: row.content_source_name,
+      author: row.author,
+      date: (row.published_at instanceof Date ? row.published_at.toISOString() : row.published_at),
+      sentiment: row.bw_sentiment,
+      language: row.language,
+    } as BrandwatchMention;
+
+    try {
+      const nlp = await analyzeWithClaude(mention, agency);
+      if (nlp.summary === 'Error en análisis NLP') {
+        throw new Error('Bedrock still returns error (tool-use fallback)');
+      }
+
+      await pgClient.query(
+        `UPDATE mentions
+            SET nlp_sentiment = $1,
+                nlp_emotions = $2,
+                nlp_pertinence = $3,
+                nlp_summary = $4
+          WHERE id = $5`,
+        [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
+      );
+
+      await pgClient.query('DELETE FROM mention_topics WHERE mention_id = $1', [row.id]);
+      for (const t of nlp.topics ?? []) {
+        const topicRow = await pgClient.query(
+          'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
+          [t.topic_slug, row.agency_id],
+        );
+        if (topicRow.rows.length === 0) continue;
+        let subtopicId: number | null = null;
+        if (t.subtopic_slug) {
+          const subRow = await pgClient.query(
+            'SELECT id FROM subtopics WHERE slug = $1 AND topic_id = $2',
+            [t.subtopic_slug, topicRow.rows[0].id],
+          );
+          subtopicId = subRow.rows[0]?.id ?? null;
+        }
+        await pgClient.query(
+          `INSERT INTO mention_topics (mention_id, topic_id, subtopic_id, confidence)
+           VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+          [row.id, topicRow.rows[0].id, subtopicId, t.confidence],
+        );
+      }
+
+      await pgClient.query(`DELETE FROM mention_municipalities WHERE mention_id = $1 AND source = 'nlp'`, [row.id]);
+      for (const muniSlug of nlp.municipalities ?? []) {
+        const muniRow = await pgClient.query('SELECT id FROM municipalities WHERE slug = $1', [muniSlug]);
+        if (muniRow.rows.length > 0) {
+          await pgClient.query(
+            `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
+             VALUES ($1, $2, 'nlp') ON CONFLICT DO NOTHING`,
+            [row.id, muniRow.rows[0].id],
+          );
+        }
+      }
+
+      reprocessed++;
+      details.push({ id: row.id, status: 'ok', sentiment: nlp.sentiment, pertinence: nlp.pertinence, topics: (nlp.topics ?? []).length });
+    } catch (err: any) {
+      failed++;
+      details.push({ id: row.id, status: 'failed', error: String(err?.message ?? err) });
+      console.error(`[reprocess-nlp-errors] mention ${row.id} failed:`, err);
+    }
+  }
+
+  return { reprocessed, failed, details };
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {
