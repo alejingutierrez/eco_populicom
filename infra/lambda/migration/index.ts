@@ -3,10 +3,16 @@
  * Invoked manually via AWS CLI, not scheduled.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
+import { TOPICS_BY_AGENCY } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
+const bedrock = new BedrockRuntimeClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
+// Haiku para clasificación constrained-enum (subtopic backfill). Es 20x más
+// barato que Opus y suficiente para escoger entre 5-6 opciones predefinidas.
+const SUBTOPIC_BACKFILL_MODEL_ID = process.env.SUBTOPIC_BACKFILL_MODEL_ID ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
 export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
@@ -310,11 +316,245 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'seed-subtopics') {
+      // Sembrar la tabla `subtopics` desde @eco/shared.TOPICS_BY_AGENCY.
+      // Idempotente: ON CONFLICT (topic_id, slug) DO NOTHING.
+      // Soporta filtrar a una agencia (agencySlug) o todas.
+      const targetAgency = event.agencySlug ?? null;
+      const agencyKeys = targetAgency
+        ? [targetAgency]
+        : Object.keys(TOPICS_BY_AGENCY);
+
+      let inserted = 0;
+      let skipped = 0;
+      const perAgency: Record<string, { inserted: number; skipped: number }> = {};
+
+      for (const slug of agencyKeys) {
+        perAgency[slug] = { inserted: 0, skipped: 0 };
+        const topicsForAgency = TOPICS_BY_AGENCY[slug];
+        if (!topicsForAgency) continue;
+
+        // Lookup agency id
+        const agencyRow = await client.query(
+          'SELECT id FROM agencies WHERE slug = $1',
+          [slug],
+        );
+        if (agencyRow.rows.length === 0) {
+          console.warn(`seed-subtopics: agency '${slug}' not found in DB`);
+          continue;
+        }
+        const agencyId = agencyRow.rows[0].id;
+
+        for (const topic of topicsForAgency) {
+          if (!topic.subtopics.length) continue;
+          // Lookup topic id
+          const topicRow = await client.query(
+            'SELECT id FROM topics WHERE agency_id = $1 AND slug = $2',
+            [agencyId, topic.slug],
+          );
+          if (topicRow.rows.length === 0) {
+            console.warn(`seed-subtopics: topic '${topic.slug}' missing for agency '${slug}'`);
+            continue;
+          }
+          const topicId = topicRow.rows[0].id;
+          for (const sub of topic.subtopics) {
+            const ins = await client.query(
+              `INSERT INTO subtopics (topic_id, name, slug, description, display_order, is_active)
+               VALUES ($1, $2, $3, $4, $5, true)
+               ON CONFLICT (topic_id, slug) DO NOTHING
+               RETURNING id`,
+              [topicId, sub.name, sub.slug, sub.description, sub.displayOrder],
+            );
+            if (ins.rows.length > 0) { inserted += 1; perAgency[slug].inserted += 1; }
+            else { skipped += 1; perAgency[slug].skipped += 1; }
+          }
+        }
+      }
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ inserted, skipped, perAgency }, null, 2),
+      };
+    }
+
+    if (action === 'backfill-subtopics') {
+      // Backfill: para cada mention_topic con subtopic_id NULL, llama Bedrock
+      // con un menú constrained-enum de subtopics del topic_id ya asignado y
+      // actualiza subtopic_id. Procesa en lotes con concurrencia para acelerar.
+      const wantLimit = Math.max(1, Math.min(5000, Number(event.limit ?? 1000)));
+      const targetAgency = event.agencySlug ?? 'ddecpr';
+      const concurrency = 8;
+
+      // Cargar el menú topic→subtopics desde @eco/shared para la agencia.
+      const agencyTopics = TOPICS_BY_AGENCY[targetAgency];
+      if (!agencyTopics) {
+        return { statusCode: 400, body: JSON.stringify({ error: `Unknown agency: ${targetAgency}` }) };
+      }
+      const subtopicsByTopicSlug = new Map<string, { slug: string; name: string; description: string }[]>();
+      for (const t of agencyTopics) subtopicsByTopicSlug.set(t.slug, t.subtopics);
+
+      // Resolver agency_id
+      const agencyRow = await client.query(
+        'SELECT id FROM agencies WHERE slug = $1',
+        [targetAgency],
+      );
+      if (agencyRow.rows.length === 0) {
+        return { statusCode: 404, body: JSON.stringify({ error: `Agency not found: ${targetAgency}` }) };
+      }
+      const agencyId = agencyRow.rows[0].id;
+
+      // Pull pending rows: mentions of this agency with at least one
+      // mention_topic where subtopic_id IS NULL but the topic has subtopics.
+      const sel = await client.query(
+        `SELECT mt.mention_id, mt.topic_id, t.slug AS topic_slug,
+                m.title, m.snippet, m.nlp_summary
+           FROM mention_topics mt
+           JOIN topics t ON t.id = mt.topic_id
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)
+          ORDER BY m.published_at DESC
+          LIMIT $2`,
+        [agencyId, wantLimit],
+      );
+
+      const rows = sel.rows as Array<{
+        mention_id: string;
+        topic_id: number;
+        topic_slug: string;
+        title: string | null;
+        snippet: string | null;
+        nlp_summary: string | null;
+      }>;
+      console.log(`backfill-subtopics: ${rows.length} pending rows`);
+
+      // Cache subtopic_id by (topic_id, slug) — avoids per-row SELECT.
+      const subtopicIdCache = new Map<string, number>();
+      const stRows = await client.query(
+        `SELECT st.id, st.slug, st.topic_id
+           FROM subtopics st
+           JOIN topics t ON t.id = st.topic_id
+          WHERE t.agency_id = $1`,
+        [agencyId],
+      );
+      for (const r of stRows.rows) {
+        subtopicIdCache.set(`${r.topic_id}:${r.slug}`, r.id);
+      }
+
+      let succeeded = 0;
+      let unmatched = 0;
+      let failed = 0;
+
+      for (let i = 0; i < rows.length; i += concurrency) {
+        const chunk = rows.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map(async (row) => {
+          const allowed = subtopicsByTopicSlug.get(row.topic_slug) ?? [];
+          if (allowed.length === 0) return; // no subtopics for this topic, skip
+          const slug = await classifySubtopicWithBedrock({
+            title: row.title,
+            snippet: row.snippet,
+            summary: row.nlp_summary,
+            topicSlug: row.topic_slug,
+            allowed,
+          });
+          if (!slug) { unmatched += 1; return; }
+          const cached = subtopicIdCache.get(`${row.topic_id}:${slug}`);
+          if (!cached) { unmatched += 1; return; }
+          await client.query(
+            `UPDATE mention_topics SET subtopic_id = $1
+              WHERE mention_id = $2 AND topic_id = $3 AND subtopic_id IS NULL`,
+            [cached, row.mention_id, row.topic_id],
+          );
+          succeeded += 1;
+        }));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            failed += 1;
+            console.warn('backfill-subtopics row failed:', r.reason);
+          }
+        }
+      }
+
+      const remaining = await client.query(
+        `SELECT COUNT(*)::int AS c
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)`,
+        [agencyId],
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          succeeded,
+          unmatched,
+          failed,
+          remaining: remaining.rows[0].c,
+          agencySlug: targetAgency,
+        }, null, 2),
+      };
+    }
+
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {
     await client.end();
   }
 };
+
+async function classifySubtopicWithBedrock(args: {
+  title: string | null;
+  snippet: string | null;
+  summary: string | null;
+  topicSlug: string;
+  allowed: { slug: string; name: string; description: string }[];
+}): Promise<string | null> {
+  const { title, snippet, summary, topicSlug, allowed } = args;
+  const menu = allowed.map((s) => `- ${s.slug}: ${s.description}`).join('\n');
+  const prompt = `Eres un clasificador de subtopics para social listening en Puerto Rico. Te doy UNA mención cuyo topic padre YA está asignado como "${topicSlug}".
+
+MENCIÓN:
+Título: ${title ?? '(sin título)'}
+Texto: ${(snippet ?? '').slice(0, 400)}
+Resumen IA: ${summary ?? '(sin resumen)'}
+
+SUBTOPICS PERMITIDOS bajo "${topicSlug}":
+${menu}
+
+INSTRUCCIONES:
+- Elige el subtopic que MEJOR describe el contenido específico de la mención.
+- Responde SOLO con JSON: {"subtopic_slug": "<slug>", "confidence": 0.0-1.0}
+- Si NINGÚN subtopic encaja con confianza ≥0.4, responde: {"subtopic_slug": null, "confidence": 0.0}
+- No expliques. No uses markdown. Solo el JSON.`;
+
+  try {
+    const response = await bedrock.send(new InvokeModelCommand({
+      modelId: SUBTOPIC_BACKFILL_MODEL_ID,
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 100,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.0,
+      }),
+    }));
+    const body = JSON.parse(new TextDecoder().decode(response.body));
+    const text = body?.content?.[0]?.text ?? '';
+    // Strip markdown fences if Haiku adds them despite instructions
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    const slug = parsed?.subtopic_slug;
+    if (!slug || typeof slug !== 'string') return null;
+    // Verify the slug is in the allowed list (defense against hallucination)
+    if (!allowed.some((s) => s.slug === slug)) return null;
+    return slug;
+  } catch (err) {
+    console.warn(`classifySubtopicWithBedrock failed for topic=${topicSlug}: ${(err as Error).message}`);
+    return null;
+  }
+}
 
 async function runMigrations(client: any): Promise<void> {
   console.log('Running schema migrations...');
