@@ -434,9 +434,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
 }
 
 // Stacked area (sentiment over time)
-function StackedAreaChart({ data, keys, colors, height = 220, onPointClick }) {
+function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels }) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(600);
+  const [hover, setHover] = React.useState(null); // índice del punto bajo el cursor
   React.useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
@@ -446,28 +447,46 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick }) {
   const padding = { t: 10, r: 10, b: 24, l: 36 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
-  const totals = data.map((d) => keys.reduce((s, k) => s + d[k], 0));
-  const max = Math.max(...totals);
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+    return (
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+        Sin datos suficientes para graficar.
+      </div>
+    );
+  }
+  const totals = data.map((d) => keys.reduce((s, k) => s + (d[k] || 0), 0));
+  const max = Math.max(1, ...totals);
   const step = innerW / Math.max(1, data.length - 1);
 
   const stacks = data.map((d) => {
     let acc = 0;
     const out = {};
-    keys.forEach((k) => { out[`${k}_start`] = acc; acc += d[k]; out[`${k}_end`] = acc; });
+    keys.forEach((k) => { out[`${k}_start`] = acc; acc += (d[k] || 0); out[`${k}_end`] = acc; });
     return out;
   });
 
-  function onSvgClick(e) {
-    if (!onPointClick) return;
+  function pickIdx(e) {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left - padding.l;
     const idx = Math.round(x / step);
-    if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx);
+    return (idx >= 0 && idx < data.length) ? idx : null;
+  }
+  function onSvgClick(e) { if (!onPointClick) return; const idx = pickIdx(e); if (idx != null) onPointClick(data[idx], idx); }
+  function onMove(e) { const idx = pickIdx(e); if (idx != null) setHover(idx); }
+
+  // Label legible por serie. `labels` opcional permite { positivo: 'Positivo' }.
+  function seriesLabel(k) {
+    if (labels && labels[k]) return labels[k];
+    return k.charAt(0).toUpperCase() + k.slice(1);
   }
 
   return (
     <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={height} onClick={onSvgClick} style={{ cursor: onPointClick ? 'pointer' : 'default' }}>
+      <svg width={w} height={height}
+        onClick={onSvgClick}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+        style={{ cursor: onPointClick ? 'pointer' : 'crosshair', display: 'block' }}>
         <g transform={`translate(${padding.l},${padding.t})`}>
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
             <line key={i} x1={0} y1={innerH * p} x2={innerW} y2={innerH * p} stroke="var(--hairline)" />
@@ -492,6 +511,52 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick }) {
               .map((idx) => (
                 <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
               ));
+          })()}
+
+          {/* Crosshair + tooltip — patrón portado de MultiLineChart para que el
+              gráfico de la pestaña Sentimiento muestre el dato exacto del día
+              bajo el cursor (issue #3 del review). */}
+          {hover != null && (() => {
+            const d = data[hover];
+            if (!d) return null;
+            const xPos = hover * step;
+            const lineCount = keys.length + 1; // +1 línea para el total
+            const tooltipW = 180;
+            const tooltipH = 22 + lineCount * 18;
+            const tooltipX = (xPos + tooltipW + 8 > innerW) ? xPos - tooltipW - 8 : xPos + 8;
+            const tooltipY = 0;
+            const total = keys.reduce((s, k) => s + (d[k] || 0), 0);
+            return (
+              <g pointerEvents="none">
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                {keys.map((k, ki) => {
+                  const yEnd = innerH - ((stacks[hover][`${k}_end`]) / max) * innerH;
+                  return <circle key={k} cx={xPos} cy={yEnd} r="4" fill="var(--canvas)" stroke={colors[ki]} strokeWidth="2" />;
+                })}
+                <g transform={`translate(${tooltipX},${tooltipY})`}>
+                  <rect x={0} y={0} width={tooltipW} height={tooltipH} rx={6}
+                    fill="var(--canvas)" stroke="var(--hairline-strong)" strokeWidth="1" opacity="0.97" />
+                  <text x={10} y={15} fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
+                    {d.fullDate || d.date || ''}
+                  </text>
+                  {keys.map((k, i) => (
+                    <g key={k}>
+                      <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={colors[i]} rx={2} />
+                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{seriesLabel(k)}</text>
+                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                        {Math.round(d[k] || 0)}
+                      </text>
+                    </g>
+                  ))}
+                  <g>
+                    <text x={10} y={22 + keys.length * 18 + 11} fontSize="10" fill="var(--text-3)" fontWeight="700">Total</text>
+                    <text x={tooltipW - 10} y={22 + keys.length * 18 + 11} fontSize="11" fontWeight="700" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                      {Math.round(total)}
+                    </text>
+                  </g>
+                </g>
+              </g>
+            );
           })()}
         </g>
       </svg>

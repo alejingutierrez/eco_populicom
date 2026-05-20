@@ -332,6 +332,17 @@ async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo)
   const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
   const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
 
+  // Construye el menú de subtopics anidado bajo cada topic padre, con sus
+  // descripciones cortas. Esto evita que Claude empareje un subtopic con un
+  // topic incorrecto (problema con la lista plana anterior).
+  const topicSubtopicMenu = agencyTopics
+    .map((t) => {
+      if (!t.subtopics.length) return `  • ${t.slug} — ${t.name}: (sin subtopics)`;
+      const subs = t.subtopics.map((s) => `      - ${s.slug} — ${s.description}`).join('\n');
+      return `  • ${t.slug} — ${t.name}:\n${subs}`;
+    })
+    .join('\n');
+
   // Pass Brandwatch's own sentiment (positive/neutral/negative) as a hint so
   // Claude has an anchor. Historically Claude was too positive — it rated
   // 5,600 "bw=neutral" news items as "positivo". The rules below bias
@@ -366,11 +377,22 @@ PERTINENCIA:
 EMOTIONS:
 - del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3. Omite el campo si el texto es meramente factual.
 
-TOPICS:
-- usar SOLO estos slugs: ${topicSlugs}
-- subtopic_slug (opcional): ${subtopicSlugs}
-- Máximo 3 tópicos por mención.
-- confidence: 0.0 a 1.0.
+TOPICS Y SUBTOPICS (menú jerárquico — el subtopic_slug DEBE pertenecer al topic_slug elegido):
+${topicSubtopicMenu}
+
+REGLAS DE TOPICS/SUBTOPICS:
+- topic_slug obligatorio. Usa SOLO uno de: ${topicSlugs}.
+- subtopic_slug opcional pero MUY recomendado. Debe ser uno de los listados bajo el topic_slug elegido. NUNCA mezcles un subtopic de un topic con otro topic.
+- Máximo 3 tópicos por mención. confidence: 0.0 a 1.0.
+
+REGLAS DE ROUTING CROSS-TOPIC (cuando la mención toca varios temas, elige UNO primario):
+- Si el post anuncia el NÚMERO DE EMPLEOS como hecho central → topic = empleo-fuerza-laboral. Si habla de la DECISIÓN/SECTOR corporativo → topic = inversion-extranjera.
+- Misión comercial España: si centra en "empresas PR exportando" → comercio-exterior; si centra en "atraer capital ES a PR" → inversion-extranjera.
+- Hotel boutique con créditos Ley 60: si la conversación es "caso de éxito turístico" → turismo-economia; si es "controversia Ley 60" → incentivos-economicos.
+- Compañía Turismo separación: legislacion-economica (NO turismo-economia).
+- OGPe / PC 1183 / inspecciones bomberos: si discute "permisos como sistema" → permisos-reforma; si discute "DDEC como agencia receptora/cedente de funciones" → legislacion-economica.
+- Críticas dirigidas a la PERSONA del Secretario (credibilidad, gestión, viajes): topic = gestion-secretario con sentiment=negativo; reserva criticas-controversias para críticas al PROYECTO o al MODELO económico, no a la persona.
+- FITUR: turismo-economia.fitur-y-promocion-internacional (NO comercio-exterior).
 
 MUNICIPALITIES:
 - Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).

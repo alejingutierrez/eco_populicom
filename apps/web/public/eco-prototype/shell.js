@@ -1196,7 +1196,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   <div key={mn.id} className="row-hover"
                     onClick={() => onMentionClick && onMentionClick(mn)}
                     style={{
-                      display: 'grid', gridTemplateColumns: '20px 1fr 90px 70px 70px',
+                      display: 'grid', gridTemplateColumns: '20px 1fr 90px 120px 120px',
                       gap: 12, alignItems: 'center',
                       padding: '10px 12px',
                       border: '1px solid var(--hairline)',
@@ -1210,8 +1210,22 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                       <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain} · {mn.publishedAt}</div>
                     </div>
                     <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-                    <span className="num" style={{ textAlign: 'right', color: 'var(--text-2)', fontWeight: 600 }}>{(mn.engagement || 0).toLocaleString('es-PR')}</span>
-                    <span style={{ fontSize: 10, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', textAlign: 'right' }}>{mn.pertinence}</span>
+                    {/* Tópico (columna nueva — reemplazó engagement). Truncado a una línea. */}
+                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
+                      {mn.topicName || '—'}
+                    </span>
+                    {/* Subtópico (columna nueva — reemplazó pertinencia). Muestra el
+                        primer subtopic + indicador "+N" si hay más. */}
+                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
+                      {(mn.subtopics && mn.subtopics.length > 0) ? (
+                        <>
+                          {mn.subtopics[0]}
+                          {mn.subtopics.length > 1 && (
+                            <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>+{mn.subtopics.length - 1}</span>
+                          )}
+                        </>
+                      ) : '—'}
+                    </span>
                   </div>
                 );
               })}

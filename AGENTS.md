@@ -228,4 +228,53 @@ set -a; source /Volumes/MyApps/eco_populicom/.env; set +a
    stop and ask the user to refresh — do not retry with different keys or
    dig through other profiles.
 
+### Worktrees: sincronizar SIEMPRE antes de empezar
+
+Los worktrees (`.claude/worktrees/<name>/`) se crean desde la rama base en el
+momento del `git worktree add`. `main` avanza muy rápido (a veces 20+ commits
+en pocos días vía PRs squash-merged). Si empiezas a editar sin sincronizar,
+vas a planear sobre código viejo y/o vas a tener que pelear conflictos al
+hacer PR.
+
+**Patrón obligatorio al iniciar trabajo en un worktree:**
+
+```bash
+# 1. Fetch main por HTTPS (SSH no funciona en esta máquina — push falla).
+set -a; source /Users/alegut/MyApps/eco_populicom/.env; set +a
+git fetch https://${GITHUB_TOKEN}@github.com/alejingutierrez/eco_populicom.git main
+
+# 2. Ver cuántos commits estás atrás. Si es > 0, sincronizar.
+git log --oneline HEAD..FETCH_HEAD | head
+
+# 3. Si la rama del worktree solo tiene commits cuya intención ya está en main
+#    (commits "chore" duplicados por squash-merge), reset --hard es la ruta
+#    limpia. NO se pierde código — el contenido vive en main con otro SHA.
+git reset --hard FETCH_HEAD
+
+# 4. Si la rama tiene trabajo propio NO mergeado todavía, rebase y resolver:
+#    git rebase FETCH_HEAD
+#    (resolver conflictos a mano, aceptando "theirs" para cualquier archivo
+#    que ya esté en main bajo otro nombre/SHA)
+
+# 5. Symlink node_modules (workspaces se resuelven al monorepo principal):
+ln -sfn /Users/alegut/MyApps/eco_populicom/node_modules \
+  /Users/alegut/MyApps/eco_populicom/.claude/worktrees/<worktree>/node_modules
+```
+
+**Por qué NO usar SSH (`git fetch origin`):** el remoto está configurado como
+`git@github.com:...` y en esta máquina la auth SSH falla con "Permission
+denied (publickey)". Siempre HTTPS con el `GITHUB_TOKEN` del `.env`.
+
+**Por qué `reset --hard` es seguro aquí (en esta única situación):** los
+commits que el worktree tiene por defecto al crearse son típicamente
+commits que ya existen en `main` bajo otro SHA por squash-merge. Verifica
+con `git log HEAD..FETCH_HEAD --oneline` que no hay trabajo propio nuevo
+en HEAD antes de resetear. Si hay trabajo propio, rebase con resolución
+manual; nunca pierdas datos no representados en main.
+
+**Excepción CLAUDE.md:** la regla general dice no usar `reset --hard` sin
+autorización. Para el caso específico "sincronizar worktree recién creado
+con main", el caso de uso está pre-autorizado por el usuario (caso
+2026-05-20).
+
 When in doubt, ask before running the command.
