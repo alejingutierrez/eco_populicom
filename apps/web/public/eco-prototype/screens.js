@@ -989,7 +989,7 @@ function MentionsCards({ mentions, onMentionClick }) {
 
 // --- Mentions: Table view (compact, sin columnas Engagement ni Pertinencia) ---
 function MentionsTable({ mentions, onMentionClick }) {
-  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Municipio', 'Fecha'];
+  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Subtópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -1013,6 +1013,16 @@ function MentionsTable({ mentions, onMentionClick }) {
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
                 <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>
+                  {(mn.subtopics && mn.subtopics.length > 0) ? (
+                    <>
+                      {mn.subtopics[0]}
+                      {mn.subtopics.length > 1 && (
+                        <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>+{mn.subtopics.length - 1}</span>
+                      )}
+                    </>
+                  ) : '—'}
+                </td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.municipality || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{mn.publishedAt}</td>
               </tr>
@@ -1027,7 +1037,22 @@ function MentionsTable({ mentions, onMentionClick }) {
 // =============== SENTIMENT ===============
 function SentimentScreen({ onMentionClick, period, agency }) {
   const [slice, setSlice] = useState(null);
+  const [groupBy, setGroupBy] = useState('source');
   const m = D.CURRENT_METRICS;
+
+  // Mapa de dimensiones del breakdown "Sentimiento por X". Las 4 fuentes de
+  // datos vienen del API /api/eco-data — ver eco-data/route.ts.
+  const GROUP_BY_OPTIONS = [
+    { k: 'source',   l: 'Fuente',    dataKey: 'SENTIMENT_BY_SOURCE',   itemKey: 'source' },
+    { k: 'topic',    l: 'Tópico',    dataKey: 'SENTIMENT_BY_TOPIC',    itemKey: 'topic' },
+    { k: 'subtopic', l: 'Subtópico', dataKey: 'SENTIMENT_BY_SUBTOPIC', itemKey: 'subtopic' },
+    { k: 'region',   l: 'Región',    dataKey: 'SENTIMENT_BY_REGION',   itemKey: 'region' },
+  ];
+  const activeGroup = GROUP_BY_OPTIONS.find((o) => o.k === groupBy) || GROUP_BY_OPTIONS[0];
+  const groupRows = (D[activeGroup.dataKey] || []).map((r) => ({
+    ...r,
+    label: r[activeGroup.itemKey] || r.source || r.topic || r.subtopic || r.region || '—',
+  }));
 
   function openNssInsight() {
     if (m.nss == null) return;
@@ -1090,18 +1115,29 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     });
   }
 
-  function openSourceSlice(s, sentimentType) {
+  function openGroupSlice(row, sentimentType) {
     const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-    const sourceKey = {
-      'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
-      'Noticias': 'news', 'Instagram': 'instagram', 'YouTube': 'youtube', 'Blogs': 'blog',
-    }[s.source] || (s.source || '').toLowerCase();
+    const label = row.label;
+    const filter = { sentiment: sentimentType };
+    if (groupBy === 'source') {
+      filter.source = {
+        'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
+        'Noticias': 'news', 'Instagram': 'instagram', 'YouTube': 'youtube', 'Blogs': 'blog',
+      }[label] || String(label || '').toLowerCase();
+    } else if (groupBy === 'topic') {
+      filter.topic = row.slug || row.topic || label;
+    } else if (groupBy === 'subtopic') {
+      filter.subtopic = label;
+    } else if (groupBy === 'region') {
+      filter.region = label;
+    }
+    const eyebrowLabel = { source: 'Fuente', topic: 'Tópico', subtopic: 'Subtópico', region: 'Región' }[groupBy] || 'Grupo';
     setSlice({
-      eyebrow: `Fuente · ${s.source}`,
+      eyebrow: `${eyebrowLabel} · ${label}`,
       title: `Sentimiento ${sentimentType}`,
       accent,
       mentions: [],
-      _filter: { source: sourceKey, sentiment: sentimentType },
+      _filter: filter,
     });
   }
 
@@ -1110,7 +1146,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       {/* Narrative hero */}
       <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
         <div>
-          <div className="section-eyebrow">Balance de sentimiento · 30 días</div>
+          <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
             className="row-hover"
             title="Ver insight del NSS para el periodo"
@@ -1160,7 +1196,9 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             <div><div className="card-hd-title">Sentimiento en el tiempo</div><div className="card-hd-sub">Volumen apilado · click un día para ver menciones</div></div>
           </div>
           <div className="card-bd">
-            <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
+            <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
+              labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
+              colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 12 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
@@ -1173,25 +1211,50 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       </div>
 
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Sentimiento por fuente</div><div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div></div></div>
+        <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div>
+            <div className="card-hd-title">Sentimiento por {activeGroup.l.toLowerCase()}</div>
+            <div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div>
+          </div>
+          {/* Toggle de dimensión: fuente / tópico / subtópico / región.
+              Mismo patrón visual que GeographyScreen (Volumen/Sentimiento). */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+            {GROUP_BY_OPTIONS.map((o) => (
+              <button key={o.k}
+                onClick={() => setGroupBy(o.k)}
+                style={{
+                  padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                  borderRadius: 999, border: 'none', cursor: 'pointer',
+                  background: groupBy === o.k ? 'var(--canvas)' : 'transparent',
+                  color: groupBy === o.k ? 'var(--text)' : 'var(--text-3)',
+                  boxShadow: groupBy === o.k ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                }}>{o.l}</button>
+            ))}
+          </div>
+        </div>
         <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 18 }}>
-          {D.SENTIMENT_BY_SOURCE.map((s) => {
-            const total = s.positivo + s.neutral + s.negativo;
-            const pos = Math.round((s.positivo/total)*100);
-            const neu = Math.round((s.neutral/total)*100);
-            const neg = 100 - pos - neu;
+          {groupRows.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
+              Sin datos para esta dimensión en el periodo.
+            </div>
+          )}
+          {groupRows.map((s, idx) => {
+            const total = (s.positivo || 0) + (s.neutral || 0) + (s.negativo || 0);
+            const pos = total > 0 ? Math.round((s.positivo/total)*100) : 0;
+            const neu = total > 0 ? Math.round((s.neutral/total)*100) : 0;
+            const neg = Math.max(0, 100 - pos - neu);
             return (
-              <div key={s.source}>
+              <div key={`${groupBy}-${s.label}-${idx}`}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 500 }}>{s.source}</span>
+                  <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)' }}>{s.label}</span>
                   <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(total)}</span>
                 </div>
                 <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <button onClick={() => openSourceSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
                     style={{ width: `${pos}%`, background: 'var(--pos)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openSourceSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
                     style={{ width: `${neu}%`, background: 'var(--text-3)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openSourceSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
                     style={{ width: `${neg}%`, background: 'var(--neg)', border: 'none', cursor: 'pointer', padding: 0 }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>
@@ -1258,10 +1321,12 @@ function EmotionsCard({ emotions, onEmotionClick }) {
           <Icons.ArrowRight size={14} color="var(--text-3)" />
         </button>
 
-        {/* All emotions as a rank */}
+        {/* All emotions as a rank — barra normalizada vs total (no vs top)
+            para que la magnitud refleje el % real del periodo (consistente
+            con el "% del total" del hero de arriba). */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {sorted.map((e, i) => {
-            const pct = (e.count / sorted[0].count) * 100;
+            const pct = total > 0 ? (e.count / total) * 100 : 0;
             return (
               <button key={e.emotion} onClick={() => onEmotionClick(e)}
                 className="row-hover"

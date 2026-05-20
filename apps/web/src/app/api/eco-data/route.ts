@@ -381,6 +381,66 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
       .slice(0, 8);
 
+    // ---- SENTIMENT_BY_TOPIC (dedup top-confidence por mención) ----
+    // Misma semántica que TOPICS: cada mención cuenta UNA vez bajo su tópico
+    // de mayor confianza. Esto coincide con el correo/Overview.
+    const sByTopicRaw = await (pool as ReturnType<typeof getPool>).query<{
+      slug: string; name: string; sentiment: string | null; c: number | string;
+    }>(
+      `SELECT t.slug, t.name, pt.sentiment, COUNT(*)::int AS c
+         FROM (
+           SELECT m.id AS mention_id,
+                  COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                  (SELECT topic_id FROM mention_topics
+                     WHERE mention_id = m.id
+                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+             FROM mentions m
+            WHERE m.agency_id = $1
+              AND m.published_at >= $2
+              AND m.published_at <= $3
+         ) pt
+         JOIN topics t ON t.id = pt.topic_id
+         GROUP BY t.slug, t.name, pt.sentiment`,
+      [agencyId, since.toISOString(), until.toISOString()],
+    );
+    const byTopic = new Map<string, { topic: string; slug: string; positivo: number; neutral: number; negativo: number }>();
+    for (const r of sByTopicRaw.rows) {
+      if (!byTopic.has(r.slug)) byTopic.set(r.slug, { topic: r.name, slug: r.slug, positivo: 0, neutral: 0, negativo: 0 });
+      byTopic.get(r.slug)![pillFromSentiment(r.sentiment)] += Number(r.c);
+    }
+    const SENTIMENT_BY_TOPIC = Array.from(byTopic.values())
+      .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
+      .slice(0, 8);
+
+    // ---- SENTIMENT_BY_SUBTOPIC (dedup top-confidence; solo menciones con subtopic) ----
+    const sBySubtopicRaw = await (pool as ReturnType<typeof getPool>).query<{
+      slug: string; name: string; sentiment: string | null; c: number | string;
+    }>(
+      `SELECT st.slug, st.name, pt.sentiment, COUNT(*)::int AS c
+         FROM (
+           SELECT m.id AS mention_id,
+                  COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                  (SELECT subtopic_id FROM mention_topics
+                     WHERE mention_id = m.id AND subtopic_id IS NOT NULL
+                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+             FROM mentions m
+            WHERE m.agency_id = $1
+              AND m.published_at >= $2
+              AND m.published_at <= $3
+         ) pt
+         JOIN subtopics st ON st.id = pt.subtopic_id
+         GROUP BY st.slug, st.name, pt.sentiment`,
+      [agencyId, since.toISOString(), until.toISOString()],
+    );
+    const bySubtopic = new Map<string, { subtopic: string; slug: string; positivo: number; neutral: number; negativo: number }>();
+    for (const r of sBySubtopicRaw.rows) {
+      if (!bySubtopic.has(r.slug)) bySubtopic.set(r.slug, { subtopic: r.name, slug: r.slug, positivo: 0, neutral: 0, negativo: 0 });
+      bySubtopic.get(r.slug)![pillFromSentiment(r.sentiment)] += Number(r.c);
+    }
+    const SENTIMENT_BY_SUBTOPIC = Array.from(bySubtopic.values())
+      .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
+      .slice(0, 8);
+
     // ---- TOPICS ----
     // TOPICS: top-confidence dedup (cada mención cuenta UNA vez bajo su tópico
     // de mayor confianza) + secondaryCount como dato suplementario. Misma
@@ -659,6 +719,19 @@ export async function GET(request: NextRequest) {
           negativo: m.negativo,
         };
       });
+
+    // ---- SENTIMENT_BY_REGION ----
+    // Agrupar los muniRows ya recolectados por la columna `region`. Reutiliza
+    // el aggregator existente — no requiere un round-trip extra a la DB.
+    const byRegion = new Map<string, { region: string; positivo: number; neutral: number; negativo: number }>();
+    for (const r of muniRows) {
+      const region = (r.region || '').trim() || 'Sin región';
+      if (!byRegion.has(region)) byRegion.set(region, { region, positivo: 0, neutral: 0, negativo: 0 });
+      byRegion.get(region)![pillFromSentiment(r.s)] += Number(r.c);
+    }
+    const SENTIMENT_BY_REGION = Array.from(byRegion.values())
+      .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
+      .slice(0, 8);
 
     // ---- EMOTIONS (aggregated in SQL, no memory-heavy rows in Node) ----
     // since/until ya están computados desde la ventana cerrada (preset) o
@@ -1072,6 +1145,9 @@ export async function GET(request: NextRequest) {
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
       TOP_SOURCES: TOP_SOURCES.length > 0 ? TOP_SOURCES : null,
       SENTIMENT_BY_SOURCE: SENTIMENT_BY_SOURCE.length > 0 ? SENTIMENT_BY_SOURCE : null,
+      SENTIMENT_BY_TOPIC: SENTIMENT_BY_TOPIC.length > 0 ? SENTIMENT_BY_TOPIC : null,
+      SENTIMENT_BY_SUBTOPIC: SENTIMENT_BY_SUBTOPIC.length > 0 ? SENTIMENT_BY_SUBTOPIC : null,
+      SENTIMENT_BY_REGION: SENTIMENT_BY_REGION.length > 0 ? SENTIMENT_BY_REGION : null,
       TOPICS: TOPICS.length > 0 ? TOPICS : null,
       SUBTOPICS: Object.keys(SUBTOPICS).length > 0 ? SUBTOPICS : null,
       MUNICIPALITIES: MUNICIPALITIES.length > 0 ? MUNICIPALITIES : null,
