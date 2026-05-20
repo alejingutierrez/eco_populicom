@@ -1273,14 +1273,39 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   );
 }
 
-// --- Emotions card — redesigned ---
+// --- Emotions card — redesigned (v2) ---
+//
+// Bug previo: el backend mapeaba emociones como "alivio/gratitud/sarcasmo/
+// indiferencia" a `color: 'neu'`, pero `--neu` no existe como CSS var, así
+// que `background: var(--neu)` resolvía vacío y la barra quedaba invisible.
+//
+// Fix: paleta auto-contenida en frontend, mapeada por NOMBRE de emoción (no
+// confía en `e.color` del backend). Cada emoción del set definido por el
+// prompt del processor tiene un color distinto y semántico:
+//   - enojo / frustración  → rojo (var(--neg))
+//   - preocupación         → ámbar (var(--warn))
+//   - sarcasmo             → púrpura (#8C5BA8)
+//   - indiferencia         → gris cálido (#7B8794)
+//   - gratitud / esperanza / alegría / aprobación → verde (var(--pos))
+//   - alivio               → teal (#5FA98A)
+//   - confusión            → gris (#7B8794)
+//   - fallback             → gris (#7B8794)
+function emotionColor(emotion) {
+  const e = (emotion || '').toLowerCase();
+  if (e === 'enojo' || e === 'frustración' || e === 'frustracion') return 'var(--neg)';
+  if (e === 'preocupación' || e === 'preocupacion') return 'var(--warn)';
+  if (e === 'sarcasmo') return '#8C5BA8';
+  if (e === 'indiferencia' || e === 'confusión' || e === 'confusion') return '#7B8794';
+  if (e === 'gratitud' || e === 'esperanza' || e === 'alegría' || e === 'alegria' || e === 'aprobación' || e === 'aprobacion') return 'var(--pos)';
+  if (e === 'alivio') return '#5FA98A';
+  return '#7B8794';
+}
+
 function EmotionsCard({ emotions, onEmotionClick }) {
   const sorted = [...emotions].sort((a, b) => b.count - a.count);
   const total = sorted.reduce((s, e) => s + e.count, 0);
   const top = sorted[0];
-  // Circumplex quadrants: pleasantness x activation
-  // For now, grouping into 4 buckets by color tone
-  const toneFamily = { neg: 'Desagradable', pos: 'Agradable', warn: 'Alerta', text: 'Neutral' };
+  const topColor = emotionColor(top.emotion);
 
   return (
     <div className="card">
@@ -1292,26 +1317,26 @@ function EmotionsCard({ emotions, onEmotionClick }) {
         <Icons.Heart size={14} color="var(--text-3)" />
       </div>
       <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Top emotion hero */}
+        {/* Emoción dominante (hero) */}
         <button onClick={() => onEmotionClick(top)}
           className="row-hover"
           style={{
             display: 'flex', alignItems: 'center', gap: 14,
             padding: '12px 14px', borderRadius: 8,
-            background: `color-mix(in oklab, var(--${top.color}) 8%, var(--canvas))`,
-            border: `1px solid color-mix(in oklab, var(--${top.color}) 25%, var(--hairline))`,
+            background: `color-mix(in oklab, ${topColor} 8%, var(--canvas))`,
+            border: `1px solid color-mix(in oklab, ${topColor} 25%, var(--hairline))`,
             cursor: 'pointer', textAlign: 'left', width: '100%',
           }}>
           <div style={{
             width: 48, height: 48, borderRadius: '50%',
-            background: `var(--${top.color})`, opacity: 0.15,
+            background: `color-mix(in oklab, ${topColor} 18%, transparent)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <div style={{ width: 22, height: 22, borderRadius: '50%', background: `var(--${top.color})` }} />
+            <div style={{ width: 22, height: 22, borderRadius: '50%', background: topColor }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: `var(--${top.color})` }}>Emoción dominante</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: topColor }}>Emoción dominante</div>
             <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', marginTop: 2 }}>{top.emotion}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -1321,28 +1346,39 @@ function EmotionsCard({ emotions, onEmotionClick }) {
           <Icons.ArrowRight size={14} color="var(--text-3)" />
         </button>
 
-        {/* All emotions as a rank — barra normalizada vs total (no vs top)
-            para que la magnitud refleje el % real del periodo (consistente
-            con el "% del total" del hero de arriba). */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {/* Ranking de emociones — todas pintadas por nombre (no por e.color del
+            backend que podía ser 'neu' sin var CSS). Bar 8px, ancho mínimo 2%
+            para que las menores no desaparezcan visualmente. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {sorted.map((e, i) => {
             const pct = total > 0 ? (e.count / total) * 100 : 0;
+            const color = emotionColor(e.emotion);
+            const widthPct = pct > 0 ? Math.max(2, pct) : 0; // 2% piso visual cuando hay datos
             return (
               <button key={e.emotion} onClick={() => onEmotionClick(e)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '18px 1fr 1fr 50px 12px',
-                  gap: 10, alignItems: 'center',
-                  padding: '6px 8px', marginInline: -8, borderRadius: 6,
+                  display: 'grid', gridTemplateColumns: '22px 120px 1fr 64px 12px',
+                  gap: 12, alignItems: 'center',
+                  padding: '8px 10px', marginInline: -10, borderRadius: 6,
                   background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
                   fontSize: 12,
                 }}>
-                <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
                 <span style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.emotion}</span>
-                <div className="bar-track" style={{ height: 4 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: `var(--${e.color})`, borderRadius: 'inherit', transition: 'width 0.3s var(--ease)' }} />
+                <div style={{ height: 8, borderRadius: 4, background: 'var(--canvas-2)', overflow: 'hidden', position: 'relative' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${widthPct}%`,
+                    background: color,
+                    borderRadius: 'inherit',
+                    transition: 'width 0.3s var(--ease)',
+                  }} />
                 </div>
-                <span className="num" style={{ textAlign: 'right', color: 'var(--text-2)', fontWeight: 600 }}>{fmt(e.count)}</span>
+                <span style={{ textAlign: 'right' }}>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-2)', fontWeight: 600, fontSize: 12, lineHeight: 1.1 }}>{fmt(e.count)}</span>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-3)', fontSize: 9, marginTop: 1 }}>{pct.toFixed(1)}%</span>
+                </span>
                 <Icons.ArrowRight size={11} color="var(--text-3)" />
               </button>
             );
