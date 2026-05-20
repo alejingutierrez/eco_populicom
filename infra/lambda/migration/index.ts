@@ -376,13 +376,25 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'backfill-subtopics-init') {
+      // Idempotente: añade `subtopic_attempts` a mention_topics si falta.
+      // Sirve para evitar reprocesar filas que Bedrock no pudo clasificar.
+      await client.query(`
+        ALTER TABLE mention_topics
+        ADD COLUMN IF NOT EXISTS subtopic_attempts SMALLINT NOT NULL DEFAULT 0
+      `);
+      return { statusCode: 200, body: JSON.stringify({ initialized: true }) };
+    }
+
     if (action === 'backfill-subtopics') {
       // Backfill: para cada mention_topic con subtopic_id NULL, llama Bedrock
       // con un menú constrained-enum de subtopics del topic_id ya asignado y
       // actualiza subtopic_id. Procesa en lotes con concurrencia para acelerar.
       const wantLimit = Math.max(1, Math.min(5000, Number(event.limit ?? 1000)));
       const targetAgency = event.agencySlug ?? 'ddecpr';
-      const concurrency = 8;
+      // Concurrency tunable via event payload. Bedrock Sonnet 4.6 (cross-region
+      // inference) tolera 20-30 concurrent sin throttle en cuentas estándar.
+      const concurrency = Math.max(1, Math.min(40, Number((event as { concurrency?: number }).concurrency ?? 8)));
 
       // Cargar el menú topic→subtopics desde @eco/shared para la agencia.
       const agencyTopics = TOPICS_BY_AGENCY[targetAgency];
@@ -404,6 +416,10 @@ export const handler = async (event: { action?: string; query?: string; queryIds
 
       // Pull pending rows: mentions of this agency with at least one
       // mention_topic where subtopic_id IS NULL but the topic has subtopics.
+      // Excluye filas ya intentadas N veces sin éxito (subtopic_attempts >= 3)
+      // y ordena por menos intentos primero, luego random para distribuir carga
+      // entre invocaciones paralelas.
+      const maxAttempts = Math.max(1, Math.min(5, Number((event as { maxAttempts?: number }).maxAttempts ?? 3)));
       const sel = await client.query(
         `SELECT mt.mention_id, mt.topic_id, t.slug AS topic_slug,
                 m.title, m.snippet, m.nlp_summary
@@ -412,10 +428,11 @@ export const handler = async (event: { action?: string; query?: string; queryIds
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
             AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts < $3
             AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)
-          ORDER BY m.published_at DESC
+          ORDER BY mt.subtopic_attempts ASC, random()
           LIMIT $2`,
-        [agencyId, wantLimit],
+        [agencyId, wantLimit, maxAttempts],
       );
 
       const rows = sel.rows as Array<{
@@ -457,11 +474,28 @@ export const handler = async (event: { action?: string; query?: string; queryIds
             topicSlug: row.topic_slug,
             allowed,
           });
-          if (!slug) { unmatched += 1; return; }
+          if (!slug) {
+            // Marcar intento fallido para que el próximo barrido no la repita.
+            await client.query(
+              `UPDATE mention_topics SET subtopic_attempts = subtopic_attempts + 1
+                WHERE mention_id = $1 AND topic_id = $2 AND subtopic_id IS NULL`,
+              [row.mention_id, row.topic_id],
+            );
+            unmatched += 1;
+            return;
+          }
           const cached = subtopicIdCache.get(`${row.topic_id}:${slug}`);
-          if (!cached) { unmatched += 1; return; }
+          if (!cached) {
+            await client.query(
+              `UPDATE mention_topics SET subtopic_attempts = subtopic_attempts + 1
+                WHERE mention_id = $1 AND topic_id = $2 AND subtopic_id IS NULL`,
+              [row.mention_id, row.topic_id],
+            );
+            unmatched += 1;
+            return;
+          }
           await client.query(
-            `UPDATE mention_topics SET subtopic_id = $1
+            `UPDATE mention_topics SET subtopic_id = $1, subtopic_attempts = subtopic_attempts + 1
               WHERE mention_id = $2 AND topic_id = $3 AND subtopic_id IS NULL`,
             [cached, row.mention_id, row.topic_id],
           );
@@ -481,8 +515,18 @@ export const handler = async (event: { action?: string; query?: string; queryIds
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
             AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts < $2
             AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)`,
-        [agencyId],
+        [agencyId, maxAttempts],
+      );
+      const totallyExhausted = await client.query(
+        `SELECT COUNT(*)::int AS c
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts >= $2`,
+        [agencyId, maxAttempts],
       );
       return {
         statusCode: 200,
@@ -492,6 +536,7 @@ export const handler = async (event: { action?: string; query?: string; queryIds
           unmatched,
           failed,
           remaining: remaining.rows[0].c,
+          exhausted: totallyExhausted.rows[0].c,
           agencySlug: targetAgency,
         }, null, 2),
       };
