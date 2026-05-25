@@ -47,6 +47,57 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       const res = await client.query(event.query);
       return { statusCode: 200, body: JSON.stringify({ rows: res.rows, rowCount: res.rowCount }) };
     }
+    if (action === 'test-commit-import') {
+      // Despacha mensajes SQS para todas las rows new/update de un import.
+      // Mirror del endpoint /api/admin/mentions/import/[id]/commit pero
+      // invocable desde CLI sin auth — para smoke testing del flujo
+      // completo cuando no hay sesión Cognito.
+      const e = event as unknown as { importId?: string };
+      if (!e.importId) return { statusCode: 400, body: JSON.stringify({ error: 'importId required' }) };
+
+      const r = await client.query(
+        `SELECT id, agency_id, source_type, status, preview_json
+           FROM mention_imports WHERE id = $1`,
+        [e.importId],
+      );
+      if (r.rows.length === 0) return { statusCode: 404, body: 'not found' };
+      const imp = r.rows[0];
+      if (imp.status !== 'preview_ready') {
+        return { statusCode: 409, body: JSON.stringify({ error: `status is ${imp.status}` }) };
+      }
+
+      const sqsMod = await import('@aws-sdk/client-sqs');
+      const sqs = new sqsMod.SQSClient({});
+      const queueUrl = process.env.INGESTION_QUEUE_URL ?? 'https://sqs.us-east-1.amazonaws.com/863956448838/eco-ingestion';
+
+      const source = imp.source_type === 'excel' ? 'manual_excel' : 'manual_url';
+      const previewRows = (imp.preview_json ?? []) as Array<{ status: string; mention?: unknown }>;
+      const toDispatch = previewRows.filter((p) => (p.status === 'new' || p.status === 'update') && p.mention);
+
+      // Lock soft → status='committing'
+      await client.query(
+        `UPDATE mention_imports SET status = 'committing', committed_at = NOW() WHERE id = $1`,
+        [e.importId],
+      );
+
+      let dispatched = 0;
+      for (let i = 0; i < toDispatch.length; i += 10) {
+        const chunk = toDispatch.slice(i, i + 10);
+        const entries = chunk.map((p, idx) => ({
+          Id: `r${i + idx}`,
+          MessageBody: JSON.stringify({
+            __source: source,
+            sourceImportId: e.importId,
+            agencyId: imp.agency_id,
+            mention: p.mention,
+          }),
+        }));
+        await sqs.send(new sqsMod.SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: entries }));
+        dispatched += chunk.length;
+      }
+
+      return { statusCode: 200, body: JSON.stringify({ dispatched, total: toDispatch.length }) };
+    }
     if (action === 'test-create-mention-import') {
       // Crea un mention_imports row para smoke testing del flujo de import
       // manual. NO usar en producción — la creación normal va via el API

@@ -36,7 +36,12 @@ const s3 = new S3Client({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const IMPORTS_BUCKET = process.env.IMPORTS_BUCKET!;
 
-const MAX_ROWS = 500;
+// Cap de filas por upload. Originalmente 500 para acotar costo NLP. Subido
+// a 2000 tras smoke testing — 2000 × ~$0.05 ≈ $100 worst case, y la mayoría
+// de uploads reales en producción son re-imports de exports Brandwatch que
+// dedup ≥80% a duplicate/update (NLP solo se corre en `new` y `update`).
+// Si en el futuro cambia el patrón de uso, considerar reducirlo.
+const MAX_ROWS = 2000;
 
 let dbUrl: string | null = null;
 
