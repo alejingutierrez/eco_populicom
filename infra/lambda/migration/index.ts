@@ -246,6 +246,113 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'create-narratives-schema') {
+      // Crea las tablas del feature "narrativas": narratives, narrative_mentions,
+      // narrative_edges, narrative_candidates. Requiere pgvector ya activo (lo
+      // garantiza add-embeddings-column, pero también lo aseguramos aquí).
+      // Idempotente — IF NOT EXISTS en todo.
+      const stmts = [
+        `CREATE EXTENSION IF NOT EXISTS vector`,
+
+        // Tabla principal de narrativas
+        `CREATE TABLE IF NOT EXISTS narratives (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          name VARCHAR(120) NOT NULL,
+          slug VARCHAR(140) NOT NULL,
+          summary TEXT,
+          keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+          centroid vector(1024),
+          centroid_at_naming vector(1024),
+          status VARCHAR(16) NOT NULL DEFAULT 'emerging'
+            CHECK (status IN ('emerging','active','peaking','declining','dormant','revived')),
+          first_mention_id UUID REFERENCES mentions(id) ON DELETE SET NULL,
+          initiator_first JSONB,
+          initiator_influencer JSONB,
+          mention_count INTEGER NOT NULL DEFAULT 0,
+          total_engagement BIGINT NOT NULL DEFAULT 0,
+          total_reach BIGINT NOT NULL DEFAULT 0,
+          velocity_24h DOUBLE PRECISION NOT NULL DEFAULT 0,
+          engagement_velocity_24h DOUBLE PRECISION NOT NULL DEFAULT 0,
+          drift_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+          born_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_mention_at TIMESTAMPTZ,
+          peaked_at TIMESTAMPTZ,
+          last_renamed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_narratives_agency_slug UNIQUE (agency_id, slug)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_agency_status
+          ON narratives (agency_id, status)`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_last_mention
+          ON narratives (agency_id, last_mention_at DESC)`,
+        // IVFFlat para centroide (consistente con mentions.embedding). Con
+        // ~150 narrativas activas por agencia, lists=10 es suficiente.
+        `CREATE INDEX IF NOT EXISTS idx_narratives_centroid
+          ON narratives USING ivfflat (centroid vector_cosine_ops) WITH (lists = 10)`,
+
+        // Asignación mention → narrative
+        `CREATE TABLE IF NOT EXISTS narrative_mentions (
+          narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          mention_id UUID NOT NULL REFERENCES mentions(id) ON DELETE CASCADE,
+          similarity DOUBLE PRECISION NOT NULL,
+          is_primary BOOLEAN NOT NULL DEFAULT false,
+          assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (narrative_id, mention_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_mentions_mention
+          ON narrative_mentions (mention_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_mentions_primary
+          ON narrative_mentions (mention_id) WHERE is_primary = true`,
+
+        // Edges entre narrativas (undirected: source < target en orden UUID)
+        `CREATE TABLE IF NOT EXISTS narrative_edges (
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          source_narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          target_narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          edge_type VARCHAR(24) NOT NULL
+            CHECK (edge_type IN ('co_occurrence','author_overlap','semantic')),
+          strength DOUBLE PRECISION NOT NULL,
+          computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (source_narrative_id, target_narrative_id, edge_type),
+          CONSTRAINT chk_narrative_edges_order CHECK (source_narrative_id < target_narrative_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_edges_agency
+          ON narrative_edges (agency_id, edge_type)`,
+
+        // Pool de candidatos
+        `CREATE TABLE IF NOT EXISTS narrative_candidates (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          mention_id UUID NOT NULL REFERENCES mentions(id) ON DELETE CASCADE,
+          embedding vector(1024) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_narrative_candidates_mention UNIQUE (mention_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_candidates_agency_created
+          ON narrative_candidates (agency_id, created_at)`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) {
+        await client.query(s);
+        applied.push(s.replace(/\s+/g, ' ').slice(0, 80) + '…');
+      }
+      const tables = await client.query(
+        `SELECT table_name FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name IN ('narratives','narrative_mentions','narrative_edges','narrative_candidates')
+          ORDER BY table_name`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          applied: applied.length,
+          tables: tables.rows.map((r: any) => r.table_name),
+        }, null, 2),
+      };
+    }
+
     if (action === 'backfill-embeddings') {
       // Recorre menciones con embedding IS NULL (de la agencia indicada o
       // todas) y las puebla en lotes con concurrencia 5 contra Bedrock. Es
