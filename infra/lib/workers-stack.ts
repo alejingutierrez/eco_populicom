@@ -362,12 +362,19 @@ export class WorkersStack extends cdk.Stack {
     //      después de 24h con mayor reach × engagement).
     // Memoria 2048 MB: el DBSCAN sobre el pool de candidatos (potencialmente
     // varios cientos de embeddings de 1024 dims) corre en JS.
+    // Reserved concurrency = 1: el cluster usa el pool de narrative_candidates
+    // como estado compartido (DBSCAN + delete). Dos invocaciones simultáneas
+    // (cron + manual o cron + cron tras retry) pueden spawnear narrativas
+    // duplicadas asignando los mismos mention_ids a is_primary=true en ambas.
+    // Bug observado 2026-05-25: 877 duplicados a limpiar tras una corrida
+    // concurrente. Concurrency=1 lo previene de raíz.
     this.narrativeClusterFunction = new NodejsFunction(this, 'NarrativeClusterFunction', {
       functionName: 'eco-narrative-cluster',
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../lambda/narrative-cluster/index.ts'),
       handler: 'handler',
       memorySize: 2048,
+      reservedConcurrentExecutions: 1,
       timeout: cdk.Duration.minutes(5),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
