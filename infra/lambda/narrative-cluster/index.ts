@@ -59,6 +59,21 @@ const INFLUENCE_WINDOW_HOURS = Number(process.env.NARRATIVE_INFLUENCE_WINDOW_HOU
 const PER_AGENCY_LIMIT = Number(process.env.NARRATIVE_PER_AGENCY_LIMIT ?? 5000);
 const MAX_NEW_PER_RUN = Number(process.env.NARRATIVE_MAX_NEW_PER_RUN ?? 20);
 
+/**
+ * Limpia strings antes de pasarlos a jsonb. pg rechaza JSON con surrogates
+ * UTF-16 sueltos (sin pareja), p.ej. autores con un emoji corrupto cuyo low
+ * surrogate quedó truncado. Strip silenciosamente: para nuestro caso (mostrar
+ * autor/url) perder un emoji roto es preferible a perder la narrativa entera.
+ */
+function sanitizeUnicode<T extends string | null | undefined>(s: T): T {
+  if (s == null) return s;
+  // Pattern: high surrogate sin low surrogate, o low surrogate sin high surrogate.
+  return (s as string).replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    '',
+  ) as T;
+}
+
 interface ClusterEvent {
   agencySlug?: string;
   dryRun?: boolean;
@@ -383,11 +398,11 @@ async function spawnNarrativesFromCandidates(
       const last = sorted[sorted.length - 1].row;
 
       const initiatorFirst = {
-        author: first.author,
-        platform: first.page_type,
+        author: sanitizeUnicode(first.author),
+        platform: sanitizeUnicode(first.page_type),
         publishedAt: first.published_at?.toISOString?.() ?? null,
-        url: first.url,
-        snippet: first.snippet?.slice(0, 220) ?? null,
+        url: sanitizeUnicode(first.url),
+        snippet: sanitizeUnicode(first.snippet?.slice(0, 220) ?? null),
       };
 
       let slug = naming.slug;
@@ -587,11 +602,11 @@ async function computeInfluencersForRecentNarratives(
         'UPDATE narratives SET initiator_influencer = $1::jsonb WHERE id = $2',
         [
           JSON.stringify({
-            author: r.author,
+            author: sanitizeUnicode(r.author),
             reach: Number(r.reach ?? 0),
             engagement: Number(r.engagement ?? 0),
             publishedAt: r.published_at?.toISOString?.() ?? null,
-            url: r.url,
+            url: sanitizeUnicode(r.url),
           }),
           n.id,
         ],
