@@ -3,8 +3,8 @@ import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
-import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText } from '@eco/shared';
+import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion, ManualMentionInput, ManualMentionSqsMessage } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, canonicalizeUrl, isManualMessage } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -84,52 +84,137 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   console.log(`Processing ${event.Records.length} records`);
 
   try {
-    // Batch dedup: one SELECT filters out mentions already in DB.
-    const resourceIds: string[] = [];
+    // Particionar el batch en {brandwatch, manual}. Los mensajes manuales
+    // (Excel / URL import) llevan `__source: 'manual_*'` y `agencyId` en el
+    // body — no se resuelven por queryId y deduplican por url_canonical.
+    const bwRecords: SQSRecord[] = [];
+    const manualRecords: { record: SQSRecord; message: ManualMentionSqsMessage }[] = [];
     for (const r of event.Records) {
-      try {
-        const body = JSON.parse(r.body) as BrandwatchMention;
-        if (body.resourceId) resourceIds.push(body.resourceId);
-      } catch { /* skip malformed */ }
-    }
-
-    let existingSet = new Set<string>();
-    if (resourceIds.length > 0) {
-      const existing = await client.query(
-        'SELECT bw_resource_id FROM mentions WHERE bw_resource_id = ANY($1::text[])',
-        [resourceIds],
-      );
-      existingSet = new Set(existing.rows.map((r: any) => r.bw_resource_id));
-    }
-
-    const newRecords = event.Records.filter((r) => {
-      try {
-        const body = JSON.parse(r.body) as BrandwatchMention;
-        return !existingSet.has(body.resourceId);
-      } catch { return false; }
-    });
-
-    const skipped = event.Records.length - newRecords.length;
-    console.log(`Batch: ${event.Records.length} records — ${skipped} duplicates skipped, ${newRecords.length} new`);
-
-    // Parallelize NLP + inserts. `pg.Client` serializes DB queries internally,
-    // but Bedrock calls run concurrently (the real bottleneck).
-    if (newRecords.length > 0) {
-      const results = await Promise.allSettled(
-        newRecords.map((r) => processRecord(r, client)),
-      );
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (failed.length > 0) {
-        // Re-throw first error so SQS retries the batch.
-        console.error(`${failed.length}/${newRecords.length} records failed in batch`);
-        throw (failed[0] as PromiseRejectedResult).reason;
+      let parsed: unknown;
+      try { parsed = JSON.parse(r.body); } catch { continue; }
+      if (isManualMessage(parsed)) {
+        manualRecords.push({ record: r, message: parsed });
+      } else {
+        bwRecords.push(r);
       }
+    }
+
+    // --- Brandwatch path (existente) ---
+    let bwFailed: unknown = null;
+    if (bwRecords.length > 0) {
+      // Batch dedup: one SELECT filters out mentions already in DB.
+      const resourceIds: string[] = [];
+      for (const r of bwRecords) {
+        try {
+          const body = JSON.parse(r.body) as BrandwatchMention;
+          if (body.resourceId) resourceIds.push(body.resourceId);
+        } catch { /* skip malformed */ }
+      }
+
+      let existingSet = new Set<string>();
+      if (resourceIds.length > 0) {
+        const existing = await client.query(
+          'SELECT bw_resource_id FROM mentions WHERE bw_resource_id = ANY($1::text[])',
+          [resourceIds],
+        );
+        existingSet = new Set(existing.rows.map((r: any) => r.bw_resource_id));
+      }
+
+      const newRecords = bwRecords.filter((r) => {
+        try {
+          const body = JSON.parse(r.body) as BrandwatchMention;
+          return !existingSet.has(body.resourceId);
+        } catch { return false; }
+      });
+
+      const skipped = bwRecords.length - newRecords.length;
+      console.log(`Brandwatch batch: ${bwRecords.length} records — ${skipped} duplicates skipped, ${newRecords.length} new`);
+
+      if (newRecords.length > 0) {
+        const results = await Promise.allSettled(
+          newRecords.map((r) => processRecord(r, client)),
+        );
+        const failed = results.filter((r) => r.status === 'rejected');
+        if (failed.length > 0) {
+          console.error(`${failed.length}/${newRecords.length} Brandwatch records failed in batch`);
+          bwFailed = (failed[0] as PromiseRejectedResult).reason;
+        }
+      }
+    }
+
+    // --- Manual path (Excel/URL import) ---
+    //
+    // Diferencias vs Brandwatch:
+    //   • Dedup por url_canonical (no bw_resource_id)
+    //   • INSERT con ON CONFLICT ... DO UPDATE (upsert seguro contra race)
+    //   • Errores per-row NO tiran el batch — quedan en mention_imports.errors_json
+    //   • Después de cada record, UPDATE mention_imports.rows_processed
+    if (manualRecords.length > 0) {
+      console.log(`Manual import batch: ${manualRecords.length} records`);
+      const results = await Promise.allSettled(
+        manualRecords.map(({ message }) => processManualRecord(message, client)),
+      );
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'rejected') {
+          const { message } = manualRecords[i];
+          console.warn(`Manual record failed: ${(r.reason as Error)?.message}`);
+          // Append error a mention_imports.errors_json sin tirar el batch
+          try {
+            await client.query(
+              `UPDATE mention_imports
+                  SET errors_json = COALESCE(errors_json, '[]'::jsonb) || $1::jsonb,
+                      rows_error  = COALESCE(rows_error, 0) + 1
+                WHERE id = $2`,
+              [
+                JSON.stringify([{
+                  url: message.mention.url,
+                  errorMessage: (r.reason as Error)?.message ?? String(r.reason),
+                }]),
+                message.sourceImportId,
+              ],
+            );
+          } catch (logErr) {
+            console.error('Failed to log manual error:', logErr);
+          }
+        }
+      }
+      // Marcar 'completed' si ya no quedan rows pendientes en este import.
+      // Hacemos esto por cada sourceImportId único en el batch.
+      const importIds = Array.from(new Set(manualRecords.map((m) => m.message.sourceImportId)));
+      for (const importId of importIds) {
+        await maybeMarkImportCompleted(client, importId);
+      }
+    }
+
+    if (bwFailed) {
+      // Re-throw después de procesar manual para que SQS retry-ee el batch
+      // (los mensajes manuales que sí completaron quedan asentados — el
+      // UPSERT garantiza idempotencia).
+      throw bwFailed;
     }
   } finally {
     await client.end();
   }
   return;
 };
+
+/**
+ * Marca el import como 'completed' si rows_processed cubre todo lo
+ * despachado (rows_new + rows_update). Idempotente: si ya está completed
+ * no hace nada.
+ */
+async function maybeMarkImportCompleted(pgClient: any, importId: string): Promise<void> {
+  await pgClient.query(
+    `UPDATE mention_imports
+        SET status = 'completed',
+            completed_at = NOW()
+      WHERE id = $1
+        AND status = 'committing'
+        AND rows_processed >= COALESCE(rows_new, 0) + COALESCE(rows_update, 0)`,
+    [importId],
+  );
+}
 
 async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
@@ -325,6 +410,279 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   }
 
   console.log(`[${agency.slug}] Mention ${resourceId} processed: sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}, topics=${nlp.topics.length}`);
+}
+
+/**
+ * Procesa un mensaje SQS de import manual (Excel o URL).
+ *
+ * Diferencias vs processRecord:
+ *   • agencyId viene del payload (no via queryId lookup)
+ *   • dedup por url_canonical (no bw_resource_id)
+ *   • INSERT … ON CONFLICT (agency_id, url_canonical) … DO UPDATE — upsert
+ *     que completa solo campos NULL (no sobreescribe data de Brandwatch)
+ *   • Setea ingestion_source + source_import_id
+ *   • Al final, UPDATE mention_imports.rows_processed +1
+ *
+ * Reutiliza: analyzeWithClaude (via adapter), embedding, mention_topics,
+ * mention_municipalities, slugify, parsePublishedAt.
+ */
+async function processManualRecord(msg: ManualMentionSqsMessage, pgClient: any): Promise<void> {
+  const { mention, agencyId, sourceImportId, __source } = msg;
+
+  // Cargar info de la agencia para el prompt NLP (necesita name + slug)
+  const agencyRow = await pgClient.query(
+    'SELECT id, slug, name FROM agencies WHERE id = $1',
+    [agencyId],
+  );
+  if (agencyRow.rows.length === 0) {
+    throw new Error(`Manual record: unknown agency_id ${agencyId} for import ${sourceImportId}`);
+  }
+  const agency: AgencyInfo = agencyRow.rows[0];
+
+  // Compute text hash for dedup secundario (mismo patrón que Brandwatch)
+  const textForHash = normalizeText((mention.title ?? '') + ' ' + (mention.snippet ?? ''));
+  const textHash = createHash('sha256').update(textForHash).digest('hex');
+
+  // NLP — adapter sobre BrandwatchMention shape para reutilizar analyzeWithClaude.
+  // Si título y snippet vacíos, skip Bedrock (mismo bypass que el path Brandwatch).
+  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim();
+  let nlp: NlpAnalysis;
+  if (isEmpty) {
+    nlp = {
+      sentiment: 'neutral',
+      emotions: [],
+      pertinence: 'baja',
+      topics: [],
+      municipalities: [],
+      summary: 'Mención sin contenido textual',
+    };
+  } else {
+    const adapter = manualToBrandwatchAdapter(mention);
+    nlp = await analyzeWithClaude(adapter, agency);
+  }
+
+  // Refuerzo determinístico por regex (idéntico al path Brandwatch).
+  const regexMunis = extractMunicipalitiesFromText(mention.title, mention.snippet, nlp.summary);
+  const mergedMunis = Array.from(new Set([...(nlp.municipalities ?? []), ...regexMunis]));
+  nlp.municipalities = mergedMunis.filter((m) => MUNICIPALITY_SLUGS.includes(m));
+
+  // pageType: requerido por schema (notNull). Si el preview lambda no lo
+  // setteó, derivar del dominio.
+  const pageType = mention.pageType || 'web';
+
+  // INSERT con upsert. ON CONFLICT (agency_id, url_canonical) hace match
+  // contra el unique partial index. DO UPDATE solo rellena campos NULL
+  // (COALESCE: si la row existente ya tiene valor, lo respeta).
+  //
+  // NOTA: published_at en upsert se mantiene si la existente ya tiene uno
+  // — Brandwatch normalmente lo trae bien y no queremos pisarlo.
+  const mentionResult = await pgClient.query(
+    `INSERT INTO mentions (
+      agency_id, bw_resource_id, bw_guid, bw_query_id, bw_query_name,
+      title, snippet, url, url_canonical, original_url,
+      author, author_fullname, author_gender, author_avatar_url,
+      domain, page_type, content_source, content_source_name, pub_type, subtype,
+      likes, comments, shares, engagement_score, impact, reach_estimate, potential_audience, monthly_visitors,
+      bw_country, bw_country_code, bw_region, bw_city,
+      bw_sentiment,
+      nlp_sentiment, nlp_emotions, nlp_pertinence, nlp_summary,
+      text_hash, is_duplicate, duplicate_of_id,
+      media_urls, has_image, has_video,
+      published_at, processed_at, language,
+      ingestion_source, source_import_id
+    ) VALUES (
+      $1, NULL, NULL, NULL, NULL,
+      $2, $3, $4, $5, $4,
+      $6, $7, NULL, $8,
+      $9, $10, NULL, NULL, NULL, NULL,
+      $11, $12, $13, $14, $15, $16, $17, $18,
+      $19, $20, $21, $22,
+      $23,
+      $24, $25, $26, $27,
+      $28, FALSE, NULL,
+      $29, $30, $31,
+      $32, NOW(), $33,
+      $34, $35
+    )
+    ON CONFLICT (agency_id, url_canonical) WHERE url_canonical IS NOT NULL
+    DO UPDATE SET
+      title              = COALESCE(mentions.title,              EXCLUDED.title),
+      snippet            = COALESCE(mentions.snippet,            EXCLUDED.snippet),
+      author             = COALESCE(mentions.author,             EXCLUDED.author),
+      author_fullname    = COALESCE(mentions.author_fullname,    EXCLUDED.author_fullname),
+      author_avatar_url  = COALESCE(mentions.author_avatar_url,  EXCLUDED.author_avatar_url),
+      media_urls         = COALESCE(mentions.media_urls,         EXCLUDED.media_urls),
+      likes              = CASE WHEN mentions.likes = 0     THEN EXCLUDED.likes     ELSE mentions.likes     END,
+      comments           = CASE WHEN mentions.comments = 0  THEN EXCLUDED.comments  ELSE mentions.comments  END,
+      shares             = CASE WHEN mentions.shares = 0    THEN EXCLUDED.shares    ELSE mentions.shares    END,
+      reach_estimate     = CASE WHEN mentions.reach_estimate = 0 THEN EXCLUDED.reach_estimate ELSE mentions.reach_estimate END,
+      potential_audience = CASE WHEN mentions.potential_audience = 0 THEN EXCLUDED.potential_audience ELSE mentions.potential_audience END,
+      engagement_score   = CASE WHEN mentions.engagement_score = 0 THEN EXCLUDED.engagement_score ELSE mentions.engagement_score END,
+      impact             = CASE WHEN mentions.impact = 0 THEN EXCLUDED.impact ELSE mentions.impact END,
+      nlp_sentiment      = COALESCE(mentions.nlp_sentiment,      EXCLUDED.nlp_sentiment),
+      nlp_emotions       = COALESCE(mentions.nlp_emotions,       EXCLUDED.nlp_emotions),
+      nlp_pertinence     = COALESCE(mentions.nlp_pertinence,     EXCLUDED.nlp_pertinence),
+      nlp_summary        = COALESCE(mentions.nlp_summary,        EXCLUDED.nlp_summary),
+      processed_at       = NOW(),
+      source_import_id   = COALESCE(mentions.source_import_id,   EXCLUDED.source_import_id),
+      ingestion_source   = CASE WHEN mentions.ingestion_source = 'brandwatch' THEN mentions.ingestion_source ELSE EXCLUDED.ingestion_source END
+    RETURNING id`,
+    [
+      agency.id,
+      mention.title ?? null, mention.snippet ?? null, mention.url, mention.urlCanonical,
+      mention.author ?? null, mention.authorFullname ?? null, mention.authorAvatarUrl ?? null,
+      mention.domain, pageType,
+      mention.likes ?? 0, mention.comments ?? 0, mention.shares ?? 0,
+      mention.engagementScore ?? 0, mention.impact ?? 0, mention.reachEstimate ?? 0,
+      mention.potentialAudience ?? 0, mention.monthlyVisitors ?? 0,
+      mention.bwCountry ?? null, mention.bwCountryCode ?? null, mention.bwRegion ?? null, mention.bwCity ?? null,
+      mention.bwSentiment ?? null,
+      nlp.sentiment, JSON.stringify(nlp.emotions), nlp.pertinence, nlp.summary,
+      textHash,
+      JSON.stringify(mention.mediaUrls ?? []),
+      (mention.mediaUrls?.length ?? 0) > 0,
+      mention.subtype === 'video',
+      new Date(mention.publishedAt), mention.language ?? 'es',
+      __source, sourceImportId,
+    ],
+  );
+
+  const mentionId = mentionResult.rows[0].id;
+
+  // Embedding best-effort (mismo patrón que Brandwatch)
+  const embedInput = buildEmbeddingInput(mention.title, mention.snippet);
+  if (embedInput) {
+    const vec = await embedText(embedInput);
+    if (vec) {
+      await pgClient.query(
+        'UPDATE mentions SET embedding = $1::vector, embedded_at = NOW() WHERE id = $2 AND embedding IS NULL',
+        [toPgvectorLiteral(vec), mentionId],
+      );
+    }
+  }
+
+  // Topics
+  for (const topic of nlp.topics) {
+    const topicRow = await pgClient.query(
+      'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
+      [topic.topic_slug, agency.id],
+    );
+    if (topicRow.rows.length === 0) continue;
+    let subtopicId = null;
+    if (topic.subtopic_slug) {
+      const subRow = await pgClient.query(
+        'SELECT id FROM subtopics WHERE slug = $1 AND topic_id = $2',
+        [topic.subtopic_slug, topicRow.rows[0].id],
+      );
+      subtopicId = subRow.rows[0]?.id ?? null;
+    }
+    await pgClient.query(
+      `INSERT INTO mention_topics (mention_id, topic_id, subtopic_id, confidence)
+       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      [mentionId, topicRow.rows[0].id, subtopicId, topic.confidence],
+    );
+  }
+
+  // Municipalities (NLP)
+  for (const muniSlug of nlp.municipalities) {
+    const muniRow = await pgClient.query(
+      'SELECT id FROM municipalities WHERE slug = $1',
+      [muniSlug],
+    );
+    if (muniRow.rows.length > 0) {
+      await pgClient.query(
+        `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
+         VALUES ($1, $2, 'nlp') ON CONFLICT DO NOTHING`,
+        [mentionId, muniRow.rows[0].id],
+      );
+    }
+  }
+
+  // Brandwatch geo (si vino en el Excel)
+  if (mention.bwCity) {
+    const citySlug = slugify(mention.bwCity);
+    const bwMuniRow = await pgClient.query(
+      'SELECT id FROM municipalities WHERE slug = $1',
+      [citySlug],
+    );
+    if (bwMuniRow.rows.length > 0) {
+      await pgClient.query(
+        `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
+         VALUES ($1, $2, 'brandwatch') ON CONFLICT DO NOTHING`,
+        [mentionId, bwMuniRow.rows[0].id],
+      );
+    }
+  }
+
+  // Alertas (mismo trigger que Brandwatch)
+  if (nlp.pertinence === 'alta' && nlp.sentiment === 'negativo') {
+    await sqs.send(
+      new SendMessageCommand({
+        QueueUrl: ALERTS_QUEUE_URL,
+        MessageBody: JSON.stringify({
+          mentionId,
+          agencyId: agency.id,
+          sentiment: nlp.sentiment,
+          emotions: nlp.emotions,
+          topics: nlp.topics,
+          publishedAt: mention.publishedAt,
+        }),
+      }),
+    );
+  }
+
+  // Tracking de progreso del import
+  await pgClient.query(
+    `UPDATE mention_imports
+        SET rows_processed = COALESCE(rows_processed, 0) + 1
+      WHERE id = $1`,
+    [sourceImportId],
+  );
+
+  console.log(`[${agency.slug}] Manual mention ${mention.url} processed (${__source}): sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}`);
+}
+
+/**
+ * Adapta un ManualMentionInput a la forma BrandwatchMention para reutilizar
+ * `analyzeWithClaude` sin cambios. Solo poblamos los campos que el prompt
+ * realmente lee (title, snippet, contentSourceName, domain, author, date,
+ * sentiment).
+ */
+function manualToBrandwatchAdapter(m: ManualMentionInput): BrandwatchMention {
+  return {
+    resourceId: m.urlCanonical, // placeholder — analyzeWithClaude no lo usa
+    guid: m.urlCanonical,
+    queryId: 0,
+    queryName: '',
+    title: m.title,
+    snippet: m.snippet,
+    url: m.url,
+    originalUrl: m.url,
+    author: m.author,
+    fullname: m.authorFullname,
+    avatarUrl: m.authorAvatarUrl,
+    domain: m.domain,
+    pageType: m.pageType,
+    contentSource: m.contentSource,
+    contentSourceName: m.contentSourceName,
+    subtype: m.subtype,
+    likes: m.likes,
+    comments: m.comments,
+    shares: m.shares,
+    engagementScore: m.engagementScore,
+    impact: m.impact,
+    reachEstimate: m.reachEstimate,
+    potentialAudience: m.potentialAudience,
+    monthlyVisitors: m.monthlyVisitors,
+    country: m.bwCountry,
+    countryCode: m.bwCountryCode,
+    region: m.bwRegion,
+    city: m.bwCity,
+    sentiment: m.bwSentiment,
+    mediaUrls: m.mediaUrls,
+    language: m.language,
+    date: m.publishedAt,
+  } as BrandwatchMention;
 }
 
 async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo): Promise<NlpAnalysis> {

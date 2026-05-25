@@ -29,6 +29,7 @@
   "dependencies": {
     "aws-cdk-lib": "^2.246.0",
     "constructs": "^10.6.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "@eco/shared": "*",
     "@eco/brandwatch": "*"
   }
