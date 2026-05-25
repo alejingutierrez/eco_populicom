@@ -47,6 +47,27 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       const res = await client.query(event.query);
       return { statusCode: 200, body: JSON.stringify({ rows: res.rows, rowCount: res.rowCount }) };
     }
+    if (action === 'test-create-mention-import') {
+      // Crea un mention_imports row para smoke testing del flujo de import
+      // manual. NO usar en producción — la creación normal va via el API
+      // route /api/admin/mentions/import/{file,url}.
+      const e = event as unknown as {
+        agencySlug?: string; sourceType?: 'excel' | 'url'; sourceUrl?: string; s3Key?: string;
+      };
+      if (!e.agencySlug || !e.sourceType) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'agencySlug, sourceType required' }) };
+      }
+      const ag = await client.query('SELECT id FROM agencies WHERE slug = $1', [e.agencySlug]);
+      if (ag.rows.length === 0) return { statusCode: 404, body: 'agency not found' };
+      const res = await client.query(
+        `INSERT INTO mention_imports (
+          agency_id, source_type, source_url, s3_key, default_timezone
+        ) VALUES ($1, $2, $3, $4, 'America/Puerto_Rico')
+        RETURNING id`,
+        [ag.rows[0].id, e.sourceType, e.sourceUrl ?? null, e.s3Key ?? null],
+      );
+      return { statusCode: 200, body: JSON.stringify({ importId: res.rows[0].id }) };
+    }
     if (action === 'reset-cursors') {
       // Reset ingestion cursors for specified query IDs to re-ingest from scratch
       const queryIds = event.queryIds;
