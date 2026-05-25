@@ -30,6 +30,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly metricsCalculatorFunction: NodejsFunction;
   public readonly weeklyReportFunction: NodejsFunction;
   public readonly aiTasksFunction: NodejsFunction;
+  public readonly narrativeClusterFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -346,5 +347,68 @@ export class WorkersStack extends cdk.Stack {
       description: 'Briefing ejecutivo IA del scorecard, 4×/día (00, 06, 12, 18 AST).',
     });
     briefingRule.addTarget(new targets.LambdaFunction(this.aiTasksFunction));
+
+    // ---- eco-narrative-cluster Lambda ----
+    // Feature de narrativas (clusters emergentes de menciones). Cada hora:
+    //   1. Asigna menciones nuevas (con embedding) a la narrativa más cercana
+    //      por coseno (≥0.78) usando pgvector + EWMA update del centroide.
+    //   2. Acumula no-matches en `narrative_candidates` y aplica DBSCAN; cada
+    //      cluster denso de ≥10 menciones spawnea una narrativa nueva, nombrada
+    //      con Bedrock Claude (tool-use).
+    //   3. Recalcula lifecycle states (emerging/active/peaking/declining/dormant/revived).
+    //   4. Calcula iniciadores (primero cronológico ya en INSERT; influencer
+    //      después de 24h con mayor reach × engagement).
+    // Memoria 2048 MB: el DBSCAN sobre el pool de candidatos (potencialmente
+    // varios cientos de embeddings de 1024 dims) corre en JS.
+    this.narrativeClusterFunction = new NodejsFunction(this, 'NarrativeClusterFunction', {
+      functionName: 'eco-narrative-cluster',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-cluster/index.ts'),
+      handler: 'handler',
+      memorySize: 2048,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        // Tunables (defaults sensatos en el código si faltan)
+        NARRATIVE_THRESHOLD: '0.78',
+        NARRATIVE_EWMA_ALPHA: '0.05',
+        NARRATIVE_MIN_MENTIONS_BIRTH: '10',
+        NARRATIVE_DBSCAN_EPS: '0.22',
+        NARRATIVE_TOP_N_MATCHES: '3',
+        NARRATIVE_INFLUENCE_WINDOW_HOURS: '24',
+        NARRATIVE_PER_AGENCY_LIMIT: '5000',
+        NARRATIVE_MAX_NEW_PER_RUN: '20',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeClusterLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-cluster',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeClusterFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.narrativeClusterFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // Cron horario en minuto 15 — corre 15 min después del weekly-report
+    // (que está en minuto 0). Da margen para que ingestion + processor de la
+    // hora previa terminen de poblar embeddings antes de cluster.
+    const narrativeClusterRule = new events.Rule(this, 'NarrativeClusterSchedule', {
+      ruleName: 'eco-narrative-cluster-hourly',
+      schedule: events.Schedule.cron({ minute: '15' }),
+      description: 'Clustering de menciones nuevas en narrativas: asigna a centroides existentes, spawnea con DBSCAN, recalcula lifecycle.',
+    });
+    narrativeClusterRule.addTarget(new targets.LambdaFunction(this.narrativeClusterFunction));
   }
 }
