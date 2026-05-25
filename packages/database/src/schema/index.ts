@@ -11,3 +11,4 @@ export * from './reports';
 export * from './briefings';
 export * from './overview-period-insights';
 export * from './metric-insights-cache';
+export * from './narratives';
