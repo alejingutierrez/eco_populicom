@@ -82,7 +82,7 @@ export default function NarrativesPage() {
     queryFn: () => {
       const params = new URLSearchParams({ agency: selectedAgency, limit: '500' });
       if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
-      return fetch(`/api/narratives?${params}`).then((r) => r.json());
+      return fetch(`/api/narrative?${params}`).then((r) => r.json());
     },
     enabled: !!selectedAgency && !isAgencyLoading,
     staleTime: 60_000,
@@ -91,7 +91,7 @@ export default function NarrativesPage() {
   // Query edges
   const edgesQuery = useQuery<EdgesResponse>({
     queryKey: ['narrative-edges', selectedAgency],
-    queryFn: () => fetch(`/api/narratives/edges?agency=${selectedAgency}&minStrength=0.15`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/narrative/edges?agency=${selectedAgency}&minStrength=0.15`).then((r) => r.json()),
     enabled: !!selectedAgency && !isAgencyLoading,
     staleTime: 60_000,
   });
