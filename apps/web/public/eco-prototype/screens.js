@@ -3711,9 +3711,9 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
 }
 
 // ============================================================
-// NarrativeScreen — clusters emergentes con menu + ramificaciones
+// NarrativeScreen — análisis de UNA narrativa en timeline (streamgraph)
 // ============================================================
-const NARRATIVE_STATUS_LANES = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
+const NARRATIVE_STATUS_ORDER = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
 const NARRATIVE_STATUS_COLORS = {
   peaking: '#FA8C16',
   active: '#52C41A',
@@ -3730,11 +3730,39 @@ const NARRATIVE_STATUS_LABELS = {
   declining: 'Decae',
   dormant: 'Dormida',
 };
-const NARRATIVE_EDGE_COLORS = {
-  semantic: '#3FB5D8',
-  author_overlap: '#9333EA',
-  co_occurrence: '#F97316',
-};
+
+// Catmull-Rom → cubic bezier. Devuelve un string SVG path.
+function smoothPath(points) {
+  if (!points || points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = i === 0 ? points[0] : points[i - 1];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = i + 2 < points.length ? points[i + 2] : p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function NarrativeSparkline({ data, color }) {
+  if (!data || data.length === 0) return null;
+  const w = 64;
+  const h = 18;
+  const max = Math.max(...data, 1);
+  const stepX = w / Math.max(data.length - 1, 1);
+  const points = data.map((v, i) => ({ x: i * stepX, y: h - (v / max) * (h - 2) - 1 }));
+  return (
+    <svg className="narrative-sparkline" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <path d={smoothPath(points)} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function NarrativeScreen({ agency }) {
   const [narratives, setNarratives] = React.useState([]);
@@ -3744,19 +3772,33 @@ function NarrativeScreen({ agency }) {
   const [statusFilter, setStatusFilter] = React.useState('all');
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
+  const [selectedDay, setSelectedDay] = React.useState(null);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setFocusedId(null);
+    setSelectedDay(null);
     Promise.all([
       fetch(`/api/narrative?agency=${agency || ''}&limit=500`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
       fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
     ])
       .then(([nRes, eRes]) => {
         if (cancelled) return;
-        setNarratives(nRes.narratives || []);
+        const list = nRes.narratives || [];
+        setNarratives(list);
         setEdges(eRes.edges || []);
+        if (list.length > 0) {
+          const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
+          const top = [...list].sort((a, b) => {
+            const ra = RANK[a.status] ?? 9;
+            const rb = RANK[b.status] ?? 9;
+            if (ra !== rb) return ra - rb;
+            return b.mentionCount - a.mentionCount;
+          })[0];
+          setFocusedId(top.id);
+        }
         setLoading(false);
       })
       .catch((e) => {
@@ -3767,10 +3809,14 @@ function NarrativeScreen({ agency }) {
     return () => { cancelled = true; };
   }, [agency]);
 
-  const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
+  const statusCounts = React.useMemo(() => {
+    const c = { all: narratives.length };
+    for (const n of narratives) c[n.status] = (c[n.status] || 0) + 1;
+    return c;
+  }, [narratives]);
 
   const filteredNarratives = React.useMemo(() => {
-    const STATUS_RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
+    const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
     let list = narratives.filter((n) => statusFilter === 'all' || n.status === statusFilter);
     if (search) {
       const q = search.toLowerCase();
@@ -3782,33 +3828,20 @@ function NarrativeScreen({ agency }) {
       );
     }
     return list.sort((a, b) => {
-      const ra = STATUS_RANK[a.status] ?? 9;
-      const rb = STATUS_RANK[b.status] ?? 9;
+      const ra = RANK[a.status] ?? 9;
+      const rb = RANK[b.status] ?? 9;
       if (ra !== rb) return ra - rb;
       return b.mentionCount - a.mentionCount;
     });
   }, [narratives, search, statusFilter]);
 
-  const neighbors = React.useMemo(() => {
-    if (!focusedId) return [];
-    return edges
-      .filter((e) => e.source === focusedId || e.target === focusedId)
-      .map((e) => {
-        const otherId = e.source === focusedId ? e.target : e.source;
-        const other = narratives.find((n) => n.id === otherId);
-        if (!other) return null;
-        return { ...other, edgeType: e.type, strength: e.strength };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 12);
-  }, [focusedId, edges, narratives]);
+  const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
 
   return (
     <div className="narrative-screen">
       <aside className="narrative-menu">
         <input
-          className="input narrative-search"
+          className="narrative-search"
           placeholder="Buscar narrativa, keyword…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -3818,19 +3851,23 @@ function NarrativeScreen({ agency }) {
             className={`btn-chip ${statusFilter === 'all' ? 'active' : ''}`}
             onClick={() => setStatusFilter('all')}
           >
-            Todas
+            Todas ({statusCounts.all || 0})
           </button>
-          {NARRATIVE_STATUS_LANES.map((s) => (
-            <button
-              key={s}
-              className={`btn-chip ${statusFilter === s ? 'active' : ''}`}
-              onClick={() => setStatusFilter(s)}
-              title={NARRATIVE_STATUS_LABELS[s]}
-            >
-              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
-              {NARRATIVE_STATUS_LABELS[s]}
-            </button>
-          ))}
+          {NARRATIVE_STATUS_ORDER.map((s) => {
+            const count = statusCounts[s] || 0;
+            return (
+              <button
+                key={s}
+                className={`btn-chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
+                onClick={() => count > 0 && setStatusFilter(s)}
+                disabled={count === 0}
+                title={`${NARRATIVE_STATUS_LABELS[s]} (${count})`}
+              >
+                <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
+                {NARRATIVE_STATUS_LABELS[s]} ({count})
+              </button>
+            );
+          })}
         </div>
         <div className="narrative-menu-count">
           {filteredNarratives.length} de {narratives.length} narrativas
@@ -3840,7 +3877,7 @@ function NarrativeScreen({ agency }) {
             <li
               key={n.id}
               className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
-              onClick={() => setFocusedId(n.id)}
+              onClick={() => { setFocusedId(n.id); setSelectedDay(null); }}
             >
               <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[n.status] }} />
               <div className="narrative-item-body">
@@ -3851,6 +3888,9 @@ function NarrativeScreen({ agency }) {
                   <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
                 </div>
               </div>
+              {n.sparkline && (
+                <NarrativeSparkline data={n.sparkline} color={NARRATIVE_STATUS_COLORS[n.status]} />
+              )}
             </li>
           ))}
           {filteredNarratives.length === 0 && !loading && (
@@ -3861,357 +3901,209 @@ function NarrativeScreen({ agency }) {
 
       <main className="narrative-canvas">
         {loading ? (
-          <div className="narrative-empty">Cargando narrativas…</div>
+          <div className="narrative-empty">Cargando…</div>
         ) : error ? (
           <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
-        ) : narratives.length === 0 ? (
-          <div className="narrative-empty">
-            No hay narrativas para esta agencia todavía. El sistema procesa el pool de candidatos cada hora.
-          </div>
-        ) : focused ? (
-          <NarrativeRadial
-            central={focused}
-            neighbors={neighbors}
-            onSelect={setFocusedId}
-            onClear={() => setFocusedId(null)}
-            agency={agency}
-          />
+        ) : !focused ? (
+          <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
         ) : (
-          <NarrativeTimeline
-            narratives={filteredNarratives.slice(0, 60)}
+          <NarrativeAnalysis
+            narrative={focused}
             edges={edges}
-            onSelect={setFocusedId}
+            allNarratives={narratives}
+            agency={agency}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+            onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
           />
         )}
       </main>
-    </div>
-  );
-}
 
-function NarrativeTimeline({ narratives, edges, onSelect }) {
-  const w = 1100;
-  const h = 520;
-  const margin = { top: 32, right: 24, bottom: 60, left: 110 };
-  const innerW = w - margin.left - margin.right;
-  const innerH = h - margin.top - margin.bottom;
-
-  const validDates = narratives
-    .map((n) => new Date(n.bornAt).getTime())
-    .filter((t) => !isNaN(t));
-  if (validDates.length === 0) {
-    return <div className="narrative-empty">Sin datos temporales todavía.</div>;
-  }
-  const minT = Math.min(...validDates);
-  const maxT = Math.max(...validDates, Date.now());
-  const span = Math.max(1, maxT - minT);
-  const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
-  const yScale = (status) =>
-    margin.top + (NARRATIVE_STATUS_LANES.indexOf(status) + 0.5) * (innerH / NARRATIVE_STATUS_LANES.length);
-  const maxMentions = Math.max(...narratives.map((n) => n.mentionCount), 1);
-  const rScale = (c) => 4 + Math.sqrt(c / maxMentions) * 22;
-
-  const months = [];
-  const cur = new Date(minT);
-  cur.setDate(1);
-  cur.setHours(0, 0, 0, 0);
-  while (cur.getTime() <= maxT) {
-    months.push(new Date(cur));
-    cur.setMonth(cur.getMonth() + 1);
-  }
-  const monthEvery = months.length > 14 ? Math.ceil(months.length / 12) : 1;
-
-  const visibleIds = new Set(narratives.map((n) => n.id));
-  const visibleEdges = edges
-    .filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
-    .slice(0, 100);
-
-  return (
-    <div className="narrative-viz-wrap">
-      <div className="narrative-viz-header">
-        <div>
-          <strong>Línea de tiempo de narrativas</strong>
-          <span className="narrative-hint"> · burbuja = volumen de menciones · click para ver ramificaciones</span>
-        </div>
-      </div>
-      <svg className="narrative-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
-        {NARRATIVE_STATUS_LANES.map((s) => {
-          const y = yScale(s);
-          return (
-            <g key={s}>
-              <line
-                x1={margin.left}
-                y1={y}
-                x2={margin.left + innerW}
-                y2={y}
-                stroke="var(--hairline)"
-                strokeDasharray="2 4"
-              />
-              <circle cx={margin.left - 88} cy={y} r="4" fill={NARRATIVE_STATUS_COLORS[s]} />
-              <text x={margin.left - 78} y={y + 4} fill="var(--text-2)" fontSize="11">
-                {NARRATIVE_STATUS_LABELS[s]}
-              </text>
-            </g>
-          );
-        })}
-
-        <line
-          x1={margin.left}
-          y1={margin.top + innerH}
-          x2={margin.left + innerW}
-          y2={margin.top + innerH}
-          stroke="var(--hairline-strong)"
+      {selectedDay && focused && (
+        <NarrativeDayDrawer
+          narrative={focused}
+          day={selectedDay}
+          agency={agency}
+          onClose={() => setSelectedDay(null)}
         />
-        {months.map((d, i) => {
-          if (i % monthEvery !== 0) return null;
-          const x = xScale(d);
-          return (
-            <g key={i}>
-              <line
-                x1={x}
-                y1={margin.top + innerH}
-                x2={x}
-                y2={margin.top + innerH + 4}
-                stroke="var(--hairline-strong)"
-              />
-              <text
-                x={x}
-                y={margin.top + innerH + 18}
-                textAnchor="middle"
-                fill="var(--text-2)"
-                fontSize="10"
-              >
-                {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
-              </text>
-            </g>
-          );
-        })}
-
-        {visibleEdges.map((e, i) => {
-          const n1 = narratives.find((n) => n.id === e.source);
-          const n2 = narratives.find((n) => n.id === e.target);
-          if (!n1 || !n2) return null;
-          const x1 = xScale(n1.bornAt);
-          const y1 = yScale(n1.status);
-          const x2 = xScale(n2.bornAt);
-          const y2 = yScale(n2.status);
-          const cx = (x1 + x2) / 2;
-          const cy = (y1 + y2) / 2 - Math.abs(x2 - x1) * 0.12;
-          return (
-            <path
-              key={i}
-              d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
-              fill="none"
-              stroke={NARRATIVE_EDGE_COLORS[e.type] || 'var(--accent)'}
-              strokeWidth={Math.max(0.4, e.strength * 1.6)}
-              opacity={Math.min(0.35, Math.max(0.08, e.strength * 0.4))}
-            />
-          );
-        })}
-
-        {narratives.map((n) => {
-          const cx = xScale(n.bornAt);
-          const cy = yScale(n.status);
-          const r = rScale(n.mentionCount);
-          return (
-            <g
-              key={n.id}
-              className="narrative-bubble"
-              onClick={() => onSelect(n.id)}
-              style={{ cursor: 'pointer' }}
-            >
-              <circle
-                cx={cx}
-                cy={cy}
-                r={r}
-                fill={NARRATIVE_STATUS_COLORS[n.status]}
-                opacity={0.75}
-                stroke={NARRATIVE_STATUS_COLORS[n.status]}
-                strokeWidth="1.5"
-              />
-              <title>
-                {n.name} · {n.mentionCount} menciones · {NARRATIVE_STATUS_LABELS[n.status] || n.status}
-              </title>
-            </g>
-          );
-        })}
-      </svg>
+      )}
     </div>
   );
 }
 
-function NarrativeRadial({ central, neighbors, onSelect, onClear, agency }) {
-  const w = 1100;
-  const h = 540;
-  const cx = w / 2;
-  const cy = h / 2 - 10;
-  const r0 = 50 + Math.sqrt(central.mentionCount) * 1.3;
-  const N = neighbors.length;
-  const ringRadius = Math.max(180, Math.min(220, 60 + Math.sqrt(N) * 28));
-
-  const positions = neighbors.map((n, i) => {
-    const angle = (i / Math.max(N, 1)) * 2 * Math.PI - Math.PI / 2;
-    return {
-      ...n,
-      x: cx + ringRadius * Math.cos(angle),
-      y: cy + ringRadius * Math.sin(angle),
-    };
-  });
-
-  const maxNeighbor = Math.max(...neighbors.map((n) => n.mentionCount), 1);
-  const rNeighbor = (c) => 12 + Math.sqrt(c / maxNeighbor) * 18;
-
-  return (
-    <div className="narrative-viz-wrap">
-      <div className="narrative-viz-header">
-        <button className="btn btn-ghost" onClick={onClear} title="Volver al timeline">
-          ← Timeline
-        </button>
-        <div className="narrative-radial-title">
-          <strong>{central.name}</strong>
-          {central.summary && <div className="narrative-radial-summary">{central.summary}</div>}
-        </div>
-      </div>
-
-      <svg className="narrative-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
-        {positions.map((p) => (
-          <path
-            key={`e-${p.id}`}
-            d={`M ${cx} ${cy} Q ${(cx + p.x) / 2} ${(cy + p.y) / 2 - 24} ${p.x} ${p.y}`}
-            fill="none"
-            stroke={NARRATIVE_EDGE_COLORS[p.edgeType] || 'var(--accent)'}
-            strokeWidth={Math.max(1, p.strength * 4)}
-            opacity={0.55}
-          />
-        ))}
-        <g>
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r0}
-            fill={NARRATIVE_STATUS_COLORS[central.status]}
-            opacity={0.9}
-            stroke="var(--canvas)"
-            strokeWidth="3"
-          />
-          <text
-            x={cx}
-            y={cy + 5}
-            textAnchor="middle"
-            fill="#fff"
-            fontSize="15"
-            fontWeight="700"
-          >
-            {central.mentionCount}
-          </text>
-        </g>
-        {positions.map((p) => {
-          const r = rNeighbor(p.mentionCount);
-          return (
-            <g key={p.id} onClick={() => onSelect(p.id)} style={{ cursor: 'pointer' }}>
-              <circle
-                cx={p.x}
-                cy={p.y}
-                r={r}
-                fill={NARRATIVE_STATUS_COLORS[p.status]}
-                opacity={0.78}
-                stroke={NARRATIVE_STATUS_COLORS[p.status]}
-                strokeWidth="1.5"
-              />
-              <text
-                x={p.x}
-                y={p.y + r + 14}
-                textAnchor="middle"
-                fill="var(--text)"
-                fontSize="11"
-                style={{ pointerEvents: 'none' }}
-              >
-                {p.name.length > 28 ? p.name.slice(0, 26) + '…' : p.name}
-              </text>
-              <title>
-                {p.name} · {p.mentionCount} menc · {p.edgeType} ({(p.strength * 100).toFixed(0)}%)
-              </title>
-            </g>
-          );
-        })}
-        {neighbors.length === 0 && (
-          <text
-            x={cx}
-            y={cy + r0 + 60}
-            textAnchor="middle"
-            fill="var(--text-2)"
-            fontSize="13"
-          >
-            Sin ramificaciones (todavía no hay narrativas conectadas)
-          </text>
-        )}
-      </svg>
-
-      <NarrativeDetail narrative={central} agency={agency} />
-    </div>
-  );
-}
-
-function NarrativeDetail({ narrative, agency }) {
+function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDay, onSelectDay, onSelectNarrative }) {
   const [detail, setDetail] = React.useState(null);
+  const [detailLoading, setDetailLoading] = React.useState(true);
+
   React.useEffect(() => {
     let cancelled = false;
+    setDetailLoading(true);
     fetch(`/api/narrative/${narrative.id}?agency=${agency || ''}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) setDetail(d); })
-      .catch(() => {});
+      .then((d) => { if (!cancelled) { setDetail(d); setDetailLoading(false); } })
+      .catch(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [narrative.id, agency]);
 
-  const init = narrative.initiatorFirst;
-  const inf = narrative.initiatorInfluencer;
+  const timeline = detail?.timeline || [];
+  const topAuthors = detail?.topAuthors || [];
+  const platforms = detail?.platforms || [];
   const recent = detail?.recentMentions || [];
 
+  const related = React.useMemo(() => {
+    return edges
+      .filter((e) => e.source === narrative.id || e.target === narrative.id)
+      .map((e) => {
+        const otherId = e.source === narrative.id ? e.target : e.source;
+        const other = allNarratives.find((n) => n.id === otherId);
+        if (!other) return null;
+        return { ...other, edgeType: e.type, strength: e.strength };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 6);
+  }, [edges, allNarratives, narrative.id]);
+
+  const sentimentTotals = React.useMemo(() => {
+    let p = 0, neu = 0, neg = 0;
+    for (const d of timeline) {
+      p += d.positive || 0;
+      neu += d.neutral || 0;
+      neg += d.negative || 0;
+    }
+    return { positive: p, neutral: neu, negative: neg, total: p + neu + neg };
+  }, [timeline]);
+
+  const peak = React.useMemo(() => {
+    if (timeline.length === 0) return null;
+    return timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
+  }, [timeline]);
+
+  const init = narrative.initiatorFirst;
+  const inf = narrative.initiatorInfluencer;
+
   return (
-    <div className="narrative-detail">
-      <div className="narrative-detail-grid">
-        <div className="narrative-card">
-          <div className="narrative-card-label">Menciones</div>
-          <div className="narrative-card-value">{narrative.mentionCount.toLocaleString('es')}</div>
+    <div className="narrative-analysis">
+      <div className="narrative-header">
+        <div className="narrative-header-main">
+          <div className="narrative-header-row">
+            <span className="narrative-status-pill" style={{ background: NARRATIVE_STATUS_COLORS[narrative.status] }}>
+              {NARRATIVE_STATUS_LABELS[narrative.status] || narrative.status}
+            </span>
+            <h2 className="narrative-title">{narrative.name}</h2>
+          </div>
+          {narrative.summary && <div className="narrative-summary">{narrative.summary}</div>}
+          {(narrative.keywords || []).length > 0 && (
+            <div className="narrative-keywords">
+              {narrative.keywords.map((k) => (
+                <span key={k} className="narrative-tag">{k}</span>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="narrative-card">
-          <div className="narrative-card-label">Velocidad 24h</div>
-          <div className="narrative-card-value">{Number(narrative.velocity24h || 0).toFixed(1)}</div>
-        </div>
-        <div className="narrative-card">
-          <div className="narrative-card-label">Engagement</div>
-          <div className="narrative-card-value">{Number(narrative.totalEngagement || 0).toLocaleString('es')}</div>
-        </div>
-        <div className="narrative-card">
-          <div className="narrative-card-label">Nacida</div>
-          <div className="narrative-card-value">
-            {new Date(narrative.bornAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
+        <div className="narrative-header-metrics">
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Menciones</div>
+            <div className="narrative-metric-value">{narrative.mentionCount.toLocaleString('es')}</div>
+          </div>
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Vel. 24h</div>
+            <div className="narrative-metric-value">{Number(narrative.velocity24h || 0).toFixed(1)}</div>
+          </div>
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Engagement</div>
+            <div className="narrative-metric-value">{Number(narrative.totalEngagement || 0).toLocaleString('es')}</div>
           </div>
         </div>
       </div>
 
-      {(narrative.keywords || []).length > 0 && (
-        <div className="narrative-keywords">
-          {(narrative.keywords || []).map((k) => (
-            <span key={k} className="narrative-tag">
-              {k}
-            </span>
-          ))}
-        </div>
-      )}
+      <NarrativeStreamgraph
+        timeline={timeline}
+        loading={detailLoading}
+        selectedDay={selectedDay}
+        onSelectDay={onSelectDay}
+      />
 
-      <div className="narrative-initiators">
-        <div className="narrative-initiator">
-          <div className="narrative-initiator-label">Primera mención</div>
+      <div className="narrative-grid-3">
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Sentimiento</div>
+          {sentimentTotals.total > 0 ? (
+            <>
+              <div className="narrative-sentiment-bar">
+                <span style={{ flex: sentimentTotals.positive, background: 'var(--pos)' }} />
+                <span style={{ flex: sentimentTotals.neutral, background: 'var(--text-3)' }} />
+                <span style={{ flex: sentimentTotals.negative, background: 'var(--neg)' }} />
+              </div>
+              <div className="narrative-sentiment-row">
+                <span><i style={{ background: 'var(--pos)' }} /> {Math.round((sentimentTotals.positive / sentimentTotals.total) * 100)}% positivo</span>
+                <span><i style={{ background: 'var(--text-3)' }} /> {Math.round((sentimentTotals.neutral / sentimentTotals.total) * 100)}% neutral</span>
+                <span><i style={{ background: 'var(--neg)' }} /> {Math.round((sentimentTotals.negative / sentimentTotals.total) * 100)}% negativo</span>
+              </div>
+              {peak && <div className="narrative-peak">✕ Pico: {peak.day} ({peak.mentions} menciones)</div>}
+            </>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Top voces</div>
+          {topAuthors.length > 0 ? (
+            <ul className="narrative-bar-list">
+              {topAuthors.slice(0, 6).map((a) => (
+                <li key={a.author}>
+                  <span className="narrative-bar-name" title={a.author}>{a.author}</span>
+                  <span className="narrative-bar-count">{a.mentions}</span>
+                </li>
+              ))}
+            </ul>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Plataformas</div>
+          {platforms.length > 0 ? (
+            <ul className="narrative-bar-list">
+              {platforms.slice(0, 6).map((p) => {
+                const max = platforms[0].mentions || 1;
+                return (
+                  <li key={p.platform}>
+                    <span className="narrative-bar-name">{p.platform}</span>
+                    <span className="narrative-bar-track">
+                      <span className="narrative-bar-fill" style={{ width: `${(p.mentions / max) * 100}%` }} />
+                    </span>
+                    <span className="narrative-bar-count">{p.mentions}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+      </div>
+
+      <div className="narrative-grid-2">
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Primera mención (cronológica)</div>
           {init ? (
             <div>
-              <div className="narrative-initiator-author">
+              <div className="narrative-init-author">
                 <strong>{init.author || '—'}</strong>
                 {init.platform && <span className="narrative-tag-mini">{init.platform}</span>}
               </div>
-              <div className="narrative-initiator-date">
+              <div className="narrative-init-date">
                 {new Date(init.publishedAt).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}
               </div>
-              {init.snippet && <div className="narrative-initiator-snippet">{init.snippet}</div>}
+              {init.snippet && <div className="narrative-init-snippet">{init.snippet}</div>}
               {init.url && (
                 <a href={init.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
                   Ver fuente →
@@ -4222,14 +4114,15 @@ function NarrativeDetail({ narrative, agency }) {
             <div className="narrative-empty-small">Sin datos</div>
           )}
         </div>
-        <div className="narrative-initiator">
-          <div className="narrative-initiator-label">Voz más influyente (24h)</div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Voz más influyente (24h)</div>
           {inf ? (
             <div>
-              <div className="narrative-initiator-author">
+              <div className="narrative-init-author">
                 <strong>{inf.author || '—'}</strong>
               </div>
-              <div className="narrative-initiator-meta">
+              <div className="narrative-init-meta">
                 Reach {(inf.reach || 0).toLocaleString('es')} · Eng {(inf.engagement || 0).toLocaleString('es')}
               </div>
               {inf.url && (
@@ -4245,25 +4138,261 @@ function NarrativeDetail({ narrative, agency }) {
       </div>
 
       {recent.length > 0 && (
-        <div className="narrative-mentions">
-          <div className="narrative-section-label">Menciones recientes</div>
-          {recent.slice(0, 5).map((m) => (
-            <div key={m.id} className="narrative-mention-row">
-              <div className="narrative-mention-title">{m.title || '(sin título)'}</div>
-              <div className="narrative-mention-meta">
-                {m.author && <span>{m.author}</span>}
-                {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
-                <span>{new Date(m.publishedAt).toLocaleDateString('es')}</span>
-                {m.url && (
-                  <a href={m.url} target="_blank" rel="noopener noreferrer">
-                    →
-                  </a>
-                )}
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Menciones recientes</div>
+          <div className="narrative-mentions-list">
+            {recent.slice(0, 5).map((m) => (
+              <div key={m.id} className="narrative-mention-row">
+                <div className="narrative-mention-title">{m.title || '(sin título)'}</div>
+                <div className="narrative-mention-meta">
+                  {m.author && <span>{m.author}</span>}
+                  {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                  {m.sentiment && <span className={`narrative-sentiment-mini sent-${m.sentiment}`}>{m.sentiment}</span>}
+                  <span>{new Date(m.publishedAt).toLocaleDateString('es')}</span>
+                  {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer">→</a>}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
+
+      {related.length > 0 && (
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Narrativas relacionadas</div>
+          <ul className="narrative-related-list">
+            {related.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  className="narrative-related-btn"
+                  onClick={() => onSelectNarrative(r.id)}
+                  title={`${r.edgeType} (${(r.strength * 100).toFixed(0)}%)`}
+                >
+                  <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[r.status] }} />
+                  <span className="narrative-related-name">{r.name}</span>
+                  <span className="narrative-related-meta">{r.edgeType} · {(r.strength * 100).toFixed(0)}%</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
+  const w = 1080;
+  const h = 240;
+  const margin = { top: 20, right: 24, bottom: 32, left: 24 };
+  const innerW = w - margin.left - margin.right;
+  const innerH = h - margin.top - margin.bottom;
+
+  if (loading) return <div className="narrative-stream-wrap narrative-empty-small">Cargando timeline…</div>;
+  if (!timeline || timeline.length === 0) {
+    return <div className="narrative-stream-wrap narrative-empty-small">Sin datos temporales todavía.</div>;
+  }
+
+  const times = timeline.map((d) => new Date(d.day).getTime());
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  const span = Math.max(1, maxT - minT);
+  const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
+
+  const maxTotal = Math.max(...timeline.map((d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0)), 1);
+  const yCenter = margin.top + innerH / 2;
+  const yScale = (v) => yCenter - (v / maxTotal) * (innerH / 2) * 0.92;
+
+  const stackedPoints = timeline.map((d) => {
+    const x = xScale(d.day);
+    const total = (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
+    const baseline = -total / 2;
+    const negTop = baseline + (d.negative || 0);
+    const neuTop = negTop + (d.neutral || 0);
+    const posTop = neuTop + (d.positive || 0);
+    return {
+      x,
+      day: d.day,
+      mentions: d.mentions || 0,
+      baseline_y: yScale(baseline),
+      neg_y: yScale(negTop),
+      neu_y: yScale(neuTop),
+      pos_y: yScale(posTop),
+    };
+  });
+
+  const buildLayerPath = (upperKey, lowerKey) => {
+    const upper = stackedPoints.map((p) => ({ x: p.x, y: p[upperKey] }));
+    const lower = stackedPoints.map((p) => ({ x: p.x, y: p[lowerKey] })).reverse();
+    const upperD = smoothPath(upper);
+    const lowerD = smoothPath(lower).replace(/^M/, 'L');
+    return `${upperD} ${lowerD} Z`;
+  };
+
+  const layers = [
+    { key: 'negative', d: buildLayerPath('neg_y', 'baseline_y'), color: 'var(--neg)' },
+    { key: 'neutral', d: buildLayerPath('neu_y', 'neg_y'), color: 'var(--text-3)' },
+    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'), color: 'var(--pos)' },
+  ];
+
+  const months = [];
+  const cursor = new Date(minT);
+  cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
+  while (cursor.getTime() <= maxT) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const monthEvery = months.length > 12 ? Math.ceil(months.length / 10) : 1;
+
+  const peak = timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
+  const peakX = xScale(peak.day);
+
+  return (
+    <div className="narrative-stream-wrap">
+      <div className="narrative-stream-legend">
+        <span className="narrative-stream-key"><i style={{ background: 'var(--pos)' }} /> Positivo</span>
+        <span className="narrative-stream-key"><i style={{ background: 'var(--text-3)' }} /> Neutral</span>
+        <span className="narrative-stream-key"><i style={{ background: 'var(--neg)' }} /> Negativo</span>
+        <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
+      </div>
+      <svg className="narrative-stream-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+        {layers.map((L) => (
+          <path key={L.key} d={L.d} fill={L.color} opacity={0.78} />
+        ))}
+        <line x1={margin.left} y1={yCenter} x2={margin.left + innerW} y2={yCenter} stroke="var(--hairline)" strokeWidth="0.5" opacity={0.5} />
+
+        {stackedPoints.map((p, i) => {
+          const prev = stackedPoints[i - 1];
+          const next = stackedPoints[i + 1];
+          const x0 = prev ? (prev.x + p.x) / 2 : p.x - 2;
+          const x1 = next ? (p.x + next.x) / 2 : p.x + 2;
+          const isSelected = selectedDay === p.day;
+          return (
+            <g key={p.day} className="narrative-stream-day" style={{ cursor: 'pointer' }}>
+              <rect
+                x={x0}
+                y={margin.top}
+                width={Math.max(1, x1 - x0)}
+                height={innerH}
+                fill={isSelected ? 'rgba(63, 181, 216, 0.18)' : 'transparent'}
+                onClick={() => onSelectDay(p.day)}
+              />
+              {isSelected && (
+                <>
+                  <line
+                    x1={p.x}
+                    y1={margin.top}
+                    x2={p.x}
+                    y2={margin.top + innerH}
+                    stroke="var(--accent)"
+                    strokeWidth="1"
+                    strokeDasharray="3 3"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <circle cx={p.x} cy={yCenter} r="4" fill="var(--accent)" style={{ pointerEvents: 'none' }} />
+                </>
+              )}
+              <title>{`${p.day} · ${p.mentions} menciones`}</title>
+            </g>
+          );
+        })}
+
+        {peak && (
+          <g style={{ pointerEvents: 'none' }}>
+            <line x1={peakX} y1={margin.top} x2={peakX} y2={margin.top + innerH} stroke="var(--accent)" strokeWidth="0.5" opacity={0.4} />
+            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="10" fontWeight="600">
+              ✕ pico
+            </text>
+          </g>
+        )}
+
+        {months.map((d, i) => {
+          if (i % monthEvery !== 0) return null;
+          const x = xScale(d);
+          return (
+            <g key={i} style={{ pointerEvents: 'none' }}>
+              <line x1={x} y1={margin.top + innerH} x2={x} y2={margin.top + innerH + 4} stroke="var(--hairline-strong)" />
+              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="10">
+                {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/narrative/${narrative.id}/day?date=${day}&agency=${agency || ''}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [narrative.id, day, agency]);
+
+  const dateLabel = new Date(day).toLocaleDateString('es', { dateStyle: 'long' });
+
+  return (
+    <div className="narrative-day-drawer">
+      <div className="narrative-day-overlay" onClick={onClose} />
+      <div className="narrative-day-panel">
+        <div className="narrative-day-header">
+          <div>
+            <div className="narrative-day-eyebrow">{narrative.name}</div>
+            <div className="narrative-day-title">{dateLabel}</div>
+            {data && <div className="narrative-day-count">{data.totalMentions} menciones</div>}
+          </div>
+          <button className="narrative-day-close" onClick={onClose} aria-label="Cerrar">×</button>
+        </div>
+        <div className="narrative-day-body">
+          {loading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : !data || data.totalMentions === 0 ? (
+            <div className="narrative-empty-small">No hay menciones registradas en este día.</div>
+          ) : (
+            ['positivo', 'neutral', 'negativo', 'sin_clasificar'].map((kind) => {
+              const items = (data.clusters && data.clusters[kind]) || [];
+              if (items.length === 0) return null;
+              const label = kind === 'sin_clasificar' ? 'Sin clasificar' : kind.charAt(0).toUpperCase() + kind.slice(1);
+              const color = kind === 'positivo' ? 'var(--pos)' : kind === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+              return (
+                <div key={kind} className="narrative-day-cluster">
+                  <div className="narrative-day-cluster-label">
+                    <span className="narrative-dot" style={{ background: color }} />
+                    {label} <em>({items.length})</em>
+                  </div>
+                  {items.map((m) => (
+                    <div key={m.id} className="narrative-day-mention">
+                      <div className="narrative-day-mention-title">{m.title || '(sin título)'}</div>
+                      <div className="narrative-day-mention-meta">
+                        {m.author && <strong>{m.author}</strong>}
+                        {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                        <span>· {new Date(m.publishedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {(m.engagement || 0) > 0 && <span>· {m.engagement} eng</span>}
+                      </div>
+                      {m.snippet && <div className="narrative-day-mention-snippet">{m.snippet}</div>}
+                      {m.url && (
+                        <a href={m.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                          Ver fuente →
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -118,10 +118,44 @@ export async function GET(request: NextRequest) {
     keywords: Array.isArray(r.keywords) ? r.keywords : [],
   }));
 
+  // Sparklines: últimas 30 día de menciones/día por narrativa. Una sola query
+  // (left join generate_series) para no hacer N+1 al frontend.
+  const sparklineRows = narratives.length > 0
+    ? await pgPool.query(
+        `WITH days AS (
+           SELECT generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, '1 day')::date AS day
+         )
+         SELECT n.id AS narrative_id,
+                to_char(d.day, 'YYYY-MM-DD') AS day,
+                COALESCE(COUNT(m.id), 0)::int AS cnt
+           FROM narratives n
+           CROSS JOIN days d
+           LEFT JOIN narrative_mentions nm ON nm.narrative_id = n.id AND nm.is_primary = true
+           LEFT JOIN mentions m ON m.id = nm.mention_id
+             AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = d.day
+           WHERE n.id = ANY($1::uuid[])
+           GROUP BY n.id, d.day
+           ORDER BY n.id, d.day`,
+        [narratives.map((n) => n.id)],
+      )
+    : { rows: [] as Array<{ narrative_id: string; day: string; cnt: number }> };
+
+  // Group by narrative_id → ordered array of 30 counts
+  const sparklineByNarrative: Record<string, number[]> = {};
+  for (const row of sparklineRows.rows as Array<{ narrative_id: string; day: string; cnt: number }>) {
+    if (!sparklineByNarrative[row.narrative_id]) sparklineByNarrative[row.narrative_id] = [];
+    sparklineByNarrative[row.narrative_id].push(Number(row.cnt));
+  }
+
+  const narrativesWithSpark = narratives.map((n) => ({
+    ...n,
+    sparkline: sparklineByNarrative[n.id] || new Array(30).fill(0),
+  }));
+
   return NextResponse.json({
-    narratives,
+    narratives: narrativesWithSpark,
     meta: {
-      total: narratives.length,
+      total: narrativesWithSpark.length,
       period: periodKey,
       statusFilter: statusFilter.length > 0 ? statusFilter : null,
     },
