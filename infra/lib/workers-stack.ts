@@ -31,6 +31,8 @@ export class WorkersStack extends cdk.Stack {
   public readonly weeklyReportFunction: NodejsFunction;
   public readonly aiTasksFunction: NodejsFunction;
   public readonly narrativeClusterFunction: NodejsFunction;
+  public readonly narrativeEdgesFunction: NodejsFunction;
+  public readonly narrativeDriftFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -360,12 +362,19 @@ export class WorkersStack extends cdk.Stack {
     //      después de 24h con mayor reach × engagement).
     // Memoria 2048 MB: el DBSCAN sobre el pool de candidatos (potencialmente
     // varios cientos de embeddings de 1024 dims) corre en JS.
+    // Reserved concurrency = 1: el cluster usa el pool de narrative_candidates
+    // como estado compartido (DBSCAN + delete). Dos invocaciones simultáneas
+    // (cron + manual o cron + cron tras retry) pueden spawnear narrativas
+    // duplicadas asignando los mismos mention_ids a is_primary=true en ambas.
+    // Bug observado 2026-05-25: 877 duplicados a limpiar tras una corrida
+    // concurrente. Concurrency=1 lo previene de raíz.
     this.narrativeClusterFunction = new NodejsFunction(this, 'NarrativeClusterFunction', {
       functionName: 'eco-narrative-cluster',
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../lambda/narrative-cluster/index.ts'),
       handler: 'handler',
       memorySize: 2048,
+      reservedConcurrentExecutions: 1,
       timeout: cdk.Duration.minutes(5),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
@@ -410,5 +419,92 @@ export class WorkersStack extends cdk.Stack {
       description: 'Clustering de menciones nuevas en narrativas: asigna a centroides existentes, spawnea con DBSCAN, recalcula lifecycle.',
     });
     narrativeClusterRule.addTarget(new targets.LambdaFunction(this.narrativeClusterFunction));
+
+    // ---- eco-narrative-edges Lambda ----
+    // Diariamente recalcula conexiones entre narrativas (co_occurrence,
+    // author_overlap, semantic). Truncate + reinsert por agencia — idempotente.
+    // No usa Bedrock; solo SQL agregaciones.
+    this.narrativeEdgesFunction = new NodejsFunction(this, 'NarrativeEdgesFunction', {
+      functionName: 'eco-narrative-edges',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-edges/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        NARRATIVE_EDGE_MIN_STRENGTH: '0.15',
+        NARRATIVE_SEMANTIC_THRESHOLD: '0.6',
+        NARRATIVE_CO_OCCURRENCE_MIN_SHARED: '5',
+        NARRATIVE_AUTHOR_OVERLAP_MIN_SHARED: '3',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeEdgesLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-edges',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeEdgesFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    const narrativeEdgesRule = new events.Rule(this, 'NarrativeEdgesSchedule', {
+      ruleName: 'eco-narrative-edges-daily',
+      schedule: events.Schedule.cron({ minute: '0', hour: '6' }),
+      description: 'Recalcula edges entre narrativas (diario, 6am UTC = 2am AST).',
+    });
+    narrativeEdgesRule.addTarget(new targets.LambdaFunction(this.narrativeEdgesFunction));
+
+    // ---- eco-narrative-drift Lambda ----
+    // Semanalmente detecta drift de centroides y re-namea narrativas cuyo eje
+    // ha derivado >25% desde el último naming. Usa Bedrock Claude (tool-use)
+    // para el re-naming. Cap MAX_RENAMES_PER_RUN evita un blast si muchas
+    // narrativas derivan a la vez.
+    this.narrativeDriftFunction = new NodejsFunction(this, 'NarrativeDriftFunction', {
+      functionName: 'eco-narrative-drift',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-drift/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        NARRATIVE_DRIFT_THRESHOLD: '0.25',
+        NARRATIVE_MAX_RENAMES_PER_RUN: '15',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeDriftLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-drift',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeDriftFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.narrativeDriftFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    const narrativeDriftRule = new events.Rule(this, 'NarrativeDriftSchedule', {
+      ruleName: 'eco-narrative-drift-weekly',
+      schedule: events.Schedule.cron({ minute: '0', hour: '8', weekDay: 'MON' }),
+      description: 'Detecta drift de centroides y re-namea (semanal, lunes 8am UTC = 4am AST).',
+    });
+    narrativeDriftRule.addTarget(new targets.LambdaFunction(this.narrativeDriftFunction));
   }
 }

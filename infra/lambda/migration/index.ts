@@ -353,6 +353,53 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'cleanup-narrative-duplicates') {
+      // Limpia duplicados de is_primary=true en narrative_mentions causados por
+      // un bug de concurrencia en eco-narrative-cluster (corregido con
+      // reservedConcurrentExecutions=1 después del 2026-05-25). Mantiene la
+      // asignación cronológicamente más antigua como primary, las demás las
+      // demota a is_primary=false. Idempotente — repetir es no-op.
+      const dupBefore = await client.query(
+        `SELECT COUNT(*)::int AS demote_count FROM narrative_mentions nm
+          WHERE nm.is_primary = true
+            AND EXISTS (
+              SELECT 1 FROM narrative_mentions nm2
+               WHERE nm2.mention_id = nm.mention_id
+                 AND nm2.is_primary = true
+                 AND nm2.assigned_at < nm.assigned_at
+            )`,
+      );
+      const upd = await client.query(
+        `UPDATE narrative_mentions nm
+            SET is_primary = false
+          WHERE nm.is_primary = true
+            AND EXISTS (
+              SELECT 1 FROM narrative_mentions nm2
+               WHERE nm2.mention_id = nm.mention_id
+                 AND nm2.is_primary = true
+                 AND nm2.assigned_at < nm.assigned_at
+            )`,
+      );
+      const dupAfter = await client.query(
+        `SELECT COUNT(*)::int AS remaining FROM (
+           SELECT mention_id FROM narrative_mentions WHERE is_primary = true
+           GROUP BY mention_id HAVING COUNT(*) > 1
+         ) t`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify(
+          {
+            demoted: upd.rowCount,
+            expected: dupBefore.rows[0].demote_count,
+            duplicate_mentions_remaining: dupAfter.rows[0].remaining,
+          },
+          null,
+          2,
+        ),
+      };
+    }
+
     if (action === 'backfill-embeddings') {
       // Recorre menciones con embedding IS NULL (de la agencia indicada o
       // todas) y las puebla en lotes con concurrencia 5 contra Bedrock. Es
