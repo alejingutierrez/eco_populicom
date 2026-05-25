@@ -61,7 +61,7 @@ export function NarrativeDetail({ narrativeId }: { narrativeId: string }) {
   const { data, isLoading, error } = useQuery<NarrativeDetailData>({
     queryKey: ['narrative-detail', narrativeId, selectedAgency],
     queryFn: () =>
-      fetch(`/api/narratives/${narrativeId}?agency=${selectedAgency}`).then((r) => {
+      fetch(`/api/narrative/${narrativeId}?agency=${selectedAgency}`).then((r) => {
         if (!r.ok) throw new Error('Fetch failed');
         return r.json();
       }),
