@@ -60,15 +60,20 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   }
   const narrative = narrativeRes.rows[0];
 
-  // Timeline diario (mentions/day, last 90 days)
+  // Timeline diario con breakdown por sentimiento (streamgraph stacked).
+  // Cubre desde born_at hasta hoy para que el timeline muestre toda la vida
+  // de la narrativa (no solo últimos 90d como antes).
   const timeline = await pgPool.query(
     `SELECT to_char(date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico'), 'YYYY-MM-DD') AS day,
             COUNT(*)::int AS mentions,
-            SUM(COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))::int AS engagement
+            COUNT(*) FILTER (WHERE m.nlp_sentiment IN ('positivo','positive'))::int AS positive,
+            COUNT(*) FILTER (WHERE m.nlp_sentiment IN ('neutral','neutro'))::int AS neutral,
+            COUNT(*) FILTER (WHERE m.nlp_sentiment IN ('negativo','negative'))::int AS negative,
+            SUM(COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))::int AS engagement,
+            SUM(COALESCE(m.reach_estimate, 0))::bigint AS reach
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
-         AND m.published_at >= NOW() - INTERVAL '90 days'
        GROUP BY 1
        ORDER BY 1 ASC`,
     [id],
