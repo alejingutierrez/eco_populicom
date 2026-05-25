@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
       { source: '/geography', destination: '/eco-prototype/index.html' },
       { source: '/alerts', destination: '/eco-prototype/index.html' },
       { source: '/settings', destination: '/eco-prototype/index.html' },
+      { source: '/narrative', destination: '/eco-prototype/index.html' },
+      { source: '/narrative/:path*', destination: '/eco-prototype/index.html' },
     ];
   },
 };

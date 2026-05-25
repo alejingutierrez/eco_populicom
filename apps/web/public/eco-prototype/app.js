@@ -1,7 +1,7 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
-const { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
+const { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
 // Shared state stored on window and observed by the React <ToastHost>.
@@ -85,6 +85,7 @@ const PATH_TO_SCREEN = {
   '/geography': 'geography',
   '/alerts': 'alerts',
   '/settings': 'settings',
+  '/narrative': 'narrative',
 };
 const SCREEN_TO_PATH = {
   overview: '/overview',
@@ -95,6 +96,7 @@ const SCREEN_TO_PATH = {
   geography: '/geography',
   alerts: '/alerts',
   settings: '/settings',
+  narrative: '/narrative',
 };
 
 // Error boundary — without this a render crash in any screen white-screens
@@ -134,6 +136,7 @@ const SCREEN_META = {
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
   settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
+  narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
 };
 
 // El selector de agencias toma SIEMPRE la lista del backend
@@ -235,7 +238,7 @@ function App() {
       if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (!metaKey && !e.altKey) {
-        const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts' };
+        const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts', n: 'narrative' };
         const k = e.key.toLowerCase();
         if (map[k]) { setActive(map[k]); return; }
         if (e.key === '[' || e.key === ']') { setCollapsed(!collapsed); return; }
@@ -255,6 +258,7 @@ function App() {
     geography: GeographyScreen,
     alerts: AlertsScreen,
     settings: SettingsScreen,
+    narrative: NarrativeScreen,
   }[active];
 
   return (

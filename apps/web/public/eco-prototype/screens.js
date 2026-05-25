@@ -3710,4 +3710,562 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
   );
 }
 
-window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen };
+// ============================================================
+// NarrativeScreen — clusters emergentes con menu + ramificaciones
+// ============================================================
+const NARRATIVE_STATUS_LANES = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
+const NARRATIVE_STATUS_COLORS = {
+  peaking: '#FA8C16',
+  active: '#52C41A',
+  emerging: '#13C2C2',
+  revived: '#EB2F96',
+  declining: '#FAAD14',
+  dormant: '#8C8C8C',
+};
+const NARRATIVE_STATUS_LABELS = {
+  peaking: 'Pico',
+  active: 'Activa',
+  emerging: 'Emergente',
+  revived: 'Revivida',
+  declining: 'Decae',
+  dormant: 'Dormida',
+};
+const NARRATIVE_EDGE_COLORS = {
+  semantic: '#3FB5D8',
+  author_overlap: '#9333EA',
+  co_occurrence: '#F97316',
+};
+
+function NarrativeScreen({ agency }) {
+  const [narratives, setNarratives] = React.useState([]);
+  const [edges, setEdges] = React.useState([]);
+  const [focusedId, setFocusedId] = React.useState(null);
+  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState('all');
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      fetch(`/api/narrative?agency=${agency || ''}&limit=500`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
+    ])
+      .then(([nRes, eRes]) => {
+        if (cancelled) return;
+        setNarratives(nRes.narratives || []);
+        setEdges(eRes.edges || []);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String(e));
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [agency]);
+
+  const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
+
+  const filteredNarratives = React.useMemo(() => {
+    const STATUS_RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
+    let list = narratives.filter((n) => statusFilter === 'all' || n.status === statusFilter);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (n) =>
+          n.name.toLowerCase().includes(q) ||
+          (n.summary || '').toLowerCase().includes(q) ||
+          (n.keywords || []).some((k) => String(k).toLowerCase().includes(q))
+      );
+    }
+    return list.sort((a, b) => {
+      const ra = STATUS_RANK[a.status] ?? 9;
+      const rb = STATUS_RANK[b.status] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return b.mentionCount - a.mentionCount;
+    });
+  }, [narratives, search, statusFilter]);
+
+  const neighbors = React.useMemo(() => {
+    if (!focusedId) return [];
+    return edges
+      .filter((e) => e.source === focusedId || e.target === focusedId)
+      .map((e) => {
+        const otherId = e.source === focusedId ? e.target : e.source;
+        const other = narratives.find((n) => n.id === otherId);
+        if (!other) return null;
+        return { ...other, edgeType: e.type, strength: e.strength };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 12);
+  }, [focusedId, edges, narratives]);
+
+  return (
+    <div className="narrative-screen">
+      <aside className="narrative-menu">
+        <input
+          className="input narrative-search"
+          placeholder="Buscar narrativa, keyword…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="narrative-status-filters">
+          <button
+            className={`btn-chip ${statusFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('all')}
+          >
+            Todas
+          </button>
+          {NARRATIVE_STATUS_LANES.map((s) => (
+            <button
+              key={s}
+              className={`btn-chip ${statusFilter === s ? 'active' : ''}`}
+              onClick={() => setStatusFilter(s)}
+              title={NARRATIVE_STATUS_LABELS[s]}
+            >
+              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
+              {NARRATIVE_STATUS_LABELS[s]}
+            </button>
+          ))}
+        </div>
+        <div className="narrative-menu-count">
+          {filteredNarratives.length} de {narratives.length} narrativas
+        </div>
+        <ul className="narrative-list">
+          {filteredNarratives.map((n) => (
+            <li
+              key={n.id}
+              className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
+              onClick={() => setFocusedId(n.id)}
+            >
+              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[n.status] }} />
+              <div className="narrative-item-body">
+                <div className="narrative-item-name">{n.name}</div>
+                <div className="narrative-item-meta">
+                  <span>{n.mentionCount.toLocaleString('es')} menc</span>
+                  <span>·</span>
+                  <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
+                </div>
+              </div>
+            </li>
+          ))}
+          {filteredNarratives.length === 0 && !loading && (
+            <li className="narrative-empty-li">Sin resultados</li>
+          )}
+        </ul>
+      </aside>
+
+      <main className="narrative-canvas">
+        {loading ? (
+          <div className="narrative-empty">Cargando narrativas…</div>
+        ) : error ? (
+          <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
+        ) : narratives.length === 0 ? (
+          <div className="narrative-empty">
+            No hay narrativas para esta agencia todavía. El sistema procesa el pool de candidatos cada hora.
+          </div>
+        ) : focused ? (
+          <NarrativeRadial
+            central={focused}
+            neighbors={neighbors}
+            onSelect={setFocusedId}
+            onClear={() => setFocusedId(null)}
+            agency={agency}
+          />
+        ) : (
+          <NarrativeTimeline
+            narratives={filteredNarratives.slice(0, 60)}
+            edges={edges}
+            onSelect={setFocusedId}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function NarrativeTimeline({ narratives, edges, onSelect }) {
+  const w = 1100;
+  const h = 520;
+  const margin = { top: 32, right: 24, bottom: 60, left: 110 };
+  const innerW = w - margin.left - margin.right;
+  const innerH = h - margin.top - margin.bottom;
+
+  const validDates = narratives
+    .map((n) => new Date(n.bornAt).getTime())
+    .filter((t) => !isNaN(t));
+  if (validDates.length === 0) {
+    return <div className="narrative-empty">Sin datos temporales todavía.</div>;
+  }
+  const minT = Math.min(...validDates);
+  const maxT = Math.max(...validDates, Date.now());
+  const span = Math.max(1, maxT - minT);
+  const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
+  const yScale = (status) =>
+    margin.top + (NARRATIVE_STATUS_LANES.indexOf(status) + 0.5) * (innerH / NARRATIVE_STATUS_LANES.length);
+  const maxMentions = Math.max(...narratives.map((n) => n.mentionCount), 1);
+  const rScale = (c) => 4 + Math.sqrt(c / maxMentions) * 22;
+
+  const months = [];
+  const cur = new Date(minT);
+  cur.setDate(1);
+  cur.setHours(0, 0, 0, 0);
+  while (cur.getTime() <= maxT) {
+    months.push(new Date(cur));
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  const monthEvery = months.length > 14 ? Math.ceil(months.length / 12) : 1;
+
+  const visibleIds = new Set(narratives.map((n) => n.id));
+  const visibleEdges = edges
+    .filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
+    .slice(0, 100);
+
+  return (
+    <div className="narrative-viz-wrap">
+      <div className="narrative-viz-header">
+        <div>
+          <strong>Línea de tiempo de narrativas</strong>
+          <span className="narrative-hint"> · burbuja = volumen de menciones · click para ver ramificaciones</span>
+        </div>
+      </div>
+      <svg className="narrative-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+        {NARRATIVE_STATUS_LANES.map((s) => {
+          const y = yScale(s);
+          return (
+            <g key={s}>
+              <line
+                x1={margin.left}
+                y1={y}
+                x2={margin.left + innerW}
+                y2={y}
+                stroke="var(--hairline)"
+                strokeDasharray="2 4"
+              />
+              <circle cx={margin.left - 88} cy={y} r="4" fill={NARRATIVE_STATUS_COLORS[s]} />
+              <text x={margin.left - 78} y={y + 4} fill="var(--text-2)" fontSize="11">
+                {NARRATIVE_STATUS_LABELS[s]}
+              </text>
+            </g>
+          );
+        })}
+
+        <line
+          x1={margin.left}
+          y1={margin.top + innerH}
+          x2={margin.left + innerW}
+          y2={margin.top + innerH}
+          stroke="var(--hairline-strong)"
+        />
+        {months.map((d, i) => {
+          if (i % monthEvery !== 0) return null;
+          const x = xScale(d);
+          return (
+            <g key={i}>
+              <line
+                x1={x}
+                y1={margin.top + innerH}
+                x2={x}
+                y2={margin.top + innerH + 4}
+                stroke="var(--hairline-strong)"
+              />
+              <text
+                x={x}
+                y={margin.top + innerH + 18}
+                textAnchor="middle"
+                fill="var(--text-2)"
+                fontSize="10"
+              >
+                {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
+              </text>
+            </g>
+          );
+        })}
+
+        {visibleEdges.map((e, i) => {
+          const n1 = narratives.find((n) => n.id === e.source);
+          const n2 = narratives.find((n) => n.id === e.target);
+          if (!n1 || !n2) return null;
+          const x1 = xScale(n1.bornAt);
+          const y1 = yScale(n1.status);
+          const x2 = xScale(n2.bornAt);
+          const y2 = yScale(n2.status);
+          const cx = (x1 + x2) / 2;
+          const cy = (y1 + y2) / 2 - Math.abs(x2 - x1) * 0.12;
+          return (
+            <path
+              key={i}
+              d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
+              fill="none"
+              stroke={NARRATIVE_EDGE_COLORS[e.type] || 'var(--accent)'}
+              strokeWidth={Math.max(0.4, e.strength * 1.6)}
+              opacity={Math.min(0.35, Math.max(0.08, e.strength * 0.4))}
+            />
+          );
+        })}
+
+        {narratives.map((n) => {
+          const cx = xScale(n.bornAt);
+          const cy = yScale(n.status);
+          const r = rScale(n.mentionCount);
+          return (
+            <g
+              key={n.id}
+              className="narrative-bubble"
+              onClick={() => onSelect(n.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              <circle
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill={NARRATIVE_STATUS_COLORS[n.status]}
+                opacity={0.75}
+                stroke={NARRATIVE_STATUS_COLORS[n.status]}
+                strokeWidth="1.5"
+              />
+              <title>
+                {n.name} · {n.mentionCount} menciones · {NARRATIVE_STATUS_LABELS[n.status] || n.status}
+              </title>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function NarrativeRadial({ central, neighbors, onSelect, onClear, agency }) {
+  const w = 1100;
+  const h = 540;
+  const cx = w / 2;
+  const cy = h / 2 - 10;
+  const r0 = 50 + Math.sqrt(central.mentionCount) * 1.3;
+  const N = neighbors.length;
+  const ringRadius = Math.max(180, Math.min(220, 60 + Math.sqrt(N) * 28));
+
+  const positions = neighbors.map((n, i) => {
+    const angle = (i / Math.max(N, 1)) * 2 * Math.PI - Math.PI / 2;
+    return {
+      ...n,
+      x: cx + ringRadius * Math.cos(angle),
+      y: cy + ringRadius * Math.sin(angle),
+    };
+  });
+
+  const maxNeighbor = Math.max(...neighbors.map((n) => n.mentionCount), 1);
+  const rNeighbor = (c) => 12 + Math.sqrt(c / maxNeighbor) * 18;
+
+  return (
+    <div className="narrative-viz-wrap">
+      <div className="narrative-viz-header">
+        <button className="btn btn-ghost" onClick={onClear} title="Volver al timeline">
+          ← Timeline
+        </button>
+        <div className="narrative-radial-title">
+          <strong>{central.name}</strong>
+          {central.summary && <div className="narrative-radial-summary">{central.summary}</div>}
+        </div>
+      </div>
+
+      <svg className="narrative-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+        {positions.map((p) => (
+          <path
+            key={`e-${p.id}`}
+            d={`M ${cx} ${cy} Q ${(cx + p.x) / 2} ${(cy + p.y) / 2 - 24} ${p.x} ${p.y}`}
+            fill="none"
+            stroke={NARRATIVE_EDGE_COLORS[p.edgeType] || 'var(--accent)'}
+            strokeWidth={Math.max(1, p.strength * 4)}
+            opacity={0.55}
+          />
+        ))}
+        <g>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r0}
+            fill={NARRATIVE_STATUS_COLORS[central.status]}
+            opacity={0.9}
+            stroke="var(--canvas)"
+            strokeWidth="3"
+          />
+          <text
+            x={cx}
+            y={cy + 5}
+            textAnchor="middle"
+            fill="#fff"
+            fontSize="15"
+            fontWeight="700"
+          >
+            {central.mentionCount}
+          </text>
+        </g>
+        {positions.map((p) => {
+          const r = rNeighbor(p.mentionCount);
+          return (
+            <g key={p.id} onClick={() => onSelect(p.id)} style={{ cursor: 'pointer' }}>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={r}
+                fill={NARRATIVE_STATUS_COLORS[p.status]}
+                opacity={0.78}
+                stroke={NARRATIVE_STATUS_COLORS[p.status]}
+                strokeWidth="1.5"
+              />
+              <text
+                x={p.x}
+                y={p.y + r + 14}
+                textAnchor="middle"
+                fill="var(--text)"
+                fontSize="11"
+                style={{ pointerEvents: 'none' }}
+              >
+                {p.name.length > 28 ? p.name.slice(0, 26) + '…' : p.name}
+              </text>
+              <title>
+                {p.name} · {p.mentionCount} menc · {p.edgeType} ({(p.strength * 100).toFixed(0)}%)
+              </title>
+            </g>
+          );
+        })}
+        {neighbors.length === 0 && (
+          <text
+            x={cx}
+            y={cy + r0 + 60}
+            textAnchor="middle"
+            fill="var(--text-2)"
+            fontSize="13"
+          >
+            Sin ramificaciones (todavía no hay narrativas conectadas)
+          </text>
+        )}
+      </svg>
+
+      <NarrativeDetail narrative={central} agency={agency} />
+    </div>
+  );
+}
+
+function NarrativeDetail({ narrative, agency }) {
+  const [detail, setDetail] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/narrative/${narrative.id}?agency=${agency || ''}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setDetail(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [narrative.id, agency]);
+
+  const init = narrative.initiatorFirst;
+  const inf = narrative.initiatorInfluencer;
+  const recent = detail?.recentMentions || [];
+
+  return (
+    <div className="narrative-detail">
+      <div className="narrative-detail-grid">
+        <div className="narrative-card">
+          <div className="narrative-card-label">Menciones</div>
+          <div className="narrative-card-value">{narrative.mentionCount.toLocaleString('es')}</div>
+        </div>
+        <div className="narrative-card">
+          <div className="narrative-card-label">Velocidad 24h</div>
+          <div className="narrative-card-value">{Number(narrative.velocity24h || 0).toFixed(1)}</div>
+        </div>
+        <div className="narrative-card">
+          <div className="narrative-card-label">Engagement</div>
+          <div className="narrative-card-value">{Number(narrative.totalEngagement || 0).toLocaleString('es')}</div>
+        </div>
+        <div className="narrative-card">
+          <div className="narrative-card-label">Nacida</div>
+          <div className="narrative-card-value">
+            {new Date(narrative.bornAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </div>
+        </div>
+      </div>
+
+      {(narrative.keywords || []).length > 0 && (
+        <div className="narrative-keywords">
+          {(narrative.keywords || []).map((k) => (
+            <span key={k} className="narrative-tag">
+              {k}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="narrative-initiators">
+        <div className="narrative-initiator">
+          <div className="narrative-initiator-label">Primera mención</div>
+          {init ? (
+            <div>
+              <div className="narrative-initiator-author">
+                <strong>{init.author || '—'}</strong>
+                {init.platform && <span className="narrative-tag-mini">{init.platform}</span>}
+              </div>
+              <div className="narrative-initiator-date">
+                {new Date(init.publishedAt).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+              {init.snippet && <div className="narrative-initiator-snippet">{init.snippet}</div>}
+              {init.url && (
+                <a href={init.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                  Ver fuente →
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+        <div className="narrative-initiator">
+          <div className="narrative-initiator-label">Voz más influyente (24h)</div>
+          {inf ? (
+            <div>
+              <div className="narrative-initiator-author">
+                <strong>{inf.author || '—'}</strong>
+              </div>
+              <div className="narrative-initiator-meta">
+                Reach {(inf.reach || 0).toLocaleString('es')} · Eng {(inf.engagement || 0).toLocaleString('es')}
+              </div>
+              {inf.url && (
+                <a href={inf.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                  Ver fuente →
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="narrative-empty-small">Aún sin datos (requiere ≥24h)</div>
+          )}
+        </div>
+      </div>
+
+      {recent.length > 0 && (
+        <div className="narrative-mentions">
+          <div className="narrative-section-label">Menciones recientes</div>
+          {recent.slice(0, 5).map((m) => (
+            <div key={m.id} className="narrative-mention-row">
+              <div className="narrative-mention-title">{m.title || '(sin título)'}</div>
+              <div className="narrative-mention-meta">
+                {m.author && <span>{m.author}</span>}
+                {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                <span>{new Date(m.publishedAt).toLocaleDateString('es')}</span>
+                {m.url && (
+                  <a href={m.url} target="_blank" rel="noopener noreferrer">
+                    →
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen };

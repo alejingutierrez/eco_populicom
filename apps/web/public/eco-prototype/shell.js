@@ -39,6 +39,7 @@ function getNav() {
     { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
     { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
     { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
+    { key: 'narrative', icon: 'Branches', label: 'Narrativas', shortcut: 'N' },
     { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G' },
     { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', badge: activeAlerts || null, urgent: activeAlerts > 0 },
   ];
