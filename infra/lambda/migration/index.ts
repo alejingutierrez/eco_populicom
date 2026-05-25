@@ -795,6 +795,14 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       // de Brandwatch antiguas — sin esto, un Excel que incluye una URL ya
       // ingerida por Brandwatch se marcaría como `new` en vez de `duplicate`.
       //
+      // Maneja 3 casos:
+      //   1. URL canonicaliza OK y nadie más en la agencia la tiene → UPDATE
+      //      url_canonical = canonical (caso normal)
+      //   2. URL canonicaliza OK pero otra menc. en la agencia ya la tiene
+      //      → UPDATE url_canonical = 'dup-orig:<id>' (sentinel único, marca
+      //      la mención como dup pre-existente sin tocar is_duplicate)
+      //   3. URL no parsea → UPDATE url_canonical = 'invalid:<id>' (sentinel)
+      //
       // Idempotente: cada invocación procesa hasta `batchSize` filas con
       // url_canonical IS NULL y url IS NOT NULL, retorna `remaining`. Loop
       // manual desde CLI hasta remaining=0.
@@ -809,37 +817,95 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       console.log(`backfill-url-canonical: ${rows.length} rows in this batch`);
 
       let updated = 0;
+      let intraConflicts = 0;
       let unparseable = 0;
-      // Bulk update con UPDATE … FROM (VALUES …). Más rápido que un UPDATE
-      // por fila cuando son miles. Si el canonicalizer devuelve null (URL
-      // inválida), persistimos un sentinel único por row (`invalid:<id>`)
-      // para que (a) el predicado `WHERE url_canonical IS NULL` no la vuelva
-      // a tomar y (b) el unique parcial `WHERE url_canonical IS NOT NULL`
-      // no colisione (cada sentinel es único por id).
+
       if (rows.length > 0) {
-        const values: string[] = [];
-        const params: unknown[] = [];
-        let i = 1;
-        for (const row of rows) {
-          const c = canonicalizeUrl(row.url);
-          if (c) {
-            values.push(`($${i}::uuid, $${i + 1}::varchar)`);
-            params.push(row.id, c);
-            updated += 1;
-          } else {
-            values.push(`($${i}::uuid, $${i + 1}::varchar)`);
-            params.push(row.id, `invalid:${row.id}`);
-            unparseable += 1;
+        // Una transacción para que la TEMP TABLE persista entre queries.
+        // pg.Client por default es autocommit; envolvemos en BEGIN/COMMIT.
+        await client.query('BEGIN');
+        try {
+          await client.query(`
+            CREATE TEMP TABLE batch_canon (
+              id uuid PRIMARY KEY,
+              canonical varchar(1000) NOT NULL
+            ) ON COMMIT DROP
+          `);
+
+          const values: string[] = [];
+          const params: unknown[] = [];
+          let i = 1;
+          for (const row of rows) {
+            const c = canonicalizeUrl(row.url);
+            if (c) {
+              values.push(`($${i}::uuid, $${i + 1}::varchar)`);
+              params.push(row.id, c);
+            } else {
+              values.push(`($${i}::uuid, $${i + 1}::varchar)`);
+              params.push(row.id, `invalid:${row.id}`);
+              unparseable += 1;
+            }
+            i += 2;
           }
-          i += 2;
+          await client.query(
+            `INSERT INTO batch_canon (id, canonical) VALUES ${values.join(', ')}`,
+            params,
+          );
+
+          // Update solo los "winners" — para cada (agency_id, canonical) gana
+          // el más antiguo (published_at, id), y solo si ninguna fila existente
+          // en mentions ya tiene esa canonical en la misma agencia.
+          const winners = await client.query(`
+            WITH ranked AS (
+              SELECT DISTINCT ON (m.agency_id, b.canonical)
+                b.id, b.canonical, m.agency_id
+              FROM batch_canon b
+              JOIN mentions m ON m.id = b.id
+              WHERE b.canonical NOT LIKE 'invalid:%'
+              ORDER BY m.agency_id, b.canonical, m.published_at, m.id
+            )
+            UPDATE mentions m
+            SET url_canonical = w.canonical
+            FROM ranked w
+            WHERE m.id = w.id
+              AND NOT EXISTS (
+                SELECT 1 FROM mentions m2
+                WHERE m2.agency_id = m.agency_id
+                  AND m2.url_canonical = w.canonical
+                  AND m2.id <> m.id
+              )
+            RETURNING m.id
+          `);
+          updated = winners.rowCount ?? 0;
+
+          // Para los rows del batch que aún siguen sin url_canonical (perdedores
+          // de la batalla por canonical), set sentinel dup-orig.
+          const losers = await client.query(`
+            UPDATE mentions m
+            SET url_canonical = 'dup-orig:' || m.id::text
+            FROM batch_canon b
+            WHERE m.id = b.id
+              AND m.url_canonical IS NULL
+              AND b.canonical NOT LIKE 'invalid:%'
+            RETURNING m.id
+          `);
+          intraConflicts = losers.rowCount ?? 0;
+
+          // URLs no parseables: copy sentinel desde batch_canon
+          await client.query(`
+            UPDATE mentions m
+            SET url_canonical = b.canonical
+            FROM batch_canon b
+            WHERE m.id = b.id
+              AND m.url_canonical IS NULL
+              AND b.canonical LIKE 'invalid:%'
+          `);
+
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw err;
         }
-        await client.query(
-          `UPDATE mentions m
-             SET url_canonical = v.canonical
-             FROM (VALUES ${values.join(', ')}) AS v(id, canonical)
-             WHERE m.id = v.id`,
-          params,
-        );
       }
 
       const rem = await client.query(
@@ -851,6 +917,7 @@ export const handler = async (event: { action?: string; query?: string; queryIds
         body: JSON.stringify({
           processed: rows.length,
           updated,
+          intraConflicts,
           unparseable,
           remaining: rem.rows[0].c,
         }, null, 2),
