@@ -23,7 +23,9 @@ interface OEmbedTwitterResponse {
 function parseTweetIdToDate(tweetIdRaw: string): Date | undefined {
   try {
     const id = BigInt(tweetIdRaw);
-    const ms = Number((id >> 22n)) + TWITTER_SNOWFLAKE_EPOCH;
+    // `22n` BigInt literal requiere target ES2020; usamos BigInt(22) para
+    // ser compatibles con el target ES2017 de apps/web.
+    const ms = Number(id >> BigInt(22)) + TWITTER_SNOWFLAKE_EPOCH;
     if (Number.isFinite(ms) && ms > 0) return new Date(ms);
   } catch {
     /* invalid id */
