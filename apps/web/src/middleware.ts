@@ -12,6 +12,7 @@ const PROTECTED_PATHS = [
   /^\/geography(\/.*)?$/,
   /^\/alerts(\/.*)?$/,
   /^\/settings(\/.*)?$/,
+  /^\/narratives(\/.*)?$/,
   /^\/api\/overview(\/.*)?$/,
   /^\/api\/eco-data(\/.*)?$/,
   /^\/api\/eco-mentions(\/.*)?$/,
@@ -21,6 +22,7 @@ const PROTECTED_PATHS = [
   /^\/api\/agencies(\/.*)?$/,
   /^\/api\/users(\/.*)?$/,
   /^\/api\/ai(\/.*)?$/,
+  /^\/api\/narratives(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -102,6 +104,7 @@ export const config = {
     '/geography/:path*',
     '/alerts/:path*',
     '/settings/:path*',
+    '/narratives/:path*',
     '/overview',
     '/dashboard',
     '/mentions',
@@ -110,6 +113,7 @@ export const config = {
     '/geography',
     '/alerts',
     '/settings',
+    '/narratives',
     '/api/overview/:path*',
     '/api/eco-data/:path*',
     '/api/eco-mentions/:path*',
@@ -119,5 +123,6 @@ export const config = {
     '/api/agencies/:path*',
     '/api/users/:path*',
     '/api/ai/:path*',
+    '/api/narratives/:path*',
   ],
 };
