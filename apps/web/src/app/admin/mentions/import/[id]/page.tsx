@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   App,
   Alert,
@@ -77,8 +77,12 @@ const STATUS_TAG_COLOR: Record<string, string> = {
 
 export default function ImportDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const importId = String(params?.id ?? '');
   const { message, modal } = App.useApp();
+  // Embed mode — ver page.tsx hermano y AGENTS.md → "dónde vive cada pantalla"
+  const isEmbedded = searchParams?.get('embed') === '1';
+  const embedSuffix = isEmbedded ? '?embed=1' : '';
 
   const [detail, setDetail] = useState<ImportDetail | null>(null);
   const [tab, setTab] = useState<'new' | 'duplicate' | 'update' | 'error'>('new');
@@ -199,24 +203,40 @@ export default function ImportDetailPage() {
   if (!importId) return <div>ID inválido</div>;
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
-      <Header style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Space>
-          <Link href="/admin/mentions/import">
-            <Button icon={<ArrowLeftOutlined />} type="text">Volver</Button>
-          </Link>
-          <Divider type="vertical" />
-          <Title level={4} style={{ margin: 0 }}>Import {importId.slice(0, 8)}…</Title>
-          {detail?.status && (
-            <Badge status={detail.status === 'failed' ? 'error' : detail.status === 'completed' ? 'success' : 'processing'} text={detail.status} />
-          )}
-        </Space>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchDetail}>Refrescar</Button>
-        </Space>
-      </Header>
+    <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: isEmbedded ? 'transparent' : '#fff' }}>
+      {!isEmbedded && (
+        <Header style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Space>
+            <Link href={`/admin/mentions/import${embedSuffix}`}>
+              <Button icon={<ArrowLeftOutlined />} type="text">Volver</Button>
+            </Link>
+            <Divider type="vertical" />
+            <Title level={4} style={{ margin: 0 }}>Import {importId.slice(0, 8)}…</Title>
+            {detail?.status && (
+              <Badge status={detail.status === 'failed' ? 'error' : detail.status === 'completed' ? 'success' : 'processing'} text={detail.status} />
+            )}
+          </Space>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchDetail}>Refrescar</Button>
+          </Space>
+        </Header>
+      )}
 
-      <Content style={{ padding: 24, maxWidth: 1280, width: '100%', margin: '0 auto' }}>
+      <Content style={{ padding: isEmbedded ? '8px 4px 4px 4px' : 24, maxWidth: isEmbedded ? '100%' : 1280, width: '100%', margin: '0 auto' }}>
+        {isEmbedded && (
+          <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }}>
+            <Space>
+              <Link href={`/admin/mentions/import${embedSuffix}`}>
+                <Button icon={<ArrowLeftOutlined />} type="text" size="small">Volver al listado</Button>
+              </Link>
+              <Title level={5} style={{ margin: 0 }}>Import {importId.slice(0, 8)}…</Title>
+              {detail?.status && (
+                <Badge status={detail.status === 'failed' ? 'error' : detail.status === 'completed' ? 'success' : 'processing'} text={detail.status} />
+              )}
+            </Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchDetail} size="small">Refrescar</Button>
+          </Space>
+        )}
         {detail?.status === 'failed' && (
           <Alert
             type="error"
@@ -271,11 +291,17 @@ export default function ImportDetailPage() {
             description={
               <Space direction="vertical">
                 <Text>Todas las menciones fueron procesadas.</Text>
-                <Link href={`/dashboard?sourceImportId=${importId}`}>
+                {/* En embed: navega el frame padre (no el iframe) para que el
+                   dashboard reemplace toda la pantalla y no se vea anidado. */}
+                <a
+                  href={`/dashboard?sourceImportId=${importId}`}
+                  target={isEmbedded ? '_top' : undefined}
+                  style={{ textDecoration: 'none' }}
+                >
                   <Button type="link" icon={<CheckCircleOutlined />} style={{ padding: 0 }}>
                     Ver las menciones importadas en el dashboard
                   </Button>
-                </Link>
+                </a>
               </Space>
             }
           />

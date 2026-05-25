@@ -2803,6 +2803,7 @@ function SettingsScreen() {
   const sections = [
     { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users' },
     { k: 'alertas', l: 'Preferencias de alertas', icon: 'Bell' },
+    { k: 'importar', l: 'Importar menciones', icon: 'Upload' },
   ];
 
   return (
@@ -2825,7 +2826,49 @@ function SettingsScreen() {
           );
         })}
       </div>
-      <div>{section === 'usuarios' ? <UsersAdmin /> : <AlertsPrefs />}</div>
+      <div>
+        {section === 'usuarios' && <UsersAdmin />}
+        {section === 'alertas' && <AlertsPrefs />}
+        {section === 'importar' && <ImportMentionsTab />}
+      </div>
+    </div>
+  );
+}
+
+// =============== IMPORTAR MENCIONES TAB (embed de /admin/mentions/import) ===============
+// Embebe la página Next.js de import (Excel + URL) vía iframe. Patrón heredado
+// de ReportsTab / CrisisAlertsTab: el shell del prototype provee header +
+// sidebar, el iframe sirve el form con todo su Antd encapsulado. Ver
+// AGENTS.md → "Frontend: dónde vive cada pantalla" para la regla canónica.
+function ImportMentionsTab() {
+  const iframeRef = useRef(null);
+  return (
+    <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">Importar menciones manualmente</div>
+          <div className="card-hd-sub">
+            Sube un Excel exportado de Brandwatch/BunkerDB o pega una URL de mención.
+            El sistema deduplica por URL canónica, completa campos faltantes en
+            menciones existentes y corre el ETL completo (NLP, topics, municipios).
+          </div>
+        </div>
+        <button className="chip" onClick={() => { if (iframeRef.current) iframeRef.current.src = iframeRef.current.src; }}>
+          Recargar
+        </button>
+      </div>
+      <iframe
+        ref={iframeRef}
+        src="/admin/mentions/import?embed=1"
+        title="Importar menciones"
+        style={{
+          width: '100%',
+          height: 1400,
+          border: 'none',
+          background: 'transparent',
+          display: 'block',
+        }}
+      />
     </div>
   );
 }

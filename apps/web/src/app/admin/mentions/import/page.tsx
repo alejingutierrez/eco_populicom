@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   App,
   Alert,
@@ -65,6 +65,15 @@ const STATUS_COLORS: Record<string, string> = {
 export default function ImportMentionsPage() {
   const { message } = App.useApp();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Modo embed: la página vive dentro de un iframe del shell del prototype
+  // (SettingsScreen → tab "Importar"). Oculta el header propio y deja que
+  // el shell padre maneje header/sidebar. Patrón heredado de
+  // /settings/reports — ver AGENTS.md → "Frontend: dónde vive cada pantalla".
+  const isEmbedded = searchParams?.get('embed') === '1';
+  // Sufijo para preservar ?embed=1 en navegaciones internas. Sin esto, los
+  // Link al detail del import romperían el iframe y abrirían la página suelta.
+  const embedSuffix = isEmbedded ? '?embed=1' : '';
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [agencySlug, setAgencySlug] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('America/Puerto_Rico');
@@ -140,7 +149,7 @@ export default function ImportMentionsPage() {
         const data = await res.json();
         message.success('Upload encolado — procesando preview…');
         onSuccess?.(data);
-        router.push(`/admin/mentions/import/${data.importId}`);
+        router.push(`/admin/mentions/import/${data.importId}${embedSuffix}`);
       } catch (err) {
         const e = err as Error;
         message.error(`Upload falló: ${e.message}`);
@@ -149,7 +158,7 @@ export default function ImportMentionsPage() {
         setFileSubmitting(false);
       }
     },
-  }), [agencySlug, timezone, message, router]);
+  }), [agencySlug, timezone, message, router, embedSuffix]);
 
   const handleUrlSubmit = async () => {
     if (!agencySlug) {
@@ -174,7 +183,7 @@ export default function ImportMentionsPage() {
       const data = await res.json();
       message.success('URL encolada — procesando preview…');
       setUrlValue('');
-      router.push(`/admin/mentions/import/${data.importId}`);
+      router.push(`/admin/mentions/import/${data.importId}${embedSuffix}`);
     } catch (err) {
       message.error(`Submit falló: ${(err as Error).message}`);
     } finally {
@@ -183,18 +192,20 @@ export default function ImportMentionsPage() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
-      <Header style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Space>
-          <Link href="/dashboard">
-            <Button icon={<ArrowLeftOutlined />} type="text">Volver al dashboard</Button>
-          </Link>
-          <Divider type="vertical" />
-          <Title level={4} style={{ margin: 0 }}>Importar menciones</Title>
-        </Space>
-      </Header>
+    <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: isEmbedded ? 'transparent' : '#fff' }}>
+      {!isEmbedded && (
+        <Header style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Space>
+            <Link href="/dashboard">
+              <Button icon={<ArrowLeftOutlined />} type="text">Volver al dashboard</Button>
+            </Link>
+            <Divider type="vertical" />
+            <Title level={4} style={{ margin: 0 }}>Importar menciones</Title>
+          </Space>
+        </Header>
+      )}
 
-      <Content style={{ padding: 24, maxWidth: 1100, width: '100%', margin: '0 auto' }}>
+      <Content style={{ padding: isEmbedded ? '8px 4px 4px 4px' : 24, maxWidth: isEmbedded ? '100%' : 1100, width: '100%', margin: '0 auto' }}>
         <Card style={{ marginBottom: 24 }}>
           <Form layout="vertical">
             <Space size="large" wrap>
@@ -353,7 +364,7 @@ export default function ImportMentionsPage() {
                   title: '',
                   width: 100,
                   render: (_: unknown, row: ImportRow) => (
-                    <Link href={`/admin/mentions/import/${row.id}`}>
+                    <Link href={`/admin/mentions/import/${row.id}${embedSuffix}`}>
                       <Button size="small">Ver</Button>
                     </Link>
                   ),
