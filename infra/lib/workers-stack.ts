@@ -19,6 +19,7 @@ export interface WorkersStackProps extends cdk.StackProps {
   lambdaSecurityGroup: ec2.ISecurityGroup;
   dbSecret: rds.DatabaseSecret;
   rawBucket: s3.IBucket;
+  exportsBucket: s3.IBucket;
   ingestionQueue: sqs.IQueue;
   alertsQueue: sqs.IQueue;
 }
@@ -33,6 +34,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly narrativeClusterFunction: NodejsFunction;
   public readonly narrativeEdgesFunction: NodejsFunction;
   public readonly narrativeDriftFunction: NodejsFunction;
+  public readonly importPreviewFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -140,10 +142,13 @@ export class WorkersStack extends cdk.Stack {
       bundling: bundlingOptions,
     });
 
-    // SQS trigger for processor (batch 10, maxConcurrency 10)
+    // SQS trigger for processor (batch 10, maxConcurrency 25)
+    // 25 (vs 10) acomoda imports manuales grandes: 500 filas × ~4s NLP ÷ 25 =
+    // ~80s ideal. Bedrock Opus TPM aguanta el bump y el circuit-breaker
+    // interno (primaryCooldownUntil) protege contra runaway.
     this.processorFunction.addEventSource(new SqsEventSource(props.ingestionQueue, {
       batchSize: 10,
-      maxConcurrency: 10,
+      maxConcurrency: 25,
     }));
 
     // Grant permissions for processor
@@ -506,5 +511,45 @@ export class WorkersStack extends cdk.Stack {
       description: 'Detecta drift de centroides y re-namea (semanal, lunes 8am UTC = 4am AST).',
     });
     narrativeDriftRule.addTarget(new targets.LambdaFunction(this.narrativeDriftFunction));
+
+    // ---- eco-import-preview Lambda ----
+    // Parsea uploads manuales (Excel) y URLs scrapeadas, detecta duplicados
+    // por url_canonical y deja preview_json en mention_imports. Invocado
+    // async desde el API route /api/admin/mentions/import/file (InvocationType=Event).
+    //
+    // Bundle incluye xlsx (SheetJS) para parsear .xlsx; el bundle externaliza
+    // los aws-sdk providos por Lambda runtime.
+    this.importPreviewFunction = new NodejsFunction(this, 'ImportPreviewFunction', {
+      functionName: 'eco-import-preview',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/import-preview/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      // 5 min: Excel de 500 filas + scraping web puede ser lento. El cap
+      // funcional de 500 filas en el lambda evita exceder esto.
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        IMPORTS_BUCKET: props.exportsBucket.bucketName,
+      },
+      logGroup: new logs.LogGroup(this, 'ImportPreviewLogGroup', {
+        logGroupName: '/aws/lambda/eco-import-preview',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    // Permisos
+    props.exportsBucket.grantRead(this.importPreviewFunction);
+    this.importPreviewFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+    // Egress HTTPS (scraping web + oEmbed): el lambda corre en subnets
+    // privadas con egress vía NAT — ya configurado por NetworkStack.
   }
 }

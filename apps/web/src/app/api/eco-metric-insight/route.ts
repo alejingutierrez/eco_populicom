@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, metricInsightsCache } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone } from '@eco/shared';
+import { rollingWindowYmdInTZ, ymdInTimeZone } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!days) {
       return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
     }
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = rollingWindowYmdInTZ(days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }

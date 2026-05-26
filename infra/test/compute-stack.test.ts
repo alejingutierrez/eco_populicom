@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import { Template } from 'aws-cdk-lib/assertions';
 import { ComputeStack } from '../lib/compute-stack';
@@ -18,6 +19,9 @@ test('ComputeStack creates ECS cluster, Fargate service, ALB, and ECR repo', () 
   const rawBucket = new s3.Bucket(storageStack, 'RawBucket');
   const exportsBucket = new s3.Bucket(storageStack, 'ExportsBucket');
 
+  const messagingStack = new cdk.Stack(app, 'MessagingStack', { env });
+  const ingestionQueue = new sqs.Queue(messagingStack, 'IngestionQueue');
+
   const dbStack = new cdk.Stack(app, 'DbStack', { env });
   const dbSecret = new rds.DatabaseSecret(dbStack, 'DbSecret', { username: 'eco_admin' });
 
@@ -31,6 +35,7 @@ test('ComputeStack creates ECS cluster, Fargate service, ALB, and ECR repo', () 
     userPoolClientId: 'testClientId',
     rawBucket,
     exportsBucket,
+    ingestionQueue,
   });
 
   const template = Template.fromStack(stack);

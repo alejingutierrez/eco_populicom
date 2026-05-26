@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, dailyMetricSnapshots } from '@eco/database';
 import { sql, and, eq, gte, lte, desc } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ,
+  rollingWindowYmdInTZ,
   loadMetricsForWindow,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const { startYmd, endYmd, prevStartYmd, prevEndYmd } = closedWindowYmdInTZ(days, new Date(), TZ);
+    const { startYmd, endYmd, prevStartYmd, prevEndYmd } = rollingWindowYmdInTZ(days, new Date(), TZ);
     const pool = getPool() as unknown as PgClientLike;
 
     // Métricas actuales y previas en la misma ventana — para deltaVsPrev.
@@ -246,6 +246,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
          JOIN mention_topics mt ON mt.mention_id = m.id
          JOIN topics t ON t.id = mt.topic_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY t.name

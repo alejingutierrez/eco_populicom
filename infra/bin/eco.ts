@@ -25,6 +25,7 @@ const workers = new WorkersStack(app, 'EcoWorkers', {
   lambdaSecurityGroup: network.lambdaSecurityGroup,
   dbSecret: database.dbSecret,
   rawBucket: storage.rawBucket,
+  exportsBucket: storage.exportsBucket,
   ingestionQueue: messaging.ingestionQueue,
   alertsQueue: messaging.alertsQueue,
 });
@@ -39,6 +40,7 @@ const compute = new ComputeStack(app, 'EcoCompute', {
   userPoolClientId: auth.userPoolClientId,
   rawBucket: storage.rawBucket,
   exportsBucket: storage.exportsBucket,
+  ingestionQueue: messaging.ingestionQueue,
 });
 
 new MonitoringStack(app, 'EcoMonitoring', {

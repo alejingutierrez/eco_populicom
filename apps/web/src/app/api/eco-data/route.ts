@@ -13,7 +13,7 @@ import {
   agencyBriefings,
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
-import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
+import { rollingWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -74,6 +74,15 @@ type TimelineRow = {
   neutral: number;
   negativo: number;
 };
+
+/**
+ * Granularidad del TIMELINE. 'day' = un punto por día (default histórico).
+ * 'hour' = un punto por hora AST — se usa para 1D ("Hoy") porque mostrar un
+ * solo punto en una gráfica no aporta señal cuando el usuario está mirando el
+ * día en curso. Los buckets horarios se agregan directo desde `mentions` (no
+ * desde `daily_metric_snapshots`, que solo tiene resolución diaria).
+ */
+type TimelineGranularity = 'day' | 'hour';
 
 const TZ = 'America/Puerto_Rico';
 
@@ -190,11 +199,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
   }
 
-  // Ventana cerrada en TZ Puerto Rico — termina ayer (no incluye hoy parcial),
-  // mismo patrón que /api/overview y el correo eco-weekly-report. Esto hace
-  // que NSS/BHI/Crisis/Polarization para el "scorecard" coincidan con los del
-  // espejo del correo, y que el filtro de fecha del usuario cambie todas las
-  // métricas (no solo el volumen).
+  // Ventana ROLANTE en TZ Puerto Rico — termina HOY (día calendario en curso,
+  // inclusivo). Antes usábamos `closedWindowYmdInTZ` que cerraba en ayer para
+  // matchear el correo semanal; pero eso hacía que "1D" (chip "Hoy") devolviera
+  // ayer y el usuario no pudiera ver una crisis en curso. El correo conserva
+  // su semántica cerrada en `infra/lambda/weekly-report` — el dashboard ahora
+  // es en vivo.
   //
   // Para rangos custom (from/to), respetamos los YMD del usuario y derivamos
   // la ventana previa de igual duración hacia atrás — eso permite calcular
@@ -207,8 +217,13 @@ export async function GET(request: NextRequest) {
         const prevStartYmd = addDaysYmd(prevEndYmd, -(customRange.days - 1));
         return { startYmd, endYmd, prevStartYmd, prevEndYmd };
       })()
-    : closedWindowYmdInTZ(days, new Date(), TZ);
+    : rollingWindowYmdInTZ(days, new Date(), TZ);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
+
+  // Granularidad del TIMELINE: horaria cuando la ventana es de un solo día
+  // (incluyendo rangos custom de un día). Para todo lo demás, diaria.
+  const timelineGranularity: TimelineGranularity =
+    (customRange ? customRange.days : days) === 1 ? 'hour' : 'day';
 
   // Para el filtro de mentions usamos los bordes de la ventana traducidos a
   // UTC con offset -04:00 (AST sin DST).
@@ -217,6 +232,13 @@ export async function GET(request: NextRequest) {
 
   const baseWhere = and(
     eq(mentions.agencyId, agencyId),
+    // Excluye duplicados detectados por text_hash en el processor. Si no
+    // filtramos, las cifras del Scorecard quedan ~10x infladas en crisis donde
+    // un mismo artículo se cita en N sitios — caso real DDECPR 2026-05-26:
+    // 244 menciones brutas → 31 únicas (213 dups). El snapshot diario y el
+    // lambda de alertas ya filtran is_duplicate=false, este filtro alinea
+    // todas las queries del dashboard con esa convención.
+    eq(mentions.isDuplicate, false),
     gte(mentions.publishedAt, since),
     lte(mentions.publishedAt, until),
   );
@@ -234,33 +256,90 @@ export async function GET(request: NextRequest) {
       long: a.name,
     }));
 
-    // ---- TIMELINE from snapshots (un punto por día dentro de la ventana) ----
-    const snapshots = await db
-      .select()
-      .from(dailyMetricSnapshots)
-      .where(and(
-        eq(dailyMetricSnapshots.agencyId, agencyId),
-        gte(dailyMetricSnapshots.date, startYmd),
-        lte(dailyMetricSnapshots.date, endYmd),
-      ))
-      .orderBy(dailyMetricSnapshots.date);
+    // ---- TIMELINE ----
+    // Granularidad diaria (default): un punto por día desde
+    // `daily_metric_snapshots`. Granularidad horaria (1D): agregamos directo
+    // desde `mentions` en buckets de hora AST, porque el snapshot solo tiene
+    // resolución diaria y una gráfica de un único punto no aporta señal.
+    let TIMELINE: TimelineRow[];
+    if (timelineGranularity === 'hour') {
+      // Buckets horarios solo para HOY (startYmd == endYmd). Devuelve hasta
+      // 24 puntos (uno por hora 0..23 AST); las horas sin actividad no se
+      // incluyen para que la curva refleje cuándo arranca el día. NSS/BHI/
+      // Crisis los dejamos en 0 a nivel hora — no tienen una definición
+      // diaria que se evalúe bien con tan pocas menciones; el scorecard
+      // (CURRENT_METRICS) ya muestra la métrica de la ventana entera.
+      const pool = getPool() as unknown as PgClientLike;
+      const hourRows = await (pool as ReturnType<typeof getPool>).query<{
+        hour: number | string;
+        total: number | string;
+        positive: number | string;
+        neutral: number | string;
+        negative: number | string;
+      }>(
+        `SELECT EXTRACT(HOUR FROM (published_at AT TIME ZONE 'America/Puerto_Rico'))::int AS hour,
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive,
+                COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) = 'neutral')::int AS neutral,
+                COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative
+           FROM mentions
+          WHERE agency_id = $1
+            AND is_duplicate = false
+            AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+          GROUP BY hour
+          ORDER BY hour ASC`,
+        [agencyId, startYmd],
+      );
+      TIMELINE = hourRows.rows.map((r) => {
+        const hour = Number(r.hour);
+        const label = `${String(hour).padStart(2, '0')}:00`;
+        const total = Number(r.total);
+        const pos = Number(r.positive);
+        const neg = Number(r.negative);
+        const neu = Number(r.neutral);
+        const nss = total > 0 ? Number((((pos - neg) / total) * 100).toFixed(1)) : 0;
+        return {
+          date: label,
+          fullDate: `${startYmd}T${String(hour).padStart(2, '0')}:00:00-04:00`,
+          nss,
+          brandHealthIndex: 0,
+          totalMentions: total,
+          crisisRiskScore: 0,
+          engagementRate: 0,
+          polarizationIndex: total > 0 ? Number(((neg / total) * 100).toFixed(1)) : null,
+          positivo: pos,
+          neutral: neu,
+          negativo: neg,
+        };
+      });
+    } else {
+      const snapshots = await db
+        .select()
+        .from(dailyMetricSnapshots)
+        .where(and(
+          eq(dailyMetricSnapshots.agencyId, agencyId),
+          gte(dailyMetricSnapshots.date, startYmd),
+          lte(dailyMetricSnapshots.date, endYmd),
+        ))
+        .orderBy(dailyMetricSnapshots.date);
 
-    const TIMELINE: TimelineRow[] = snapshots.map((s) => {
-      const iso = new Date(s.date).toISOString();
-      return {
-        date: esShortDate(iso),
-        fullDate: iso,
-        nss: Number(s.nss ?? 0),
-        brandHealthIndex: Number(s.brandHealthIndex ?? 0),
-        totalMentions: Number(s.totalMentions ?? 0),
-        crisisRiskScore: Number(s.crisisRiskScore ?? 0),
-        engagementRate: Number(s.engagementRate ?? 0),
-        polarizationIndex: s.polarizationIndex != null ? Number(s.polarizationIndex) : null,
-        positivo: Number(s.positiveCount ?? 0),
-        neutral: Number(s.neutralCount ?? 0),
-        negativo: Number(s.negativeCount ?? 0),
-      };
-    });
+      TIMELINE = snapshots.map((s) => {
+        const iso = new Date(s.date).toISOString();
+        return {
+          date: esShortDate(iso),
+          fullDate: iso,
+          nss: Number(s.nss ?? 0),
+          brandHealthIndex: Number(s.brandHealthIndex ?? 0),
+          totalMentions: Number(s.totalMentions ?? 0),
+          crisisRiskScore: Number(s.crisisRiskScore ?? 0),
+          engagementRate: Number(s.engagementRate ?? 0),
+          polarizationIndex: s.polarizationIndex != null ? Number(s.polarizationIndex) : null,
+          positivo: Number(s.positiveCount ?? 0),
+          neutral: Number(s.neutralCount ?? 0),
+          negativo: Number(s.negativeCount ?? 0),
+        };
+      });
+    }
 
     // ---- CURRENT_METRICS — recalculadas sobre la ventana del period ----
     // Antes leíamos solo el snapshot del último día. Ahora computamos
@@ -396,6 +475,7 @@ export async function GET(request: NextRequest) {
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -425,6 +505,7 @@ export async function GET(request: NextRequest) {
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -473,6 +554,7 @@ export async function GET(request: NextRequest) {
                        ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
                FROM mentions m
               WHERE m.agency_id = $1
+                AND m.is_duplicate = false
                 AND m.published_at >= $2
                 AND m.published_at <= $3
            ) pt
@@ -485,6 +567,7 @@ export async function GET(request: NextRequest) {
            FROM mention_topics mt
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
+            AND m.is_duplicate = false
             AND m.published_at >= $2
             AND m.published_at <= $3
           GROUP BY mt.topic_id
@@ -564,6 +647,7 @@ export async function GET(request: NextRequest) {
          JOIN topics t ON t.id = mt.topic_id
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND m.published_at >= $2
           AND m.published_at <= $3
         GROUP BY t.slug, s.slug, s.name, s.description`,
@@ -629,6 +713,7 @@ export async function GET(request: NextRequest) {
         JOIN mention_topics mt ON mt.mention_id = m.id
         JOIN topics t ON t.id = mt.topic_id
        WHERE m.agency_id = ${agencyId}
+         AND m.is_duplicate = false
          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
        GROUP BY t.slug, day
@@ -670,63 +755,122 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ---- TOPIC CALENDAR (per-day dominant topic, ventana AST cerrada) ----
-    // El "Calendario de tópico principal por día" antes usaba una rotación
-    // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
-    // tópico por día con su sentimiento dominante en datos reales. La
-    // ventana se ajusta al periodo seleccionado del usuario: mínimo 35 días
-    // (para que el calendario nunca quede chiquito) y máximo 365 (1 año)
-    // — periodos largos como "1A" o "Max" muestran 365 días con marcadores
-    // de cambio de mes en el frontend.
-    const calendarDays = Math.max(35, Math.min(days, 365));
-    const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
-    const calendarRows = await db.execute<{
-      day: string; slug: string; name: string;
-      volume: number | string; pos: number | string; neg: number | string;
-    }>(sql`
-      WITH per_day AS (
-        SELECT
-          (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day,
-          t.slug, t.name,
-          COUNT(*) AS volume,
-          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
-          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
-          FROM mentions m
-          JOIN mention_topics mt ON mt.mention_id = m.id
-          JOIN topics t ON t.id = mt.topic_id
-         WHERE m.agency_id = ${agencyId}
-           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
-           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
-         GROUP BY day, t.slug, t.name
-      ),
-      ranked AS (
-        SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk
-          FROM per_day
-      )
-      SELECT day::text AS day, slug, name, volume, pos, neg
-        FROM ranked
-       WHERE rk = 1
-       ORDER BY day
-    `);
+    // ---- TOPIC CALENDAR ----
+    // Antes:
+    //   - Forzaba mínimo 35 días aunque el filtro fuera 1D/5D/7D → el grid
+    //     mostraba el último mes y confundía: "filtré 1D pero veo 35 días".
+    //   - Hardcoded a granularidad diaria → 1D mostraba 1 sola celda.
+    // Ahora:
+    //   - Para 1D: 24 buckets HORARIOS (tópico dominante por hora AST hoy).
+    //   - Para N>1: ventana exacta del filtro (no más min 35).
+    //   - Máximo 365 días en periodos largos (1A/Max) por límite visual.
+    const calendarGranularity: 'day' | 'hour' =
+      (customRange ? customRange.days : days) === 1 ? 'hour' : 'day';
+    let TOPIC_CALENDAR: Array<{
+      date: string; fullDate: string; volume: number;
+      topicSlug: string; topicName: string; sentiment: 'positivo' | 'negativo' | 'neutral';
+    }>;
+    if (calendarGranularity === 'hour') {
+      // Tópico dominante por hora AST hoy.
+      const hourCalRows = await (pool as ReturnType<typeof getPool>).query<{
+        hr: number | string; slug: string; name: string;
+        volume: number | string; pos: number | string; neg: number | string;
+      }>(
+        `WITH per_hr AS (
+           SELECT EXTRACT(HOUR FROM (m.published_at AT TIME ZONE 'America/Puerto_Rico'))::int AS hr,
+                  t.slug, t.name,
+                  COUNT(*) AS volume,
+                  COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
+                  COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
+             FROM mentions m
+             JOIN mention_topics mt ON mt.mention_id = m.id
+             JOIN topics t ON t.id = mt.topic_id
+            WHERE m.agency_id = $1
+              AND m.is_duplicate = false
+              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+            GROUP BY hr, t.slug, t.name
+         ),
+         ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY hr ORDER BY volume DESC, slug ASC) AS rk
+             FROM per_hr
+         )
+         SELECT hr, slug, name, volume, pos, neg
+           FROM ranked
+          WHERE rk = 1
+          ORDER BY hr`,
+        [agencyId, startYmd],
+      );
+      TOPIC_CALENDAR = hourCalRows.rows.map((r) => {
+        const hr = Number(r.hr);
+        const volume = Number(r.volume);
+        const pos = Number(r.pos);
+        const neg = Number(r.neg);
+        const neu = Math.max(0, volume - pos - neg);
+        const sentiment: 'positivo' | 'negativo' | 'neutral' =
+          neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
+        const fullDate = `${startYmd}T${String(hr).padStart(2, '0')}:00:00-04:00`;
+        return {
+          date: `${String(hr).padStart(2, '0')}:00`,
+          fullDate,
+          volume,
+          topicSlug: r.slug,
+          topicName: r.name,
+          sentiment,
+        };
+      });
+    } else {
+      const calendarDays = Math.min(days, 365);
+      const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
+      const calendarRows = await db.execute<{
+        day: string; slug: string; name: string;
+        volume: number | string; pos: number | string; neg: number | string;
+      }>(sql`
+        WITH per_day AS (
+          SELECT
+            (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day,
+            t.slug, t.name,
+            COUNT(*) AS volume,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
+            FROM mentions m
+            JOIN mention_topics mt ON mt.mention_id = m.id
+            JOIN topics t ON t.id = mt.topic_id
+           WHERE m.agency_id = ${agencyId}
+             AND m.is_duplicate = false
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
+           GROUP BY day, t.slug, t.name
+        ),
+        ranked AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk
+            FROM per_day
+        )
+        SELECT day::text AS day, slug, name, volume, pos, neg
+          FROM ranked
+         WHERE rk = 1
+         ORDER BY day
+      `);
     const calList: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> = Array.isArray(calendarRows)
       ? (calendarRows as unknown as Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }>)
       : (((calendarRows as unknown as { rows?: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> }).rows) ?? []);
-    const TOPIC_CALENDAR = calList.map((r) => {
-      const volume = Number(r.volume);
-      const pos = Number(r.pos);
-      const neg = Number(r.neg);
-      const neu = Math.max(0, volume - pos - neg);
-      const sentiment = neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
-      const fullDate = `${r.day}T12:00:00Z`;
-      return {
-        date: esShortDate(fullDate),
-        fullDate,
-        volume,
-        topicSlug: r.slug,
-        topicName: r.name,
-        sentiment,
-      };
-    });
+      TOPIC_CALENDAR = calList.map((r) => {
+        const volume = Number(r.volume);
+        const pos = Number(r.pos);
+        const neg = Number(r.neg);
+        const neu = Math.max(0, volume - pos - neg);
+        const sentiment: 'positivo' | 'negativo' | 'neutral' =
+          neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
+        const fullDate = `${r.day}T12:00:00Z`;
+        return {
+          date: esShortDate(fullDate),
+          fullDate,
+          volume,
+          topicSlug: r.slug,
+          topicName: r.name,
+          sentiment,
+        };
+      });
+    }
 
     // ---- MUNICIPALITIES ----
     const muniRows = await db
@@ -803,6 +947,7 @@ export async function GET(request: NextRequest) {
       SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
+        AND m.is_duplicate = false
         AND m.published_at >= ${since.toISOString()}
         AND m.published_at <= ${until.toISOString()}
       GROUP BY emotion
@@ -1208,6 +1353,8 @@ export async function GET(request: NextRequest) {
       AGENCIES_FULL,
       USER_AGENCY_SLUG,
       TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
+      TIMELINE_GRANULARITY: timelineGranularity,
+      WINDOW: { startYmd, endYmd, prevStartYmd, prevEndYmd, days },
       CURRENT_METRICS,
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
       TOP_SOURCES: TOP_SOURCES.length > 0 ? TOP_SOURCES : null,
@@ -1226,6 +1373,7 @@ export async function GET(request: NextRequest) {
       BRIEFING,
       INGESTION_STATUS,
       TOPIC_CALENDAR: TOPIC_CALENDAR.length > 0 ? TOPIC_CALENDAR : null,
+      TOPIC_CALENDAR_GRANULARITY: calendarGranularity,
     });
     res.headers.set('Cache-Control', 'no-store');
     return res;

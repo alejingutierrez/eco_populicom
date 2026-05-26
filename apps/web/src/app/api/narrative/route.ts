@@ -132,6 +132,7 @@ export async function GET(request: NextRequest) {
            CROSS JOIN days d
            LEFT JOIN narrative_mentions nm ON nm.narrative_id = n.id AND nm.is_primary = true
            LEFT JOIN mentions m ON m.id = nm.mention_id
+             AND m.is_duplicate = false
              AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = d.day
            WHERE n.id = ANY($1::uuid[])
            GROUP BY n.id, d.day

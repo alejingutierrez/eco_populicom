@@ -7,6 +7,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
@@ -20,6 +21,7 @@ export interface ComputeStackProps extends cdk.StackProps {
   userPoolClientId: string;
   rawBucket: s3.IBucket;
   exportsBucket: s3.IBucket;
+  ingestionQueue: sqs.IQueue;
 }
 
 export class ComputeStack extends cdk.Stack {
@@ -90,7 +92,12 @@ export class ComputeStack extends cdk.Stack {
         NEXT_PUBLIC_COGNITO_CLIENT_ID: props.userPoolClientId,
         RAW_BUCKET: props.rawBucket.bucketName,
         EXPORTS_BUCKET: props.exportsBucket.bucketName,
+        // imports/* prefix vive en el mismo bucket de exports (90d expiration
+        // es suficiente para que el lambda de preview lea el archivo).
+        IMPORTS_BUCKET: props.exportsBucket.bucketName,
         AI_TASKS_FUNCTION_NAME: 'eco-ai-tasks',
+        IMPORT_PREVIEW_FUNCTION: 'eco-import-preview',
+        INGESTION_QUEUE_URL: props.ingestionQueue.queueUrl,
       },
       secrets: {
         DB_SECRET: ecs.Secret.fromSecretsManager(props.dbSecret),
@@ -127,13 +134,20 @@ export class ComputeStack extends cdk.Stack {
 
     // Permite a la API /api/reports/send-test invocar la Lambda eco-weekly-report
     // y a /api/eco-insights / /api/eco-metric-insight invocar eco-ai-tasks async.
+    // /api/admin/mentions/import/* invoca eco-import-preview async.
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['lambda:InvokeFunction'],
       resources: [
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-weekly-report`,
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-ai-tasks`,
+        `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-import-preview`,
       ],
     }));
+
+    // /api/admin/mentions/import/[id]/commit despacha mensajes al ingestion
+    // queue para que eco-processor los consuma (mismo flujo que Brandwatch
+    // pero con __source='manual_*').
+    props.ingestionQueue.grantSendMessages(taskDef.taskRole);
 
     // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus +
     // Sonnet inference profiles). Sin estos permisos, el endpoint cae al

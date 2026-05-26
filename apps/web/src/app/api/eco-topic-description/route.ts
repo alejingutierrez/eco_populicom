@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ,
+  rollingWindowYmdInTZ,
   ymdInTimeZone,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   buildTopicDescriptionPrompt,
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!days) {
       return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
     }
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = rollingWindowYmdInTZ(days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }
@@ -271,6 +271,7 @@ async function loadTopicAggregate(
        FROM mention_topics mt
        JOIN mentions m ON m.id = mt.mention_id
       WHERE m.agency_id = $1 AND mt.topic_id = $2
+        AND m.is_duplicate = false
         AND m.published_at >= $3 AND m.published_at <= $4`,
     [agencyId, topicId, sinceIso, untilIso],
   );
@@ -284,6 +285,7 @@ async function loadTopicAggregate(
        JOIN mentions m ON m.id = mt.mention_id
        JOIN subtopics s ON s.id = mt.subtopic_id
       WHERE m.agency_id = $1 AND mt.topic_id = $2
+        AND m.is_duplicate = false
         AND m.published_at >= $3 AND m.published_at <= $4
       GROUP BY s.name
       ORDER BY count DESC
@@ -298,6 +300,7 @@ async function loadTopicAggregate(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1 AND mt.topic_id = $2
+        AND m.is_duplicate = false
         AND m.published_at >= $3 AND m.published_at <= $4
       GROUP BY mu.name
       ORDER BY count DESC
@@ -338,6 +341,7 @@ async function loadTopicSamples(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1 AND mt.topic_id = $2
+          AND m.is_duplicate = false
           AND m.published_at >= $3 AND m.published_at <= $4
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($5, $6)
         ORDER BY COALESCE(m.engagement_score, 0) DESC

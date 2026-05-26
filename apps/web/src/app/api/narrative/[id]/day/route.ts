@@ -61,6 +61,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1
          AND nm.is_primary = true
+         AND m.is_duplicate = false
          AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
        ORDER BY engagement DESC NULLS LAST, m.published_at DESC
        LIMIT 200`,

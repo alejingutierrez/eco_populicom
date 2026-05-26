@@ -75,3 +75,30 @@ export function closedWindowYmdInTZ(
   const prevStartYmd = addDaysYmd(prevEndYmd, -(daysBack - 1));
   return { startYmd, endYmd, prevStartYmd, prevEndYmd };
 }
+
+/**
+ * Ventana rolante de `daysBack` días terminando HOY (día calendario en curso
+ * en la TZ dada). Para `daysBack=1`, devuelve start=end=hoy (un único día,
+ * el día en progreso).
+ *
+ * Diferencia con `closedWindowYmdInTZ`: aquella termina ayer (excluye el día
+ * en progreso), pensada para el correo semanal que se envía 6 AM con datos
+ * cerrados. Esta incluye hoy y es la que debe usar el dashboard en vivo —
+ * cuando el usuario pone "1D" (chip rotulado "Hoy") espera ver datos del día
+ * en curso, no de ayer.
+ *
+ * La ventana previa tiene la misma duración y termina el día antes de
+ * `startYmd`.
+ */
+export function rollingWindowYmdInTZ(
+  daysBack: number,
+  now: Date = new Date(),
+  timeZone: string = 'America/Puerto_Rico',
+): ClosedWindow {
+  const today = ymdInTimeZone(now, timeZone);
+  const endYmd = today;
+  const startYmd = addDaysYmd(endYmd, -(daysBack - 1));
+  const prevEndYmd = addDaysYmd(startYmd, -1);
+  const prevStartYmd = addDaysYmd(prevEndYmd, -(daysBack - 1));
+  return { startYmd, endYmd, prevStartYmd, prevEndYmd };
+}
