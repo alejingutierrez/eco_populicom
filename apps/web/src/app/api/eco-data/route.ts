@@ -528,31 +528,85 @@ export async function GET(request: NextRequest) {
         secondaryCount: secondary,
         positivePct, negativePct, neutralPct,
         dominantSentiment: dominant,
-        // `delta` se computa más abajo cuando ya cargamos la evolution.
-        delta: 0,
+        // `delta` se computa más abajo cuando ya cargamos la evolution; puede
+        // ser `null` cuando no hay base de comparación (la UI lo renderiza "—").
+        delta: null as number | null,
         description: descBySlug.get(r.slug) ?? null,
         evolution: [] as Array<{ date: string; fullDate: string; count: number }>,
       };
     });
 
     // ---- SUBTOPICS ----
-    const subtopicRows = await db
-      .select({
-        topicSlug: topics.slug,
-        subName: subtopics.name,
-        c: count(),
-      })
-      .from(mentionTopics)
-      .innerJoin(subtopics, eq(subtopics.id, mentionTopics.subtopicId))
-      .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
-      .innerJoin(mentions, eq(mentions.id, mentionTopics.mentionId))
-      .where(baseWhere)
-      .groupBy(topics.slug, subtopics.name);
+    // Para cada subtopic con menciones en el período, traemos slug,
+    // descripción y desglose de sentimiento. La descripción del subtopic
+    // (poblada por el script de seed/migración) describe el cluster real
+    // de menciones — la UI la muestra como subtítulo en TopicDetail.
+    const subtopicRowsRaw = await (pool as ReturnType<typeof getPool>).query<{
+      topic_slug: string;
+      sub_slug: string;
+      sub_name: string;
+      sub_description: string | null;
+      c: number | string;
+      pos: number | string;
+      neg: number | string;
+      neu: number | string;
+    }>(
+      `SELECT t.slug AS topic_slug,
+              s.slug AS sub_slug,
+              s.name AS sub_name,
+              s.description AS sub_description,
+              COUNT(*)::int AS c,
+              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
+              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg,
+              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) NOT IN ('positivo','positive','negativo','negative') OR COALESCE(m.nlp_sentiment, m.bw_sentiment) IS NULL)::int AS neu
+         FROM mention_topics mt
+         JOIN subtopics s ON s.id = mt.subtopic_id
+         JOIN topics t ON t.id = mt.topic_id
+         JOIN mentions m ON m.id = mt.mention_id
+        WHERE m.agency_id = $1
+          AND m.published_at >= $2
+          AND m.published_at <= $3
+        GROUP BY t.slug, s.slug, s.name, s.description`,
+      [agencyId, since.toISOString(), until.toISOString()],
+    );
 
-    const SUBTOPICS: Record<string, Array<{ name: string; count: number }>> = {};
-    for (const r of subtopicRows) {
-      if (!SUBTOPICS[r.topicSlug]) SUBTOPICS[r.topicSlug] = [];
-      SUBTOPICS[r.topicSlug].push({ name: r.subName, count: Number(r.c) });
+    const SUBTOPICS: Record<string, Array<{
+      slug: string;
+      name: string;
+      description: string | null;
+      count: number;
+      positive: number;
+      neutral: number;
+      negative: number;
+      positivePct: number;
+      negativePct: number;
+      neutralPct: number;
+      dominantSentiment: 'positivo' | 'negativo' | 'mixed';
+    }>> = {};
+    for (const r of subtopicRowsRaw.rows) {
+      const c = Number(r.c);
+      const pos = Number(r.pos);
+      const neg = Number(r.neg);
+      const neu = Number(r.neu);
+      const total = c || 1;
+      const positivePct = Math.round((pos / total) * 100);
+      const negativePct = Math.round((neg / total) * 100);
+      const neutralPct = Math.max(0, 100 - positivePct - negativePct);
+      let dominant: 'positivo' | 'negativo' | 'mixed' = 'mixed';
+      if (positivePct > negativePct + 8) dominant = 'positivo';
+      else if (negativePct > positivePct + 8) dominant = 'negativo';
+      if (!SUBTOPICS[r.topic_slug]) SUBTOPICS[r.topic_slug] = [];
+      SUBTOPICS[r.topic_slug].push({
+        slug: r.sub_slug,
+        name: r.sub_name,
+        description: r.sub_description ?? null,
+        count: c,
+        positive: pos,
+        neutral: neu,
+        negative: neg,
+        positivePct, negativePct, neutralPct,
+        dominantSentiment: dominant,
+      });
     }
     for (const k of Object.keys(SUBTOPICS)) {
       SUBTOPICS[k].sort((a, b) => b.count - a.count);
@@ -595,28 +649,37 @@ export async function GET(request: NextRequest) {
       evolutionByTopic.set(r.slug, arr);
     }
 
-    // Cálculo de `delta` (issue #7): comparamos los últimos `halfWindow` días
-    // contra los `halfWindow` anteriores DENTRO de la evolución del tópico.
-    // Esto evita el "delta=0" hardcoded anterior y reacciona al filtro de
-    // fecha del usuario (halfWindow = max(3, days/2)).
+    // Cálculo de `delta`: comparamos los últimos `halfWindow` días contra los
+    // `halfWindow` anteriores DENTRO de la evolución del tópico. Devolvemos
+    // `null` cuando no hay base de comparación (period anterior vacío) o
+    // cuando el tópico no tuvo actividad en ninguna mitad — eso evita el
+    // mensaje confuso "↓ 0%" cuando lo correcto es "sin dato comparable".
     const halfWindow = Math.max(3, Math.floor(days / 2));
     for (const t of TOPICS) {
       const evo = evolutionByTopic.get(t.slug) ?? [];
       t.evolution = evo;
       const recent = evo.slice(-halfWindow).reduce((s, e) => s + e.count, 0);
       const previous = evo.slice(-2 * halfWindow, -halfWindow).reduce((s, e) => s + e.count, 0);
-      t.delta = previous > 0
-        ? Math.round(((recent - previous) / previous) * 100)
-        : (recent > 0 ? 100 : 0);
+      if (previous === 0) {
+        // Sin base de comparación: distinguimos "tópico no existía" (recent=0) de
+        // "tópico apareció en este periodo" (recent>0). En ambos casos el delta
+        // porcentual no es informativo — devolvemos null y la UI renderiza "—".
+        t.delta = null;
+      } else {
+        t.delta = Math.round(((recent - previous) / previous) * 100);
+      }
     }
 
-    // ---- TOPIC CALENDAR (per-day dominant topic, 35d AST cerrados) ----
+    // ---- TOPIC CALENDAR (per-day dominant topic, ventana AST cerrada) ----
     // El "Calendario de tópico principal por día" antes usaba una rotación
     // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
     // tópico por día con su sentimiento dominante en datos reales. La
-    // ventana es 35 días AST cerrados terminando ayer (mismo borde que el
-    // resto del scorecard — no incluye hoy parcial).
-    const calendarStartYmd = addDaysYmd(endYmd, -34);
+    // ventana se ajusta al periodo seleccionado del usuario: mínimo 35 días
+    // (para que el calendario nunca quede chiquito) y máximo 365 (1 año)
+    // — periodos largos como "1A" o "Max" muestran 365 días con marcadores
+    // de cambio de mes en el frontend.
+    const calendarDays = Math.max(35, Math.min(days, 365));
+    const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
     const calendarRows = await db.execute<{
       day: string; slug: string; name: string;
       volume: number | string; pos: number | string; neg: number | string;
@@ -1045,8 +1108,12 @@ export async function GET(request: NextRequest) {
       let actionTone: 'pos' | 'neg' | 'warn' | 'neu' = tone;
 
       if (mode === 'emerging') {
-        const emerging = [...TOPICS].sort((a, b) => b.delta - a.delta)[0];
-        if (emerging && emerging.delta > 15) {
+        // El delta de un tópico puede ser null (sin base de comparación). Esos
+        // los tratamos como -Infinity para que nunca ganen el sort de mayor a
+        // menor crecimiento — solo nos interesa el tópico con mayor delta real.
+        const deltaOrSentinel = (t: { delta: number | null }) => t.delta ?? -Infinity;
+        const emerging = [...TOPICS].sort((a, b) => deltaOrSentinel(b) - deltaOrSentinel(a))[0];
+        if (emerging && emerging.delta != null && emerging.delta > 15) {
           narrativeHtml = `<strong>${emerging.name}</strong> crece <strong>+${emerging.delta}%</strong> en la segunda mitad del periodo (${emerging.count.toLocaleString('es-PR')} menciones, ${emerging.negativePct}% negativo).`;
           dominantSignal = `${emerging.name} · +${emerging.delta}%`;
           action = `Seguir ${emerging.name} →`;
