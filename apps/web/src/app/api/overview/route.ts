@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
 import {
   buildSentimentReport,
-  closedWindowYmdInTZ,
+  rollingWindowYmdInTZ,
   formatPeriodLabel,
   loadMetricsForWindow,
 } from '@eco/shared';
@@ -17,9 +17,10 @@ const TZ = 'America/Puerto_Rico';
 
 /**
  * Periodos soportados por /api/overview. Cada uno se traduce a una ventana
- * cerrada en TZ Puerto Rico terminando AYER (no incluye hoy parcial) — la
- * misma semántica que el correo eco-weekly-report. El default es 7D
- * (replica exactamente el correo).
+ * ROLANTE en TZ Puerto Rico terminando HOY (día calendario en curso). 1D =
+ * solo hoy. Antes la ventana era "cerrada terminando ayer" para matchear el
+ * correo semanal, pero el dashboard quedaba un día atrasado y no reflejaba
+ * crisis del día en curso. El correo conserva su semántica cerrada.
  *
  * Para rangos personalizados, el frontend envía `period=custom&from=YYYY-MM-DD
  * &to=YYYY-MM-DD` y el handler salta el PERIOD_DAYS lookup.
@@ -133,7 +134,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const window = customRange
       ? customRange
-      : closedWindowYmdInTZ(daysBack as number, new Date(), TZ);
+      : rollingWindowYmdInTZ(daysBack as number, new Date(), TZ);
     const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
     // pg.Pool implementa PgClientLike (mismo shape que pg.Client del lambda).

@@ -10,6 +10,7 @@ import {
   mentionMunicipalities,
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, inArray } from 'drizzle-orm';
+import { rollingWindowYmdInTZ } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
@@ -118,11 +119,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ mentions: [], total: 0 });
   }
 
-  const since = customRange ? customRange.sinceUtc : (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - days);
-    return d;
-  })();
+  // Anclar el inicio de la ventana al día calendario en AST (no a NOW() UTC
+  // rolante). Si el usuario pide 1D, queremos menciones publicadas HOY en AST
+  // — la misma definición que usa eco-data y overview, para que el conteo del
+  // Scorecard cuadre con el de la lista de menciones. Para 5D, 7D, etc., son
+  // los últimos N días calendario incluyendo hoy.
+  const since = customRange
+    ? customRange.sinceUtc
+    : new Date(
+        `${rollingWindowYmdInTZ(days, new Date(), 'America/Puerto_Rico').startYmd}T00:00:00-04:00`,
+      );
 
   // similar_to: rama dedicada — devuelve coseno-vecinos de la mención fuente
   // dentro de la misma agencia, ignorando filtros de contenido. Si la mención
@@ -135,6 +141,11 @@ export async function GET(request: NextRequest) {
 
   const conditions: ReturnType<typeof eq>[] = [
     eq(mentions.agencyId, agencyId),
+    // Excluye duplicados detectados por text_hash. Sin este filtro, en crisis
+    // donde el mismo artículo se cita en N sitios, la lista muestra N copias
+    // y el conteo no coincide con el Scorecard (que sí filtra). El processor
+    // marca m.is_duplicate=true a las copias y conserva la primera.
+    eq(mentions.isDuplicate, false),
     gte(mentions.publishedAt, since),
   ];
   if (customRange) {

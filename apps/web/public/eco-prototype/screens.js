@@ -189,20 +189,33 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     const total = Math.round((d.totalMentions || d.positivo + d.neutral + d.negativo) || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    // Detectar granularidad horaria por la presencia de "T..:00:00" en fullDate
+    // (backend emite "YYYY-MM-DDTHH:00:00-04:00" para buckets horarios). Para
+    // hora: filtramos `day` + `hour` y omitimos histograma (la gráfica ya es
+    // por hora). Para día: filtramos `day` y mostramos histograma 24h (mock).
+    const isHourly = d.fullDate && /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
-    setSlice({
-      eyebrow: d.date,
-      title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayIso };
+    if (hourMatch) filter.hour = hourMatch[1];
+    const slicePayload = {
+      eyebrow: isHourly ? `${d.date} AST` : d.date,
+      title: isHourly
+        ? `Hora ${d.date} · NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`
+        : `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
-      _filter: { day: dayIso },
-    });
+      _filter: filter,
+    };
+    if (!isHourly) {
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
+        return Math.round(base * (total / 24) * 1.6);
+      });
+      slicePayload.histogram = { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) };
+    }
+    setSlice(slicePayload);
   }
 
   function openSourceSlice(src) {
@@ -1099,20 +1112,29 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     const total = (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--text-3)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    const isHourly = d.fullDate && /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
-    setSlice({
-      eyebrow: d.date,
-      title: bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro',
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayIso };
+    if (hourMatch) filter.hour = hourMatch[1];
+    const payload = {
+      eyebrow: isHourly ? `${d.date} AST` : d.date,
+      title: isHourly
+        ? `Hora ${d.date}`
+        : (bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro'),
       accent,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
-      _filter: { day: dayIso },
-    });
+      _filter: filter,
+    };
+    if (!isHourly) {
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
+        return Math.round(base * (total / 24) * 1.6);
+      });
+      payload.histogram = { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) };
+    }
+    setSlice(payload);
   }
 
   function openGroupSlice(row, sentimentType) {
@@ -3406,24 +3428,31 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
-  // openDaySlice — click en un día del gráfico de tendencias. Abre el modal
-  // con las menciones de ESE día específico, leyendo los conteos del propio
-  // datapoint. El _filter.day se interpreta como YYYY-MM-DD en TZ Puerto Rico
-  // por el endpoint /api/eco-mentions.
+  // openDaySlice — click en un punto del gráfico de tendencias. Para puntos
+  // diarios, abre el modal con las menciones de ESE día. Para puntos horarios
+  // (1D), abre el modal con las menciones de ESA HORA específica (filtro
+  // day + hour). El backend acepta `day=YYYY-MM-DD` y `hour=0..23` en AST.
   function openDaySlice(d) {
     if (!d || !d.fullDate) return;
     const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
     const bias = (d.negative || 0) > (d.positive || 0) ? 'negativo'
       : (d.positive || 0) > (d.negative || 0) ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
+    // Detectar granularidad horaria por la presencia de "T..:00:00" en fullDate
+    // (formato del backend: "YYYY-MM-DDTHH:00:00-04:00"). Sin "T", asumimos día.
+    const isHourly = /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
+    const dayYmd = d.fullDate.slice(0, 10);
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayYmd };
+    if (hourMatch) filter.hour = hourMatch[1];
     setSlice({
       eyebrow: d.date || d.fullDate,
-      title: `Conversación del día`,
+      title: isHourly ? `Conversación de las ${d.date || ''}` : `Conversación del día`,
       accent,
       volume: total,
       sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
       mentions: [],
-      _filter: { day: d.fullDate },
+      _filter: filter,
     });
   }
 

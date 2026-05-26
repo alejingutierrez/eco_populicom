@@ -309,6 +309,7 @@ export async function loadAggregatesForWindow(
        COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
      FROM mentions
      WHERE agency_id = $1
+       AND is_duplicate = false
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date`,
     [agencyId, startYmd, endYmd],

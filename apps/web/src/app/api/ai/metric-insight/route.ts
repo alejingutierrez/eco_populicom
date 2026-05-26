@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, dailyMetricSnapshots } from '@eco/database';
 import { sql, and, eq, gte, lte, desc } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ,
+  rollingWindowYmdInTZ,
   loadMetricsForWindow,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const { startYmd, endYmd, prevStartYmd, prevEndYmd } = closedWindowYmdInTZ(days, new Date(), TZ);
+    const { startYmd, endYmd, prevStartYmd, prevEndYmd } = rollingWindowYmdInTZ(days, new Date(), TZ);
     const pool = getPool() as unknown as PgClientLike;
 
     // Métricas actuales y previas en la misma ventana — para deltaVsPrev.

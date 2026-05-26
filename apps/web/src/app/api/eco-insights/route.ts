@@ -2,7 +2,8 @@
  * GET /api/eco-insights — sirve insights cacheados o dispara cómputo async.
  *
  * Resuelve (period_start, period_end) igual que /api/overview:
- *   - period=preset (1D/5D/7D/30D/90D/1M/3M/6M/1A) → closedWindowYmdInTZ
+ *   - period=preset (1D/5D/7D/30D/90D/1M/3M/6M/1A) → rollingWindowYmdInTZ
+ *     (ventana rolante terminando HOY, no ayer)
  *   - period=custom + from/to → ventana explícita
  *
  * Cache semantics sobre `overview_period_insights`:
@@ -14,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, overviewPeriodInsights } from '@eco/database';
 import { sql, and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone } from '@eco/shared';
+import { rollingWindowYmdInTZ, ymdInTimeZone } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = rollingWindowYmdInTZ(days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }
