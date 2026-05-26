@@ -165,6 +165,96 @@ eco_populicom/
 
 **Database migrations:** Via `eco-migration` Lambda (temporary, invoke manually)
 
+### Frontend: dónde vive cada pantalla (LEER ANTES DE CREAR UI)
+
+El frontend tiene **dos mundos** que se ven idénticos en URL pero son
+arquitecturalmente distintos. Si no respetas esta división, tu pantalla
+nueva sale "por fuera del dashboard" — caso recurrente que produce el
+sandwich visual entre Antd default y el tema Costa/Gaceta del prototype.
+
+**1. Dashboard prototype (`apps/web/public/eco-prototype/`)**
+- Vanilla React + JSX precompilado con Babel (`scripts/compile-prototype.js`)
+- Tema: CSS variables en `index.html` (líneas 13–88): `--accent`, `--pos`,
+  `--neg`, `--ff-sans` (Instrument Sans), `--rail-bg`, `--r` (radius), …
+- Shell completo (sidebar + header + drawer + command palette) en `shell.js`
+- Screens: `OverviewScreen`, `DashboardScreen`, `MentionsScreen`,
+  `SentimentScreen`, `TopicsScreen`, `GeographyScreen`, `AlertsScreen`,
+  `SettingsScreen`, `NarrativeScreen` — todos en `screens.js`
+- Rutas servidas por Next.js rewrites (ver `apps/web/next.config.ts`):
+  `/overview`, `/dashboard`, `/mentions`, etc. → `/eco-prototype/index.html`
+- Componentes reutilizables: `KpiCard`, `Card`, etc. (definidos en `shell.js`
+  o `screens.js`) — **úsalos** si tu feature vive dentro del shell
+
+**2. Páginas Next.js puras (`apps/web/src/app/...`)**
+- App Router + React 19 + Antd v6 (`Layout`, `Form`, `Table`, etc.)
+- Tema Antd en `src/theme/eco-theme.ts` (no coincide con el del prototype:
+  `colorPrimary: #0A7EA4` vs `--accent: #0B5F80` del prototype)
+- Rutas: cualquier path bajo `src/app/` que NO esté en el rewrite del
+  `next.config.ts`
+- Hoy se usan para: `/settings/reports`, `/settings/alerts`,
+  `/admin/mentions/import`, `/sign-in`, `/api/*`
+
+**Regla canónica: ¿cuál usar para mi feature nueva?**
+
+| Caso | Dónde implementarlo |
+|---|---|
+| Vista principal de datos (dashboard, KPIs, listas con filtros) | Screen vanilla en `screens.js` con shell. Usa `KpiCard`, `Card`, paleta `var(--accent)` |
+| Form de configuración / admin terciario (alertas, reportes, imports, usuarios) | Página Next.js con Antd **+ embed via iframe** dentro de un Screen del prototype (patrón `?embed=1`) |
+| Endpoint API / server action | `apps/web/src/app/api/...` siempre |
+
+**Cómo embeber una página Next.js dentro del shell del prototype** (patrón
+canónico usado por `/settings/reports`, `/settings/alerts`,
+`/admin/mentions/import`):
+
+1. En la página Next.js, leer `searchParams.get('embed') === '1'` y
+   ajustar layout — sin `Header` propio, fondo transparente, sin `min-height:
+   100vh`. Patrón:
+   ```tsx
+   const isEmbedded = searchParams?.get('embed') === '1';
+   const bg = isEmbedded ? 'transparent' : '#F4F7FA';
+   return (
+     <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: bg }}>
+       {!isEmbedded && <Header ... />}
+       <Content style={{ padding: isEmbedded ? 12 : 28, maxWidth: isEmbedded ? '100%' : 1280 }}>
+         {/* contenido */}
+       </Content>
+     </Layout>
+   );
+   ```
+2. Los `<Link>` o `router.push` dentro de la página deben preservar `?embed=1`
+   para que la navegación interna del iframe no rompa el shell padre.
+3. En `screens.js`, agregar un Screen (o un tab) que renderice:
+   ```jsx
+   <iframe
+     src="/<tu-ruta>?embed=1"
+     style={{ width: '100%', height: 1100, border: 'none', background: 'transparent' }}
+   />
+   ```
+   Envuelto en un `card`/`card-hd` para que herede el shell.
+4. Si necesitas reload externo (ej. desde un botón en el header del Screen):
+   `iframeRef.current.src = iframeRef.current.src`.
+5. Agregar entrada de navegación si aplica: 
+   - Si vive bajo Configuración: añadir sección en `SettingsScreen.sections`
+     en `screens.js` (~línea 2596).
+   - Si necesita acceso directo desde el sidebar: añadir al array `nav` en
+     `shell.js` (~línea 37) **y** mapear el screen en `app.js`.
+
+**Por qué pasa esto cada vez** (causa raíz):
+- No hay `<AppShell>` React-side compartido entre los dos mundos. Cada
+  página Next.js que se crea desde cero "naturalmente" renderiza su propio
+  `Layout` Antd con header blanco — el dev no se da cuenta de que vive
+  fuera del shell del prototype.
+- El theme de Antd y las CSS vars del prototype son sistemas paralelos sin
+  pasarela. Cambiar tokens en uno no propaga al otro.
+- La convención "embed iframe + `?embed=1`" está implícita en
+  `/settings/reports` pero no documentada — quien copia ese patrón lo
+  replica, quien no lo conoce inventa una pantalla suelta.
+
+**Si refactoras este modelo en el futuro:** la salida limpia es escribir
+el shell del prototype como componente Next.js compartido y montar los
+screens dentro de él. Pero es un refactor grande — la receta actual
+(iframe + `?embed=1`) cumple el propósito sin re-escribir el prototype.
+
 ### AI Agent Guidelines
 - Always check STATUS.md for current state before starting work
 - Check BACKLOG.md for priorities
