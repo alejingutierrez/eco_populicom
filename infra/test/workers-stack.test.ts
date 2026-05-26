@@ -38,6 +38,7 @@ test('WorkersStack creates 4 Lambda functions', () => {
 
   const storageStack = new cdk.Stack(app, 'StorageStack', { env });
   const rawBucket = new s3.Bucket(storageStack, 'RawBucket');
+  const exportsBucket = new s3.Bucket(storageStack, 'ExportsBucket');
 
   const messagingStack = new cdk.Stack(app, 'MessagingStack', { env });
   const ingestionQueue = new sqs.Queue(messagingStack, 'IngestionQueue');
@@ -52,10 +53,16 @@ test('WorkersStack creates 4 Lambda functions', () => {
     lambdaSecurityGroup: lambdaSg,
     dbSecret,
     rawBucket,
+    exportsBucket,
     ingestionQueue,
     alertsQueue,
   });
 
   const template = Template.fromStack(stack);
-  template.resourceCountIs('AWS::Lambda::Function', 4);
+  // 10 = ingestion, processor, alerts, metrics-calculator, weekly-report,
+  //      ai-tasks, narrative-cluster, narrative-edges, narrative-drift,
+  //      import-preview
+  // Plus auto-creados de log groups / autoDeleteObjects — el assert valida
+  // que al menos existan las nuestras.
+  template.resourceCountIs('AWS::Lambda::Function', 10);
 });

@@ -5,7 +5,7 @@
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
-import { TOPICS_BY_AGENCY } from '@eco/shared';
+import { TOPICS_BY_AGENCY, canonicalizeUrl } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
 const bedrock = new BedrockRuntimeClient({});
@@ -14,7 +14,7 @@ const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 // barato que Opus y suficiente para escoger entre 5-6 opciones predefinidas.
 const SUBTOPIC_BACKFILL_MODEL_ID = process.env.SUBTOPIC_BACKFILL_MODEL_ID ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
-export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string; batchSize?: number }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -46,6 +46,78 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       }
       const res = await client.query(event.query);
       return { statusCode: 200, body: JSON.stringify({ rows: res.rows, rowCount: res.rowCount }) };
+    }
+    if (action === 'test-commit-import') {
+      // Despacha mensajes SQS para todas las rows new/update de un import.
+      // Mirror del endpoint /api/admin/mentions/import/[id]/commit pero
+      // invocable desde CLI sin auth — para smoke testing del flujo
+      // completo cuando no hay sesión Cognito.
+      const e = event as unknown as { importId?: string };
+      if (!e.importId) return { statusCode: 400, body: JSON.stringify({ error: 'importId required' }) };
+
+      const r = await client.query(
+        `SELECT id, agency_id, source_type, status, preview_json
+           FROM mention_imports WHERE id = $1`,
+        [e.importId],
+      );
+      if (r.rows.length === 0) return { statusCode: 404, body: 'not found' };
+      const imp = r.rows[0];
+      if (imp.status !== 'preview_ready') {
+        return { statusCode: 409, body: JSON.stringify({ error: `status is ${imp.status}` }) };
+      }
+
+      const sqsMod = await import('@aws-sdk/client-sqs');
+      const sqs = new sqsMod.SQSClient({});
+      const queueUrl = process.env.INGESTION_QUEUE_URL ?? 'https://sqs.us-east-1.amazonaws.com/863956448838/eco-ingestion';
+
+      const source = imp.source_type === 'excel' ? 'manual_excel' : 'manual_url';
+      const previewRows = (imp.preview_json ?? []) as Array<{ status: string; mention?: unknown }>;
+      const toDispatch = previewRows.filter((p) => (p.status === 'new' || p.status === 'update') && p.mention);
+
+      // Lock soft → status='committing'
+      await client.query(
+        `UPDATE mention_imports SET status = 'committing', committed_at = NOW() WHERE id = $1`,
+        [e.importId],
+      );
+
+      let dispatched = 0;
+      for (let i = 0; i < toDispatch.length; i += 10) {
+        const chunk = toDispatch.slice(i, i + 10);
+        const entries = chunk.map((p, idx) => ({
+          Id: `r${i + idx}`,
+          MessageBody: JSON.stringify({
+            __source: source,
+            sourceImportId: e.importId,
+            agencyId: imp.agency_id,
+            mention: p.mention,
+          }),
+        }));
+        await sqs.send(new sqsMod.SendMessageBatchCommand({ QueueUrl: queueUrl, Entries: entries }));
+        dispatched += chunk.length;
+      }
+
+      return { statusCode: 200, body: JSON.stringify({ dispatched, total: toDispatch.length }) };
+    }
+    if (action === 'test-create-mention-import') {
+      // Crea un mention_imports row para smoke testing del flujo de import
+      // manual. NO usar en producción — la creación normal va via el API
+      // route /api/admin/mentions/import/{file,url}.
+      const e = event as unknown as {
+        agencySlug?: string; sourceType?: 'excel' | 'url'; sourceUrl?: string; s3Key?: string;
+      };
+      if (!e.agencySlug || !e.sourceType) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'agencySlug, sourceType required' }) };
+      }
+      const ag = await client.query('SELECT id FROM agencies WHERE slug = $1', [e.agencySlug]);
+      if (ag.rows.length === 0) return { statusCode: 404, body: 'agency not found' };
+      const res = await client.query(
+        `INSERT INTO mention_imports (
+          agency_id, source_type, source_url, s3_key, default_timezone
+        ) VALUES ($1, $2, $3, $4, 'America/Puerto_Rico')
+        RETURNING id`,
+        [ag.rows[0].id, e.sourceType, e.sourceUrl ?? null, e.s3Key ?? null],
+      );
+      return { statusCode: 200, body: JSON.stringify({ importId: res.rows[0].id }) };
     }
     if (action === 'reset-cursors') {
       // Reset ingestion cursors for specified query IDs to re-ingest from scratch
@@ -692,6 +764,234 @@ export const handler = async (event: { action?: string; query?: string; queryIds
           remaining: remaining.rows[0].c,
           exhausted: totallyExhausted.rows[0].c,
           agencySlug: targetAgency,
+        }, null, 2),
+      };
+    }
+
+    if (action === 'create-manual-import-schema') {
+      // Aplica las migrations 0006 (mention_imports) y 0007 (mentions manual
+      // support) idempotentemente. Drizzle migrations no corren automáticas
+      // en este repo — el patrón es action hardcoded como create-reports-schema.
+
+      // --- 0006: mention_imports table ---
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS mention_imports (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE RESTRICT,
+          uploaded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          source_type VARCHAR(20) NOT NULL,
+          s3_key TEXT,
+          source_url TEXT,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          total_rows INTEGER,
+          rows_new INTEGER DEFAULT 0,
+          rows_duplicate INTEGER DEFAULT 0,
+          rows_update INTEGER DEFAULT 0,
+          rows_error INTEGER DEFAULT 0,
+          rows_processed INTEGER DEFAULT 0,
+          preview_json JSONB,
+          errors_json JSONB,
+          error_message TEXT,
+          default_timezone VARCHAR(50) DEFAULT 'America/Puerto_Rico',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          committed_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mention_imports_agency_id ON mention_imports(agency_id);`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mention_imports_status ON mention_imports(status);`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mention_imports_created_at ON mention_imports(created_at DESC);`);
+
+      // --- 0007: mentions manual support ---
+      await client.query(`ALTER TABLE mentions ALTER COLUMN bw_resource_id DROP NOT NULL;`);
+      await client.query(`ALTER TABLE mentions ALTER COLUMN bw_query_id DROP NOT NULL;`);
+
+      // Drop UNIQUE bw_resource_id (Drizzle named it mentions_bw_resource_id_unique)
+      await client.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'mentions_bw_resource_id_unique'
+              AND table_name = 'mentions'
+          ) THEN
+            ALTER TABLE mentions DROP CONSTRAINT mentions_bw_resource_id_unique;
+          END IF;
+        END $$;
+      `);
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS mentions_bw_resource_id_partial_unique
+          ON mentions (bw_resource_id) WHERE bw_resource_id IS NOT NULL;
+      `);
+
+      await client.query(`ALTER TABLE mentions ADD COLUMN IF NOT EXISTS url_canonical VARCHAR(1000);`);
+      await client.query(`ALTER TABLE mentions ADD COLUMN IF NOT EXISTS ingestion_source VARCHAR(20) NOT NULL DEFAULT 'brandwatch';`);
+      await client.query(`ALTER TABLE mentions ADD COLUMN IF NOT EXISTS source_import_id UUID;`);
+
+      await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'mentions_source_import_id_fkey'
+              AND table_name = 'mentions'
+          ) THEN
+            ALTER TABLE mentions
+              ADD CONSTRAINT mentions_source_import_id_fkey
+              FOREIGN KEY (source_import_id) REFERENCES mention_imports(id)
+              ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_url_canonical ON mentions(url_canonical);`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_source_import_id ON mentions(source_import_id);`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_ingestion_source ON mentions(ingestion_source);`);
+
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS mentions_url_canonical_agency_unique
+          ON mentions (agency_id, url_canonical) WHERE url_canonical IS NOT NULL;
+      `);
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          message: 'manual-import schema ready',
+          nextStep: 'Run action=backfill-url-canonical en loop hasta remaining=0',
+        }),
+      };
+    }
+    if (action === 'backfill-url-canonical') {
+      // Backfill `mentions.url_canonical` para registros que aún no la tienen.
+      // Necesario para que el dedup (agency_id, url_canonical) cubra menciones
+      // de Brandwatch antiguas — sin esto, un Excel que incluye una URL ya
+      // ingerida por Brandwatch se marcaría como `new` en vez de `duplicate`.
+      //
+      // Maneja 3 casos:
+      //   1. URL canonicaliza OK y nadie más en la agencia la tiene → UPDATE
+      //      url_canonical = canonical (caso normal)
+      //   2. URL canonicaliza OK pero otra menc. en la agencia ya la tiene
+      //      → UPDATE url_canonical = 'dup-orig:<id>' (sentinel único, marca
+      //      la mención como dup pre-existente sin tocar is_duplicate)
+      //   3. URL no parsea → UPDATE url_canonical = 'invalid:<id>' (sentinel)
+      //
+      // Idempotente: cada invocación procesa hasta `batchSize` filas con
+      // url_canonical IS NULL y url IS NOT NULL, retorna `remaining`. Loop
+      // manual desde CLI hasta remaining=0.
+      const batchSize = Math.max(100, Math.min(20000, Number(event.batchSize ?? 5000)));
+      const sel = await client.query(
+        `SELECT id, url FROM mentions
+           WHERE url_canonical IS NULL AND url IS NOT NULL
+           LIMIT $1`,
+        [batchSize],
+      );
+      const rows = sel.rows as Array<{ id: string; url: string }>;
+      console.log(`backfill-url-canonical: ${rows.length} rows in this batch`);
+
+      let updated = 0;
+      let intraConflicts = 0;
+      let unparseable = 0;
+
+      if (rows.length > 0) {
+        // Una transacción para que la TEMP TABLE persista entre queries.
+        // pg.Client por default es autocommit; envolvemos en BEGIN/COMMIT.
+        await client.query('BEGIN');
+        try {
+          await client.query(`
+            CREATE TEMP TABLE batch_canon (
+              id uuid PRIMARY KEY,
+              canonical varchar(1000) NOT NULL
+            ) ON COMMIT DROP
+          `);
+
+          const values: string[] = [];
+          const params: unknown[] = [];
+          let i = 1;
+          for (const row of rows) {
+            const c = canonicalizeUrl(row.url);
+            if (c) {
+              values.push(`($${i}::uuid, $${i + 1}::varchar)`);
+              params.push(row.id, c);
+            } else {
+              values.push(`($${i}::uuid, $${i + 1}::varchar)`);
+              params.push(row.id, `invalid:${row.id}`);
+              unparseable += 1;
+            }
+            i += 2;
+          }
+          await client.query(
+            `INSERT INTO batch_canon (id, canonical) VALUES ${values.join(', ')}`,
+            params,
+          );
+
+          // Update solo los "winners" — para cada (agency_id, canonical) gana
+          // el más antiguo (published_at, id), y solo si ninguna fila existente
+          // en mentions ya tiene esa canonical en la misma agencia.
+          const winners = await client.query(`
+            WITH ranked AS (
+              SELECT DISTINCT ON (m.agency_id, b.canonical)
+                b.id, b.canonical, m.agency_id
+              FROM batch_canon b
+              JOIN mentions m ON m.id = b.id
+              WHERE b.canonical NOT LIKE 'invalid:%'
+              ORDER BY m.agency_id, b.canonical, m.published_at, m.id
+            )
+            UPDATE mentions m
+            SET url_canonical = w.canonical
+            FROM ranked w
+            WHERE m.id = w.id
+              AND NOT EXISTS (
+                SELECT 1 FROM mentions m2
+                WHERE m2.agency_id = m.agency_id
+                  AND m2.url_canonical = w.canonical
+                  AND m2.id <> m.id
+              )
+            RETURNING m.id
+          `);
+          updated = winners.rowCount ?? 0;
+
+          // Para los rows del batch que aún siguen sin url_canonical (perdedores
+          // de la batalla por canonical), set sentinel dup-orig.
+          const losers = await client.query(`
+            UPDATE mentions m
+            SET url_canonical = 'dup-orig:' || m.id::text
+            FROM batch_canon b
+            WHERE m.id = b.id
+              AND m.url_canonical IS NULL
+              AND b.canonical NOT LIKE 'invalid:%'
+            RETURNING m.id
+          `);
+          intraConflicts = losers.rowCount ?? 0;
+
+          // URLs no parseables: copy sentinel desde batch_canon
+          await client.query(`
+            UPDATE mentions m
+            SET url_canonical = b.canonical
+            FROM batch_canon b
+            WHERE m.id = b.id
+              AND m.url_canonical IS NULL
+              AND b.canonical LIKE 'invalid:%'
+          `);
+
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw err;
+        }
+      }
+
+      const rem = await client.query(
+        `SELECT COUNT(*)::int AS c FROM mentions
+           WHERE url_canonical IS NULL AND url IS NOT NULL`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          updated,
+          intraConflicts,
+          unparseable,
+          remaining: rem.rows[0].c,
         }, null, 2),
       };
     }
