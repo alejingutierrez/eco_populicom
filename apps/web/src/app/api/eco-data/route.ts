@@ -755,64 +755,122 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ---- TOPIC CALENDAR (per-day dominant topic, ventana AST cerrada) ----
-    // El "Calendario de tópico principal por día" antes usaba una rotación
-    // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
-    // tópico por día con su sentimiento dominante en datos reales. La
-    // ventana se ajusta al periodo seleccionado del usuario: mínimo 35 días
-    // (para que el calendario nunca quede chiquito) y máximo 365 (1 año)
-    // — periodos largos como "1A" o "Max" muestran 365 días con marcadores
-    // de cambio de mes en el frontend.
-    const calendarDays = Math.max(35, Math.min(days, 365));
-    const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
-    const calendarRows = await db.execute<{
-      day: string; slug: string; name: string;
-      volume: number | string; pos: number | string; neg: number | string;
-    }>(sql`
-      WITH per_day AS (
-        SELECT
-          (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day,
-          t.slug, t.name,
-          COUNT(*) AS volume,
-          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
-          COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
-          FROM mentions m
-          JOIN mention_topics mt ON mt.mention_id = m.id
-          JOIN topics t ON t.id = mt.topic_id
-         WHERE m.agency_id = ${agencyId}
-           AND m.is_duplicate = false
-           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
-           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
-         GROUP BY day, t.slug, t.name
-      ),
-      ranked AS (
-        SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk
-          FROM per_day
-      )
-      SELECT day::text AS day, slug, name, volume, pos, neg
-        FROM ranked
-       WHERE rk = 1
-       ORDER BY day
-    `);
+    // ---- TOPIC CALENDAR ----
+    // Antes:
+    //   - Forzaba mínimo 35 días aunque el filtro fuera 1D/5D/7D → el grid
+    //     mostraba el último mes y confundía: "filtré 1D pero veo 35 días".
+    //   - Hardcoded a granularidad diaria → 1D mostraba 1 sola celda.
+    // Ahora:
+    //   - Para 1D: 24 buckets HORARIOS (tópico dominante por hora AST hoy).
+    //   - Para N>1: ventana exacta del filtro (no más min 35).
+    //   - Máximo 365 días en periodos largos (1A/Max) por límite visual.
+    const calendarGranularity: 'day' | 'hour' =
+      (customRange ? customRange.days : days) === 1 ? 'hour' : 'day';
+    let TOPIC_CALENDAR: Array<{
+      date: string; fullDate: string; volume: number;
+      topicSlug: string; topicName: string; sentiment: 'positivo' | 'negativo' | 'neutral';
+    }>;
+    if (calendarGranularity === 'hour') {
+      // Tópico dominante por hora AST hoy.
+      const hourCalRows = await (pool as ReturnType<typeof getPool>).query<{
+        hr: number | string; slug: string; name: string;
+        volume: number | string; pos: number | string; neg: number | string;
+      }>(
+        `WITH per_hr AS (
+           SELECT EXTRACT(HOUR FROM (m.published_at AT TIME ZONE 'America/Puerto_Rico'))::int AS hr,
+                  t.slug, t.name,
+                  COUNT(*) AS volume,
+                  COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
+                  COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
+             FROM mentions m
+             JOIN mention_topics mt ON mt.mention_id = m.id
+             JOIN topics t ON t.id = mt.topic_id
+            WHERE m.agency_id = $1
+              AND m.is_duplicate = false
+              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+            GROUP BY hr, t.slug, t.name
+         ),
+         ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY hr ORDER BY volume DESC, slug ASC) AS rk
+             FROM per_hr
+         )
+         SELECT hr, slug, name, volume, pos, neg
+           FROM ranked
+          WHERE rk = 1
+          ORDER BY hr`,
+        [agencyId, startYmd],
+      );
+      TOPIC_CALENDAR = hourCalRows.rows.map((r) => {
+        const hr = Number(r.hr);
+        const volume = Number(r.volume);
+        const pos = Number(r.pos);
+        const neg = Number(r.neg);
+        const neu = Math.max(0, volume - pos - neg);
+        const sentiment: 'positivo' | 'negativo' | 'neutral' =
+          neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
+        const fullDate = `${startYmd}T${String(hr).padStart(2, '0')}:00:00-04:00`;
+        return {
+          date: `${String(hr).padStart(2, '0')}:00`,
+          fullDate,
+          volume,
+          topicSlug: r.slug,
+          topicName: r.name,
+          sentiment,
+        };
+      });
+    } else {
+      const calendarDays = Math.min(days, 365);
+      const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
+      const calendarRows = await db.execute<{
+        day: string; slug: string; name: string;
+        volume: number | string; pos: number | string; neg: number | string;
+      }>(sql`
+        WITH per_day AS (
+          SELECT
+            (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day,
+            t.slug, t.name,
+            COUNT(*) AS volume,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
+            FROM mentions m
+            JOIN mention_topics mt ON mt.mention_id = m.id
+            JOIN topics t ON t.id = mt.topic_id
+           WHERE m.agency_id = ${agencyId}
+             AND m.is_duplicate = false
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
+           GROUP BY day, t.slug, t.name
+        ),
+        ranked AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk
+            FROM per_day
+        )
+        SELECT day::text AS day, slug, name, volume, pos, neg
+          FROM ranked
+         WHERE rk = 1
+         ORDER BY day
+      `);
     const calList: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> = Array.isArray(calendarRows)
       ? (calendarRows as unknown as Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }>)
       : (((calendarRows as unknown as { rows?: Array<{ day: string; slug: string; name: string; volume: number | string; pos: number | string; neg: number | string }> }).rows) ?? []);
-    const TOPIC_CALENDAR = calList.map((r) => {
-      const volume = Number(r.volume);
-      const pos = Number(r.pos);
-      const neg = Number(r.neg);
-      const neu = Math.max(0, volume - pos - neg);
-      const sentiment = neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
-      const fullDate = `${r.day}T12:00:00Z`;
-      return {
-        date: esShortDate(fullDate),
-        fullDate,
-        volume,
-        topicSlug: r.slug,
-        topicName: r.name,
-        sentiment,
-      };
-    });
+      TOPIC_CALENDAR = calList.map((r) => {
+        const volume = Number(r.volume);
+        const pos = Number(r.pos);
+        const neg = Number(r.neg);
+        const neu = Math.max(0, volume - pos - neg);
+        const sentiment: 'positivo' | 'negativo' | 'neutral' =
+          neg > pos + neu * 0.2 ? 'negativo' : pos > neg + neu * 0.2 ? 'positivo' : 'neutral';
+        const fullDate = `${r.day}T12:00:00Z`;
+        return {
+          date: esShortDate(fullDate),
+          fullDate,
+          volume,
+          topicSlug: r.slug,
+          topicName: r.name,
+          sentiment,
+        };
+      });
+    }
 
     // ---- MUNICIPALITIES ----
     const muniRows = await db
@@ -1315,6 +1373,7 @@ export async function GET(request: NextRequest) {
       BRIEFING,
       INGESTION_STATUS,
       TOPIC_CALENDAR: TOPIC_CALENDAR.length > 0 ? TOPIC_CALENDAR : null,
+      TOPIC_CALENDAR_GRANULARITY: calendarGranularity,
     });
     res.headers.set('Cache-Control', 'no-store');
     return res;

@@ -163,6 +163,13 @@ async function loadDailySeries(
   startYmd: string,
   endYmd: string,
 ): Promise<DailyPoint[]> {
+  // Caso 1D (ventana de un solo día): devolvemos buckets horarios AST en vez
+  // de un solo punto diario. Misma idea que el TIMELINE del Scorecard — una
+  // gráfica con un solo punto no aporta señal cuando el usuario mira "Hoy".
+  if (startYmd === endYmd) {
+    return loadHourlySeriesForDay(client, agencyId, startYmd);
+  }
+
   const rows = await client.query<{ d: string; s: string | null; c: number | string }>(
     `SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
             COALESCE(nlp_sentiment, bw_sentiment) AS s,
@@ -194,6 +201,51 @@ async function loadDailySeries(
     dayLabel: formatDayLabel(date),
     ...v,
   }));
+}
+
+/**
+ * Variante horaria de loadDailySeries — devuelve 24 buckets AST del día
+ * `ymd`. Solo se llama cuando startYmd === endYmd. El frontend renderiza el
+ * `dayLabel` ("HH:00") como eje X. `date` queda en formato ISO con hora para
+ * que el click→slice pueda filtrar por (day, hour).
+ */
+async function loadHourlySeriesForDay(
+  client: PgClientLike,
+  agencyId: string,
+  ymd: string,
+): Promise<DailyPoint[]> {
+  const rows = await client.query<{ h: number | string; s: string | null; c: number | string }>(
+    `SELECT EXTRACT(HOUR FROM (published_at AT TIME ZONE 'America/Puerto_Rico'))::int AS h,
+            COALESCE(nlp_sentiment, bw_sentiment) AS s,
+            COUNT(*)::int AS c
+       FROM mentions
+      WHERE agency_id = $1
+        AND is_duplicate = false
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+      GROUP BY 1, 2
+      ORDER BY 1`,
+    [agencyId, ymd],
+  );
+
+  // Pre-fill horas 0..23 para que el chart pueda omitir las vacías si quiere
+  // pero también renderizar una línea continua si las usamos.
+  const hourly = new Map<number, { negative: number; neutral: number; positive: number }>();
+  for (let h = 0; h < 24; h++) hourly.set(h, { negative: 0, neutral: 0, positive: 0 });
+  for (const row of rows.rows) {
+    const bucket = hourly.get(Number(row.h));
+    if (!bucket) continue;
+    const s = normalizeSentiment(row.s);
+    if (s) bucket[s] += Number(row.c);
+  }
+  // Filtrar horas sin actividad para que la curva refleje cuándo arranca el
+  // día (mismo criterio que el TIMELINE del Scorecard).
+  return Array.from(hourly.entries())
+    .filter(([, v]) => v.negative + v.neutral + v.positive > 0)
+    .map(([h, v]) => ({
+      date: `${ymd}T${String(h).padStart(2, '0')}:00:00-04:00`,
+      dayLabel: `${String(h).padStart(2, '0')}:00`,
+      ...v,
+    }));
 }
 
 // ============================================================
