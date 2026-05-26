@@ -110,59 +110,92 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
         let totalMentions = 0;
         let pageIndex = 0;
-        let lastMentionDate = startDate;
+        // Track the MAX `date` across every mention in every page rather than
+        // just the last mention of the last page. The previous "last mention"
+        // shortcut assumed the API always honored orderDirection=asc, but in
+        // practice Brandwatch can return retroactively-indexed mentions whose
+        // date is older than peers in the same window, leaving the cursor
+        // pinned at an old timestamp run after run. Using max() is robust.
+        let maxMentionDate = startDate;
+        let windowCompleted = false;
 
-        for await (const mentions of bw.fetchMentionPages({
-          queryId,
-          startDate,
-          endDate,
-          pageSize: 100,
-          orderBy: 'date',
-          orderDirection: 'asc',
-        })) {
-          // Store raw JSON in S3 under agency-scoped path
-          const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
-          await s3.send(
-            new PutObjectCommand({
-              Bucket: RAW_BUCKET,
-              Key: s3Key,
-              Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
-              ContentType: 'application/json',
-            }),
-          );
-
-          // Send each mention to SQS (batches of 10 max)
-          const batches = chunk(mentions, 10);
-          for (const batch of batches) {
-            await sqs.send(
-              new SendMessageBatchCommand({
-                QueueUrl: INGESTION_QUEUE_URL,
-                Entries: batch.map((mention, idx) => ({
-                  Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
-                  MessageBody: JSON.stringify(mention),
-                })),
+        try {
+          for await (const mentions of bw.fetchMentionPages({
+            queryId,
+            startDate,
+            endDate,
+            pageSize: 100,
+            orderBy: 'date',
+            orderDirection: 'asc',
+          })) {
+            // Store raw JSON in S3 under agency-scoped path
+            const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: RAW_BUCKET,
+                Key: s3Key,
+                Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
+                ContentType: 'application/json',
               }),
             );
-          }
 
-          // Track last mention date for cursor update
-          const lastMention = mentions[mentions.length - 1];
-          if (lastMention?.date) {
-            lastMentionDate = lastMention.date;
-          }
+            // Send each mention to SQS (batches of 10 max)
+            const batches = chunk(mentions, 10);
+            for (const batch of batches) {
+              await sqs.send(
+                new SendMessageBatchCommand({
+                  QueueUrl: INGESTION_QUEUE_URL,
+                  Entries: batch.map((mention, idx) => ({
+                    Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
+                    MessageBody: JSON.stringify(mention),
+                  })),
+                }),
+              );
+            }
 
-          totalMentions += mentions.length;
-          pageIndex++;
-          console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
+            for (const m of mentions) {
+              if (m.date && m.date > maxMentionDate) {
+                maxMentionDate = m.date;
+              }
+            }
+
+            totalMentions += mentions.length;
+            pageIndex++;
+            console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
+          }
+          windowCompleted = true;
+        } catch (err) {
+          // One query's rate-limit cascade shouldn't poison the rest. Log the
+          // failure, advance the cursor only as far as the pages we did finish
+          // (forward-only), and move on to the next query. The cron will retry
+          // the abandoned tail next minute.
+          console.error(
+            `[${agency.slug}] Query ${queryId} aborted after ${pageIndex} pages, ${totalMentions} mentions: ${(err as Error).message}`,
+          );
         }
 
-        // Update cursor only in normal mode — backfill re-scans a past window
-        // and must not push the cursor backwards or count duplicates.
-        if (!isBackfill && totalMentions > 0) {
-          await updateCursor(client, queryId, lastMentionDate, totalMentions);
+        // Forward-only cursor update (skip in backfill mode — that path scans
+        // a fixed past window and must not move the live cursor).
+        //
+        // Two cases:
+        //  - windowCompleted: we fully scanned [startDate, endDate]. Advance
+        //    to endDate even if Brandwatch returned 0 mentions, otherwise
+        //    quiet queries leave the cursor frozen and every subsequent run
+        //    re-scans the same widening window for nothing — exactly the bug
+        //    that burned the rate-limit budget on DDECPR. Late arrivals
+        //    (publish_date in the past, indexed later) are caught by the
+        //    daily LateArrivalRefresh cron.
+        //  - aborted mid-fetch: only advance to the max date we actually
+        //    ingested, so we never skip mentions we never saw.
+        if (!isBackfill) {
+          const candidate = windowCompleted ? endDate : maxMentionDate;
+          const newCursor = maxMentionDate > candidate ? maxMentionDate : candidate;
+          if (newCursor > startDate) {
+            await updateCursor(client, queryId, newCursor, totalMentions);
+          }
         }
 
-        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}`;
+        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}${windowCompleted ? '' : ' [aborted]'}`;
         console.log(summary);
         agencySummaries.push(summary);
       }
