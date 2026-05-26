@@ -1399,10 +1399,11 @@ function TopicsScreen({ onMentionClick }) {
 
   // Real "topic of the day" data viene del endpoint (TOPIC_CALENDAR), que
   // agrupa mention_topics por (published_at AT TZ AST)::date y se queda con
-  // el top-1 tópico por día. El cálculo previo era una rotación pseudo-
-  // aleatoria; con esto, cada celda refleja la conversación real de ese día.
+  // el top-1 tópico por día. El backend ya respeta el periodo seleccionado
+  // (35d para periodos cortos, hasta 365d para "1A"/"Max"), así que aquí
+  // pasamos toda la lista — el render por semanas se encarga.
   const calendarData = React.useMemo(() => {
-    return (D.TOPIC_CALENDAR || []).slice(-35).map((d) => {
+    return (D.TOPIC_CALENDAR || []).map((d) => {
       return {
         date: d.date,
         fullDate: d.fullDate,
@@ -1528,19 +1529,39 @@ function TopicTreemap({ topics, onSelect }) {
                 <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>+{t.secondaryCount} también lo tocan</div>
               )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', height: 3, width: 60, borderRadius: 2, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
-                <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-                <div style={{ width: `${t.neutralPct}%`, background: 'var(--text-3)' }} />
-                <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, color: t.delta > 0 ? 'var(--neg)' : 'var(--pos)' }}>
-                {t.delta > 0 ? '↑' : '↓'} {Math.abs(t.delta)}%
-              </span>
-            </div>
+            {/* Barra de distribución de sentimiento: ahora ocupa todo el ancho
+                disponible (flex: 1) y usa flex-grow proporcional al porcentaje
+                — esto elimina el bug donde la barra quedaba diminuta (60px
+                fijos) en tiles grandes. La altura aumentó a 6px para que
+                las tres bandas sean visibles. */}
+            <SentimentBar t={t} />
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Componente común para la fila inferior de un tile/list-row: barra de
+// distribución pos/neu/neg + delta. Manejo de delta=null ("—") para distinguir
+// "sin base de comparación" de "delta=0".
+function SentimentBar({ t }) {
+  const deltaStr = t.delta == null
+    ? '—'
+    : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`;
+  const deltaColor = t.delta == null
+    ? 'var(--text-3)'
+    : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)', minWidth: 40 }}>
+        <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
+        <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--text-3)' }} />
+        <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
+      </div>
+      <span style={{ fontSize: 10, fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 40, textAlign: 'right' }}>
+        {deltaStr}
+      </span>
     </div>
   );
 }
@@ -1592,8 +1613,10 @@ function TopicBubbles({ topics, onSelect }) {
               <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
-              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9" fill={t.delta > 0 ? 'var(--neg)' : 'var(--pos)'} fontWeight="700" style={{ pointerEvents: 'none' }}>
-                {t.delta > 0 ? '↑' : '↓'} {Math.abs(t.delta)}%
+              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9"
+                fill={t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)'}
+                fontWeight="700" style={{ pointerEvents: 'none' }}>
+                {t.delta == null ? '—' : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`}
               </text>
             </g>
           );
@@ -1643,7 +1666,10 @@ function TopicList({ topics, onSelect }) {
               <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
             </div>
           </div>
-          <span style={{ textAlign: 'right', fontSize: 11, fontWeight: 600, color: t.delta > 0 ? 'var(--neg)' : 'var(--pos)' }}>{t.delta > 0 ? '+' : ''}{t.delta}%</span>
+          <span style={{ textAlign: 'right', fontSize: 11, fontWeight: 600,
+            color: t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
+            {t.delta == null ? '—' : `${t.delta > 0 ? '+' : ''}${t.delta}%`}
+          </span>
           <Icons.ChevronRight size={14} color="var(--text-3)" />
         </button>
       ))}
@@ -1655,6 +1681,59 @@ function TopicList({ topics, onSelect }) {
 function TopicDetail({ topic, subs, onBack }) {
   const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
   const subMax = Math.max(1, ...subs.map(s => s.count));
+
+  // --- (5) Descripción IA cacheada por periodo ----------------------
+  // En vez de leer `topic.description` (que era un único string por tópico,
+  // sobrescrito en cada corrida del cron y sin tracking de fechas), pedimos al
+  // endpoint /api/eco-topic-description la descripción correspondiente al
+  // periodo activo. Si está en caché → ready inmediato. Si no, el endpoint
+  // invoca Bedrock síncronamente (~3-10s) y persiste; al volver, ya queda
+  // guardada para futuras peticiones.
+  const [desc, setDesc] = React.useState({ status: 'loading', text: null, generatedAt: null });
+  React.useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    const agency = localStorage.getItem('eco.agency');
+    const period = localStorage.getItem('eco.period') || '1M';
+    const customFrom = localStorage.getItem('eco.from');
+    const customTo = localStorage.getItem('eco.to');
+    if (agency) params.set('agency', agency);
+    if (period === 'custom' && customFrom && customTo) {
+      params.set('from', customFrom);
+      params.set('to', customTo);
+    } else {
+      params.set('period', period);
+    }
+    params.set('topic', topic.slug);
+    setDesc({ status: 'loading', text: null, generatedAt: null });
+    fetch('/api/eco-topic-description?' + params.toString(), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d.status === 'ready') setDesc({ status: 'ready', text: d.description, generatedAt: d.generatedAt });
+        else if (d.status === 'empty') setDesc({ status: 'empty', text: null, generatedAt: null });
+        else setDesc({ status: 'error', text: null, generatedAt: null });
+      })
+      .catch(() => { if (!cancelled) setDesc({ status: 'error', text: null, generatedAt: null }); });
+    return () => { cancelled = true; };
+  }, [topic.slug]);
+
+  // --- (3) Tabla de menciones del tópico ----------------------------
+  const [mentionsState, setMentionsState] = React.useState({ loading: true, mentions: [], total: 0 });
+  const [page, setPage] = React.useState(1);
+  const pageSize = 20;
+  React.useEffect(() => {
+    let cancelled = false;
+    setMentionsState((s) => ({ ...s, loading: true }));
+    fetchSliceMentions({ topic: topic.slug, limit: pageSize, offset: (page - 1) * pageSize })
+      .then((r) => {
+        if (cancelled) return;
+        setMentionsState({ loading: false, mentions: r.mentions || [], total: r.total || 0 });
+      })
+      .catch(() => { if (!cancelled) setMentionsState({ loading: false, mentions: [], total: 0 }); });
+    return () => { cancelled = true; };
+  }, [topic.slug, page]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Breadcrumb + back */}
@@ -1674,8 +1753,11 @@ function TopicDetail({ topic, subs, onBack }) {
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className={`pill ${sentPill}`}>{topic.dominantSentiment}</span>
-            <span style={{ fontSize: 12, color: topic.delta > 0 ? 'var(--neg)' : 'var(--pos)', fontWeight: 600 }}>
-              {topic.delta > 0 ? '↑' : '↓'} {Math.abs(topic.delta)}% vs. período anterior
+            <span style={{ fontSize: 12, fontWeight: 600,
+              color: topic.delta == null ? 'var(--text-3)' : topic.delta > 0 ? 'var(--neg)' : topic.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
+              {topic.delta == null
+                ? 'Sin base de comparación'
+                : `${topic.delta > 0 ? '↑' : topic.delta < 0 ? '↓' : '↔'} ${Math.abs(topic.delta)}% vs. período anterior`}
             </span>
           </div>
         </div>
@@ -1684,57 +1766,123 @@ function TopicDetail({ topic, subs, onBack }) {
         <StatBox label="Negativas" value={`${topic.negativePct}%`} tone="neg" />
       </div>
 
-      {/* AI-generated topic description — refrescada con eco-ai-tasks
-          acción topic-descriptions. Si la fila trae description null
-          (todavía no generada o el modelo falló), se oculta el bloque. */}
-      {topic.description && (
-        <div className="card" style={{ padding: 18 }}>
-          <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA
-          </div>
-          <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--text)' }}>
-            {topic.description}
-          </div>
+      {/* Descripción IA: cargada del endpoint cacheado por (topic_id,
+          period_start, period_end). loading → muestra placeholder; ready →
+          texto; empty → mensaje neutral; error → bloque oculto. */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA · período seleccionado
         </div>
-      )}
+        {desc.status === 'loading' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, animation: 'pulse 1.4s ease-in-out infinite' }}>
+            Generando descripción para este periodo…
+          </div>
+        )}
+        {desc.status === 'ready' && (
+          <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--text)' }}>{desc.text}</div>
+        )}
+        {desc.status === 'empty' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            No hay menciones de este tópico en el periodo seleccionado, así que no se puede describir.
+          </div>
+        )}
+        {desc.status === 'error' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            No fue posible generar la descripción. Intenta más tarde.
+          </div>
+        )}
+      </div>
 
-      {/* Subtopics */}
+      {/* Subtopics — ahora con descripción del cluster (qué cubre el subtopic)
+          y pill de sentimiento dominante, para que el usuario entienda de qué
+          va cada subtopic sin tener que abrir las menciones. */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · haz clic para filtrar menciones</div></div>
-          <button className="btn"><Icons.Filter size={12} /> Filtrar menciones por este tópico</button>
+          <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · cluster del periodo seleccionado</div></div>
         </div>
         <div>
-          {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados</div>}
-          {subs.map((s, i) => (
-            <div key={s.name} className="row-hover" style={{
-              display: 'grid', gridTemplateColumns: '28px 2fr 100px 1.4fr', gap: 12, alignItems: 'center',
-              padding: '12px 18px', borderTop: '1px solid var(--hairline)', cursor: 'pointer', fontSize: 13,
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
-              <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
-              <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
-              <div style={{ position: 'relative', height: 8 }}>
-                <div style={{ position: 'absolute', inset: 0, background: 'var(--canvas-2)', borderRadius: 999 }} />
-                <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${(s.count/subMax)*100}%`, background: 'var(--accent)', borderRadius: 999 }} />
+          {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados en este periodo</div>}
+          {subs.map((s, i) => {
+            const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
+            return (
+              <div key={s.slug || s.name} className="row-hover" style={{
+                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', gap: 12, alignItems: 'center',
+                padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 13,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
+                  {s.description && (
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{s.description}</div>
+                  )}
+                </div>
+                <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
+                <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{s.dominantSentiment || 'mixed'}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
+                    <div style={{ flexGrow: Math.max(0, s.positivePct || 0), background: 'var(--pos)' }} />
+                    <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--text-3)' }} />
+                    <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-3)', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{s.positivePct || 0}% pos</span>
+                    <span>{s.negativePct || 0}% neg</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       {/* Evolution — datos reales por tópico (mention_topics × día AST). */}
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">Menciones reales últimos 35 días (zona AST)</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">Menciones reales (zona AST)</div></div></div>
         <div className="card-bd">
           {(topic.evolution && topic.evolution.length > 0) ? (
             <AreaLineChart data={topic.evolution} accessor={(d) => d.count} height={200} color="var(--accent)" />
           ) : (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-              Sin menciones registradas para este tópico en los últimos 35 días.
+              Sin menciones registradas para este tópico en este periodo.
             </div>
           )}
         </div>
+      </div>
+
+      {/* (3) Menciones del tópico — tabla paginada del periodo activo. */}
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Menciones del tópico</div>
+            <div className="card-hd-sub">
+              {mentionsState.loading
+                ? 'Cargando…'
+                : `${fmt(mentionsState.total)} menciones · página ${page} de ${Math.max(1, Math.ceil(mentionsState.total / pageSize))}`}
+            </div>
+          </div>
+        </div>
+        <div>
+          {mentionsState.loading && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Cargando menciones…</div>
+          )}
+          {!mentionsState.loading && mentionsState.mentions.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              Sin menciones para este tópico en el periodo seleccionado.
+            </div>
+          )}
+          {!mentionsState.loading && mentionsState.mentions.length > 0 && (
+            <MentionsTable mentions={mentionsState.mentions} onMentionClick={() => {}} />
+          )}
+        </div>
+        {!mentionsState.loading && mentionsState.total > pageSize && (
+          <div style={{ padding: 12, borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+            <Pagination
+              page={page}
+              totalPages={Math.max(1, Math.ceil(mentionsState.total / pageSize))}
+              onChange={setPage}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1757,14 +1905,35 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
   const colorFor = (slug) => palette[slugIdx[slug] % palette.length];
 
-  // Build a 7-col week grid starting on the first day's weekday
+  if (!data || data.length === 0) {
+    return (
+      <div className="card">
+        <div className="card-hd"><div><div className="card-hd-title">Calendario de tópicos</div><div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div></div></div>
+        <div className="card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+          Sin actividad de tópicos en este periodo.
+        </div>
+      </div>
+    );
+  }
+
+  // Build a 7-col week grid starting on the first day's weekday (Monday-first)
   const parsed = data.map(d => {
     const dt = new Date(d.fullDate);
     return { ...d, dt };
   });
   const first = parsed[0].dt;
+  const last = parsed[parsed.length - 1].dt;
   const firstDow = (first.getDay() + 6) % 7; // Monday-first: 0..6
   const cells = Array(firstDow).fill(null).concat(parsed);
+
+  // Agrupar en filas de 7 días (semanas). En cada salto de fila, si el día
+  // que comienza la fila (o cualquier día en ella) pertenece a un mes distinto
+  // del último mes etiquetado, insertamos un header con el nuevo mes — así el
+  // calendario sigue legible cuando el periodo cubre varios meses.
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(cells.slice(i, i + 7));
+  }
 
   // Volume scale
   const maxV = Math.max(...parsed.map(d => d.volume));
@@ -1772,8 +1941,12 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   // Legend = unique topics present in calendar
   const uniqueTopics = [...new Set(parsed.map(d => d.topicSlug))].map(s => D.TOPICS.find(t => t.slug === s)).filter(Boolean);
 
-  const monthLabel = first.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+  const sameMonth = first.getFullYear() === last.getFullYear() && first.getMonth() === last.getMonth();
+  const headerLabel = sameMonth
+    ? first.toLocaleDateString('es', { month: 'long', year: 'numeric' })
+    : `${first.toLocaleDateString('es', { month: 'short', year: 'numeric' })} – ${last.toLocaleDateString('es', { month: 'short', year: 'numeric' })}`;
 
+  let lastMonthLabel = null;
   return (
     <div className="card">
       <div className="card-hd">
@@ -1783,7 +1956,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Icons.CalendarDays size={14} color="var(--text-3)" />
-          <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{monthLabel}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{headerLabel}</span>
         </div>
       </div>
       <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 20 }}>
@@ -1794,39 +1967,69 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               <div key={d} style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'center', paddingBottom: 4 }}>{d}</div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-            {cells.map((c, i) => {
-              if (!c) return <div key={`e${i}`} />;
-              const color = colorFor(c.topicSlug);
-              const intensity = 0.3 + (c.volume / maxV) * 0.7; // 0.3 to 1.0
-              const dayNum = c.dt.getDate();
-              return (
-                <button key={c.date} onClick={() => onDayClick(c)}
-                  title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${fmt(c.volume)} menciones`}
-                  style={{
-                    position: 'relative',
-                    aspectRatio: '1 / 1', minHeight: 62,
-                    padding: 6,
-                    borderRadius: 6,
-                    background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
-                    border: '1px solid var(--hairline)',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                    textAlign: 'left', cursor: 'pointer',
-                    overflow: 'hidden',
+          {weeks.map((week, wIdx) => {
+            // Etiqueta de mes para esta fila: si alguno de los días pertenece
+            // a un mes nuevo que aún no etiquetamos, lo mostramos arriba de
+            // la fila. Esto marca claramente el cambio mes-a-mes en periodos
+            // largos como 1A/Max.
+            const firstReal = week.find(d => d);
+            const monthKey = firstReal ? `${firstReal.dt.getFullYear()}-${firstReal.dt.getMonth()}` : null;
+            const showHeader = monthKey && monthKey !== lastMonthLabel;
+            if (showHeader) lastMonthLabel = monthKey;
+            const monthName = firstReal ? firstReal.dt.toLocaleDateString('es', { month: 'long', year: 'numeric' }) : '';
+
+            return (
+              <React.Fragment key={`w${wIdx}`}>
+                {showHeader && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    marginTop: wIdx === 0 ? 0 : 10, marginBottom: 4,
+                    fontSize: 10, fontWeight: 700, color: 'var(--text-2)',
+                    textTransform: 'uppercase', letterSpacing: '0.08em',
                   }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                    <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
-                    {c.sentiment === 'negativo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />}
-                    {c.sentiment === 'positivo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pos)' }} />}
+                    <span style={{ flex: '0 0 auto' }}>{monthName}</span>
+                    <span style={{ flex: 1, height: 1, background: 'var(--hairline)' }} />
                   </div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-                    {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
-                  </div>
-                  <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                  {week.map((c, i) => {
+                    if (!c) return <div key={`e${wIdx}-${i}`} />;
+                    const color = colorFor(c.topicSlug);
+                    const intensity = 0.3 + (c.volume / maxV) * 0.7;
+                    const dayNum = c.dt.getDate();
+                    const isFirstOfMonth = dayNum === 1;
+                    return (
+                      <button key={c.date} onClick={() => onDayClick(c)}
+                        title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${fmt(c.volume)} menciones`}
+                        style={{
+                          position: 'relative',
+                          aspectRatio: '1 / 1', minHeight: 62,
+                          padding: 6,
+                          borderRadius: 6,
+                          background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
+                          // Borde más marcado en el primer día del mes para
+                          // reforzar el cambio cuando ocurre mid-week.
+                          border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
+                          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                          textAlign: 'left', cursor: 'pointer',
+                          overflow: 'hidden',
+                        }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
+                          {c.sentiment === 'negativo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />}
+                          {c.sentiment === 'positivo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pos)' }} />}
+                        </div>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                          {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
+                        </div>
+                        <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </React.Fragment>
+            );
+          })}
         </div>
 
         {/* Legend */}
@@ -1852,6 +2055,10 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />
               Día con sentimiento negativo dominante
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 2 }} />
+              Primer día del mes
             </div>
           </div>
         </div>
