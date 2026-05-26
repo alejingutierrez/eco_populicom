@@ -162,25 +162,21 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const isDuplicate = duplicate.rows.length > 0;
   const duplicateOfId = isDuplicate ? duplicate.rows[0].id : null;
 
-  // Skip-empty: Brandwatch ocasionalmente entrega menciones sin título ni
-  // snippet. Sin texto el LLM no puede asignar tópico (queda 'Sin clasificar'
-  // en el reporte) — bypass Bedrock, persiste con pertinencia=baja.
-  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim();
-
-  let nlp: NlpAnalysis;
+  // Skip-empty: Brandwatch entrega shells vacíos (sin title, snippet ni URL),
+  // especialmente para X/Twitter desde el cambio de API de mayo 2026. No tienen
+  // ningún valor analítico — no se pueden clasificar, ni linkar, ni mostrar.
+  // Persistir estos shells inflaba el `total_mentions` del día y diluía las
+  // métricas de severidad y relevancia del Crisis Score (los aggregates no
+  // filtran por nada que distinga shells de menciones reales). Descartamos en
+  // origen: si Brandwatch corrige el feed más adelante, las menciones llegarán
+  // con contenido y se procesarán normalmente.
+  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim() && !mention.url?.trim();
   if (isEmpty) {
-    console.log(`[${agency.slug}] Skip-empty: mention ${resourceId} has no title or snippet — bypassing Bedrock`);
-    nlp = {
-      sentiment: 'neutral',
-      emotions: [],
-      pertinence: 'baja',
-      topics: [],
-      municipalities: [],
-      summary: 'Mención sin contenido textual',
-    };
-  } else {
-    nlp = await analyzeWithClaude(mention, agency);
+    console.log(`[${agency.slug}] Drop-empty-shell: ${resourceId} (page_type=${mention.pageType ?? '?'}, no title/snippet/url)`);
+    return;
   }
+
+  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency);
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
