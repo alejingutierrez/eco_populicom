@@ -60,6 +60,7 @@ export async function buildPeriodAggregates(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY mu.id, mu.name
@@ -77,6 +78,7 @@ export async function buildPeriodAggregates(
             (SELECT COALESCE(m2.nlp_sentiment, m2.bw_sentiment)
                FROM mentions m2
               WHERE m2.agency_id = $1 AND m2.author = m.author
+                AND m2.is_duplicate = false
                 AND m2.published_at >= ($2::date)
                 AND m2.published_at <  (($3::date) + INTERVAL '1 day')
               GROUP BY 1
@@ -84,6 +86,7 @@ export async function buildPeriodAggregates(
               LIMIT 1) AS dominant_sentiment
        FROM mentions m
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND author IS NOT NULL AND author <> ''
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
@@ -103,6 +106,7 @@ export async function buildPeriodAggregates(
     `SELECT COALESCE(content_source_name, domain) AS source, COUNT(*)::int AS mentions
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
         AND COALESCE(content_source_name, domain) IS NOT NULL
@@ -118,6 +122,7 @@ export async function buildPeriodAggregates(
     `SELECT emo::text AS emotion, COUNT(*)::int AS cnt
        FROM mentions m, jsonb_array_elements_text(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS emo
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY emo
@@ -180,6 +185,7 @@ export async function loadSamples(
          ) mm ON true
          LEFT JOIN municipalities mu ON mu.id = mm.municipality_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND m.published_at >= ($2::date)
           AND m.published_at <  (($3::date) + INTERVAL '1 day')
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = $4
@@ -233,6 +239,7 @@ export async function loadMetricInsightContext(
     `SELECT *
        FROM daily_metric_snapshots
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND date >= $2::date
         AND date <= $3::date
       ORDER BY date DESC
@@ -256,6 +263,7 @@ export async function loadMetricInsightContext(
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND m.published_at >= ($2::date)
               AND m.published_at <  (($3::date) + INTERVAL '1 day')
          ) pt
@@ -276,6 +284,7 @@ export async function loadMetricInsightContext(
     `SELECT author, COUNT(*)::int AS mentions
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND author IS NOT NULL AND author <> ''
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
@@ -295,6 +304,7 @@ export async function loadMetricInsightContext(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY mu.id, mu.name
@@ -313,6 +323,7 @@ export async function loadMetricInsightContext(
     `SELECT COUNT(*)::int AS total
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')`,
     [agency.id, startDate, endDate],
@@ -325,6 +336,7 @@ export async function loadMetricInsightContext(
     `SELECT COUNT(*)::int AS total
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')`,
     [agency.id, fmt(prevStart), fmt(prevEnd)],
@@ -360,6 +372,7 @@ export async function loadTodaySamples(client: any, agencyId: string, endYmd: st
        ) mm ON true
        LEFT JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.nlp_pertinence IN ('alta','media')
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($2::date) + INTERVAL '1 day')

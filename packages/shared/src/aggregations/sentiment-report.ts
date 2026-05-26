@@ -144,6 +144,7 @@ async function loadTotals(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1`,
@@ -168,6 +169,7 @@ async function loadDailySeries(
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1, 2
@@ -243,6 +245,7 @@ async function loadTopicsTable(
                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
          ) pt
@@ -256,6 +259,7 @@ async function loadTopicsTable(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY mt.topic_id

@@ -200,6 +200,9 @@ async function computeForAgency(client: any, agencyId: string, today: string): P
 }
 
 async function getDailyAggregates(client: any, agencyId: string, date: string): Promise<DailyAggregates> {
+  // is_duplicate = false: las menciones marcadas como duplicadas por text_hash
+  // (incluidos los shells vacíos de Twitter pre-Tier-2 que comparten hash)
+  // no deben contar en agregados. Ver render-crisis-alert / metric formulas.
   const result = await client.query(
     `SELECT
       COUNT(*)::int AS total_mentions,
@@ -207,6 +210,8 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
       COUNT(*) FILTER (WHERE nlp_sentiment = 'neutral')::int AS neutral_count,
       COUNT(*) FILTER (WHERE nlp_sentiment = 'negativo')::int AS negative_count,
       COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count,
+      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count,
+      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND nlp_sentiment = 'negativo')::int AS relevant_negative_count,
       COALESCE(SUM(likes), 0)::int AS total_likes,
       COALESCE(SUM(comments), 0)::int AS total_comments,
       COALESCE(SUM(shares), 0)::int AS total_shares,
@@ -215,6 +220,7 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
       COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
     FROM mentions
     WHERE agency_id = $1
+      AND is_duplicate = false
       AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date`,
     [agencyId, date],
   );
@@ -225,6 +231,8 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
     neutralCount: row.neutral_count,
     negativeCount: row.negative_count,
     highPertinenceCount: row.high_pertinence_count,
+    relevantMentionsCount: row.relevant_mentions_count,
+    relevantNegativeCount: row.relevant_negative_count,
     totalLikes: row.total_likes,
     totalComments: row.total_comments,
     totalShares: row.total_shares,
@@ -487,6 +495,7 @@ async function fireCrisisAlert(
        JOIN mention_topics mt ON mt.mention_id = m.id
        JOIN topics t ON t.id = mt.topic_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
       GROUP BY t.id, t.name
      HAVING COUNT(*) >= 3
@@ -510,6 +519,7 @@ async function fireCrisisAlert(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
         AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
       GROUP BY mu.id, mu.name
@@ -579,6 +589,7 @@ async function fireCrisisAlert(
          FROM mentions m
          LEFT JOIN primary_topic pt ON pt.mention_id = m.id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
           AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')

@@ -30,6 +30,16 @@ export interface DailyAggregates {
   neutralCount: number;
   negativeCount: number;
   highPertinenceCount: number;
+  /**
+   * Menciones cuya pertinencia es 'alta' o 'media'. Usado como denominador del
+   * crisis severity para inmunizar el score contra picos de ruido de baja
+   * pertinencia (shells vacíos de Twitter, comentarios irrelevantes, etc.).
+   * Cuando un evento genera 10 menciones reales y 200 comentarios irrelevantes,
+   * el severity sobre total se diluye; sobre alta+media refleja la realidad.
+   */
+  relevantMentionsCount: number;
+  /** Negativas dentro de relevantMentionsCount. */
+  relevantNegativeCount: number;
   totalLikes: number;
   totalComments: number;
   totalShares: number;
@@ -121,6 +131,7 @@ export function calculateMetrics(
   history: HistoricalSnapshot[],
 ): ComputedMetrics {
   const { totalMentions, positiveCount, negativeCount, highPertinenceCount } = agg;
+  const { relevantMentionsCount, relevantNegativeCount } = agg;
   const { totalLikes, totalComments, totalShares, totalReach, totalEngagementScore } = agg;
 
   if (totalMentions === 0) {
@@ -214,27 +225,38 @@ export function calculateMetrics(
     volumeAnomalyZscore = stdVol > 0 ? (totalMentions - avgVol) / stdVol : 0;
   }
 
-  // #21 Crisis Risk — V3 (mayo 2026, post-QA): el gate condicional original
-  // (negShare > 0.30 && total >= 20) || negativeCount >= 30 producía un salto
-  // binario (0 → ~0.4) que dejaba la métrica en CERO la mayor parte de los
-  // días sin crisis, sin transición visible. Los analistas reportaron que
-  // "no se siente fluctuación" — incluso con sentimiento negativo bajo el
-  // score se quedaba pegado a 0.
+  // #21 Crisis Risk — V4 (mayo 2026, post-incidente shells vacíos):
   //
-  // V3 ELIMINA el gate y calcula la combinación ponderada SIEMPRE. El score
-  // sigue siendo 0-1, los subcomponentes (severity/velocity/relevance) se
-  // calculan a partir de negShare/pertShare/volumeZ y la confidence escala
-  // por log10(total) para que volúmenes muy bajos no inflen el score con
-  // ruido (~3 mentions con 1 negativo no debe gritar "crisis").
+  // V3 calculaba `negShare = negativeCount / totalMentions` sobre TODAS las
+  // menciones. Esto rompía en el caso DDEC del 26-may-2026: el feed de Twitter
+  // empezó a entregar shells vacíos (sin title/snippet) — el processor los
+  // marcaba is_duplicate=true por hash, pero los aggregates contaban shells y
+  // duplicados igual que menciones reales. Resultado: 198 shells diluyeron 10
+  // negativas reales a 5% share → severity 0.08 → el score no cruzó el umbral
+  // de alerta a pesar de una crisis institucional en curso.
+  //
+  // V4 cambia DOS cosas:
+  //   1. Los aggregates filtran is_duplicate = false (en SQL).
+  //   2. `negShare` se calcula sobre menciones con pertinencia ∈ {alta, media}
+  //      en lugar del total. Esto inmuniza el severity contra picos de ruido
+  //      irrelevante (comentarios masivos de baja pertinencia, retweets sin
+  //      contenido, spam) sin tocar el resto de la fórmula.
+  //
+  // La confidence sigue usando totalMentions para que ventanas con muy pocas
+  // menciones relevantes no inflen el score (severity puede ser 1.0 con 1/1
+  // negativo, pero confidence apaga eso).
   //
   // Las bandas semánticas siguen los mismos umbrales que antes:
   //   NORMAL  : score < 0.25
   //   ELEVADO : 0.25 ≤ score < 0.40
   //   ALERTA  : 0.40 ≤ score < 0.60
   //   CRISIS  : score ≥ 0.60
-  // Backtest 482 días: con la nueva fórmula F1 permanece >0.75 (precision
-  // ligeramente menor por más días en ELEVADO, recall sin cambio).
-  const negShare = totalMentions > 0 ? negativeCount / totalMentions : 0;
+  // El backtest 482 días anterior usaba totalMentions como denominador; con
+  // V4 los días con muy poco ruido (la mayoría del histórico de DDEC) no
+  // cambian — solo se rectifican los días con pico de ruido.
+  const negShare = relevantMentionsCount > 0
+    ? relevantNegativeCount / relevantMentionsCount
+    : 0;
   const pertShare = totalMentions > 0 ? highPertinenceCount / totalMentions : 0;
   const crisisSeverity: number = Math.min(negShare / 0.7, 1.0);
   const volZ = (volumeAnomalyZscore ?? 0);
@@ -288,6 +310,8 @@ export async function loadAggregatesForWindow(
     neutral_count: number | string;
     negative_count: number | string;
     high_pertinence_count: number | string;
+    relevant_mentions_count: number | string;
+    relevant_negative_count: number | string;
     total_likes: number | string;
     total_comments: number | string;
     total_shares: number | string;
@@ -301,6 +325,8 @@ export async function loadAggregatesForWindow(
        COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count,
        COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count,
        COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count,
+       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count,
+       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count,
        COALESCE(SUM(likes), 0)::int AS total_likes,
        COALESCE(SUM(comments), 0)::int AS total_comments,
        COALESCE(SUM(shares), 0)::int AS total_shares,
@@ -309,6 +335,7 @@ export async function loadAggregatesForWindow(
        COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
      FROM mentions
      WHERE agency_id = $1
+       AND is_duplicate = false
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date`,
     [agencyId, startYmd, endYmd],
@@ -321,6 +348,8 @@ export async function loadAggregatesForWindow(
     neutralCount: Number(row.neutral_count),
     negativeCount: Number(row.negative_count),
     highPertinenceCount: Number(row.high_pertinence_count),
+    relevantMentionsCount: Number(row.relevant_mentions_count),
+    relevantNegativeCount: Number(row.relevant_negative_count),
     totalLikes: Number(row.total_likes),
     totalComments: Number(row.total_comments),
     totalShares: Number(row.total_shares),

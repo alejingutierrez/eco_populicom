@@ -228,6 +228,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                                                 : 'nss'}) AS p75
          FROM daily_metric_snapshots
         WHERE agency_id = $1
+          AND is_duplicate = false
           AND date BETWEEN ($2::date - INTERVAL '90 days') AND $2::date`,
       [agencyId, startYmd],
     );
@@ -246,6 +247,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
          JOIN mention_topics mt ON mt.mention_id = m.id
          JOIN topics t ON t.id = mt.topic_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY t.name

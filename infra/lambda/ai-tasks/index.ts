@@ -391,7 +391,7 @@ async function loadBriefingAggregates(
         COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo', 'negative'))::int AS neg,
         COALESCE(SUM(reach_estimate), 0)::bigint AS reach
        FROM mentions
-      WHERE agency_id = $1 AND published_at >= $2`,
+      WHERE agency_id = $1 AND is_duplicate = false AND published_at >= $2`,
     [agency.id, since.toISOString()],
   );
   const cur = totalsCur.rows[0];
@@ -407,7 +407,7 @@ async function loadBriefingAggregates(
         COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo', 'positive'))::int AS pos,
         COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo', 'negative'))::int AS neg
        FROM mentions
-      WHERE agency_id = $1 AND published_at >= $2 AND published_at < $3`,
+      WHERE agency_id = $1 AND is_duplicate = false AND published_at >= $2 AND published_at < $3`,
     [agency.id, prevSince.toISOString(), since.toISOString()],
   );
   const prev = totalsPrev.rows[0];
@@ -434,6 +434,7 @@ async function loadBriefingAggregates(
        JOIN mention_topics mt ON mt.mention_id = m.id
        JOIN topics t ON t.id = mt.topic_id
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       GROUP BY t.name
       ORDER BY total DESC
       LIMIT 5`,
@@ -455,6 +456,7 @@ async function loadBriefingAggregates(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       GROUP BY mu.name
       ORDER BY total DESC
       LIMIT 5`,
@@ -477,6 +479,7 @@ async function loadBriefingAggregates(
             m.page_type AS source
        FROM mentions m
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       ORDER BY engagement DESC
       LIMIT 3`,
     [agency.id, since.toISOString()],
@@ -543,6 +546,7 @@ async function loadEmergingAggregates(
        JOIN mention_topics mt ON mt.mention_id = m.id
        JOIN topics t ON t.id = mt.topic_id
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       GROUP BY t.name
       ORDER BY recent_total DESC`,
     [agency.id, since.toISOString(), midPoint.toISOString()],
@@ -596,6 +600,7 @@ async function loadCrisisAggregates(
             volume_anomaly_zscore
        FROM daily_metric_snapshots
       WHERE agency_id = $1
+      AND is_duplicate = false
       ORDER BY date DESC
       LIMIT 1`,
     [agency.id],
@@ -611,6 +616,7 @@ async function loadCrisisAggregates(
        JOIN mention_topics mt ON mt.mention_id = m.id
        JOIN topics t ON t.id = mt.topic_id
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       GROUP BY t.name
       HAVING COUNT(*) >= 5
       ORDER BY (COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC
@@ -636,6 +642,7 @@ async function loadCrisisAggregates(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1 AND m.published_at >= $2
+      AND m.is_duplicate = false
       GROUP BY mu.name
       HAVING COUNT(*) >= 5
       ORDER BY (COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC
@@ -1105,7 +1112,7 @@ async function loadTopicAggregate(
             COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg
        FROM mention_topics mt
        JOIN mentions m ON m.id = mt.mention_id
-      WHERE m.agency_id = $1 AND mt.topic_id = $2 AND m.published_at >= $3`,
+      WHERE m.agency_id = $1 AND m.is_duplicate = false AND mt.topic_id = $2 AND m.published_at >= $3`,
     [agency.id, topicId, since.toISOString()],
   );
   const total = Number(totalsRes.rows[0]?.total ?? 0);
@@ -1118,6 +1125,7 @@ async function loadTopicAggregate(
        JOIN mentions m ON m.id = mt.mention_id
        JOIN subtopics s ON s.id = mt.subtopic_id
       WHERE m.agency_id = $1 AND mt.topic_id = $2 AND m.published_at >= $3
+      AND m.is_duplicate = false
       GROUP BY s.name
       ORDER BY count DESC
       LIMIT 10`,
@@ -1131,6 +1139,7 @@ async function loadTopicAggregate(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1 AND mt.topic_id = $2 AND m.published_at >= $3
+      AND m.is_duplicate = false
       GROUP BY mu.name
       ORDER BY count DESC
       LIMIT 5`,
@@ -1169,6 +1178,7 @@ async function loadTopicSamples(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1 AND mt.topic_id = $2
+          AND m.is_duplicate = false
           AND m.published_at >= $3
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($4, $5)
         ORDER BY COALESCE(m.engagement_score, 0) DESC

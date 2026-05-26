@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
 
   const conditions: ReturnType<typeof eq>[] = [
     eq(mentions.agencyId, agencyId),
+    eq(mentions.isDuplicate, false),
     gte(mentions.publishedAt, since),
   ];
   if (customRange) {
@@ -511,6 +512,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
         FROM mentions n, mentions s
        WHERE s.id = ${sourceId}::uuid
          AND n.agency_id = ${agencyId}::uuid
+         AND n.is_duplicate = false
          AND n.id <> s.id
          AND n.embedding IS NOT NULL
        ORDER BY n.embedding <=> s.embedding
@@ -538,6 +540,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
         JOIN mention_topics nt ON nt.mention_id = n.id
         JOIN src ON src.topic_id = nt.topic_id
        WHERE n.agency_id = ${agencyId}::uuid
+         AND n.is_duplicate = false
          AND n.id <> ${sourceId}::uuid
        ORDER BY n.published_at DESC
        LIMIT ${k}
