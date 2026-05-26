@@ -246,6 +246,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
          JOIN mention_topics mt ON mt.mention_id = m.id
          JOIN topics t ON t.id = mt.topic_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY t.name
