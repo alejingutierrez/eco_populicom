@@ -1302,9 +1302,29 @@ function emotionColor(emotion) {
 }
 
 function EmotionsCard({ emotions, onEmotionClick }) {
-  const sorted = [...emotions].sort((a, b) => b.count - a.count);
+  const sorted = [...(emotions || [])].sort((a, b) => b.count - a.count);
   const total = sorted.reduce((s, e) => s + e.count, 0);
   const top = sorted[0];
+
+  if (!top) {
+    return (
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Emociones detectadas</div>
+            <div className="card-hd-sub">Perfil del período</div>
+          </div>
+          <Icons.Heart size={14} color="var(--text-3)" />
+        </div>
+        <div className="card-bd">
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
+            Sin emociones clasificadas en el periodo.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const topColor = emotionColor(top.emotion);
 
   return (

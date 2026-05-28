@@ -733,7 +733,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
               <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
               <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                  <Icons.Sparkles size={12} /> Claude · Bedrock
+                  <Icons.Sparkles size={12} /> Generado con IA
                 </div>
                 {mention.summary}
               </div>
