@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
       { source: '/mentions', destination: '/eco-prototype/index.html' },
       { source: '/sentiment', destination: '/eco-prototype/index.html' },
       { source: '/topics', destination: '/eco-prototype/index.html' },
+      { source: '/topics/:path*', destination: '/eco-prototype/index.html' },
       { source: '/geography', destination: '/eco-prototype/index.html' },
       { source: '/alerts', destination: '/eco-prototype/index.html' },
       { source: '/settings', destination: '/eco-prototype/index.html' },

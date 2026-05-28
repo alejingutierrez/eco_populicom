@@ -99,6 +99,15 @@ const SCREEN_TO_PATH = {
   narrative: '/narrative',
 };
 
+// Topics has a nested drill-in route (/topics/<slug>). Resolve any such path
+// back to the 'topics' screen so deep links and browser Back/forward keep the
+// dashboard on the right tab. Exact matches win first.
+function screenFromPath(pathname) {
+  if (PATH_TO_SCREEN[pathname]) return PATH_TO_SCREEN[pathname];
+  if (pathname.indexOf('/topics/') === 0) return 'topics';
+  return null;
+}
+
 // Error boundary — without this a render crash in any screen white-screens
 // the whole dashboard.
 class EcoErrorBoundary extends React.Component {
@@ -154,24 +163,26 @@ function App() {
   // URL path is the source of truth for the active screen on initial load, so
   // deep links like /mentions or /geography work from a fresh browser.
   const [active, setActiveRaw] = useState(() => {
-    const fromPath = PATH_TO_SCREEN[location.pathname];
+    const fromPath = screenFromPath(location.pathname);
     return fromPath || localStorage.getItem('eco.active') || 'overview';
   });
   const setActive = useCallback((next) => {
-    setActiveRaw((prev) => {
-      if (prev === next) return prev;
-      const path = SCREEN_TO_PATH[next];
-      if (path && location.pathname !== path) {
-        history.pushState({ eco: next }, '', path);
-      }
-      return next;
-    });
+    const path = SCREEN_TO_PATH[next];
+    // Push the section's base path even when already on that section (e.g.
+    // clicking "Tópicos" while drilled into a topic) so nested screens can
+    // collapse their drill-in. pushState doesn't emit popstate, so we also fire
+    // a custom event that the nested screens listen for.
+    if (path && location.pathname !== path) {
+      history.pushState({ eco: next }, '', path);
+      window.dispatchEvent(new Event('eco:locationchange'));
+    }
+    setActiveRaw(next);
   }, []);
 
   // Keep the app in sync when the user presses back/forward in the browser.
   useEffect(() => {
     const handler = () => {
-      const fromPath = PATH_TO_SCREEN[location.pathname];
+      const fromPath = screenFromPath(location.pathname);
       if (fromPath) setActiveRaw(fromPath);
     };
     window.addEventListener('popstate', handler);

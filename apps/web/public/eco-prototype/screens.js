@@ -1411,11 +1411,52 @@ function EmotionsCard({ emotions, onEmotionClick }) {
 
 // =============== TOPICS ===============
 function TopicsScreen({ onMentionClick }) {
-  const [selected, setSelected] = useState(null); // null = overview, else slug for drill-in
+  // The open topic lives in the URL (/topics/<slug>) so the browser Back button
+  // returns to the topic list (not the previous screen) and a topic is
+  // deep-linkable / shareable. `selected` mirrors the URL slug.
+  const topicSlugFromUrl = () => {
+    const m = location.pathname.match(/^\/topics\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  const [selected, setSelectedRaw] = useState(topicSlugFromUrl); // null = overview, else slug for drill-in
   const [view, setView] = useState('treemap'); // treemap | bubbles | list
   const [dayModal, setDayModal] = useState(null); // { date, fullDate, topicSlug, topicName, volume, sentiment }
+
+  const openTopic = React.useCallback((slug) => {
+    if (!slug) return;
+    history.pushState({ eco: 'topics', topic: slug, fromList: true }, '', '/topics/' + encodeURIComponent(slug));
+    setSelectedRaw(slug);
+  }, []);
+  const closeTopic = React.useCallback(() => {
+    // Drilled in from the list this session → go Back so the pushed entry is
+    // consumed and Back/forward stay consistent. On a cold deep-link there is no
+    // list entry to return to, so rewrite the URL in place instead.
+    if (history.state && history.state.fromList) history.back();
+    else { history.replaceState({ eco: 'topics' }, '', '/topics'); setSelectedRaw(null); }
+  }, []);
+  // Sync on browser Back/forward (popstate) and on sidebar re-clicks that reset
+  // the section (eco:locationchange, fired by App.setActive).
+  React.useEffect(() => {
+    const sync = () => setSelectedRaw(topicSlugFromUrl());
+    window.addEventListener('popstate', sync);
+    window.addEventListener('eco:locationchange', sync);
+    return () => {
+      window.removeEventListener('popstate', sync);
+      window.removeEventListener('eco:locationchange', sync);
+    };
+  }, []);
+
   const sel = selected ? D.TOPICS.find(t => t.slug === selected) : null;
   const subs = sel ? (D.SUBTOPICS[sel.slug] || []) : [];
+
+  // URL points at a topic absent from the current dataset (stale link, or
+  // filtered out by the active period) → drop the drill-in and clean the URL.
+  React.useEffect(() => {
+    if (selected && !sel) {
+      history.replaceState({ eco: 'topics' }, '', '/topics');
+      setSelectedRaw(null);
+    }
+  }, [selected, sel]);
 
   // Real "topic of the day" data viene del endpoint (TOPIC_CALENDAR), que
   // agrupa mention_topics por (published_at AT TZ AST)::date y se queda con
@@ -1436,7 +1477,7 @@ function TopicsScreen({ onMentionClick }) {
   }, []);
 
   // Drill-in view
-  if (sel) return <TopicDetail topic={sel} subs={subs} onBack={() => setSelected(null)} />;
+  if (sel) return <TopicDetail topic={sel} subs={subs} onBack={closeTopic} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1460,14 +1501,14 @@ function TopicsScreen({ onMentionClick }) {
           </div>
         </div>
         <div className="card-bd">
-          {view === 'treemap' && <TopicTreemap topics={D.TOPICS} onSelect={setSelected} />}
-          {view === 'bubbles' && <TopicBubbles topics={D.TOPICS} onSelect={setSelected} />}
-          {view === 'list' &&    <TopicList topics={D.TOPICS} onSelect={setSelected} />}
+          {view === 'treemap' && <TopicTreemap topics={D.TOPICS} onSelect={openTopic} />}
+          {view === 'bubbles' && <TopicBubbles topics={D.TOPICS} onSelect={openTopic} />}
+          {view === 'list' &&    <TopicList topics={D.TOPICS} onSelect={openTopic} />}
         </div>
       </div>
 
       {/* Calendario de tópico principal por día */}
-      <TopicCalendar data={calendarData} onSelect={setSelected} onDayClick={setDayModal} />
+      <TopicCalendar data={calendarData} onSelect={openTopic} onDayClick={setDayModal} />
 
       {dayModal && (() => {
         const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
@@ -1494,7 +1535,7 @@ function TopicsScreen({ onMentionClick }) {
               _filter: { topic: dayModal.topicSlug, day: dayIso },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
               ctaIcon: 'Hash',
-              onCta: () => { setDayModal(null); setSelected(dayModal.topicSlug); },
+              onCta: () => { setDayModal(null); openTopic(dayModal.topicSlug); },
             }}
             onClose={() => setDayModal(null)}
             onMentionClick={onMentionClick}
