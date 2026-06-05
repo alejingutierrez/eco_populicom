@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
       { source: '/dashboard', destination: '/eco-prototype/index.html' },
       { source: '/dashboard/:path*', destination: '/eco-prototype/index.html' },
       { source: '/mentions', destination: '/eco-prototype/index.html' },
+      { source: '/search', destination: '/eco-prototype/index.html' },
       { source: '/sentiment', destination: '/eco-prototype/index.html' },
       { source: '/topics', destination: '/eco-prototype/index.html' },
       { source: '/topics/:path*', destination: '/eco-prototype/index.html' },
