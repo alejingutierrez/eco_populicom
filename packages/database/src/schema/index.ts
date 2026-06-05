@@ -1,5 +1,6 @@
 export * from './agencies';
 export * from './users';
+export * from './user-agencies';
 export * from './mentions';
 export * from './mention-relations';
 export * from './topics';

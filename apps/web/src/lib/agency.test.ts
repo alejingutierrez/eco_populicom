@@ -1,145 +1,175 @@
 /**
- * Tests for resolveAgencyId — the agency-resolution precedence shared by every
- * dashboard data route (eco-data, overview, mentions, narratives, alerts, ...).
+ * Tests for resolveAgencyId / resolveAllowedAgencySlugs — the per-user agency
+ * authorization shared by every dashboard data route.
  *
- * Precedence under test (see ./agency.ts):
- *   1. explicit ?agency= query param  — the dashboard's agency switcher
- *   2. session agency from the JWT     — x-eco-user-agency header (middleware)
- *   3. DEFAULT_AGENCY_SLUG ('aaa')      — seed/bootstrap/public contexts
- *   4. first active agency              — DB last-resort so the app never 404s
+ * Rules under test (see ./agency.ts):
+ *   - Authenticated: the explicit ?agency= (switcher) is honored ONLY if it's
+ *     within the user's allowed set; otherwise fall back to their primary.
+ *   - Allowed set: a users row with all_agencies=true → every agency; a row
+ *     with explicit user_agencies → those ∪ the primary; no row → domain rule
+ *     (@populicom.com → all, else the JWT agency only).
+ *   - No session (public/seed): ?agency= → default slug → first active.
  *
- * SECURITY: "explicit param overrides session" is the rule that makes the
- * switcher work AND the rule that currently lets any authenticated user read
- * any agency. When per-user agency access lands, the param must be validated
- * against the user's allowed set before step 1 wins — add those cases here.
+ * SECURITY: the "param within allowed set" check is the tenant-isolation
+ * boundary — a user must never resolve to an agency outside their grants.
  */
 import { headers } from 'next/headers';
-import { resolveAgencyId } from './agency';
+import { resolveAgencyId, resolveAllowedAgencySlugs, clearAccessCache } from './agency';
 
-// --- mocks -----------------------------------------------------------------
 jest.mock('next/headers', () => ({ headers: jest.fn() }));
-jest.mock('drizzle-orm', () => ({ eq: (col: unknown, val: unknown) => ({ col, val }) }));
+jest.mock('drizzle-orm', () => ({
+  eq: (col: unknown, val: unknown) => ({ kind: 'eq', col, val }),
+  or: (...conds: unknown[]) => ({ kind: 'or', conds }),
+}));
 
-// Per-test DB state. Names start with `mock` so jest.mock's factory may
-// reference them despite hoisting.
-let mockSlugToId: Record<string, string> = {};
-let mockFirstActiveId: string | null = null;
+// --- in-memory DB state (configured per test) ---
+type Row = Record<string, unknown>;
+let mockAgenciesRows: Row[] = [];
+let mockUsersRows: Row[] = [];
+let mockUserAgenciesRows: Row[] = [];
 
 jest.mock('@eco/database', () => {
-  const agencies = { id: Symbol('id'), slug: Symbol('slug'), isActive: Symbol('isActive') };
+  const agencies = { id: 'agencies.id', slug: 'agencies.slug', isActive: 'agencies.isActive', name: 'agencies.name' };
+  const users = { id: 'users.id', cognitoSub: 'users.cognitoSub', email: 'users.email', allAgencies: 'users.allAgencies', agencyId: 'users.agencyId' };
+  const userAgencies = { userId: 'user_agencies.userId', agencyId: 'user_agencies.agencyId' };
+
+  const field = (col: unknown) => String(col).split('.')[1];
+
+  const match = (row: Row, cond: { kind: string; col?: unknown; val?: unknown; conds?: unknown[] } | undefined): boolean => {
+    if (!cond) return true;
+    if (cond.kind === 'or') return (cond.conds as { kind: string }[]).some((c) => match(row, c as never));
+    if (cond.kind === 'eq') return row[field(cond.col)] === cond.val;
+    return true;
+  };
+  const dataFor = (name: string): Row[] =>
+    name === 'agencies' ? mockAgenciesRows : name === 'users' ? mockUsersRows : mockUserAgenciesRows;
+  const project = (rows: Row[], cols: Record<string, unknown> | null): Row[] =>
+    !cols ? rows : rows.map((r) => {
+      const o: Row = {};
+      for (const k of Object.keys(cols)) o[k] = r[field(cols[k])];
+      return o;
+    });
+
   const getDb = () => ({
-    select: () => ({
-      from: () => ({
-        where: (cond: { col: unknown; val: unknown }) => ({
-          limit: () => {
-            // slugToId(): SELECT id FROM agencies WHERE slug = <val>
-            if (cond.col === agencies.slug) {
-              const id = mockSlugToId[String(cond.val)];
-              return Promise.resolve(id ? [{ id }] : []);
-            }
-            // fallback: SELECT id FROM agencies WHERE isActive = true
-            return Promise.resolve(mockFirstActiveId ? [{ id: mockFirstActiveId }] : []);
-          },
-        }),
-      }),
-    }),
+    select: (cols?: Record<string, unknown>) => {
+      const state: { cols: Record<string, unknown> | null; table: string; cond?: unknown } = { cols: cols ?? null, table: '' };
+      const run = () => project(dataFor(state.table).filter((r) => match(r, state.cond as never)), state.cols);
+      const chain: Record<string, unknown> = {
+        where(cond: unknown) { state.cond = cond; return chain; },
+        limit() { return Promise.resolve(run()); },
+        orderBy() { return Promise.resolve(run()); },
+        then(res: (v: Row[]) => unknown, rej: (e: unknown) => unknown) { return Promise.resolve(run()).then(res, rej); },
+      };
+      return {
+        from(tbl: unknown) {
+          state.table = tbl === agencies ? 'agencies' : tbl === users ? 'users' : 'user_agencies';
+          return chain;
+        },
+      };
+    },
   });
-  return { agencies, getDb };
+
+  return { agencies, users, userAgencies, getDb };
 });
 
-// --- helpers ---------------------------------------------------------------
-function withSession(slug: string | null) {
+// --- helpers ---
+function session(opts: { sub?: string | null; email?: string | null; slug?: string | null }) {
   (headers as jest.Mock).mockResolvedValue({
-    get: (k: string) => (k === 'x-eco-user-agency' ? slug : null),
+    get: (k: string) =>
+      k === 'x-eco-user-sub' ? opts.sub ?? null
+      : k === 'x-eco-user-email' ? opts.email ?? null
+      : k === 'x-eco-user-agency' ? opts.slug ?? null
+      : null,
   });
 }
-function outsideRequestScope() {
-  // headers() throws outside a request scope (seed/bootstrap/CLI tools).
-  (headers as jest.Mock).mockRejectedValue(new Error('headers() outside request scope'));
+function noSession() {
+  (headers as jest.Mock).mockResolvedValue({ get: () => null });
 }
 const params = (qs = '') => new URLSearchParams(qs);
 
+const AAA = 'id-aaa';
+const DDEC = 'id-ddecpr';
+const OTHER = 'id-other';
+
 beforeEach(() => {
   jest.clearAllMocks();
-  mockSlugToId = { aaa: 'id-aaa', ddecpr: 'id-ddecpr', other: 'id-other' };
-  mockFirstActiveId = 'id-first-active';
+  clearAccessCache();
+  mockAgenciesRows = [
+    { id: AAA, slug: 'aaa', isActive: true, name: 'AAA' },
+    { id: DDEC, slug: 'ddecpr', isActive: true, name: 'DDEC' },
+    { id: OTHER, slug: 'other', isActive: true, name: 'Other' },
+  ];
+  mockUsersRows = [];
+  mockUserAgenciesRows = [];
 });
 
-describe('resolveAgencyId — switcher behavior (param vs session)', () => {
-  test('explicit ?agency= overrides the session agency', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params('agency=aaa'))).toBe('id-aaa');
+describe('resolveAgencyId — no session (public / seed)', () => {
+  test('explicit ?agency= is used', async () => {
+    noSession();
+    expect(await resolveAgencyId(params('agency=ddecpr'))).toBe(DDEC);
   });
-
-  test('explicit ?agency= equal to the session agency resolves to it', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params('agency=ddecpr'))).toBe('id-ddecpr');
-  });
-
-  test('switching resolves to whichever slug is in the URL', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params('agency=aaa'))).toBe('id-aaa');
-    expect(await resolveAgencyId(params('agency=other'))).toBe('id-other');
-    expect(await resolveAgencyId(params('agency=ddecpr'))).toBe('id-ddecpr');
-  });
-});
-
-describe('resolveAgencyId — fallback to session', () => {
-  test('no ?agency= falls back to the session agency', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params(''))).toBe('id-ddecpr');
-  });
-
-  test('empty "agency=" is ignored and falls back to session', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params('agency='))).toBe('id-ddecpr');
-  });
-
-  test('an unknown ?agency= slug falls through to the session agency', async () => {
-    withSession('ddecpr');
-    expect(await resolveAgencyId(params('agency=does-not-exist'))).toBe('id-ddecpr');
+  test('no param resolves to the default slug (aaa)', async () => {
+    noSession();
+    expect(await resolveAgencyId(params(''))).toBe(AAA);
   });
 });
 
-describe('resolveAgencyId — unauthenticated / public contexts', () => {
-  test('no session + explicit ?agency= uses the param', async () => {
-    withSession(null);
-    expect(await resolveAgencyId(params('agency=aaa'))).toBe('id-aaa');
+describe('resolveAgencyId — user with all_agencies', () => {
+  beforeEach(() => {
+    mockUsersRows = [{ id: 'u1', cognitoSub: 'sub-1', email: 'a@populicom.com', allAgencies: true, agencyId: DDEC }];
   });
-
-  test('no session + no param resolves to the default slug (aaa)', async () => {
-    withSession(null);
-    expect(await resolveAgencyId(params(''))).toBe('id-aaa');
+  test('switcher can select any active agency', async () => {
+    session({ sub: 'sub-1', email: 'a@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=aaa'))).toBe(AAA);
+    clearAccessCache();
+    expect(await resolveAgencyId(params('agency=other'))).toBe(OTHER);
   });
-
-  test('headers() unavailable + param still uses the param', async () => {
-    outsideRequestScope();
-    expect(await resolveAgencyId(params('agency=other'))).toBe('id-other');
+  test('no param → primary agency', async () => {
+    session({ sub: 'sub-1', email: 'a@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params(''))).toBe(DDEC);
   });
-
-  test('headers() unavailable + no param resolves to the default slug', async () => {
-    outsideRequestScope();
-    expect(await resolveAgencyId(params(''))).toBe('id-aaa');
+  test('resolveAllowedAgencySlugs → null (all)', async () => {
+    session({ sub: 'sub-1', email: 'a@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAllowedAgencySlugs()).toBeNull();
   });
 });
 
-describe('resolveAgencyId — last-resort DB fallback', () => {
-  test('no param, no session, default slug missing → first active agency', async () => {
-    withSession(null);
-    mockSlugToId = {}; // even 'aaa' is unknown
-    expect(await resolveAgencyId(params(''))).toBe('id-first-active');
+describe('resolveAgencyId — user with explicit grants', () => {
+  beforeEach(() => {
+    // primary ddecpr, also granted aaa. NOT granted 'other'.
+    mockUsersRows = [{ id: 'u2', cognitoSub: 'sub-2', email: 'cliente@ddec.pr.gov', allAgencies: false, agencyId: DDEC }];
+    mockUserAgenciesRows = [{ userId: 'u2', agencyId: AAA }];
   });
-
-  test('unknown param, no session, default slug missing → first active agency', async () => {
-    withSession(null);
-    mockSlugToId = {};
-    expect(await resolveAgencyId(params('agency=ghost'))).toBe('id-first-active');
+  test('?agency= within the granted set is honored', async () => {
+    session({ sub: 'sub-2', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=aaa'))).toBe(AAA);
   });
+  test('primary agency is always allowed', async () => {
+    session({ sub: 'sub-2', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=ddecpr'))).toBe(DDEC);
+  });
+  test('?agency= OUTSIDE the granted set falls back to the primary', async () => {
+    session({ sub: 'sub-2', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=other'))).toBe(DDEC);
+  });
+  test('resolveAllowedAgencySlugs → granted ∪ primary', async () => {
+    session({ sub: 'sub-2', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    const slugs = await resolveAllowedAgencySlugs();
+    expect(slugs && [...slugs].sort()).toEqual(['aaa', 'ddecpr']);
+  });
+});
 
-  test('nothing resolves and no active agency → null', async () => {
-    withSession(null);
-    mockSlugToId = {};
-    mockFirstActiveId = null;
-    expect(await resolveAgencyId(params(''))).toBeNull();
+describe('resolveAgencyId — no users row yet (domain fallback)', () => {
+  test('staff (@populicom.com) may switch into any agency', async () => {
+    session({ sub: 'sub-x', email: 'staff@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=aaa'))).toBe(AAA);
+  });
+  test('non-staff is limited to their JWT agency', async () => {
+    session({ sub: 'sub-y', email: 'someone@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=aaa'))).toBe(DDEC); // request denied → primary
+  });
+  test('non-staff resolveAllowedAgencySlugs → only their JWT agency', async () => {
+    session({ sub: 'sub-y', email: 'someone@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAllowedAgencySlugs()).toEqual(['ddecpr']);
   });
 });

@@ -696,6 +696,36 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'create-user-agencies-schema') {
+      // Per-user agency access (feat/user-agencies): the all_agencies flag on
+      // users + the user_agencies N:N table. Idempotente — IF NOT EXISTS en
+      // todo, así que re-ejecutarla es no-op. No siembra datos: el acceso de
+      // staff lo cubre la regla por dominio + el JIT provisioning del web app.
+      const stmts = [
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS all_agencies BOOLEAN NOT NULL DEFAULT false`,
+        `CREATE TABLE IF NOT EXISTS user_agencies (
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, agency_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_user_agencies_user ON user_agencies (user_id)`,
+      ];
+      for (const stmt of stmts) await client.query(stmt);
+      const col = await client.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'all_agencies'`,
+      );
+      const tbl = await client.query(`SELECT to_regclass('public.user_agencies') AS t`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          all_agencies_column: col.rows.length > 0,
+          user_agencies_table: tbl.rows[0].t,
+        }),
+      };
+    }
+
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {
     await client.end();
