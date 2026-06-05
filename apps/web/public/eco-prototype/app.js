@@ -1,7 +1,7 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
-const { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen } = window.ECO_SCREENS;
+const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
 // Shared state stored on window and observed by the React <ToastHost>.
@@ -80,6 +80,7 @@ const PATH_TO_SCREEN = {
   '/overview': 'overview',
   '/dashboard': 'dashboard',
   '/mentions': 'mentions',
+  '/search': 'search',
   '/sentiment': 'sentiment',
   '/topics': 'topics',
   '/geography': 'geography',
@@ -91,6 +92,7 @@ const SCREEN_TO_PATH = {
   overview: '/overview',
   dashboard: '/dashboard',
   mentions: '/mentions',
+  search: '/search',
   sentiment: '/sentiment',
   topics: '/topics',
   geography: '/geography',
@@ -140,6 +142,7 @@ const SCREEN_META = {
   overview:  { label: 'Overview',      eyebrow: null },
   dashboard: { label: 'Scorecard',     eyebrow: 'Scorecard táctico · tiempo real' },
   mentions:  { label: 'Menciones',     eyebrow: 'Flujo de conversación' },
+  search:    { label: 'Búsqueda',      eyebrow: 'Resultados en todas las menciones' },
   sentiment: { label: 'Sentimiento',   eyebrow: 'Análisis emocional' },
   topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
@@ -206,6 +209,12 @@ function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
   const [mentionsFilter, setMentionsFilter] = useState(null);
+  // Query del buscador global. La setea el command palette (⌘K → "ver todos
+  // los resultados") y la lee SearchScreen. Inicializa desde ?q= si el usuario
+  // entra por deep-link a /search.
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try { return new URLSearchParams(location.search).get('q') || ''; } catch (_) { return ''; }
+  });
 
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
@@ -264,6 +273,7 @@ function App() {
     overview: OverviewScreen,
     dashboard: DashboardScreen,
     mentions: MentionsScreen,
+    search: SearchScreen,
     sentiment: SentimentScreen,
     topics: TopicsScreen,
     geography: GeographyScreen,
@@ -296,6 +306,7 @@ function App() {
             onMentionClick={setDrawerMention}
             period={period} setPeriod={setPeriod}
             mentionsFilter={mentionsFilter} setMentionsFilter={setMentionsFilter}
+            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             agency={agency}
             setActive={setActive}
           />
@@ -307,7 +318,9 @@ function App() {
         onNav={(k) => { setActive(k); setCmdOpen(false); }}
         onSetPeriod={(p) => { setPeriod(p); }}
         onSetMode={(m) => { setMode(m); }}
+        onMentionClick={(m) => { setDrawerMention(m); setCmdOpen(false); }}
         onOpenMentionsWithFilter={(f) => { setMentionsFilter(f); setActive('mentions'); }}
+        onSearchAll={(query) => { setSearchQuery(query); setActive('search'); setCmdOpen(false); }}
       />}
       {drawerMention && (
         <MentionDrawer

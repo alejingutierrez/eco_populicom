@@ -430,7 +430,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
   );
 }
 
-function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick, onOpenMentionsWithFilter }) {
+function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick, onOpenMentionsWithFilter, onSearchAll }) {
   const [query, setQuery] = useState('');
   const inputRef = useRef(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -495,7 +495,17 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     action: () => onMentionClick && onMentionClick(mn),
     icon: mn.sentiment === 'negativo' ? 'AlertTriangle' : mn.sentiment === 'positivo' ? 'Heart' : 'MessageSquare',
   }));
-  const filtered = [...liveItems, ...commandsMatch];
+  // "Ver todos los resultados" — primera opción cuando hay query, así Enter
+  // por defecto abre la página de resultados completa (/search). Reúne el
+  // buscador rápido (palette) con la página dedicada.
+  const trimmedQuery = query.trim();
+  const searchAllItems = (trimmedQuery.length >= 2 && onSearchAll) ? [{
+    kind: 'Búsqueda',
+    label: `Ver todos los resultados para «${trimmedQuery}»`,
+    action: () => onSearchAll(trimmedQuery),
+    icon: 'Search',
+  }] : [];
+  const filtered = [...searchAllItems, ...liveItems, ...commandsMatch];
   const grouped = filtered.reduce((acc, it) => { (acc[it.kind] ??= []).push(it); return acc; }, {});
 
   useEffect(() => { setSelectedIdx(0); }, [query]);

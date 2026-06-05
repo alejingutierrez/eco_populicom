@@ -615,6 +615,84 @@ function HourActivityCard({ onCellClick }) {
 const PAGE_SIZE = 25;
 const VIRAL_THRESHOLD = 5000;
 
+// Opciones canónicas compartidas entre MentionsScreen y SearchScreen para que
+// no diverjan dos listas copiadas a mano (la auditoría encontró duplicación).
+const SOURCE_OPTIONS = [
+  { v: 'all', l: 'Todas las fuentes' },
+  { v: 'facebook', l: 'Facebook' },
+  { v: 'twitter', l: 'X / Twitter' },
+  { v: 'news', l: 'Noticias' },
+  { v: 'instagram', l: 'Instagram' },
+  { v: 'youtube', l: 'YouTube' },
+];
+const VIEW_MODES = [
+  { k: 'list', l: 'Lista', icon: 'List' },
+  { k: 'cards', l: 'Cards', icon: 'Grid' },
+  { k: 'table', l: 'Tabla', icon: 'Table' },
+];
+// Orden respaldado por /api/eco-mentions (recent | engagement | relevance).
+// 'relevance' requiere query; sin ella se resuelve a 'recent'. NO existe orden
+// por 'sentiment' en la API — se eliminó de la UI porque era opción muerta.
+const SORT_OPTIONS = [
+  { k: 'relevance', l: 'Relevancia', needsQuery: true },
+  { k: 'recent', l: 'Reciente' },
+  { k: 'engagement', l: 'Engagement' },
+];
+// Resuelve el orden efectivo: 'relevance' sin query cae a 'recent', para que el
+// control nunca marque una opción que la API ignora.
+function resolveSort(sortBy, hasQuery) {
+  if (sortBy === 'relevance' && !hasQuery) return 'recent';
+  return sortBy || 'recent';
+}
+
+function SourceSelect({ value, onChange, style }) {
+  return (
+    <select className="input" value={value} onChange={onChange} style={style}>
+      {SOURCE_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+    </select>
+  );
+}
+
+function ViewToggle({ viewMode, setViewMode }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+      {VIEW_MODES.map((o) => {
+        const IC = Icons[o.icon] || Icons.List;
+        return (
+          <button key={o.k} onClick={() => setViewMode(o.k)} className={`chip ${viewMode === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <IC size={11} /> {o.l}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Control de orden compartido (chips). Deshabilita 'relevance' sin query y
+// resalta el orden EFECTIVO. Se agrupa nowrap para que la etiqueta no se
+// despegue de sus chips al hacer wrap.
+function SortChips({ sortBy, setSortBy, hasQuery }) {
+  const effective = resolveSort(sortBy, hasQuery);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', marginLeft: 'auto' }}>
+      <span className="section-eyebrow" style={{ margin: 0 }}>Ordenar</span>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {SORT_OPTIONS.map((o) => {
+          const disabled = o.needsQuery && !hasQuery;
+          return (
+            <button key={o.k} className={`chip ${effective === o.k ? 'active' : ''}`}
+              onClick={() => { if (!disabled) setSortBy(o.k); }} disabled={disabled}
+              style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+              title={disabled ? 'Requiere un término de búsqueda' : undefined}>
+              {o.l}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MentionsScreen({ onMentionClick }) {
   // Estado de filtros (server-side). `q` se sincroniza con `queryInput` con
   // debounce de 300ms para evitar un fetch por cada tecla.
@@ -650,9 +728,10 @@ function MentionsScreen({ onMentionClick }) {
     const ctrl = new AbortController();
     setLoading(true);
     const agency = localStorage.getItem('eco.agency') || '';
-    const period = localStorage.getItem('eco.period') || '1M';
+    // ecoGetPeriodParams respeta el rango personalizado (eco.from/to); leer
+    // eco.period a mano lo ignoraba y /mentions mostraba 30 días rolantes.
     const params = new URLSearchParams({
-      period,
+      ...window.ecoGetPeriodParams(),
       limit: String(PAGE_SIZE),
       offset: String((page - 1) * PAGE_SIZE),
     });
@@ -662,6 +741,8 @@ function MentionsScreen({ onMentionClick }) {
     if (filters.source !== 'all') params.set('source', filters.source);
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
+    const sort = resolveSort(filters.sortBy, !!filters.q);
+    if (sort !== 'recent') params.set('sortBy', sort);
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((r) => r.ok ? r.json() : { mentions: [], total: 0 })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
@@ -676,9 +757,8 @@ function MentionsScreen({ onMentionClick }) {
   React.useEffect(() => {
     const ctrl = new AbortController();
     const agency = localStorage.getItem('eco.agency') || '';
-    const period = localStorage.getItem('eco.period') || '1M';
     const params = new URLSearchParams({
-      period, limit: '1', minEngagement: String(VIRAL_THRESHOLD),
+      ...window.ecoGetPeriodParams(), limit: '1', minEngagement: String(VIRAL_THRESHOLD),
     });
     if (agency) params.set('agency', agency);
     setViralCount(null);
@@ -694,6 +774,7 @@ function MentionsScreen({ onMentionClick }) {
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
 
   const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
+  const searchTerms = filters.q ? filters.q.trim().split(/\s+/).filter((t) => t.length >= 2) : [];
 
   function openViralSlice() {
     setSlice({
@@ -721,14 +802,7 @@ function MentionsScreen({ onMentionClick }) {
           ))}
         </div>
         <div style={{ width: 1, height: 24, background: 'var(--hairline)' }} />
-        <select className="input" value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }}>
-          <option value="all">Todas las fuentes</option>
-          <option value="facebook">Facebook</option>
-          <option value="twitter">X / Twitter</option>
-          <option value="news">Noticias</option>
-          <option value="instagram">Instagram</option>
-          <option value="youtube">YouTube</option>
-        </select>
+        <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
         <div style={{ position: 'relative' }}>
           <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
             <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
@@ -747,11 +821,18 @@ function MentionsScreen({ onMentionClick }) {
               </select>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Ordenar por</div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
-                  <button key={o.k} className={`chip ${filters.sortBy === o.k ? 'active' : ''}`} onClick={() => setFilters((f) => ({ ...f, sortBy: o.k }))}>
-                    {o.l}
-                  </button>
-                ))}
+                {SORT_OPTIONS.map((o) => {
+                  const disabled = o.needsQuery && !filters.q;
+                  const effective = resolveSort(filters.sortBy, !!filters.q);
+                  return (
+                    <button key={o.k} className={`chip ${effective === o.k ? 'active' : ''}`}
+                      onClick={() => { if (!disabled) setFilters((f) => ({ ...f, sortBy: o.k })); }} disabled={disabled}
+                      style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                      title={disabled ? 'Requiere un término de búsqueda' : undefined}>
+                      {o.l}
+                    </button>
+                  );
+                })}
               </div>
               {activeMoreFiltersCount > 0 && (
                 <button className="chip" style={{ marginTop: 12 }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
@@ -793,29 +874,16 @@ function MentionsScreen({ onMentionClick }) {
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-            {[
-              { k: 'list', l: 'Lista', icon: 'List' },
-              { k: 'cards', l: 'Cards', icon: 'Grid' },
-              { k: 'table', l: 'Tabla', icon: 'Table' },
-            ].map(o => {
-              const IC = Icons[o.icon] || Icons.List;
-              return (
-                <button key={o.k} onClick={() => setViewMode(o.k)} className={`chip ${viewMode === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <IC size={11} /> {o.l}
-                </button>
-              );
-            })}
-          </div>
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
         </div>
         {data.mentions.length === 0 && !loading && (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
             No se encontraron menciones con los filtros actuales.
           </div>
         )}
-        {viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} />}
-        {viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} />}
-        {viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+        {viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+        {viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
         {data.total > PAGE_SIZE && (
           <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
             <Pagination page={page} totalPages={totalPages} onChange={setPage} />
@@ -924,8 +992,26 @@ function Pagination({ page, totalPages, onChange }) {
   );
 }
 
+// Resalta los términos de búsqueda dentro de un texto. `terms` es un array de
+// tokens (los mismos que se mandan como `q` al API). Si no hay términos,
+// devuelve el texto tal cual — así las pantallas que no buscan (o el feed sin
+// query) renderizan exactamente igual que antes. Cada token se escapa para que
+// caracteres especiales de regex no rompan el match.
+function HL({ text, terms }) {
+  if (text == null || text === '') return text || null;
+  const list = (terms || []).map((t) => String(t).trim()).filter((t) => t.length >= 2);
+  if (list.length === 0) return text;
+  const escaped = list.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  let re;
+  try { re = new RegExp('(' + escaped.join('|') + ')', 'ig'); } catch (_) { return text; }
+  const parts = String(text).split(re);
+  return parts.map((part, i) => (i % 2 === 1)
+    ? <mark key={i} style={{ background: 'var(--accent-fill)', color: 'var(--accent)', padding: '0 2px', borderRadius: 3, fontWeight: 600 }}>{part}</mark>
+    : <React.Fragment key={i}>{part}</React.Fragment>);
+}
+
 // --- Mentions: List view (dense table-row, sin columnas Engagement ni Pertinencia) ---
-function MentionsList({ mentions, onMentionClick }) {
+function MentionsList({ mentions, onMentionClick, highlight }) {
   return (
     <>
       <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
@@ -940,7 +1026,7 @@ function MentionsList({ mentions, onMentionClick }) {
             style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ overflow: 'hidden' }}>
-              <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
+              <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HL text={mn.title} terms={highlight} /></div>
               <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
@@ -955,7 +1041,7 @@ function MentionsList({ mentions, onMentionClick }) {
 }
 
 // --- Mentions: Cards view (rich tiles, sin pill de pertinencia) ---
-function MentionsCards({ mentions, onMentionClick }) {
+function MentionsCards({ mentions, onMentionClick, highlight }) {
   return (
     <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
       {mentions.map((mn) => {
@@ -974,8 +1060,8 @@ function MentionsCards({ mentions, onMentionClick }) {
               <span>{mn.publishedAt}</span>
               <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`}>{mn.sentiment}</span>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.title}</div>
-            {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.snippet}</div>}
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.title} terms={highlight} /></div>
+            {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.snippet} terms={highlight} /></div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
               <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</span>
@@ -988,7 +1074,7 @@ function MentionsCards({ mentions, onMentionClick }) {
 }
 
 // --- Mentions: Table view (compact, sin columnas Engagement ni Pertinencia) ---
-function MentionsTable({ mentions, onMentionClick }) {
+function MentionsTable({ mentions, onMentionClick, highlight }) {
   const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Subtópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
@@ -1008,7 +1094,7 @@ function MentionsTable({ mentions, onMentionClick }) {
             return (
               <tr key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover" style={{ borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}>
                 <td style={{ padding: '8px 10px' }}><SIcon size={12} color="var(--text-3)" /></td>
-                <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{mn.title}</td>
+                <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}><HL text={mn.title} terms={highlight} /></td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
                 <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
@@ -1030,6 +1116,256 @@ function MentionsTable({ mentions, onMentionClick }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// =============== SEARCH (página de resultados global) ===============
+// Buscador unificado: el command palette (⌘K) abre esta pantalla con la query
+// y aquí viven los resultados completos — facetas con conteos, orden,
+// resaltado y paginación. Reusa el mismo /api/eco-mentions que el feed de
+// Menciones, así que respeta agencia, período (incl. rango custom) y filtros.
+function readRecentSearches() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('eco.recentSearches') || '[]');
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string') : [];
+  } catch (_) { return []; }
+}
+function pushRecentSearch(term) {
+  const t = String(term || '').trim();
+  if (t.length < 2) return;
+  try {
+    const prev = readRecentSearches().filter((s) => s.toLowerCase() !== t.toLowerCase());
+    localStorage.setItem('eco.recentSearches', JSON.stringify([t, ...prev].slice(0, 8)));
+  } catch (_) {}
+}
+
+function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, setActive }) {
+  // Query inicial: prop del palette > ?q= de la URL > vacío.
+  const initialQ = (() => {
+    if (searchQuery && searchQuery.trim()) return searchQuery.trim();
+    try { return new URLSearchParams(location.search).get('q') || ''; } catch (_) { return ''; }
+  })();
+  const [queryInput, setQueryInput] = useState(initialQ);
+  const [q, setQ] = useState(initialQ);
+  const [sortBy, setSortBy] = useState('relevance');
+  const [filters, setFilters] = useState({ sentiment: 'all', source: 'all', topic: '', region: '' });
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
+  const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
+  const [recent, setRecent] = useState(readRecentSearches);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const inputRef = React.useRef(null);
+
+  const filtersActive = filters.sentiment !== 'all' || filters.source !== 'all' || !!filters.topic || !!filters.region;
+  const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0);
+  const hasCriteria = (!!q && q.length >= 2) || filtersActive;
+  const searchTerms = q ? q.trim().split(/\s+/).filter((t) => t.length >= 2) : [];
+  const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
+  const popularTopics = topicsList.slice(0, 8);
+  const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
+
+  React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
+  React.useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
+
+  // Si el palette navega de nuevo a /search con otra query estando ya aquí,
+  // sincroniza el input.
+  React.useEffect(() => {
+    if (searchQuery != null && searchQuery.trim() && searchQuery.trim() !== queryInput) {
+      setQueryInput(searchQuery.trim());
+    }
+  }, [searchQuery]);
+
+  // Debounce queryInput -> q. Sincroniza URL (?q=), recientes y estado
+  // compartido para que palette y deep-links queden alineados.
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      const term = queryInput.trim();
+      setQ(term);
+      setPage(1);
+      if (setSearchQuery) setSearchQuery(term);
+      try {
+        history.replaceState(history.state, '', term ? '/search?q=' + encodeURIComponent(term) : '/search');
+      } catch (_) {}
+      if (term.length >= 2) { pushRecentSearch(term); setRecent(readRecentSearches()); }
+    }, 320);
+    return () => clearTimeout(id);
+  }, [queryInput]);
+
+  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, sortBy]);
+
+  // Fetch de resultados. Se omite cuando no hay criterio (estado vacío).
+  React.useEffect(() => {
+    const active = (!!q && q.length >= 2) || filters.sentiment !== 'all' || filters.source !== 'all' || !!filters.topic || !!filters.region;
+    if (!active) { setData({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }); setLoading(false); return; }
+    const ctrl = new AbortController();
+    setLoading(true);
+    const params = new URLSearchParams({ ...window.ecoGetPeriodParams(), limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
+    if (agency) params.set('agency', agency);
+    if (q && q.length >= 2) params.set('q', q);
+    const sort = resolveSort(sortBy, !!(q && q.length >= 2));
+    if (sort !== 'recent') params.set('sortBy', sort);
+    if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
+    if (filters.source !== 'all') params.set('source', filters.source);
+    if (filters.topic) params.set('topic', filters.topic);
+    if (filters.region) params.set('region', filters.region);
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
+      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), sentiment: j.sentiment || { pos: 0, neu: 0, neg: 0 } }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [q, sortBy, filters, page, agency]);
+
+  const sentChips = [
+    { k: 'all', l: 'Todas', tone: null, count: data.total },
+    { k: 'positivo', l: 'Positivo', tone: 'pos', count: data.sentiment.pos },
+    { k: 'neutral', l: 'Neutral', tone: null, count: data.sentiment.neu },
+    { k: 'negativo', l: 'Negativo', tone: 'neg', count: data.sentiment.neg },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Hero search */}
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <Icons.Search size={18} color="var(--text-3)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            ref={inputRef} className="input" value={queryInput}
+            onChange={(e) => setQueryInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(queryInput.trim()); setPage(1); } }}
+            placeholder="Buscar en todas las menciones — palabras clave, autor, tema…"
+            aria-label="Buscar en todas las menciones"
+            style={{ paddingLeft: 42, paddingRight: queryInput ? 40 : 14, fontSize: 16, height: 48, width: '100%' }}
+          />
+          {queryInput && (
+            <button onClick={() => { setQueryInput(''); if (inputRef.current) inputRef.current.focus(); }} title="Limpiar búsqueda" aria-label="Limpiar búsqueda"
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>×</button>
+          )}
+        </div>
+      </div>
+
+      {/* Estado vacío: recientes + tópicos frecuentes */}
+      {!hasCriteria && (
+        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div style={{ textAlign: 'center' }}>
+            <Icons.Search size={28} color="var(--text-3)" />
+            <div style={{ marginTop: 10, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Busca en todas las menciones</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>
+              Escribe una o más palabras clave para encontrar menciones por título o contenido. Combina términos para afinar y usa los filtros para acotar por sentimiento, fuente o tópico.
+            </div>
+          </div>
+          {recent.length > 0 && (
+            <div>
+              <div className="section-eyebrow">Búsquedas recientes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {recent.map((s) => (
+                  <button key={s} className="chip" onClick={() => { setQueryInput(s); setQ(s); setPage(1); }}>{s}</button>
+                ))}
+                <button className="chip" style={{ color: 'var(--text-3)' }}
+                  onClick={() => { try { localStorage.removeItem('eco.recentSearches'); } catch (_) {} setRecent([]); }}>
+                  Limpiar
+                </button>
+              </div>
+            </div>
+          )}
+          {popularTopics.length > 0 && (
+            <div>
+              <div className="section-eyebrow">Tópicos frecuentes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {popularTopics.map((t) => (
+                  <button key={t.slug} className="chip" onClick={() => setFilters((f) => ({ ...f, topic: t.slug }))}>
+                    <Icons.Hash size={11} /> {t.name || t.slug}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Facet bar + resultados */}
+      {hasCriteria && (
+        <>
+          <div className="card" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {sentChips.map((x) => (
+                <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
+                  {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
+                  {filters.sentiment === 'all' && <span className="num" style={{ marginLeft: 6, color: 'var(--text-3)' }}>{Number(x.count || 0).toLocaleString('es-PR')}</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{ width: 1, height: 24, background: 'var(--hairline)' }} />
+            <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
+            <div style={{ position: 'relative' }}>
+              <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
+                <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
+              </button>
+              {moreOpen && (
+                <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 6 }}>Tópico</div>
+                  <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                    <option value="">Todos los tópicos</option>
+                    {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
+                  </select>
+                  <div className="section-eyebrow" style={{ marginBottom: 6 }}>Región</div>
+                  <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                    <option value="">Todas las regiones</option>
+                    {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  {(filters.topic || filters.region) && (
+                    <button className="chip" onClick={() => setFilters((f) => ({ ...f, topic: '', region: '' }))}>Limpiar</button>
+                  )}
+                </div>
+              )}
+            </div>
+            {filtersActive && (
+              <button className="chip" onClick={() => setFilters({ sentiment: 'all', source: 'all', topic: '', region: '' })}>Limpiar filtros</button>
+            )}
+            <SortChips sortBy={sortBy} setSortBy={setSortBy} hasQuery={!!(q && q.length >= 2)} />
+          </div>
+
+          <div className="card">
+            <div className="card-hd">
+              <div>
+                <div className="card-hd-title">{q ? <>Resultados para «{q}»</> : 'Resultados'}</div>
+                <div className="card-hd-sub">
+                  {loading
+                    ? 'Buscando…'
+                    : (data.total === 0
+                        ? 'Sin resultados'
+                        : `${data.total.toLocaleString('es-PR')} menciones · página ${page} de ${totalPages}`)}
+                </div>
+              </div>
+              <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+            </div>
+            {loading && data.mentions.length === 0 && (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Buscando…</div>
+            )}
+            {!loading && data.total === 0 && (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                No se encontraron menciones{q ? <> para «{q}»</> : ''}{filtersActive ? ' con los filtros actuales' : ''}.
+                {filtersActive && (
+                  <div style={{ marginTop: 12 }}>
+                    <button className="chip" onClick={() => setFilters({ sentiment: 'all', source: 'all', topic: '', region: '' })}>Quitar filtros</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {data.mentions.length > 0 && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {data.mentions.length > 0 && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {data.mentions.length > 0 && viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {data.total > PAGE_SIZE && (
+              <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+                <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -4706,4 +5042,4 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
   );
 }
 
-window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen };
+window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen };

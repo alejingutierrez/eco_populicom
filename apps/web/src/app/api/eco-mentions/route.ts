@@ -88,7 +88,8 @@ function relativeTime(d: Date): string {
  *   pertinence — alta | media | baja (explicit; bypasses default exclude-low)
  *   includeLow — '1'/'true' to keep baja pertinencia in results (default excludes)
  *   minEngagement — number; keeps mentions con engagement_score >= N (viral filter)
- *   q — full-text search in title/snippet
+ *   q — full-text search in title/snippet (multi-token AND)
+ *   sortBy — recent (default) | engagement | relevance (relevance solo aplica con q)
  *   similar_to — mention id; returns coseno-neighbors (excluye filtros de contenido)
  *   limit — default 20, max 100
  *   offset — default 0
@@ -183,9 +184,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Full-text search: split the query into whitespace-separated tokens and
+  // require EACH token to appear in title OR snippet (AND across tokens). El
+  // ILIKE ingenuo de la cadena completa fallaba con multi-palabra ("ayuda
+  // federal" no encontraba "ayuda económica federal"). Cap a 8 tokens para
+  // que una query absurda no infle el plan. Tokens muy cortos (<2) se ignoran.
   const q = searchParams.get('q');
-  if (q) {
-    conditions.push(sql`(${mentions.title} ILIKE ${'%' + q + '%'} OR ${mentions.snippet} ILIKE ${'%' + q + '%'})` as any);
+  const qTokens = q
+    ? q.trim().split(/\s+/).filter((t) => t.length >= 2).slice(0, 8)
+    : [];
+  for (const tok of qTokens) {
+    const like = '%' + tok + '%';
+    conditions.push(sql`(${mentions.title} ILIKE ${like} OR ${mentions.snippet} ILIKE ${like})` as any);
   }
 
   const emotion = searchParams.get('emotion');
@@ -340,6 +350,27 @@ export async function GET(request: NextRequest) {
     sentCounts[bucket] += Number(r.c);
   }
 
+  // sortBy controla el orden del feed. Antes el endpoint SIEMPRE ordenaba por
+  // published_at desc y el control "Ordenar por" del MentionsScreen era UI
+  // muerta. Ahora:
+  //   recent     — más recientes primero (default).
+  //   engagement — mayor engagement primero, desempate por recencia.
+  //   relevance  — (solo con q) prioriza coincidencias en el título sobre las
+  //                que solo matchean en el snippet, desempate por recencia.
+  const sortBy = searchParams.get('sortBy') ?? 'recent';
+  let orderByClause: any[];
+  if (sortBy === 'engagement') {
+    orderByClause = [desc(mentions.engagementScore), desc(mentions.publishedAt)];
+  } else if (sortBy === 'relevance' && qTokens.length > 0) {
+    const titleCases = qTokens.map(
+      (tok) => sql`(CASE WHEN ${mentions.title} ILIKE ${'%' + tok + '%'} THEN 1 ELSE 0 END)`,
+    );
+    const titleScore = sql.join(titleCases, sql` + `);
+    orderByClause = [desc(sql`(${titleScore})`), desc(mentions.publishedAt)];
+  } else {
+    orderByClause = [desc(mentions.publishedAt)];
+  }
+
   // Page of mentions
   const rows = await db
     .select({
@@ -363,7 +394,7 @@ export async function GET(request: NextRequest) {
     })
     .from(mentions)
     .where(whereClause)
-    .orderBy(desc(mentions.publishedAt))
+    .orderBy(...orderByClause)
     .limit(limit)
     .offset(offset);
 
