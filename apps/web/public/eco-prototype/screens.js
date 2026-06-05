@@ -2917,13 +2917,24 @@ function UsersAdmin() {
   const [drawer, setDrawer] = useState(null); // { mode: 'create' | 'edit', user }
   const [error, setError] = useState(null);
 
+  const [agencyOptions, setAgencyOptions] = useState([]);
+  React.useEffect(() => {
+    fetch('/api/agencies', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setAgencyOptions(Array.isArray(list) ? list.map((a) => ({ slug: a.slug, name: a.name })) : []))
+      .catch(() => {});
+  }, []);
+
   // Map API row -> UI shape so existing render logic keeps working.
   const fromApi = (u) => ({
     id: u.id,
     name: u.name || u.email.split('@')[0],
     email: u.email,
     role: u.role, // 'admin' | 'analyst' | 'viewer'
-    agency: localStorage.getItem('eco.agency') || '',
+    allAgencies: !!u.allAgencies,
+    agencySlugs: Array.isArray(u.agencies) ? u.agencies : [],
+    // Display label for the Agencia column.
+    agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
     lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
     avatar: '#4A7FB5',
@@ -2968,6 +2979,8 @@ function UsersAdmin() {
             name: u.name,
             role: roleToApi(u.role),
             isActive: u.status !== 'suspendido',
+            allAgencies: !!u.allAgencies,
+            agencySlugs: u.agencySlugs || [],
           }),
         });
       } else {
@@ -2980,6 +2993,8 @@ function UsersAdmin() {
             email: u.email,
             name: u.name,
             role: roleToApi(u.role),
+            allAgencies: !!u.allAgencies,
+            agencySlugs: u.agencySlugs || [],
           }),
         });
       }
@@ -3022,7 +3037,7 @@ function UsersAdmin() {
               {stats.total} usuarios · {stats.activos} activos · {stats.invitados} invitación pendiente · {stats.suspendidos} suspendidos
             </div>
           </div>
-          <button className="btn btn-primary" onClick={() => setDrawer({ mode: 'create', user: { name: '', email: '', role: 'analista', agency: 'DTOP', status: 'invitado', notify: true } })}>
+          <button className="btn btn-primary" onClick={() => setDrawer({ mode: 'create', user: { name: '', email: '', role: 'analista', allAgencies: false, agencySlugs: [], status: 'invitado', notify: true } })}>
             <Icons.Plus size={13} /> Invitar usuario
           </button>
         </div>
@@ -3121,12 +3136,12 @@ function UsersAdmin() {
         </div>
       </div>
 
-      {drawer && <UserDrawer drawer={drawer} onSave={saveUser} onDelete={deleteUser} onClose={() => setDrawer(null)} />}
+      {drawer && <UserDrawer drawer={drawer} agencyOptions={agencyOptions} onSave={saveUser} onDelete={deleteUser} onClose={() => setDrawer(null)} />}
     </div>
   );
 }
 
-function UserDrawer({ drawer, onSave, onDelete, onClose }) {
+function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
   const [form, setForm] = useState(drawer.user);
   const isCreate = drawer.mode === 'create';
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
@@ -3166,11 +3181,6 @@ function UserDrawer({ drawer, onSave, onDelete, onClose }) {
                   placeholder="nombre@agencia.pr.gov"
                   style={inputStyle} />
               </Field>
-              <Field label="Agencia">
-                <select value={form.agency} onChange={(e) => setField('agency', e.target.value)} style={inputStyle}>
-                  {['DTOP','DACo','Salud','AMA','Familia','Educación','Hacienda','Policía'].map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </Field>
               <Field label="Estado">
                 <select value={form.status} onChange={(e) => setField('status', e.target.value)} style={inputStyle}>
                   <option value="activo">Activo</option>
@@ -3179,6 +3189,37 @@ function UserDrawer({ drawer, onSave, onDelete, onClose }) {
                 </select>
               </Field>
             </div>
+          </div>
+
+          {/* Agencies the user can switch between */}
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Agencias visibles</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!form.allAgencies}
+                onChange={(e) => setField('allAgencies', e.target.checked)} />
+              <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las agencias <span style={{ color: 'var(--text-3)' }}>(staff Populicom)</span></span>
+            </label>
+            {!form.allAgencies && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 2 }}>
+                {agencyOptions.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No hay agencias disponibles para asignar.</div>
+                )}
+                {agencyOptions.map((a) => {
+                  const checked = (form.agencySlugs || []).includes(a.slug);
+                  return (
+                    <label key={a.slug} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={checked}
+                        onChange={(e) => {
+                          const cur = new Set(form.agencySlugs || []);
+                          if (e.target.checked) cur.add(a.slug); else cur.delete(a.slug);
+                          setField('agencySlugs', [...cur]);
+                        }} />
+                      <span style={{ fontSize: 13, color: 'var(--text)' }}>{a.name} <span style={{ color: 'var(--text-3)', fontSize: 11 }}>({a.slug})</span></span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Role picker */}

@@ -14,7 +14,7 @@ import {
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
 import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
-import { resolveAgencyId } from '@/lib/agency';
+import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -222,13 +222,21 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    // ---- AGENCIES (all) ----
+    // ---- AGENCIES (the ones this user may switch between) ----
     const agencyRows = await db
       .select({ id: agencies.id, name: agencies.name, slug: agencies.slug })
       .from(agencies)
       .where(eq(agencies.isActive, true));
 
-    const AGENCIES_FULL = agencyRows.map((a) => ({
+    // null = every active agency (staff / all_agencies / public). Otherwise
+    // restrict the switcher to the user's granted set so they can't switch into
+    // an agency they aren't allowed to read.
+    const allowedSlugs = await resolveAllowedAgencySlugs();
+    const visibleAgencies = allowedSlugs
+      ? agencyRows.filter((a) => allowedSlugs.includes(a.slug))
+      : agencyRows;
+
+    const AGENCIES_FULL = visibleAgencies.map((a) => ({
       key: a.slug,
       name: (a.slug || '').toUpperCase().slice(0, 6),
       long: a.name,
