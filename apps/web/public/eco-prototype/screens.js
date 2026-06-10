@@ -1030,7 +1030,7 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
               <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-            <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
+            <span style={{ color: 'var(--text-2)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
           </div>
@@ -1487,7 +1487,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             className="row-hover"
             title="Ver insight del NSS para el periodo"
             style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-            <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>+{m.nss}</div>
+            <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{m.nss > 0 ? '+' : ''}{m.nss}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>NSS</div>
             <Icons.ArrowRight size={14} color="var(--text-3)" />
             <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1504,7 +1504,12 @@ function SentimentScreen({ onMentionClick, period, agency }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
             {D.SENTIMENT_BREAKDOWN.map((s) => {
-              const pct = Math.round((s.value / m.totalMentions) * 100);
+              // El % debe normalizarse sobre la suma del propio breakdown (no
+              // sobre m.totalMentions): SENTIMENT_BREAKDOWN y totalMentions son
+              // campos independientes y divergen, lo que hacía que pos+neu+neg
+              // sumara ≠100% (p. ej. 112%).
+              const sbTotal = D.SENTIMENT_BREAKDOWN.reduce((acc, x) => acc + (x.value || 0), 0) || 1;
+              const pct = Math.round((s.value / sbTotal) * 100);
               const c = s.name === 'positivo' ? 'var(--pos)' : s.name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
               return (
                 <button key={s.name} onClick={() => openSentimentSlice(s.name)}
@@ -3025,6 +3030,13 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
   const [emailsText, setEmailsText] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   async function save() {
     if (!name.trim()) { onError && onError('El nombre es obligatorio'); return; }
     setSaving(true);
@@ -3479,6 +3491,14 @@ function UsersAdmin() {
 
 function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
   const [form, setForm] = useState(drawer.user);
+
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const isCreate = drawer.mode === 'create';
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
   const valid = form.name.trim() && /@/.test(form.email);
@@ -4973,6 +4993,13 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
 function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
   const [data, setData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   React.useEffect(() => {
     let cancelled = false;

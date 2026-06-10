@@ -43,7 +43,11 @@ export const dynamic = 'force-dynamic';
 const TZ = 'America/Puerto_Rico';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '1M': 30, '3M': 90, '6M': 180, '1A': 365,
+  // Debe aceptar todos los valores que el selector de período del header puede
+  // enviar (30D/90D/Max incluidos) — antes faltaban y devolvían 400 al abrir
+  // el insight de una métrica con esos chips activos.
+  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  '1M': 30, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
 };
 
 // In-memory LRU cache (TTL 30 min). Reset al reiniciar el contenedor — basta
@@ -228,7 +232,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                                                 : 'nss'}) AS p75
          FROM daily_metric_snapshots
         WHERE agency_id = $1
-          AND is_duplicate = false
           AND date BETWEEN ($2::date - INTERVAL '90 days') AND $2::date`,
       [agencyId, startYmd],
     );
