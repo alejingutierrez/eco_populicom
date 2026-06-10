@@ -57,6 +57,11 @@ const DBSCAN_EPS = Number(process.env.NARRATIVE_DBSCAN_EPS ?? 0.22);
 const TOP_N_MATCHES = Number(process.env.NARRATIVE_TOP_N_MATCHES ?? 3);
 const INFLUENCE_WINDOW_HOURS = Number(process.env.NARRATIVE_INFLUENCE_WINDOW_HOURS ?? 24);
 const PER_AGENCY_LIMIT = Number(process.env.NARRATIVE_PER_AGENCY_LIMIT ?? 5000);
+// Cap del pool de candidatos por corrida de DBSCAN: el algoritmo es O(n²) en
+// distancias coseno de 1024 dims — 10k candidatos corre en ~30s, 50k no cabe
+// ni en 15 min. Con el cap, cada corrida digiere los candidatos más viejos;
+// los clusters nacidos drenan el pool y la siguiente corrida toma el resto.
+const CANDIDATE_POOL_LIMIT = Number(process.env.NARRATIVE_CANDIDATE_POOL_LIMIT ?? 12000);
 const MAX_NEW_PER_RUN = Number(process.env.NARRATIVE_MAX_NEW_PER_RUN ?? 20);
 
 /**
@@ -332,8 +337,9 @@ async function spawnNarrativesFromCandidates(
        JOIN mentions m ON m.id = nc.mention_id
        WHERE nc.agency_id = $1
        AND m.is_duplicate = false
-       ORDER BY nc.created_at ASC`,
-    [agency.id],
+       ORDER BY nc.created_at ASC
+       LIMIT $2`,
+    [agency.id, CANDIDATE_POOL_LIMIT],
   );
 
   if (candRes.rows.length < MIN_MENTIONS_BIRTH) {
