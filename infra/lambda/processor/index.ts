@@ -212,7 +212,8 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $38, $39, $40,
       $41, $42, $43,
       $44, NOW(), $45
-    ) RETURNING id`,
+    ) ON CONFLICT (bw_resource_id) DO NOTHING
+    RETURNING id`,
     [
       agency.id, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
       mention.title, mention.snippet, mention.url, mention.originalUrl,
@@ -232,6 +233,13 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     ],
   );
 
+  // ON CONFLICT DO NOTHING: si otra invocación concurrente insertó la misma
+  // mención entre el dedup batch y este INSERT, RETURNING no trae filas — la
+  // otra invocación ya completó (o completará) el procesamiento.
+  if (mentionResult.rows.length === 0) {
+    console.log(`[${agency.slug}] Skip-concurrent-insert: ${mention.resourceId}`);
+    return;
+  }
   const mentionId = mentionResult.rows[0].id;
 
   // Best-effort: generar embedding del contenido para "menciones similares".
