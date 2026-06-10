@@ -535,11 +535,20 @@ async function reprocessNlpErrors(
   // Pasa cuando Claude devuelve un topic_slug fuera del catálogo de la agencia
   // (el INSERT hace `continue` silencioso) o cuando topics llegó vacío. Sin
   // esta acción quedan huérfanas para siempre — ningún cron las reintenta.
+  // Cooldown vía processed_at: el reproceso "toca" processed_at al terminar,
+  // así una mención reanalizada que legítimamente queda sin tópico (spam,
+  // posts solo-foto) no se vuelve a analizar hasta dentro de 3 días en vez de
+  // re-quemarse Bedrock con el mismo ruido cada corrida. Prioridad: alta >
+  // media > baja, porque las alta huérfanas son casi siempre misses reales.
   const where = action === 'reprocess-unclassified'
     ? `m.is_duplicate = false
        AND m.processed_at IS NOT NULL
+       AND m.processed_at < NOW() - INTERVAL '3 days'
        AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)`
     : `m.nlp_summary = 'Error en análisis NLP'`;
+  const orderBy = action === 'reprocess-unclassified'
+    ? `CASE m.nlp_pertinence WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, m.published_at DESC`
+    : `m.published_at DESC`;
   const cap = Math.max(1, Math.min(limit ?? 200, 500));
   const errors = await pgClient.query(`
     SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
@@ -548,7 +557,7 @@ async function reprocessNlpErrors(
            m.agency_id, a.slug AS agency_slug, a.name AS agency_name
       FROM mentions m JOIN agencies a ON a.id = m.agency_id
      WHERE ${where}
-     ORDER BY m.published_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${cap}`);
 
   console.log(`[${action}] Found ${errors.rows.length} mentions to retry (cap ${cap})`);
@@ -587,7 +596,8 @@ async function reprocessNlpErrors(
             SET nlp_sentiment = $1,
                 nlp_emotions = $2,
                 nlp_pertinence = $3,
-                nlp_summary = $4
+                nlp_summary = $4,
+                processed_at = NOW()
           WHERE id = $5`,
         [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
       );
