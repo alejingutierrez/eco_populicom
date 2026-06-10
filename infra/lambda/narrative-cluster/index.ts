@@ -261,8 +261,10 @@ async function clusterForAgency(
               WHERE id = $5`,
           [
             toVectorLiteral(newCentroid),
-            mention.engagement_score ?? 0,
-            mention.reach_estimate ?? 0,
+            // Math.round: engagement_score es float y las columnas son bigint —
+            // pg manda "24194.000032621" y el cast ::bigint revienta (22P02).
+            Math.round(mention.engagement_score ?? 0),
+            Math.round(mention.reach_estimate ?? 0),
             mention.published_at,
             primary.id,
           ],
@@ -416,14 +418,17 @@ async function spawnNarrativesFromCandidates(
         slug = `${slug}-${Date.now().toString(36).slice(-5)}`;
       }
 
-      const totalEngagement = cluster.reduce(
+      // Math.round: los scores son float y narratives.total_engagement/_reach
+      // son bigint — un sum no entero tumba el INSERT completo (22P02) y la
+      // narrativa se nombra (Bedrock gastado) pero nunca nace.
+      const totalEngagement = Math.round(cluster.reduce(
         (sum, p) => sum + (p.row.engagement_score ?? 0),
         0,
-      );
-      const totalReach = cluster.reduce(
+      ));
+      const totalReach = Math.round(cluster.reduce(
         (sum, p) => sum + (p.row.reach_estimate ?? 0),
         0,
-      );
+      ));
 
       const insertRes = await client.query<{ id: string }>(
         `INSERT INTO narratives (
