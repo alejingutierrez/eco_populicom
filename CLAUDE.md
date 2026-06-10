@@ -5,6 +5,49 @@ agente, no al humano. Si algo cambia, actualízalo aquí.
 
 ---
 
+## ⚠️ Drift bundle-vs-git (léelo antes de redeployar un lambda)
+
+Los bundles desplegados pueden contener código que NO existe en ninguna rama
+(deploys desde worktrees nunca pusheados). Casos conocidos (QA 2026-06-10):
+
+- `eco-ingestion`: la versión live (runProgressiveBackfill, makeRateLimiter,
+  bw_request_log, backfill_cursors) no tiene fuente TS en git. Snapshot
+  verbatim en `infra/lambda/ingestion/deployed-snapshot/index.deployed.js`.
+  NO deployees `infra/lambda/ingestion/index.ts` (239 líneas, versión vieja)
+  sin portar primero el snapshot.
+- `eco-migration`: el bundle live tiene acciones extra (`backfill-topics`,
+  `seed-default-alert-rules`, …) que el fuente no tiene. Para añadir una
+  acción: descargar bundle (`aws lambda get-function … Code.Location` + curl
+  + unzip), editar el JS, `node --check`, re-zip, `update-function-code`.
+
+**Antes de redeployar cualquier lambda**: descarga el bundle vigente y compara
+contra tu rama; busca features que solo existan en el bundle.
+
+**Bundling desde worktree**: el symlink `node_modules/@eco/*` resuelve al
+working tree del monorepo principal (sucio). Usa SIEMPRE
+`--alias:@eco/shared=<worktree>/packages/shared/src/index.ts` (ídem
+`@eco/shared/src/bedrock` y `@eco/database`) y rutas ABSOLUTAS del worktree
+(`W=$PWD` se rompe cuando el harness resetea el cwd).
+
+---
+
+## Comportamientos de producto confirmados (no son bugs)
+
+- El "reporte semanal" se envía TODOS los días a las 6 AM PR (ventana rolante
+  de 7 días cerrados). No hay gate de día de semana; decisión de facto desde
+  mayo 2026 — no lo "arregles" sin que lo pida el usuario.
+- `admin/diagnostics` cuenta menciones SIN filtrar `is_duplicate` a propósito.
+- Reglas de alerta de crisis: las 3 agencias tienen `crisis_threshold`
+  (0.4/0.5/12h). aaa y gobernadora notifican solo a agutierrez@ hasta que el
+  cliente confirme destinatarios (seed del QA 2026-06-10).
+- Cron diario `eco-processor-reprocess-unclassified-manual` (08:30 UTC) es
+  TEMPORAL: bórralo cuando un deploy de CDK EcoWorkers cree
+  `ProcessorReprocessUnclassifiedDaily` (ya está en workers-stack.ts).
+- `eco-narrative-cluster` corre con timeout 900s y env
+  `NARRATIVE_CANDIDATE_POOL_LIMIT=12000` (cap del DBSCAN O(n²)).
+
+---
+
 ## Stacks AWS
 
 CDK gestiona ocho stacks en `us-east-1`, cuenta `863956448838`. Ver
