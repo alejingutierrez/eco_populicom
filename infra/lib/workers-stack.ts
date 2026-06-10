@@ -258,6 +258,17 @@ export class WorkersStack extends cdk.Stack {
       event: events.RuleTargetInput.fromObject({ backfill: true }),
     }));
 
+    // Reintento diario de menciones sin tópico (08:30 UTC). Si Claude devuelve
+    // un topic_slug fuera del catálogo de la agencia (o topics vacío), la
+    // mención queda sin mention_topics y ningún flujo la recoge — se acumulan
+    // huérfanas invisibles para tópicos, métricas por tópico y reportes.
+    const reprocessUnclassifiedRule = new events.Rule(this, 'ProcessorReprocessUnclassifiedDaily', {
+      schedule: events.Schedule.cron({ minute: '30', hour: '8' }),
+    });
+    reprocessUnclassifiedRule.addTarget(new targets.LambdaFunction(this.processorFunction, {
+      event: events.RuleTargetInput.fromObject({ action: 'reprocess-unclassified', limit: 300 }),
+    }));
+
     // ---- eco-weekly-report Lambda ----
     this.weeklyReportFunction = new NodejsFunction(this, 'WeeklyReportFunction', {
       functionName: 'eco-weekly-report',
