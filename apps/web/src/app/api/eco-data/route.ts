@@ -404,6 +404,7 @@ export async function GET(request: NextRequest) {
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -433,6 +434,7 @@ export async function GET(request: NextRequest) {
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
+              AND m.is_duplicate = false
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -481,6 +483,7 @@ export async function GET(request: NextRequest) {
                        ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
                FROM mentions m
               WHERE m.agency_id = $1
+                AND m.is_duplicate = false
                 AND m.published_at >= $2
                 AND m.published_at <= $3
            ) pt
@@ -493,6 +496,7 @@ export async function GET(request: NextRequest) {
            FROM mention_topics mt
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
+            AND m.is_duplicate = false
             AND m.published_at >= $2
             AND m.published_at <= $3
           GROUP BY mt.topic_id
@@ -572,6 +576,7 @@ export async function GET(request: NextRequest) {
          JOIN topics t ON t.id = mt.topic_id
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND m.published_at >= $2
           AND m.published_at <= $3
         GROUP BY t.slug, s.slug, s.name, s.description`,
@@ -637,6 +642,7 @@ export async function GET(request: NextRequest) {
         JOIN mention_topics mt ON mt.mention_id = m.id
         JOIN topics t ON t.id = mt.topic_id
        WHERE m.agency_id = ${agencyId}
+         AND m.is_duplicate = false
          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
        GROUP BY t.slug, day
@@ -703,6 +709,7 @@ export async function GET(request: NextRequest) {
           JOIN mention_topics mt ON mt.mention_id = m.id
           JOIN topics t ON t.id = mt.topic_id
          WHERE m.agency_id = ${agencyId}
+           AND m.is_duplicate = false
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
          GROUP BY day, t.slug, t.name
@@ -811,6 +818,7 @@ export async function GET(request: NextRequest) {
       SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
+        AND m.is_duplicate = false
         AND m.published_at >= ${since.toISOString()}
         AND m.published_at <= ${until.toISOString()}
       GROUP BY emotion

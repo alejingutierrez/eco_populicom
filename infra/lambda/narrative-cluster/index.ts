@@ -57,6 +57,11 @@ const DBSCAN_EPS = Number(process.env.NARRATIVE_DBSCAN_EPS ?? 0.22);
 const TOP_N_MATCHES = Number(process.env.NARRATIVE_TOP_N_MATCHES ?? 3);
 const INFLUENCE_WINDOW_HOURS = Number(process.env.NARRATIVE_INFLUENCE_WINDOW_HOURS ?? 24);
 const PER_AGENCY_LIMIT = Number(process.env.NARRATIVE_PER_AGENCY_LIMIT ?? 5000);
+// Cap del pool de candidatos por corrida de DBSCAN: el algoritmo es O(n²) en
+// distancias coseno de 1024 dims — 10k candidatos corre en ~30s, 50k no cabe
+// ni en 15 min. Con el cap, cada corrida digiere los candidatos más viejos;
+// los clusters nacidos drenan el pool y la siguiente corrida toma el resto.
+const CANDIDATE_POOL_LIMIT = Number(process.env.NARRATIVE_CANDIDATE_POOL_LIMIT ?? 12000);
 const MAX_NEW_PER_RUN = Number(process.env.NARRATIVE_MAX_NEW_PER_RUN ?? 20);
 
 /**
@@ -192,6 +197,7 @@ async function clusterForAgency(
             m.likes, m.comments, m.shares, m.page_type
        FROM mentions m
        WHERE m.agency_id = $1
+         AND m.is_duplicate = false
          AND m.embedding IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM narrative_mentions nm WHERE nm.mention_id = m.id)
          AND NOT EXISTS (SELECT 1 FROM narrative_candidates nc WHERE nc.mention_id = m.id)
@@ -260,8 +266,10 @@ async function clusterForAgency(
               WHERE id = $5`,
           [
             toVectorLiteral(newCentroid),
-            mention.engagement_score ?? 0,
-            mention.reach_estimate ?? 0,
+            // Math.round: engagement_score es float y las columnas son bigint —
+            // pg manda "24194.000032621" y el cast ::bigint revienta (22P02).
+            Math.round(mention.engagement_score ?? 0),
+            Math.round(mention.reach_estimate ?? 0),
             mention.published_at,
             primary.id,
           ],
@@ -319,6 +327,20 @@ async function spawnNarrativesFromCandidates(
   maxNew: number,
   skipNaming: boolean,
 ): Promise<{ created: number; named: number }> {
+  // Poda de candidatos rancios: un candidato lleva ≥7 días en el pool sin
+  // clusterizar Y su mención tiene >30 días — ya no va a parir narrativa de
+  // actualidad. Sin la poda, el pool crece sin tope y los rancios bloquean la
+  // ventana LIMIT del DBSCAN (oldest-first) para los candidatos nuevos.
+  await client.query(
+    `DELETE FROM narrative_candidates nc
+      USING mentions m
+      WHERE m.id = nc.mention_id
+        AND nc.agency_id = $1
+        AND nc.created_at < NOW() - INTERVAL '7 days'
+        AND m.published_at < NOW() - INTERVAL '30 days'`,
+    [agency.id],
+  );
+
   const candRes = await client.query<CandidateRow>(
     `SELECT nc.id AS candidate_id,
             nc.mention_id AS id,
@@ -328,8 +350,10 @@ async function spawnNarrativesFromCandidates(
        FROM narrative_candidates nc
        JOIN mentions m ON m.id = nc.mention_id
        WHERE nc.agency_id = $1
-       ORDER BY nc.created_at ASC`,
-    [agency.id],
+       AND m.is_duplicate = false
+       ORDER BY nc.created_at ASC
+       LIMIT $2`,
+    [agency.id, CANDIDATE_POOL_LIMIT],
   );
 
   if (candRes.rows.length < MIN_MENTIONS_BIRTH) {
@@ -414,14 +438,17 @@ async function spawnNarrativesFromCandidates(
         slug = `${slug}-${Date.now().toString(36).slice(-5)}`;
       }
 
-      const totalEngagement = cluster.reduce(
+      // Math.round: los scores son float y narratives.total_engagement/_reach
+      // son bigint — un sum no entero tumba el INSERT completo (22P02) y la
+      // narrativa se nombra (Bedrock gastado) pero nunca nace.
+      const totalEngagement = Math.round(cluster.reduce(
         (sum, p) => sum + (p.row.engagement_score ?? 0),
         0,
-      );
-      const totalReach = cluster.reduce(
+      ));
+      const totalReach = Math.round(cluster.reduce(
         (sum, p) => sum + (p.row.reach_estimate ?? 0),
         0,
-      );
+      ));
 
       const insertRes = await client.query<{ id: string }>(
         `INSERT INTO narratives (
@@ -591,7 +618,7 @@ async function computeInfluencersForRecentNarratives(
            AND m.author IS NOT NULL
            AND m.published_at <= $2::timestamptz + INTERVAL '${INFLUENCE_WINDOW_HOURS} hours'
          GROUP BY m.author
-         ORDER BY MAX(COALESCE(m.reach_estimate, 0) * (1 + COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))) DESC NULLS LAST
+         ORDER BY MAX(COALESCE(m.reach_estimate, 0)::bigint * (1 + COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))) DESC NULLS LAST
          LIMIT 1`,
       [n.id, n.born_at],
     );

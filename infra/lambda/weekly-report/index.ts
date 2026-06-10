@@ -501,6 +501,7 @@ async function buildAggregates(
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY mu.id, mu.name
@@ -517,6 +518,7 @@ async function buildAggregates(
             (SELECT COALESCE(m2.nlp_sentiment, m2.bw_sentiment)
                FROM mentions m2
               WHERE m2.agency_id = $1 AND m2.author = m.author
+                AND m2.is_duplicate = false
                 AND m2.published_at >= ($2::date)
                 AND m2.published_at <  (($3::date) + INTERVAL '1 day')
               GROUP BY 1
@@ -524,6 +526,7 @@ async function buildAggregates(
               LIMIT 1) AS dominant_sentiment
        FROM mentions m
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND author IS NOT NULL AND author <> ''
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
@@ -542,6 +545,7 @@ async function buildAggregates(
     `SELECT COALESCE(content_source_name, domain) AS source, COUNT(*)::int AS mentions
        FROM mentions
       WHERE agency_id = $1
+        AND is_duplicate = false
         AND published_at >= ($2::date)
         AND published_at <  (($3::date) + INTERVAL '1 day')
         AND COALESCE(content_source_name, domain) IS NOT NULL
@@ -556,6 +560,7 @@ async function buildAggregates(
     `SELECT emo::text AS emotion, COUNT(*)::int AS cnt
        FROM mentions m, jsonb_array_elements_text(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS emo
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($3::date) + INTERVAL '1 day')
       GROUP BY emo
@@ -616,6 +621,7 @@ async function loadSamples(
          ) mm ON true
          LEFT JOIN municipalities mu ON mu.id = mm.municipality_id
         WHERE m.agency_id = $1
+          AND m.is_duplicate = false
           AND m.published_at >= ($2::date)
           AND m.published_at <  (($3::date) + INTERVAL '1 day')
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = $4
@@ -659,6 +665,7 @@ async function loadTodaySamples(client: any, agencyId: string, todayYmd: string)
        ) mm ON true
        LEFT JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
+        AND m.is_duplicate = false
         AND m.nlp_pertinence IN ('alta','media')
         AND m.published_at >= ($2::date)
         AND m.published_at <  (($2::date) + INTERVAL '1 day')

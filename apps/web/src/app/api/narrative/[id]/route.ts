@@ -74,6 +74,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
+       AND m.is_duplicate = false
        GROUP BY 1
        ORDER BY 1 ASC`,
     [id],
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
+         AND m.is_duplicate = false
          AND m.author IS NOT NULL
        GROUP BY m.author
        ORDER BY engagement DESC NULLS LAST, mentions DESC
@@ -102,6 +104,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
+       AND m.is_duplicate = false
        GROUP BY 1
        ORDER BY 2 DESC`,
     [id],
@@ -128,6 +131,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
+       AND m.is_duplicate = false
        ORDER BY m.published_at DESC
        LIMIT 10`,
     [id],

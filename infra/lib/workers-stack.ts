@@ -258,6 +258,17 @@ export class WorkersStack extends cdk.Stack {
       event: events.RuleTargetInput.fromObject({ backfill: true }),
     }));
 
+    // Reintento diario de menciones sin tópico (08:30 UTC). Si Claude devuelve
+    // un topic_slug fuera del catálogo de la agencia (o topics vacío), la
+    // mención queda sin mention_topics y ningún flujo la recoge — se acumulan
+    // huérfanas invisibles para tópicos, métricas por tópico y reportes.
+    const reprocessUnclassifiedRule = new events.Rule(this, 'ProcessorReprocessUnclassifiedDaily', {
+      schedule: events.Schedule.cron({ minute: '30', hour: '8' }),
+    });
+    reprocessUnclassifiedRule.addTarget(new targets.LambdaFunction(this.processorFunction, {
+      event: events.RuleTargetInput.fromObject({ action: 'reprocess-unclassified', limit: 300 }),
+    }));
+
     // ---- eco-weekly-report Lambda ----
     this.weeklyReportFunction = new NodejsFunction(this, 'WeeklyReportFunction', {
       functionName: 'eco-weekly-report',
@@ -375,7 +386,10 @@ export class WorkersStack extends cdk.Stack {
       handler: 'handler',
       memorySize: 2048,
       reservedConcurrentExecutions: 1,
-      timeout: cdk.Duration.minutes(5),
+      // 15 min: con backlog (p.ej. agencia nueva con 70k+ menciones) la fase de
+      // asignación consume 5 min completos y la fase de nacimiento de
+      // narrativas nunca corre — el run muere por timeout antes de llegar.
+      timeout: cdk.Duration.minutes(15),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],

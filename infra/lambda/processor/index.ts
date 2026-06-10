@@ -53,11 +53,12 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
   } finally { await client.end(); }
 }
 
-type ReprocessEvent = { action: 'reprocess-nlp-errors' };
+type ReprocessEvent = { action: 'reprocess-nlp-errors' | 'reprocess-unclassified'; limit?: number };
 type ProcessorEvent = SQSEvent | ReprocessEvent;
 
 function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
-  return typeof (e as ReprocessEvent).action === 'string' && (e as ReprocessEvent).action === 'reprocess-nlp-errors';
+  return typeof (e as ReprocessEvent).action === 'string'
+    && ['reprocess-nlp-errors', 'reprocess-unclassified'].includes((e as ReprocessEvent).action);
 }
 
 export const handler = async (event: ProcessorEvent): Promise<unknown> => {
@@ -75,7 +76,7 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
 
   if (isReprocessEvent(event)) {
     try {
-      return await reprocessNlpErrors(client);
+      return await reprocessNlpErrors(client, event.action, event.limit);
     } finally {
       await client.end();
     }
@@ -131,6 +132,13 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   return;
 };
 
+/** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
+function vc(s: string | null | undefined, max = 255): string | null | undefined {
+  if (s == null) return s;
+  const str = String(s);
+  return str.length > max ? str.slice(0, max) : str;
+}
+
 async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
   const resourceId = mention.resourceId;
@@ -162,25 +170,21 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const isDuplicate = duplicate.rows.length > 0;
   const duplicateOfId = isDuplicate ? duplicate.rows[0].id : null;
 
-  // Skip-empty: Brandwatch ocasionalmente entrega menciones sin título ni
-  // snippet. Sin texto el LLM no puede asignar tópico (queda 'Sin clasificar'
-  // en el reporte) — bypass Bedrock, persiste con pertinencia=baja.
-  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim();
-
-  let nlp: NlpAnalysis;
+  // Skip-empty: Brandwatch entrega shells vacíos (sin title, snippet ni URL),
+  // especialmente para X/Twitter desde el cambio de API de mayo 2026. No tienen
+  // ningún valor analítico — no se pueden clasificar, ni linkar, ni mostrar.
+  // Persistir estos shells inflaba el `total_mentions` del día y diluía las
+  // métricas de severidad y relevancia del Crisis Score (los aggregates no
+  // filtran por nada que distinga shells de menciones reales). Descartamos en
+  // origen: si Brandwatch corrige el feed más adelante, las menciones llegarán
+  // con contenido y se procesarán normalmente.
+  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim() && !mention.url?.trim();
   if (isEmpty) {
-    console.log(`[${agency.slug}] Skip-empty: mention ${resourceId} has no title or snippet — bypassing Bedrock`);
-    nlp = {
-      sentiment: 'neutral',
-      emotions: [],
-      pertinence: 'baja',
-      topics: [],
-      municipalities: [],
-      summary: 'Mención sin contenido textual',
-    };
-  } else {
-    nlp = await analyzeWithClaude(mention, agency);
+    console.log(`[${agency.slug}] Drop-empty-shell: ${resourceId} (page_type=${mention.pageType ?? '?'}, no title/snippet/url)`);
+    return;
   }
+
+  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency);
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
@@ -215,17 +219,21 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $38, $39, $40,
       $41, $42, $43,
       $44, NOW(), $45
-    ) RETURNING id`,
+    ) ON CONFLICT (bw_resource_id) DO NOTHING
+    RETURNING id`,
     [
-      agency.id, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
+      // vc(): Brandwatch entrega autores/nombres/queries que exceden los
+      // varchar(N) del schema — sin truncar, la mención entera muere con 22001
+      // y termina en la DLQ tras agotar reintentos.
+      agency.id, vc(mention.resourceId), vc(mention.guid), mention.queryId, vc(mention.queryName),
       mention.title, mention.snippet, mention.url, mention.originalUrl,
-      mention.author, mention.fullname, mention.gender, mention.avatarUrl,
-      mention.domain, mention.pageType, mention.contentSource, mention.contentSourceName, mention.pubType, mention.subtype,
+      vc(mention.author), vc(mention.fullname), vc(mention.gender, 20), mention.avatarUrl,
+      vc(mention.domain), vc(mention.pageType, 50), vc(mention.contentSource, 50), vc(mention.contentSourceName, 100), vc(mention.pubType, 50), vc(mention.subtype, 50),
       mention.likes ?? 0, mention.comments ?? 0, mention.shares ?? 0,
       mention.engagementScore ?? 0, mention.impact ?? 0, mention.reachEstimate ?? 0,
       mention.potentialAudience ?? 0, mention.monthlyVisitors ?? 0,
-      mention.country, mention.countryCode, mention.region, mention.city, mention.cityCode,
-      mention.sentiment,
+      vc(mention.country, 100), vc(mention.countryCode, 10), vc(mention.region, 100), vc(mention.city, 100), vc(mention.cityCode, 100),
+      vc(mention.sentiment, 20),
       nlp.sentiment, JSON.stringify(nlp.emotions), nlp.pertinence, nlp.summary,
       textHash, isDuplicate, duplicateOfId,
       JSON.stringify(mention.mediaUrls ?? []),
@@ -235,6 +243,13 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     ],
   );
 
+  // ON CONFLICT DO NOTHING: si otra invocación concurrente insertó la misma
+  // mención entre el dedup batch y este INSERT, RETURNING no trae filas — la
+  // otra invocación ya completó (o completará) el procesamiento.
+  if (mentionResult.rows.length === 0) {
+    console.log(`[${agency.slug}] Skip-concurrent-insert: ${mention.resourceId}`);
+    return;
+  }
   const mentionId = mentionResult.rows[0].id;
 
   // Best-effort: generar embedding del contenido para "menciones similares".
@@ -521,23 +536,47 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
   };
 }
 
-async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number; failed: number; details: any[] }> {
+async function reprocessNlpErrors(
+  pgClient: any,
+  action: 'reprocess-nlp-errors' | 'reprocess-unclassified' = 'reprocess-nlp-errors',
+  limit?: number,
+): Promise<{ reprocessed: number; failed: number; remaining: number; details: any[] }> {
+  // 'reprocess-unclassified': menciones procesadas sin fila en mention_topics.
+  // Pasa cuando Claude devuelve un topic_slug fuera del catálogo de la agencia
+  // (el INSERT hace `continue` silencioso) o cuando topics llegó vacío. Sin
+  // esta acción quedan huérfanas para siempre — ningún cron las reintenta.
+  // Cooldown vía processed_at: el reproceso "toca" processed_at al terminar,
+  // así una mención reanalizada que legítimamente queda sin tópico (spam,
+  // posts solo-foto) no se vuelve a analizar hasta dentro de 3 días en vez de
+  // re-quemarse Bedrock con el mismo ruido cada corrida. Prioridad: alta >
+  // media > baja, porque las alta huérfanas son casi siempre misses reales.
+  const where = action === 'reprocess-unclassified'
+    ? `m.is_duplicate = false
+       AND m.processed_at IS NOT NULL
+       AND m.processed_at < NOW() - INTERVAL '3 days'
+       AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)`
+    : `m.nlp_summary = 'Error en análisis NLP'`;
+  const orderBy = action === 'reprocess-unclassified'
+    ? `CASE m.nlp_pertinence WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, m.published_at DESC`
+    : `m.published_at DESC`;
+  const cap = Math.max(1, Math.min(limit ?? 200, 500));
   const errors = await pgClient.query(`
     SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
            m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
            m.author, m.published_at, m.bw_sentiment, m.language,
            m.agency_id, a.slug AS agency_slug, a.name AS agency_name
       FROM mentions m JOIN agencies a ON a.id = m.agency_id
-     WHERE m.nlp_summary = 'Error en análisis NLP'
-     ORDER BY m.published_at DESC`);
+     WHERE ${where}
+     ORDER BY ${orderBy}
+     LIMIT ${cap}`);
 
-  console.log(`[reprocess-nlp-errors] Found ${errors.rows.length} mentions to retry`);
+  console.log(`[${action}] Found ${errors.rows.length} mentions to retry (cap ${cap})`);
 
   const details: any[] = [];
   let reprocessed = 0;
   let failed = 0;
 
-  for (const row of errors.rows) {
+  const processRow = async (row: any): Promise<void> => {
     const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name };
     const mention: BrandwatchMention = {
       resourceId: row.bw_resource_id,
@@ -567,7 +606,8 @@ async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number;
             SET nlp_sentiment = $1,
                 nlp_emotions = $2,
                 nlp_pertinence = $3,
-                nlp_summary = $4
+                nlp_summary = $4,
+                processed_at = NOW()
           WHERE id = $5`,
         [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
       );
@@ -611,11 +651,23 @@ async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number;
     } catch (err: any) {
       failed++;
       details.push({ id: row.id, status: 'failed', error: String(err?.message ?? err) });
-      console.error(`[reprocess-nlp-errors] mention ${row.id} failed:`, err);
+      console.error(`[${action}] mention ${row.id} failed:`, err);
     }
+  };
+
+  // Chunks de 4: Bedrock corre concurrente (el cuello real); pg.Client
+  // serializa las queries internamente, así que no hay carrera en DB.
+  const CHUNK = 4;
+  for (let i = 0; i < errors.rows.length; i += CHUNK) {
+    await Promise.allSettled(errors.rows.slice(i, i + CHUNK).map(processRow));
   }
 
-  return { reprocessed, failed, details };
+  const remainingRes = await pgClient.query(
+    `SELECT count(*)::int AS n FROM mentions m WHERE ${where}`,
+  );
+  const remaining = remainingRes.rows[0]?.n ?? 0;
+  console.log(`[${action}] done: ok=${reprocessed} failed=${failed} remaining=${remaining}`);
+  return { reprocessed, failed, remaining, details };
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {
