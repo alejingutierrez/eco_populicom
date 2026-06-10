@@ -604,7 +604,7 @@ async function computeInfluencersForRecentNarratives(
            AND m.author IS NOT NULL
            AND m.published_at <= $2::timestamptz + INTERVAL '${INFLUENCE_WINDOW_HOURS} hours'
          GROUP BY m.author
-         ORDER BY MAX(COALESCE(m.reach_estimate, 0) * (1 + COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))) DESC NULLS LAST
+         ORDER BY MAX(COALESCE(m.reach_estimate, 0)::bigint * (1 + COALESCE(m.likes,0) + COALESCE(m.comments,0) + COALESCE(m.shares,0))) DESC NULLS LAST
          LIMIT 1`,
       [n.id, n.born_at],
     );
