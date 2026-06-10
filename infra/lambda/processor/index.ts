@@ -132,6 +132,13 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   return;
 };
 
+/** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
+function vc(s: string | null | undefined, max = 255): string | null | undefined {
+  if (s == null) return s;
+  const str = String(s);
+  return str.length > max ? str.slice(0, max) : str;
+}
+
 async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
   const resourceId = mention.resourceId;
@@ -215,15 +222,18 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     ) ON CONFLICT (bw_resource_id) DO NOTHING
     RETURNING id`,
     [
-      agency.id, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
+      // vc(): Brandwatch entrega autores/nombres/queries que exceden los
+      // varchar(N) del schema — sin truncar, la mención entera muere con 22001
+      // y termina en la DLQ tras agotar reintentos.
+      agency.id, vc(mention.resourceId), vc(mention.guid), mention.queryId, vc(mention.queryName),
       mention.title, mention.snippet, mention.url, mention.originalUrl,
-      mention.author, mention.fullname, mention.gender, mention.avatarUrl,
-      mention.domain, mention.pageType, mention.contentSource, mention.contentSourceName, mention.pubType, mention.subtype,
+      vc(mention.author), vc(mention.fullname), vc(mention.gender, 20), mention.avatarUrl,
+      vc(mention.domain), vc(mention.pageType, 50), vc(mention.contentSource, 50), vc(mention.contentSourceName, 100), vc(mention.pubType, 50), vc(mention.subtype, 50),
       mention.likes ?? 0, mention.comments ?? 0, mention.shares ?? 0,
       mention.engagementScore ?? 0, mention.impact ?? 0, mention.reachEstimate ?? 0,
       mention.potentialAudience ?? 0, mention.monthlyVisitors ?? 0,
-      mention.country, mention.countryCode, mention.region, mention.city, mention.cityCode,
-      mention.sentiment,
+      vc(mention.country, 100), vc(mention.countryCode, 10), vc(mention.region, 100), vc(mention.city, 100), vc(mention.cityCode, 100),
+      vc(mention.sentiment, 20),
       nlp.sentiment, JSON.stringify(nlp.emotions), nlp.pertinence, nlp.summary,
       textHash, isDuplicate, duplicateOfId,
       JSON.stringify(mention.mediaUrls ?? []),
