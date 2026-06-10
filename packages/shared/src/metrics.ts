@@ -207,7 +207,10 @@ export function calculateMetrics(
     ? sum(history.slice(0, 30).map((h) => h.totalReach))
     : totalReach;
   const reachLog = reach30d > 0 ? Math.log10(reach30d) : 0;
-  const reachNormalized = Math.max(0, Math.min((nssSign(nss) * reachLog) / 7 + 0.5, 1.0));
+  // Fórmula V1c del backtest 482d: (sign·log10(reach_30d)/7 + 1)/2, NO
+  // sign·log10/7 + 0.5 — esa variante duplica la pendiente del término y
+  // satura en reach_30d ≈ 3.2k en vez de 10M.
+  const reachNormalized = Math.max(0, Math.min(((nssSign(nss) * reachLog) / 7 + 1) / 2, 1.0));
 
   const pertinenceRatio = highPertinenceCount / totalMentions;
 
