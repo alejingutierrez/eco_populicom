@@ -109,7 +109,6 @@ async function driftForAgency(
     `SELECT id, name, centroid::text AS centroid, centroid_at_naming::text AS centroid_at_naming
        FROM narratives
        WHERE agency_id = $1
-         AND is_duplicate = false
          AND status != 'dormant'
          AND centroid IS NOT NULL
          AND centroid_at_naming IS NOT NULL`,

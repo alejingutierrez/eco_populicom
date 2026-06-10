@@ -210,7 +210,6 @@ async function clusterForAgency(
         `SELECT id, (1 - (centroid <=> $1::vector)) AS similarity
            FROM narratives
            WHERE agency_id = $2
-             AND is_duplicate = false
              AND status != 'dormant'
              AND centroid IS NOT NULL
            ORDER BY centroid <=> $1::vector
@@ -330,7 +329,7 @@ async function spawnNarrativesFromCandidates(
        FROM narrative_candidates nc
        JOIN mentions m ON m.id = nc.mention_id
        WHERE nc.agency_id = $1
-       AND nc.is_duplicate = false
+       AND m.is_duplicate = false
        ORDER BY nc.created_at ASC`,
     [agency.id],
   );
@@ -569,7 +568,6 @@ async function computeInfluencersForRecentNarratives(
   const recent = await client.query<{ id: string; born_at: Date }>(
     `SELECT id, born_at FROM narratives
        WHERE agency_id = $1
-         AND is_duplicate = false
          AND initiator_influencer IS NULL
          AND born_at <= NOW() - INTERVAL '${INFLUENCE_WINDOW_HOURS} hours'`,
     [agency.id],

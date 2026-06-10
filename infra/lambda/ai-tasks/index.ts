@@ -600,7 +600,6 @@ async function loadCrisisAggregates(
             volume_anomaly_zscore
        FROM daily_metric_snapshots
       WHERE agency_id = $1
-      AND is_duplicate = false
       ORDER BY date DESC
       LIMIT 1`,
     [agency.id],

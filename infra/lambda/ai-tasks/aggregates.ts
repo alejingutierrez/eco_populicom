@@ -239,7 +239,6 @@ export async function loadMetricInsightContext(
     `SELECT *
        FROM daily_metric_snapshots
       WHERE agency_id = $1
-        AND is_duplicate = false
         AND date >= $2::date
         AND date <= $3::date
       ORDER BY date DESC
