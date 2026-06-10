@@ -271,7 +271,10 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
   // del usuario: "los filtros en el overview no deben estar en otro lugar
   // diferente y ser diferentes visualmente a los que ya existen en el
   // scorecard (que están en el header)".
-  const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
+  // '90D' se removió: era idéntico a '3M' (ambos 90 días). '30D' se mantiene
+  // como la única ventana ~mensual de los chips. El command palette y los
+  // PERIOD_DAYS del API aceptan ambos por compatibilidad.
+  const PERIODS = ['1D', '5D', '7D', '30D', '3M', '6M', '1A', 'Max'];
   const isCustom = period === 'custom';
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
@@ -665,6 +668,13 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   // Relacionadas por similitud coseno sobre embeddings (Titan Embed v2). Si
   // la mención fuente aún no tiene embedding (backfill pendiente), el backend
   // hace fallback a "mismo topic principal".
@@ -900,6 +910,13 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 }
 
 function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onClose }) {
+
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   const themes = [
     { key: 'costa', label: 'Costa', desc: 'Moderno institucional' },
     { key: 'gaceta', label: 'Gaceta', desc: 'Formal, impreso' },
@@ -997,6 +1014,14 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   // Cuando el slice filtra por tópico, default a "primary" (top-confidence) —
   // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Toggle
   // permite incluir secundarias y ver el total multi-clasificación.
@@ -1126,7 +1151,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   )}
                 </div>
               )}
-              {insightText && (
+              {insightText && insightText !== '__loading__' && (
                 <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}
                   dangerouslySetInnerHTML={{ __html: insightText }} />
               )}
@@ -1305,6 +1330,13 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
   const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
+
+  // Cerrar con Escape (mismo patrón que CommandPalette).
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   React.useEffect(() => {
     // Cache por sesión: evita re-fetchear cuando el usuario abre y cierra
