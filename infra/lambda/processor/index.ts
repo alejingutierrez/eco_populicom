@@ -53,11 +53,12 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
   } finally { await client.end(); }
 }
 
-type ReprocessEvent = { action: 'reprocess-nlp-errors' };
+type ReprocessEvent = { action: 'reprocess-nlp-errors' | 'reprocess-unclassified'; limit?: number };
 type ProcessorEvent = SQSEvent | ReprocessEvent;
 
 function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
-  return typeof (e as ReprocessEvent).action === 'string' && (e as ReprocessEvent).action === 'reprocess-nlp-errors';
+  return typeof (e as ReprocessEvent).action === 'string'
+    && ['reprocess-nlp-errors', 'reprocess-unclassified'].includes((e as ReprocessEvent).action);
 }
 
 export const handler = async (event: ProcessorEvent): Promise<unknown> => {
@@ -75,7 +76,7 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
 
   if (isReprocessEvent(event)) {
     try {
-      return await reprocessNlpErrors(client);
+      return await reprocessNlpErrors(client, event.action, event.limit);
     } finally {
       await client.end();
     }
@@ -517,23 +518,38 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
   };
 }
 
-async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number; failed: number; details: any[] }> {
+async function reprocessNlpErrors(
+  pgClient: any,
+  action: 'reprocess-nlp-errors' | 'reprocess-unclassified' = 'reprocess-nlp-errors',
+  limit?: number,
+): Promise<{ reprocessed: number; failed: number; remaining: number; details: any[] }> {
+  // 'reprocess-unclassified': menciones procesadas sin fila en mention_topics.
+  // Pasa cuando Claude devuelve un topic_slug fuera del catálogo de la agencia
+  // (el INSERT hace `continue` silencioso) o cuando topics llegó vacío. Sin
+  // esta acción quedan huérfanas para siempre — ningún cron las reintenta.
+  const where = action === 'reprocess-unclassified'
+    ? `m.is_duplicate = false
+       AND m.processed_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)`
+    : `m.nlp_summary = 'Error en análisis NLP'`;
+  const cap = Math.max(1, Math.min(limit ?? 200, 500));
   const errors = await pgClient.query(`
     SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
            m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
            m.author, m.published_at, m.bw_sentiment, m.language,
            m.agency_id, a.slug AS agency_slug, a.name AS agency_name
       FROM mentions m JOIN agencies a ON a.id = m.agency_id
-     WHERE m.nlp_summary = 'Error en análisis NLP'
-     ORDER BY m.published_at DESC`);
+     WHERE ${where}
+     ORDER BY m.published_at DESC
+     LIMIT ${cap}`);
 
-  console.log(`[reprocess-nlp-errors] Found ${errors.rows.length} mentions to retry`);
+  console.log(`[${action}] Found ${errors.rows.length} mentions to retry (cap ${cap})`);
 
   const details: any[] = [];
   let reprocessed = 0;
   let failed = 0;
 
-  for (const row of errors.rows) {
+  const processRow = async (row: any): Promise<void> => {
     const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name };
     const mention: BrandwatchMention = {
       resourceId: row.bw_resource_id,
@@ -607,11 +623,23 @@ async function reprocessNlpErrors(pgClient: any): Promise<{ reprocessed: number;
     } catch (err: any) {
       failed++;
       details.push({ id: row.id, status: 'failed', error: String(err?.message ?? err) });
-      console.error(`[reprocess-nlp-errors] mention ${row.id} failed:`, err);
+      console.error(`[${action}] mention ${row.id} failed:`, err);
     }
+  };
+
+  // Chunks de 4: Bedrock corre concurrente (el cuello real); pg.Client
+  // serializa las queries internamente, así que no hay carrera en DB.
+  const CHUNK = 4;
+  for (let i = 0; i < errors.rows.length; i += CHUNK) {
+    await Promise.allSettled(errors.rows.slice(i, i + CHUNK).map(processRow));
   }
 
-  return { reprocessed, failed, details };
+  const remainingRes = await pgClient.query(
+    `SELECT count(*)::int AS n FROM mentions m WHERE ${where}`,
+  );
+  const remaining = remainingRes.rows[0]?.n ?? 0;
+  console.log(`[${action}] done: ok=${reprocessed} failed=${failed} remaining=${remaining}`);
+  return { reprocessed, failed, remaining, details };
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {
