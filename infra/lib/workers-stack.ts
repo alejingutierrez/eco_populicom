@@ -375,7 +375,10 @@ export class WorkersStack extends cdk.Stack {
       handler: 'handler',
       memorySize: 2048,
       reservedConcurrentExecutions: 1,
-      timeout: cdk.Duration.minutes(5),
+      // 15 min: con backlog (p.ej. agencia nueva con 70k+ menciones) la fase de
+      // asignación consume 5 min completos y la fase de nacimiento de
+      // narrativas nunca corre — el run muere por timeout antes de llegar.
+      timeout: cdk.Duration.minutes(15),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],

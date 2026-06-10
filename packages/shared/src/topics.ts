@@ -273,9 +273,153 @@ export const DDECPR_TOPICS: TopicDef[] = [
   },
 ];
 
+export const GOBERNADORA_TOPICS: TopicDef[] = [
+  {
+    slug: "politica-pnp-estatus",
+    name: "Política Partidista y Estatus",
+    description: "Pugna interna del PNP (González vs. Rivera Schatz), liderazgo del partido, primarias 2028, estatus y estadidad",
+    displayOrder: 1,
+    subtopics: [
+      { slug: "pugna-fortaleza-senado", name: "Pugna Fortaleza vs Senado", description: "Conflicto público González vs. Rivera Schatz: tiraeras, falta de comunicación, mediación, reuniones tensas", displayOrder: 1 },
+      { slug: "liderazgo-pnp-primarias", name: "Liderazgo PNP y Primarias", description: "González como presidenta del PNP, estructura partidaria, análisis de primarias 2028, predicciones electorales", displayOrder: 2 },
+      { slug: "estatus-estadidad", name: "Estatus y Estadidad", description: "Cabildeo por la estadidad, summits, debate colonial, contrapunto independentista", displayOrder: 3 },
+      { slug: "oposicion-ppd", name: "Oposición PPD", description: "Críticas del PPD y del Comisionado Residente a la gestión y a los mensajes de estado", displayOrder: 4 }
+    ]
+  },
+  {
+    slug: "criticas-controversias",
+    name: "Críticas y Controversias",
+    description: "Escándalos, acusaciones de corrupción, demandas y críticas directas a la gestión y conducta de la Gobernadora",
+    displayOrder: 2,
+    subtopics: [
+      { slug: "drogas-por-votos", name: "Drogas por Votos", description: "Investigación ProPublica sobre esquema carcelario de drogas por votos para la campaña 2024; cierre de la pesquisa; negaciones", displayOrder: 1 },
+      { slug: "casos-gabinete", name: "Casos de Gabinete", description: "Controversias de Roig (Familia), Mellado, Domenech, contratos, querellas éticas, referidos a Justicia", displayOrder: 2 },
+      { slug: "transparencia-prensa", name: "Transparencia y Acceso a Prensa", description: "Credenciales de prensa, demandas CPI, correos de Fortaleza, reclamos de transparencia", displayOrder: 3 },
+      { slug: "corrupcion-favoritismo", name: "Corrupción y Favoritismo", description: "Acusaciones de cártel de permisos, contratos a allegados, recaudación con contratistas, conflictos familiares", displayOrder: 4 },
+      { slug: "criticas-directas-renuncia", name: "Críticas Directas y Reclamos de Renuncia", description: "Ataques personales, protestas, exigencias de renuncia/residenciamiento, escoltas, ausencias ante crisis", displayOrder: 5 }
+    ]
+  },
+  {
+    slug: "relacion-federal-trump",
+    name: "Relación Federal y Trump",
+    description: "Alineamiento con la administración Trump y gestiones ante el gobierno federal de EE.UU.",
+    displayOrder: 3,
+    subtopics: [
+      { slug: "alineamiento-trump-ice", name: "Alineamiento con Trump e ICE", description: 'Respaldo a Trump, activación de ICE en aeropuertos, entrega de datos migratorios, percepción "Trumper"', displayOrder: 1 },
+      { slug: "ley-jones-cabotaje", name: "Ley Jones / Cabotaje", description: "Exención a las leyes de cabotaje y su impacto en precios de combustible y economía", displayOrder: 2 },
+      { slug: "fondos-federales-medicaid", name: "Fondos Federales y Medicaid", description: "Equidad en fondos federales, Medicaid, fondos de salud que vencen, fondos de energía", displayOrder: 3 },
+      { slug: "seguridad-nacional-defensa", name: "Seguridad Nacional y Defensa", description: "Reuniones con DoD/DARPA, foros de seguridad, PR como eje de seguridad hemisférica", displayOrder: 4 }
+    ]
+  },
+  {
+    slug: "economia-fiscal",
+    name: "Economía y Asuntos Fiscales",
+    description: "Política económica, alivio contributivo, presupuesto y relación con la Junta de Supervisión Fiscal",
+    displayOrder: 4,
+    subtopics: [
+      { slug: "alivio-contributivo-cheque", name: "Alivio Contributivo y Cheque para Ti", description: 'Incentivo de alivio, reintegros, programa "Cheque para Ti", amnistía de multas', displayOrder: 1 },
+      { slug: "junta-supervision-fiscal", name: "Junta de Supervisión Fiscal", description: "Negociaciones, respaldos y advertencias de la JCF sobre alivio fiscal y presupuesto", displayOrder: 2 },
+      { slug: "presupuesto", name: "Presupuesto", description: "Presupuesto AF 2026-2027, vistas públicas, asignaciones y recortes por agencia", displayOrder: 3 },
+      { slug: "desarrollo-inversion", name: "Desarrollo Económico e Inversión", description: "PIB, empleo, inversión extranjera, exportaciones, manufactura, Ley 60", displayOrder: 4 }
+    ]
+  },
+  {
+    slug: "energia-agua",
+    name: "Energía y Agua",
+    description: "Crisis energética y de agua: apagones, generación, LUMA/Genera y suministro de agua",
+    displayOrder: 5,
+    subtopics: [
+      { slug: "apagones-generacion", name: "Apagones y Generación", description: "Apagones crónicos, megavatios añadidos, relevos de carga, resiliencia de la red", displayOrder: 1 },
+      { slug: "luma-genera-contratos", name: "LUMA / Genera y Contratos", description: "Cuestionamientos a contratos de LUMA/Genera, divulgación de acuerdos", displayOrder: 2 },
+      { slug: "gnl-suministro", name: "GNL y Suministro", description: "Gas natural licuado, órdenes de emergencia federales de energía", displayOrder: 3 },
+      { slug: "crisis-agua", name: "Crisis de Agua", description: "Escasez de agua, dragado del embalse Carraízo, plantas de filtración", displayOrder: 4 }
+    ]
+  },
+  {
+    slug: "seguridad-criminalidad",
+    name: "Seguridad y Criminalidad",
+    description: "Seguridad pública, Policía, criminalidad y sistema correccional",
+    displayOrder: 6,
+    subtopics: [
+      { slug: "policia-uniformada", name: "Policía y Uniformada", description: "Ascensos, alza salarial, retiro de la Policía, homenajes a agentes caídos", displayOrder: 1 },
+      { slug: "criminalidad-asesinatos", name: "Criminalidad y Asesinatos", description: "Ola de asesinatos, protestas por seguridad, tráfico de drogas, casos criminales", displayOrder: 2 },
+      { slug: "sistema-correccional", name: "Sistema Correccional", description: "Salud correccional, contratos carcelarios, condiciones en cárceles", displayOrder: 3 }
+    ]
+  },
+  {
+    slug: "legislacion-accion-ejecutiva",
+    name: "Legislación y Acción Ejecutiva",
+    description: "Leyes firmadas, vetos, órdenes ejecutivas y medidas de administración",
+    displayOrder: 7,
+    subtopics: [
+      { slug: "leyes-firmadas", name: "Leyes Firmadas", description: "Firma de proyectos (STEM, Ley 60, crédito por trabajo, código penal, municipales)", displayOrder: 1 },
+      { slug: "vetos", name: "Vetos", description: "Vetos a medidas legislativas, incluyendo proyectos del Senado", displayOrder: 2 },
+      { slug: "permisos-planificacion", name: "Permisos y Planificación", description: "Código de Planificación y Permisos, planes de ordenación territorial", displayOrder: 3 },
+      { slug: "pro-life-conmemorativas", name: "Pro-Life y Conmemorativas", description: "Medidas pro-life, conmemorativas, maltrato animal", displayOrder: 4 }
+    ]
+  },
+  {
+    slug: "gestion-gabinete",
+    name: "Gestión de Gabinete y Nombramientos",
+    description: "Nombramientos, confirmaciones, renuncias y relaciones con secretarios de agencia",
+    displayOrder: 8,
+    subtopics: [
+      { slug: "renuncias-salidas", name: "Renuncias y Salidas", description: "Renuncias de secretarios (DDEC, Vivienda), fiscales, falta de confianza", displayOrder: 1 },
+      { slug: "nombramientos-confirmaciones", name: "Nombramientos y Confirmaciones", description: "Designaciones y confirmaciones senatoriales, transiciones de agencia", displayOrder: 2 },
+      { slug: "defensa-funcionarios", name: "Defensa y Respaldo a Funcionarios", description: "Respaldo público de la Gobernadora a miembros de su gabinete bajo cuestionamiento", displayOrder: 3 }
+    ]
+  },
+  {
+    slug: "infraestructura-obras",
+    name: "Infraestructura y Obras",
+    description: "Obras públicas, carreteras, puentes, puertos, aeropuertos y transporte marítimo",
+    displayOrder: 9,
+    subtopics: [
+      { slug: "carreteras-puentes", name: "Carreteras y Puentes", description: "PR-52, PR-181, puentes, asignaciones a municipios, mejoras de pavimento", displayOrder: 1 },
+      { slug: "puertos-aeropuertos", name: "Puertos y Aeropuertos", description: "Muelles, hub de cruceros, aeropuertos regionales, rutas aéreas", displayOrder: 2 },
+      { slug: "transporte-maritimo", name: "Transporte Marítimo", description: "Tarifas de lanchas a Vieques y Culebra, ferries, protestas ciudadanas", displayOrder: 3 }
+    ]
+  },
+  {
+    slug: "emergencias-desastres",
+    name: "Gestión de Emergencias",
+    description: "Respuesta a emergencias, desastres naturales y preparación ante temporada de huracanes",
+    displayOrder: 10,
+    subtopics: [
+      { slug: "incendios-guardia-nacional", name: "Incendios y Guardia Nacional", description: "Activación de la Guardia Nacional para incendios, helicópteros", displayOrder: 1 },
+      { slug: "erosion-costera", name: "Erosión Costera", description: "Órdenes ejecutivas de emergencia por erosión costera crítica", displayOrder: 2 },
+      { slug: "huracanes-preparacion", name: "Huracanes y Preparación", description: "Coordinación para temporada de huracanes, inundaciones, fondos FEMA", displayOrder: 3 }
+    ]
+  },
+  {
+    slug: "relaciones-internacionales",
+    name: "Relaciones Internacionales",
+    description: "Diplomacia, comercio internacional y postura geopolítica hacia Cuba y otros países",
+    displayOrder: 11,
+    subtopics: [
+      { slug: "postura-cuba", name: "Postura hacia Cuba", description: "Declaraciones sobre intervención militar de EE.UU. en Cuba, repudios, caso Castro", displayOrder: 1 },
+      { slug: "espana-iberoamerica", name: "España e Iberoamérica", description: "Reuniones con el canciller español, cumbres iberoamericanas, cooperación", displayOrder: 2 },
+      { slug: "comercio-foros-internacionales", name: "Comercio y Foros Internacionales", description: "Exportaciones, summits de negocios, foros, tensiones geopolíticas", displayOrder: 3 }
+    ]
+  },
+  {
+    slug: "gestion-institucional-personal",
+    name: "Gestión Institucional y Faceta Personal",
+    description: "Mensajes de situación de estado, anuncios institucionales, vida pública y menciones incidentales",
+    displayOrder: 12,
+    subtopics: [
+      { slug: "mensaje-situacion-estado", name: "Mensaje de Situación de Estado", description: "Cobertura y recepción del Mensaje de Situación de Estado y balances de gobierno", displayOrder: 1 },
+      { slug: "salud-educacion-mujer", name: "Salud, Educación y Mujer", description: "Iniciativas de educación, salud, participación femenina en la fuerza laboral", displayOrder: 2 },
+      { slug: "deportes-cultura-condolencias", name: "Deportes, Cultura y Condolencias", description: "Reconocimientos a atletas, duelos oficiales, eventos culturales", displayOrder: 3 },
+      { slug: "faceta-personal-incidental", name: "Faceta Personal e Incidental", description: "Entrevistas personales, fraudes que usan su imagen, menciones de paso, estilo de liderazgo", displayOrder: 4 }
+    ]
+  }
+];
+
 export const TOPICS_BY_AGENCY: Record<string, TopicDef[]> = {
   aaa: AAA_TOPICS,
   ddecpr: DDECPR_TOPICS,
+  gobernadora: GOBERNADORA_TOPICS,
 };
 
 /** Backwards compat: defaults to AAA topics */
