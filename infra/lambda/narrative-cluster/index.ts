@@ -327,6 +327,20 @@ async function spawnNarrativesFromCandidates(
   maxNew: number,
   skipNaming: boolean,
 ): Promise<{ created: number; named: number }> {
+  // Poda de candidatos rancios: un candidato lleva ≥7 días en el pool sin
+  // clusterizar Y su mención tiene >30 días — ya no va a parir narrativa de
+  // actualidad. Sin la poda, el pool crece sin tope y los rancios bloquean la
+  // ventana LIMIT del DBSCAN (oldest-first) para los candidatos nuevos.
+  await client.query(
+    `DELETE FROM narrative_candidates nc
+      USING mentions m
+      WHERE m.id = nc.mention_id
+        AND nc.agency_id = $1
+        AND nc.created_at < NOW() - INTERVAL '7 days'
+        AND m.published_at < NOW() - INTERVAL '30 days'`,
+    [agency.id],
+  );
+
   const candRes = await client.query<CandidateRow>(
     `SELECT nc.id AS candidate_id,
             nc.mention_id AS id,
