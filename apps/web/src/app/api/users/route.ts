@@ -3,12 +3,18 @@ import { getDb, users, agencies } from '@eco/database';
 import { eq, desc, inArray } from 'drizzle-orm';
 import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { setUserAgencyAccess, agencySlugsByUser } from '@/lib/provision';
+import { requireRole } from '@/lib/auth/require-admin';
+import { isRole, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
-type Role = 'admin' | 'analyst' | 'viewer';
-const VALID_ROLES: Role[] = ['admin', 'analyst', 'viewer'];
+/** allowed_pages: array de claves de nav, o null (sin override). */
+function parseAllowedPages(v: unknown): string[] | null | undefined {
+  if (v === null) return null;
+  if (Array.isArray(v)) return v.filter((s): s is string => typeof s === 'string');
+  return undefined; // ausente → no tocar
+}
 
 async function resolveCallerAgencyId(request: NextRequest): Promise<string | null> {
   const sessionSlug = request.headers.get('x-eco-user-agency');
@@ -37,6 +43,10 @@ function isEmail(s: unknown): s is string {
 }
 
 export async function GET(request: NextRequest) {
+  // Gestión de usuarios = solo administradores (cierra escalada de privilegios:
+  // antes cualquier usuario autenticado podía listar/crear/promover usuarios).
+  const gate = await requireRole(['admin']);
+  if (!gate.ok) return gate.response;
   const db = getDb();
   try {
     // Staff (allowed = all) manage every user; an agency admin manages users
@@ -56,6 +66,7 @@ export async function GET(request: NextRequest) {
         role: u.role,
         isActive: u.isActive,
         allAgencies: u.allAgencies,
+        allowedPages: (u.allowedPages as string[] | null) ?? null,
         agencies: slugMap.get(u.id) ?? [],
         lastLogin: u.lastLogin?.toISOString() ?? null,
         createdAt: u.createdAt.toISOString(),
@@ -74,13 +85,16 @@ export async function GET(request: NextRequest) {
  * agencies the caller can see (see setUserAgencyAccess).
  */
 export async function POST(request: NextRequest) {
+  const gate = await requireRole(['admin']);
+  if (!gate.ok) return gate.response;
   const callerAgencyId = await resolveCallerAgencyId(request);
   if (!callerAgencyId) return NextResponse.json({ error: 'Agency not resolved' }, { status: 403 });
-  let body: { email?: unknown; name?: unknown; role?: unknown; allAgencies?: unknown; agencySlugs?: unknown };
+  let body: { email?: unknown; name?: unknown; role?: unknown; allAgencies?: unknown; agencySlugs?: unknown; allowedPages?: unknown };
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   if (!isEmail(body.email)) return NextResponse.json({ error: 'email required' }, { status: 400 });
-  const role = typeof body.role === 'string' && VALID_ROLES.includes(body.role as Role) ? (body.role as Role) : 'viewer';
+  const role: Role = isRole(body.role) ? body.role : 'viewer';
+  const allowedPages = parseAllowedPages(body.allowedPages);
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const agencySlugs = Array.isArray(body.agencySlugs) ? body.agencySlugs.filter((s): s is string => typeof s === 'string') : undefined;
   const allAgencies = typeof body.allAgencies === 'boolean' ? body.allAgencies : undefined;
@@ -104,6 +118,7 @@ export async function POST(request: NextRequest) {
         role,
         agencyId: primaryAgencyId,
         allAgencies: allAgencies ?? false,
+        allowedPages: allowedPages ?? null,
         // cognitoSub is NOT NULL; the real sub is claimed on first sign-in
         // (see ensureUserProvisioned). Placeholder keeps the row valid.
         cognitoSub: `invited:${body.email}`,

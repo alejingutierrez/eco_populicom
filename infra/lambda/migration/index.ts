@@ -726,6 +726,28 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'add-user-roles-pages') {
+      // 0006: tier 'editor' + allowed_pages (visibilidad de páginas por usuario).
+      // ALTER TYPE ... ADD VALUE corre en autocommit (sin BEGIN), requisito en PG.
+      // Idempotente: IF NOT EXISTS en ambos.
+      await client.query(`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'editor'`);
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_pages JSONB`);
+      const en = await client.query(
+        `SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'user_role' ORDER BY e.enumsortorder`,
+      );
+      const col = await client.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'allowed_pages'`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          user_role_values: en.rows.map((r: { enumlabel: string }) => r.enumlabel),
+          allowed_pages_column: col.rows.length > 0,
+        }),
+      };
+    }
+
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {
     await client.end();

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requireCapability } from '@/lib/auth/require-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -21,7 +21,7 @@ interface SendTestBody {
  * inmediatamente el reporte de la agencia dada. Requiere rol admin.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdmin();
+  const auth = await requireCapability('manage_templates');
   if (!auth.ok) return auth.response;
 
   let body: SendTestBody;

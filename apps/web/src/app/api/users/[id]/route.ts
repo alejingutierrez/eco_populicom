@@ -3,12 +3,11 @@ import { getDb, users, agencies } from '@eco/database';
 import { eq, and, inArray, type SQL } from 'drizzle-orm';
 import { resolveAllowedAgencySlugs } from '@/lib/agency';
 import { setUserAgencyAccess } from '@/lib/provision';
+import { requireRole } from '@/lib/auth/require-admin';
+import { isRole, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
-
-type Role = 'admin' | 'analyst' | 'viewer';
-const VALID_ROLES: Role[] = ['admin', 'analyst', 'viewer'];
 
 async function idsForSlugs(slugs: string[]): Promise<string[]> {
   if (slugs.length === 0) return [];
@@ -31,18 +30,22 @@ async function callerScope(id: string): Promise<{ where: SQL; allowedSlugs: stri
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const gate = await requireRole(['admin']);
+  if (!gate.ok) return gate.response;
   const { id } = await params;
   const scope = await callerScope(id);
   if (!scope) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  let body: { name?: unknown; role?: unknown; isActive?: unknown; allAgencies?: unknown; agencySlugs?: unknown };
+  let body: { name?: unknown; role?: unknown; isActive?: unknown; allAgencies?: unknown; agencySlugs?: unknown; allowedPages?: unknown };
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const patch: { name?: string; role?: Role; isActive?: boolean } = {};
+  const patch: { name?: string; role?: Role; isActive?: boolean; allowedPages?: string[] | null } = {};
   if (typeof body.name === 'string') patch.name = body.name.trim();
-  if (typeof body.role === 'string' && VALID_ROLES.includes(body.role as Role)) patch.role = body.role as Role;
+  if (isRole(body.role)) patch.role = body.role;
   if (typeof body.isActive === 'boolean') patch.isActive = body.isActive;
+  if (body.allowedPages === null) patch.allowedPages = null;
+  else if (Array.isArray(body.allowedPages)) patch.allowedPages = body.allowedPages.filter((s): s is string => typeof s === 'string');
   const allAgencies = typeof body.allAgencies === 'boolean' ? body.allAgencies : undefined;
   const agencySlugs = Array.isArray(body.agencySlugs) ? body.agencySlugs.filter((s): s is string => typeof s === 'string') : undefined;
 
@@ -67,6 +70,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const gate = await requireRole(['admin']);
+  if (!gate.ok) return gate.response;
   const { id } = await params;
   const scope = await callerScope(id);
   if (!scope) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

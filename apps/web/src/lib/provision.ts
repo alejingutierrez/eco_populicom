@@ -1,13 +1,8 @@
 import { getDb, users, agencies, userAgencies } from '@eco/database';
 import { eq, inArray } from 'drizzle-orm';
 import { STAFF_EMAIL_DOMAIN, clearAccessCache } from './agency';
+import { roleFromGroups } from './auth/roles';
 import type { SessionUser } from './session';
-
-function roleFromGroups(groups?: string[]): 'admin' | 'analyst' | 'viewer' {
-  if (groups?.includes('admin')) return 'admin';
-  if (groups?.includes('analyst')) return 'analyst';
-  return 'viewer';
-}
 
 /**
  * Just-in-time user provisioning. Called when an authenticated user hits
