@@ -768,6 +768,17 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
       markersLayerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+
+      // Leaflet mide el contenedor al construirse; si el ancho aún no se ha
+      // asentado (montaje inicial, colapso del sidebar que no dispara resize
+      // de window, etc.) los tiles quedan recortados/desplazados. Un
+      // ResizeObserver + un invalidateSize inicial lo mantienen correcto.
+      requestAnimationFrame(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        const ro = new ResizeObserver(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+        ro.observe(containerRef.current);
+        tilesRef.current.resizeObserver = ro;
+      }
     }
 
     const layer = markersLayerRef.current;
@@ -793,11 +804,15 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
       const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      // El tooltip siempre muestra el conteo real de menciones (m.count). En
+      // modo "Sentimiento" el accessor devuelve |NSS|, que NO es un conteo, así
+      // que nunca debe etiquetarse como "menciones".
+      const cnt = (m.count ?? 0).toLocaleString('es-PR');
       marker.bindTooltip(
         `<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;line-height:1.3;">
           <div style="font-weight:700;color:#E6ECF3;margin-bottom:2px;">${label}</div>
           <div style="color:#8A94A1;">${m.region}</div>
-          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${v.toLocaleString('es-PR')}</span> menciones</div>
+          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${cnt}</span> menciones</div>
           <div style="color:${nssColor};font-weight:600;">NSS ${nssStr}</div>
         </div>`,
         { direction: 'top', offset: [0, -4], opacity: 0.95, className: 'eco-map-tooltip' },
@@ -816,6 +831,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   // Cleanup on unmount.
   React.useEffect(() => () => {
     if (tilesRef.current.observer) tilesRef.current.observer.disconnect();
+    if (tilesRef.current.resizeObserver) tilesRef.current.resizeObserver.disconnect();
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;

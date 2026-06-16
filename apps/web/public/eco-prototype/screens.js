@@ -2512,6 +2512,47 @@ function splitSentiment(total, bias = 'neutral') {
 function GeographyScreen({ onMentionClick }) {
   const [metric, setMetric] = useState('count');
   const [slice, setSlice] = useState(null);
+  // Filtros de contenido: fuente / tópico / subtópico. El mapa se re-consulta a
+  // /api/eco-geo cuando cambian; D.MUNICIPALITIES (boot) es solo el estado inicial.
+  const [filters, setFilters] = useState({ source: 'all', topic: '', subtopic: '' });
+  const [munis, setMunis] = useState(D.MUNICIPALITIES || []);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+
+  // Filtros activos (sin defaults), para fusionar en cada _filter de drill-in y
+  // en la query de /api/eco-geo. Subtópico va por NOMBRE (contrato eco-mentions).
+  const contentFilter = React.useMemo(() => {
+    const f = {};
+    if (filters.source && filters.source !== 'all') f.source = filters.source;
+    if (filters.topic) f.topic = filters.topic;
+    if (filters.subtopic) f.subtopic = filters.subtopic;
+    return f;
+  }, [filters]);
+  const hasFilters = !!(contentFilter.source || contentFilter.topic || contentFilter.subtopic);
+
+  // Re-consulta la agregación por municipio cuando cambian los filtros.
+  React.useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    const agency = localStorage.getItem('eco.agency');
+    const period = localStorage.getItem('eco.period') || '1M';
+    if (agency) params.set('agency', agency);
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from');
+      const to = localStorage.getItem('eco.to');
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+    } else {
+      params.set('period', period);
+    }
+    for (const [k, v] of Object.entries(contentFilter)) params.set(k, String(v));
+    setLoadingGeo(true);
+    fetch('/api/eco-geo?' + params.toString(), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { municipalities: null }))
+      .then((d) => { if (!cancelled && Array.isArray(d.municipalities)) setMunis(d.municipalities); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingGeo(false); });
+    return () => { cancelled = true; };
+  }, [contentFilter]);
 
   function openMuniSlice(m) {
     const senti = splitSentiment(m.count, m.nss > 2 ? 'positivo' : m.nss < -2 ? 'negativo' : 'neutral');
@@ -2523,7 +2564,7 @@ function GeographyScreen({ onMentionClick }) {
       volume: m.count,
       sentiment: senti,
       mentions: [],
-      _filter: { municipality: m.slug },
+      _filter: { municipality: m.slug, ...contentFilter },
     });
   }
 
@@ -2564,8 +2605,24 @@ function GeographyScreen({ onMentionClick }) {
           </div>
         </div>
         <div className="card-bd" style={{ padding: 24 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+            <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ minWidth: 150 }} />
+            <select className="input" value={filters.topic} style={{ minWidth: 160 }}
+              onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value, subtopic: '' }))}>
+              <option value="">Todos los tópicos</option>
+              {(D.TOPICS || []).filter((t) => t && t.slug).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+            </select>
+            <select className="input" value={filters.subtopic} disabled={!filters.topic}
+              style={{ minWidth: 170, opacity: filters.topic ? 1 : 0.5 }}
+              onChange={(e) => setFilters((f) => ({ ...f, subtopic: e.target.value }))}>
+              <option value="">{filters.topic ? 'Todos los subtópicos' : 'Subtópico (elige tópico)'}</option>
+              {filters.topic && (((D.SUBTOPICS || {})[filters.topic]) || []).map((st) => <option key={st.slug || st.name} value={st.name}>{st.name}</option>)}
+            </select>
+            {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
+            {loadingGeo && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Actualizando…</span>}
+          </div>
           <PRMap
-            municipalities={D.MUNICIPALITIES}
+            municipalities={munis}
             accessor={(m) => metric === 'count' ? m.count : Math.abs(m.nss)}
             colorFn={(m) => metric === 'nss' ? (m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
             onMunicipalityClick={openMuniSlice}
@@ -2585,7 +2642,7 @@ function GeographyScreen({ onMentionClick }) {
           <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
           <div className="card-bd">
             <HBarList
-              items={[...D.MUNICIPALITIES].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
+              items={[...munis].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
               colorFn={() => 'var(--accent)'}
               onItemClick={(it) => openMuniSlice(it._muni)}
             />
@@ -2595,8 +2652,8 @@ function GeographyScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Sentimiento por región</div><div className="card-hd-sub">NSS agregado</div></div></div>
           <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {['Metro', 'Sur', 'Centro-oriental', 'Oeste', 'Norte', 'Este'].map((r, i) => {
-              const regionMunis = D.MUNICIPALITIES.filter(m => m.region === r);
+            {[...new Set((munis || []).map((m) => m.region).filter(Boolean))].map((r, i) => {
+              const regionMunis = munis.filter(m => m.region === r);
               if (regionMunis.length === 0) return null;
               const avgNss = regionMunis.reduce((s,m) => s+m.nss, 0) / regionMunis.length;
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
@@ -2609,7 +2666,7 @@ function GeographyScreen({ onMentionClick }) {
                       title: `Sentimiento en ${r}`,
                       accent: avgNss > 0 ? 'var(--pos)' : 'var(--neg)',
                       mentions: [],
-                      _filter: { region: r },
+                      _filter: { region: r, ...contentFilter },
                     });
                   }}
                   className="row-hover"

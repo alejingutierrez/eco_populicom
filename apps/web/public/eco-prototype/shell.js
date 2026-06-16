@@ -585,6 +585,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
 function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
+  const roRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
@@ -612,6 +613,18 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
         : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
       L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
       mapRef.current = map;
+      // El drawer entra con animación slideLeft (~0.26s); Leaflet mide el
+      // contenedor al crear el mapa, cuando aún está transformado/sin tamaño,
+      // y pinta tiles grises/desplazados. Forzar invalidateSize tras el layout
+      // + un ResizeObserver lo corrige de forma robusta y agnóstica a duración.
+      const remeasure = () => { if (mapRef.current) mapRef.current.invalidateSize(); };
+      requestAnimationFrame(() => requestAnimationFrame(remeasure));
+      setTimeout(remeasure, 300);
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        const ro = new ResizeObserver(remeasure);
+        ro.observe(containerRef.current);
+        roRef.current = ro;
+      }
     } else {
       mapRef.current.setView(center, zoom);
     }
@@ -633,6 +646,7 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   // Cleanup on unmount — Leaflet sobre un container reusado en React
   // puede acumular handlers; remove() libera memoria y listeners.
   React.useEffect(() => () => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;
