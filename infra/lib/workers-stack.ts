@@ -104,9 +104,15 @@ export class WorkersStack extends cdk.Stack {
     }));
     brandwatchTokenSecret.grantRead(this.ingestionFunction);
 
-    // EventBridge schedule: every 1 minute
+    // EventBridge schedule: every 5 minutes.
+    // Antes era 1 min, pero con reservedConcurrency=1 el cron de 1 min NO
+    // aumenta throughput (las invocaciones que llegan con una corrida en vuelo
+    // se throttlean) y SÍ presiona la cuota de Brandwatch (30 req/10 min): con
+    // ~6 query IDs cada minuto pide >quota → 429s → backoff → "death spiral".
+    // 5 min es la cadencia que pidió el usuario y deja ~6 req/5min, holgado bajo
+    // la cuota, con un page-cap por corrida como guarda extra (ver ingestion).
     const ingestionRule = new events.Rule(this, 'IngestionSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
     });
     ingestionRule.addTarget(new targets.LambdaFunction(this.ingestionFunction));
 
@@ -140,10 +146,16 @@ export class WorkersStack extends cdk.Stack {
       bundling: bundlingOptions,
     });
 
-    // SQS trigger for processor (batch 10, maxConcurrency 10)
+    // SQS trigger for processor (batch 10, maxConcurrency 10).
+    // reportBatchItemFailures: un registro malo/throttleado ya no reencola los
+    // 10 del batch — solo se reintenta el que falló. Reduce gasto Bedrock
+    // redundante y evita que mensajes sanos terminen en la DLQ por culpa ajena.
+    // maxBatchingWindow: deja llenar el batch a 10 para menos round-trips.
     this.processorFunction.addEventSource(new SqsEventSource(props.ingestionQueue, {
       batchSize: 10,
       maxConcurrency: 10,
+      maxBatchingWindow: cdk.Duration.seconds(5),
+      reportBatchItemFailures: true,
     }));
 
     // Grant permissions for processor
@@ -240,9 +252,13 @@ export class WorkersStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // EventBridge schedule: every 10 minutes (computes today's snapshot only)
+    // EventBridge schedule: every 5 minutes (computes today's snapshot only).
+    // El path normal es <10s (agregaciones SQL por agencia, sin Bedrock salvo
+    // que dispare crisis), así que 5 min es seguro y da frescura ~5min al
+    // dashboard — antes era 10 min y ese era el mayor contribuyente al "delay"
+    // percibido, independiente de la cuota de Brandwatch.
     const metricsRule = new events.Rule(this, 'MetricsCalculatorSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
     });
     metricsRule.addTarget(new targets.LambdaFunction(this.metricsCalculatorFunction));
 

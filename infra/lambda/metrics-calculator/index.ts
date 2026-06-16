@@ -206,12 +206,18 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
   const result = await client.query(
     `SELECT
       COUNT(*)::int AS total_mentions,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'positivo')::int AS positive_count,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'neutral')::int AS neutral_count,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'negativo')::int AS negative_count,
+      -- Sentimiento efectivo COALESCE(nlp, bw): idéntico al loader windowed
+      -- (metrics.ts loadAggregatesForWindow) y a la query de samples de crisis
+      -- de este mismo lambda. Antes usaba nlp_sentiment puro, así que el snapshot
+      -- diario y el recálculo windowed del dashboard contaban negativos distinto
+      -- (las menciones clasificadas por BW pero aún no por NLP no contaban en el
+      -- snapshot) → severity/score divergían entre el gate de alerta y el dashboard.
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count,
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count,
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count,
       COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count,
       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count,
-      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND nlp_sentiment = 'negativo')::int AS relevant_negative_count,
+      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count,
       COALESCE(SUM(likes), 0)::int AS total_likes,
       COALESCE(SUM(comments), 0)::int AS total_comments,
       COALESCE(SUM(shares), 0)::int AS total_shares,

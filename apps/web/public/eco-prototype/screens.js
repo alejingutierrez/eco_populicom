@@ -348,9 +348,12 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </KpiCard>
         <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
-          {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
+          {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
+              + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
+              ELEVADO<0.40 / ALERTA<0.60 / CRISIS≥0.60 (mismos cortes que el
+              termómetro de Overview y el bandFor del backend). */}
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>

@@ -115,21 +115,31 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
 
     // Parallelize NLP + inserts. `pg.Client` serializes DB queries internally,
     // but Bedrock calls run concurrently (the real bottleneck).
+    //
+    // Partial-batch failure (reportBatchItemFailures): en vez de re-lanzar y
+    // reencolar los 10 mensajes, devolvemos SOLO los messageId que fallaron.
+    // Los registros sanos se eliminan de la cola en el primer intento; el
+    // dedup SELECT + ON CONFLICT hace idempotente cualquier reentrega.
+    const batchItemFailures: { itemIdentifier: string }[] = [];
     if (newRecords.length > 0) {
       const results = await Promise.allSettled(
         newRecords.map((r) => processRecord(r, client)),
       );
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (failed.length > 0) {
-        // Re-throw first error so SQS retries the batch.
-        console.error(`${failed.length}/${newRecords.length} records failed in batch`);
-        throw (failed[0] as PromiseRejectedResult).reason;
+      results.forEach((res, i) => {
+        if (res.status === 'rejected') {
+          const rec = newRecords[i];
+          console.error(`record ${rec.messageId} failed:`, (res as PromiseRejectedResult).reason);
+          batchItemFailures.push({ itemIdentifier: rec.messageId });
+        }
+      });
+      if (batchItemFailures.length > 0) {
+        console.error(`${batchItemFailures.length}/${newRecords.length} records failed in batch (partial retry)`);
       }
     }
+    return { batchItemFailures };
   } finally {
     await client.end();
   }
-  return;
 };
 
 /** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
