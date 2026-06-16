@@ -298,6 +298,7 @@ function App() {
           agency={agency} setAgency={setAgency}
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
+          onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
           mode={mode} setMode={setMode} live={true}
         />
         <main className="eco-page"

@@ -1956,7 +1956,7 @@ function SentimentBar({ t }) {
     : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)', minWidth: 40 }}>
+      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)', minWidth: 40 }}>
         <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
         <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--text-3)' }} />
         <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
@@ -2221,7 +2221,7 @@ function TopicDetail({ topic, subs, onBack }) {
                 <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
                 <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{s.dominantSentiment || 'mixed'}</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)' }}>
                     <div style={{ flexGrow: Math.max(0, s.positivePct || 0), background: 'var(--pos)' }} />
                     <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--text-3)' }} />
                     <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />

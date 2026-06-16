@@ -196,7 +196,11 @@ export async function GET(request: NextRequest) {
     : [];
   for (const tok of qTokens) {
     const like = '%' + tok + '%';
-    conditions.push(sql`(${mentions.title} ILIKE ${like} OR ${mentions.snippet} ILIKE ${like})` as any);
+    // Búsqueda por texto Y por URL/dominio: cada token matchea título/snippet o
+    // url/original_url/domain. Pegar una URL (un solo token sin espacios) o un
+    // dominio ('elnuevodia.com') ahora devuelve esas menciones. (domain está
+    // indexado; url/original_url hacen seq-scan — aceptable al volumen actual.)
+    conditions.push(sql`(${mentions.title} ILIKE ${like} OR ${mentions.snippet} ILIKE ${like} OR ${mentions.url} ILIKE ${like} OR ${mentions.originalUrl} ILIKE ${like} OR ${mentions.domain} ILIKE ${like})` as any);
   }
 
   const emotion = searchParams.get('emotion');

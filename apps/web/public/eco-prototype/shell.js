@@ -172,28 +172,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         )}
       </div>
 
-      {/* Command search */}
-      {!collapsed && (
-        <div style={{ padding: '12px' }}>
-          <button onClick={onOpenCommand} style={{
-            width: '100%',
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '7px 10px',
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: theme === 'gaceta' ? 3 : 6,
-            color: 'rgba(255,255,255,0.45)',
-            fontSize: 12,
-          }}>
-            <Icons.Search size={13} />
-            <span style={{ flex: 1, textAlign: 'left' }}>Buscar, ir a…</span>
-            <span className="kbd" style={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>⌘K</span>
-          </button>
-        </div>
-      )}
+      {/* El buscador se movió al header (HeaderSearch). El atajo ⌘K sigue activo
+          vía el listener global de teclado. */}
 
       {!collapsed && (
-        <div style={{ padding: '0 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
+        <div style={{ padding: '12px 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
           Análisis
         </div>
       )}
@@ -264,7 +247,35 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
+// Buscador del header: input de texto real (no solo el botón ⌘K). Enter dispara
+// la búsqueda completa (texto o URL) navegando a /search; ⌘K sigue disponible
+// como atajo para el command palette. Petición del usuario: el buscador va en el
+// header (no en el menú lateral) y debe ser un poco más ancho.
+function HeaderSearch({ onSearch, onOpenCommand }) {
+  const [q, setQ] = React.useState('');
+  return (
+    <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 180, maxWidth: 460 }}>
+      <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text-3)', pointerEvents: 'none' }}>
+        <Icons.Search size={14} />
+      </span>
+      <input
+        className="input"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && typeof onSearch === 'function') onSearch(q.trim()); }}
+        placeholder="Buscar menciones, autor, URL…"
+        title="Buscar por texto o URL — Enter. ⌘K abre el comando rápido."
+        style={{ width: '100%', padding: '8px 56px 8px 32px', fontSize: 12 }}
+      />
+      <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
+        style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
+        <span className="kbd">⌘K</span>
+      </button>
+    </div>
+  );
+}
+
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onSearch, mode, setMode, onOpenTweaks, live = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
   // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
@@ -317,6 +328,9 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{title}</h1>
       </div>
+
+      {/* Buscador global — input real en el header (antes era solo un botón ⌘K) */}
+      <HeaderSearch onSearch={onSearch} onOpenCommand={onOpenCommand} />
 
       {/* Agency switcher */}
       <div style={{
@@ -419,11 +433,6 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           </>
         )}
       </div>
-
-      {/* Quick search — abre el command palette con foco real */}
-      <button onClick={onOpenCommand} className="btn" title="Buscar (⌘K)">
-        <Icons.Search size={13} /> <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Buscar</span> <span className="kbd">⌘K</span>
-      </button>
 
       {/* Dark/light */}
       <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')} title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
