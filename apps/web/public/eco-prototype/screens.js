@@ -4514,6 +4514,98 @@ function NarrativeSparkline({ data, color }) {
   );
 }
 
+// Grafo de narrativas — force-directed nativo en SVG (sin react-force-graph2d).
+// Porta la idea del NarrativeGraph local del usuario a la arquitectura del SPA,
+// reusando narratives + edges (/api/narrative + /api/narrative/edges) y la
+// paleta de estado. La simulación corre una sola vez por dataset (useMemo).
+function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
+  const W = 900, H = 560;
+  const layout = React.useMemo(() => {
+    const inEdge = new Set();
+    (edges || []).forEach((e) => { inEdge.add(e.source); inEdge.add(e.target); });
+    let nodes = (narratives || []).filter((n) => inEdge.has(n.id));
+    if (nodes.length < 40) {
+      const extra = [...(narratives || [])]
+        .sort((a, b) => (b.mentionCount || 0) - (a.mentionCount || 0))
+        .filter((n) => !inEdge.has(n.id))
+        .slice(0, 40 - nodes.length);
+      nodes = nodes.concat(extra);
+    }
+    nodes = nodes.slice(0, 80);
+    const idIdx = new Map(nodes.map((n, i) => [n.id, i]));
+    const links = (edges || []).filter((e) => idIdx.has(e.source) && idIdx.has(e.target));
+    const N = nodes.length;
+    const pos = nodes.map((_, i) => {
+      const a = (i / Math.max(1, N)) * Math.PI * 2;
+      return { x: W / 2 + Math.cos(a) * 220, y: H / 2 + Math.sin(a) * 180 };
+    });
+    const vel = pos.map(() => ({ x: 0, y: 0 }));
+    for (let it = 0; it < 220; it++) {
+      for (let i = 0; i < N; i++) {
+        for (let j = i + 1; j < N; j++) {
+          const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+          const d2 = dx * dx + dy * dy || 0.01;
+          const d = Math.sqrt(d2);
+          const f = 1400 / d2;
+          const fx = (dx / d) * f, fy = (dy / d) * f;
+          vel[i].x += fx; vel[i].y += fy; vel[j].x -= fx; vel[j].y -= fy;
+        }
+      }
+      for (const e of links) {
+        const a = idIdx.get(e.source), b = idIdx.get(e.target);
+        const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const f = (d - 90) * 0.02 * (0.4 + (e.strength || 0.5));
+        const fx = (dx / d) * f, fy = (dy / d) * f;
+        vel[a].x += fx; vel[a].y += fy; vel[b].x -= fx; vel[b].y -= fy;
+      }
+      for (let i = 0; i < N; i++) {
+        vel[i].x += (W / 2 - pos[i].x) * 0.002;
+        vel[i].y += (H / 2 - pos[i].y) * 0.002;
+        vel[i].x *= 0.85; vel[i].y *= 0.85;
+        pos[i].x += vel[i].x; pos[i].y += vel[i].y;
+      }
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pos.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    return { nodes, pos, links, idIdx, bounds: { minX, minY, maxX, maxY } };
+  }, [narratives, edges]);
+
+  const { nodes, pos, links, idIdx, bounds } = layout;
+  if (!nodes.length) return <div className="narrative-empty">Sin narrativas suficientes para graficar.</div>;
+  const pad = 44;
+  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${(bounds.maxX - bounds.minX) + pad * 2} ${(bounds.maxY - bounds.minY) + pad * 2}`;
+  const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
+
+  return (
+    <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card-hd"><div>
+        <div className="card-hd-title">Grafo de narrativas</div>
+        <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · click para abrir el detalle</div>
+      </div></div>
+      <svg viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
+        {links.map((e, i) => {
+          const a = pos[idIdx.get(e.source)], b = pos[idIdx.get(e.target)];
+          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--hairline-strong)" strokeOpacity={0.2 + (e.strength || 0.3) * 0.5} strokeWidth={0.6 + (e.strength || 0.3) * 1.6} />;
+        })}
+        {nodes.map((n, i) => {
+          const p = pos[i];
+          const r = 5 + Math.sqrt((n.mentionCount || 0) / maxMent) * 16;
+          const isFocus = n.id === focusedId;
+          return (
+            <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => onSelect && onSelect(n.id)}>
+              <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es')} menc · ${n.status}`}</title>
+              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'} fillOpacity={0.85}
+                stroke={isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isFocus ? 2.5 : 1} />
+              {(isFocus || r > 12) && <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10} fill="var(--text-2)">{(n.name || '').slice(0, 26)}</text>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function NarrativeScreen({ agency }) {
   const [narratives, setNarratives] = React.useState([]);
   const [edges, setEdges] = React.useState([]);
@@ -4523,6 +4615,7 @@ function NarrativeScreen({ agency }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [selectedDay, setSelectedDay] = React.useState(null);
+  const [view, setView] = React.useState('detail'); // 'detail' | 'graph'
 
   React.useEffect(() => {
     let cancelled = false;
@@ -4654,18 +4747,33 @@ function NarrativeScreen({ agency }) {
           <div className="narrative-empty">Cargando…</div>
         ) : error ? (
           <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
-        ) : !focused ? (
-          <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
         ) : (
-          <NarrativeAnalysis
-            narrative={focused}
-            edges={edges}
-            allNarratives={narratives}
-            agency={agency}
-            selectedDay={selectedDay}
-            onSelectDay={setSelectedDay}
-            onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
-          />
+          <>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <button className={`chip ${view === 'detail' ? 'active' : ''}`} onClick={() => setView('detail')}>Detalle</button>
+              <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Grafo de narrativas</button>
+            </div>
+            {view === 'graph' ? (
+              <NarrativeGraph
+                narratives={narratives}
+                edges={edges}
+                focusedId={focusedId}
+                onSelect={(id) => { setFocusedId(id); setView('detail'); setSelectedDay(null); }}
+              />
+            ) : !focused ? (
+              <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
+            ) : (
+              <NarrativeAnalysis
+                narrative={focused}
+                edges={edges}
+                allNarratives={narratives}
+                agency={agency}
+                selectedDay={selectedDay}
+                onSelectDay={setSelectedDay}
+                onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
+              />
+            )}
+          </>
         )}
       </main>
 
