@@ -2711,10 +2711,13 @@ function CrisisAlertsTab() {
 
   const reloadAll = useCallback(async () => {
     setLoading(true);
+    // Agencia activa (no hardcodear ddecpr — al cambiar a AAA estos paneles no
+    // cambiaban). Pasamos slug en `agency` y `agencySlug` por compatibilidad.
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || 'ddecpr';
     try {
       const [cfg, hist] = await Promise.all([
-        fetch('/api/alerts/crisis-config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/alerts/history?agencySlug=ddecpr&limit=10').then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+        fetch(`/api/alerts/crisis-config?agency=${ag}&agencySlug=${ag}`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&limit=10`).then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
       ]);
       setConfig(cfg.config ?? null);
       setHistory(hist.history ?? []);
@@ -2810,10 +2813,12 @@ function ReportsTab() {
   // form se mantienen sincronizados. La carga inicial es cuando entras al tab.
   const reloadAll = useCallback(async () => {
     setLoading(true);
+    // Agencia activa (no hardcodear ddecpr). Slug en `agency` y `agencySlug`.
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || 'ddecpr';
     try {
       const [cfg, hist] = await Promise.all([
-        fetch('/api/reports/config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/reports/history?agencySlug=ddecpr&limit=14').then((r) => r.ok ? r.json() : { history: [] }),
+        fetch(`/api/reports/config?agency=${ag}&agencySlug=${ag}`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`/api/reports/history?agency=${ag}&agencySlug=${ag}&limit=14`).then((r) => r.ok ? r.json() : { history: [] }),
       ]);
       setConfig(cfg.config ?? null);
       setHistory(hist.history ?? []);
@@ -2918,7 +2923,9 @@ function ReportsTab() {
 
 // =============== ALERTS ===============
 function AlertsScreen({ onMentionClick }) {
-  const [tab, setTab] = useState('feed');
+  // Por defecto 'history' (datos reales). El "Feed en vivo" estaba vacío porque
+  // eco-data nunca pobla ALERT_FEED; ahora muestra estado vacío honesto.
+  const [tab, setTab] = useState('history');
   const [slice, setSlice] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [toast, setToast] = useState(null); // { kind, text }
@@ -2932,6 +2939,24 @@ function AlertsScreen({ onMentionClick }) {
     (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
     return m;
   });
+
+  // KPIs reales (antes eran literales 6/4/7/8m). Reglas/activas salen de D.ALERTS;
+  // disparadas-24h y última-alerta de /api/alerts/history (1 día).
+  const [fireStats, setFireStats] = useState({ fired24h: null, lastFired: null });
+  React.useEffect(() => {
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+    fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&period=1D&limit=200`, { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { history: [] }))
+      .then((j) => { const h = j.history || []; setFireStats({ fired24h: h.length, lastFired: h[0] ? h[0].triggeredAt : null }); })
+      .catch(() => {});
+  }, []);
+  const rulesTotal = (D.ALERTS || []).length;
+  const rulesActive = (D.ALERTS || []).filter((a) => a.active).length;
+  const lastFiredLabel = fireStats.lastFired
+    ? new Date(fireStats.lastFired).toLocaleString('es-PR', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+  const canRules = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_alert_rules') : true;
+  const canTemplates = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_templates') : true;
 
   function fireToast(kind, text) {
     setToast({ kind, text });
@@ -2960,20 +2985,20 @@ function AlertsScreen({ onMentionClick }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <KpiCard label="Alertas activas" value="6" icon="Bell" accent="var(--accent)" />
-        <KpiCard label="Disparadas · 24h" value="4" delta={50} sub="vs ayer" icon="Zap" accent="var(--neg)" invertDelta />
-        <KpiCard label="Reglas configuradas" value="7" icon="Shield" accent="var(--text-2)" />
-        <KpiCard label="Tiempo mediano respuesta" value="8m" delta={-2} sub="min" icon="Activity" accent="var(--pos)" invertDelta />
+        <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
+        <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--accent)" />
+        <KpiCard label="Disparadas · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
+        <KpiCard label="Última alerta" value={lastFiredLabel} icon="Activity" accent="var(--pos)" />
       </div>
 
       <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
-        <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>
-        <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
-        <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>
+        {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
+        {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
         <div style={{ flex: 1 }} />
-        {tab !== 'reports' && tab !== 'crisis' && (
+        {tab !== 'reports' && tab !== 'crisis' && canRules && (
           <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
         )}
       </div>
@@ -2982,7 +3007,12 @@ function AlertsScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Feed cronológico</div><div className="card-hd-sub">Eventos de las últimas 24 horas</div></div></div>
           <div>
-            {D.ALERT_FEED.map((a, i) => (
+            {(D.ALERT_FEED || []).length === 0 && (
+              <div style={{ padding: '28px 18px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                Sin eventos en vivo. El registro de alertas disparadas está en <strong style={{ color: 'var(--text-2)' }}>Historial</strong>.
+              </div>
+            )}
+            {(D.ALERT_FEED || []).map((a, i) => (
               <div key={a.id} style={{ display: 'flex', gap: 14, padding: '14px 18px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
                   <span className={a.severity === 'alta' ? 'ring-pulse' : ''} style={{ width: 10, height: 10, borderRadius: '50%', background: a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)' }} />
@@ -3048,9 +3078,9 @@ function AlertsScreen({ onMentionClick }) {
 
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
 
-      {tab === 'crisis' && <CrisisAlertsTab />}
+      {tab === 'crisis' && canRules && <CrisisAlertsTab />}
 
-      {tab === 'reports' && <ReportsTab />}
+      {tab === 'reports' && canTemplates && <ReportsTab />}
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
       {editorOpen && (
@@ -3082,13 +3112,22 @@ function AlertsScreen({ onMentionClick }) {
 function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [topic, setTopic] = useState('');
-  const [sentiment, setSentiment] = useState('any');
-  const [pertinence, setPertinence] = useState('any');
-  const [minVolume, setMinVolume] = useState(5);
-  const [windowMinutes, setWindowMinutes] = useState(60);
+  // Reglas de MÉTRICA sobre el snapshot diario (decisión: estandarizar en reglas
+  // de métrica). Cada métrica trae dirección + umbral por defecto sensatos.
+  const METRIC_DEFAULTS = {
+    crisis:               { comparator: 'gte', threshold: 0.40, label: 'Crisis Score (0–1)',           hint: '≥ 0.40 = banda ALERTA' },
+    bhi:                  { comparator: 'lte', threshold: 0.45, label: 'Brand Health Index (0–1)',     hint: '≤ 0.45 = salud baja' },
+    polarization:         { comparator: 'gte', threshold: 60,   label: 'Polarización (0–100)',         hint: '≥ 60 = alta polarización' },
+    engagement_velocity:  { comparator: 'gte', threshold: 2.5,  label: 'Velocidad de engagement (z)',  hint: '≥ 2.5σ sobre baseline' },
+    volume_anomaly:       { comparator: 'gte', threshold: 2.5,  label: 'Anomalía de volumen (z)',      hint: '≥ 2.5σ sobre baseline' },
+  };
+  const [metric, setMetric] = useState('crisis');
+  const [comparator, setComparator] = useState(METRIC_DEFAULTS.crisis.comparator);
+  const [threshold, setThreshold] = useState(METRIC_DEFAULTS.crisis.threshold);
+  const [cooldownHours, setCooldownHours] = useState(12);
   const [emailsText, setEmailsText] = useState('');
   const [saving, setSaving] = useState(false);
+  const onMetricChange = (m) => { setMetric(m); const d = METRIC_DEFAULTS[m]; if (d) { setComparator(d.comparator); setThreshold(d.threshold); } };
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   useEffect(() => {
@@ -3110,10 +3149,11 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
           name: name.trim(),
           description: description.trim() || undefined,
           config: {
-            topic: topic || null,
-            sentiment: sentiment === 'any' ? null : sentiment,
-            pertinence: pertinence === 'any' ? null : pertinence,
-            threshold: { minMentions: Number(minVolume), windowMinutes: Number(windowMinutes) },
+            type: 'metric_threshold',
+            metric,
+            comparator,
+            threshold: Number(threshold),
+            cooldownHours: Number(cooldownHours),
           },
           notifyEmails: emails,
         }),
@@ -3157,43 +3197,35 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
+              <select className="input" value={metric} onChange={(e) => onMetricChange(e.target.value)}>
+                {Object.entries(METRIC_DEFAULTS).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}
+              </select>
+              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{METRIC_DEFAULTS[metric] && METRIC_DEFAULTS[metric].hint}</span>
+            </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Tópico</span>
-              <select className="input" value={topic} onChange={(e) => setTopic(e.target.value)}>
-                <option value="">Cualquiera</option>
-                {(topics || []).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Condición</span>
+              <select className="input" value={comparator} onChange={(e) => setComparator(e.target.value)}>
+                <option value="gte">Mayor o igual que (≥)</option>
+                <option value="lte">Menor o igual que (≤)</option>
               </select>
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Sentimiento</span>
-              <select className="input" value={sentiment} onChange={(e) => setSentiment(e.target.value)}>
-                <option value="any">Cualquiera</option>
-                <option value="negativo">Negativo</option>
-                <option value="neutral">Neutral</option>
-                <option value="positivo">Positivo</option>
-              </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Pertinencia mínima</span>
-              <select className="input" value={pertinence} onChange={(e) => setPertinence(e.target.value)}>
-                <option value="any">Cualquiera</option>
-                <option value="alta">Alta</option>
-                <option value="media">Media</option>
-                <option value="baja">Baja</option>
-              </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral · menciones</span>
-              <input className="input" type="number" min="1" value={minVolume} onChange={(e) => setMinVolume(e.target.value)} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral</span>
+              <input className="input" type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Ventana de evaluación · minutos</span>
-              <input className="input" type="number" min="5" step="5" value={windowMinutes} onChange={(e) => setWindowMinutes(e.target.value)} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre disparos · horas</span>
+              <input className="input" type="number" min="1" max="168" value={cooldownHours} onChange={(e) => setCooldownHours(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Correos a notificar (separados por coma)</span>
               <input className="input" value={emailsText} onChange={(e) => setEmailsText(e.target.value)} placeholder="equipo@agencia.pr.gov" />
             </label>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            Se evalúa sobre el snapshot diario de la agencia (cron de métricas). Al cruzar el umbral envía un correo a los destinatarios y respeta el cooldown.
           </div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
