@@ -3268,11 +3268,27 @@ function AlertsHistory({ onMentionClick }) {
 
 // =============== SETTINGS ===============
 function SettingsScreen() {
-  const [section, setSection] = useState('usuarios');
-  const sections = [
-    { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users' },
-    { k: 'alertas', l: 'Preferencias de alertas', icon: 'Bell' },
+  // "Preferencias de alertas" se eliminó: las alertas son solo por correo, así
+  // que ese módulo (stub de canales SMS/Slack en localStorage) no hacía nada.
+  // Las secciones se gatean por capacidad (editor ve Plantillas, analyst/viewer
+  // no; solo admin gestiona Usuarios). La sección 'plantillas' la consume la
+  // gestión de plantillas de correo (ver TemplatesAdmin).
+  const has = (c) => (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function' ? window.ecoHasCap(c) : true);
+  const allSections = [
+    { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users', cap: 'manage_users', render: () => <UsersAdmin /> },
+    // 'plantillas' (gestión de plantillas de correo) se añade en PR4.
   ];
+  const sections = allSections.filter((s) => has(s.cap));
+  const [section, setSection] = useState(sections[0] ? sections[0].k : null);
+  const current = sections.find((s) => s.k === section) || sections[0];
+
+  if (sections.length === 0) {
+    return (
+      <div className="card"><div className="card-bd" style={{ color: 'var(--text-3)', fontSize: 13, padding: 20 }}>
+        No tienes permisos para gestionar la configuración.
+      </div></div>
+    );
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
@@ -3294,7 +3310,7 @@ function SettingsScreen() {
           );
         })}
       </div>
-      <div>{section === 'usuarios' ? <UsersAdmin /> : <AlertsPrefs />}</div>
+      <div>{current ? current.render() : null}</div>
     </div>
   );
 }
@@ -3309,11 +3325,27 @@ const SEED_USERS = [
   { id: 'u6', name: 'Rafael Ortiz', email: 'rafael.ortiz@dtop.pr.gov', role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 30 min', avatar: '#4A7FB5' },
 ];
 
+// Las claves coinciden con el enum del backend (admin/editor/analyst/viewer)
+// para que la etiqueta de la tabla, el filtro y los radios del drawer cuadren.
 const ROLES = [
-  { k: 'admin',    l: 'Administrador', desc: 'Control total · gestiona usuarios, reglas y configuración', perms: ['read','write','admin','billing'], count: 2 },
-  { k: 'editor',   l: 'Editor',        desc: 'Crea reglas de alerta, tags, responde menciones',           perms: ['read','write'],                   count: 4 },
-  { k: 'analista', l: 'Analista',      desc: 'Ve todos los dashboards, exporta reportes, comenta',        perms: ['read','export'],                  count: 12 },
-  { k: 'viewer',   l: 'Solo lectura',  desc: 'Vista de dashboards sin exportar ni comentar',              perms: ['read'],                           count: 8 },
+  { k: 'admin',   l: 'Administrador', desc: 'Control total · gestiona usuarios, plantillas, reglas y configuración', perms: ['Usuarios', 'Plantillas', 'Reglas', 'Editar', 'Exportar'] },
+  { k: 'editor',  l: 'Editor',        desc: 'Gestiona plantillas de correo y reglas de alerta; responde menciones',  perms: ['Plantillas', 'Reglas', 'Editar', 'Exportar'] },
+  { k: 'analyst', l: 'Analista',      desc: 'Ve dashboards y exporta; sin edición de plantillas/reglas/usuarios',     perms: ['Exportar'] },
+  { k: 'viewer',  l: 'Solo lectura',  desc: 'Vista de dashboards sin exportar ni editar',                             perms: [] },
+];
+
+// Páginas del menú para el control de visibilidad por-usuario (allowed_pages).
+// Las claves coinciden con NAV/SYSTEM_NAV en shell.js.
+const PAGE_OPTIONS = [
+  { k: 'overview', l: 'Overview' },
+  { k: 'dashboard', l: 'Scorecard' },
+  { k: 'mentions', l: 'Menciones' },
+  { k: 'sentiment', l: 'Sentimiento' },
+  { k: 'topics', l: 'Tópicos' },
+  { k: 'narrative', l: 'Narrativas' },
+  { k: 'geography', l: 'Geografía' },
+  { k: 'alerts', l: 'Alertas' },
+  { k: 'settings', l: 'Configuración' },
 ];
 
 function UsersAdmin() {
@@ -3338,9 +3370,11 @@ function UsersAdmin() {
     id: u.id,
     name: u.name || u.email.split('@')[0],
     email: u.email,
-    role: u.role, // 'admin' | 'analyst' | 'viewer'
+    role: u.role, // 'admin' | 'editor' | 'analyst' | 'viewer'
     allAgencies: !!u.allAgencies,
     agencySlugs: Array.isArray(u.agencies) ? u.agencies : [],
+    // null = ve todas las páginas que su rol permita; array = solo esas páginas.
+    allowedPages: Array.isArray(u.allowedPages) ? u.allowedPages : null,
     // Display label for the Agencia column.
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
@@ -3348,8 +3382,8 @@ function UsersAdmin() {
     avatar: '#4A7FB5',
   });
 
-  // Normalize the prototype's richer role vocabulary to the backend's enum.
-  const roleToApi = (r) => (r === 'admin' ? 'admin' : r === 'editor' || r === 'analista' || r === 'analyst' ? 'analyst' : 'viewer');
+  // Las claves de ROLES ya coinciden con el enum del backend; solo validamos.
+  const roleToApi = (r) => (['admin', 'editor', 'analyst', 'viewer'].includes(r) ? r : 'viewer');
 
   const refresh = React.useCallback(() => {
     setLoading(true);
@@ -3389,6 +3423,7 @@ function UsersAdmin() {
             isActive: u.status !== 'suspendido',
             allAgencies: !!u.allAgencies,
             agencySlugs: u.agencySlugs || [],
+            allowedPages: u.allowedPages ?? null,
           }),
         });
       } else {
@@ -3403,6 +3438,7 @@ function UsersAdmin() {
             role: roleToApi(u.role),
             allAgencies: !!u.allAgencies,
             agencySlugs: u.agencySlugs || [],
+            allowedPages: u.allowedPages ?? null,
           }),
         });
       }
@@ -3668,35 +3704,36 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
             </div>
           </div>
 
-          {/* Scope — which agencies this user can see */}
+          {/* Page visibility — qué páginas ve este usuario (override por-usuario).
+              Reemplaza el mockup "Alcance de datos" (checkboxes muertos con
+              agencias ficticias) por el control real de mostrar/esconder páginas. */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Alcance de datos</div>
-            <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              {['DTOP','DACo','Salud','AMA','Familia','Educación'].map((a, i) => (
-                <label key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)' }}>
-                  <input type="checkbox" defaultChecked={i === 0 || a === form.agency} />
-                  {a}
-                </label>
-              ))}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla de qué agencias puede ver menciones, tópicos y reportes.</div>
-          </div>
-
-          {/* Notifications */}
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Notificaciones</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[
-                { k: 'alertas_criticas', l: 'Alertas críticas (email + SMS)', d: true },
-                { k: 'resumen_diario',  l: 'Resumen diario por correo', d: true },
-                { k: 'invitacion',      l: 'Invitación de bienvenida', d: isCreate },
-              ].map(n => (
-                <label key={n.k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-                  <input type="checkbox" defaultChecked={n.d} />
-                  <span style={{ fontSize: 12 }}>{n.l}</span>
-                </label>
-              ))}
-            </div>
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Páginas visibles</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.allowedPages == null}
+                onChange={(e) => setField('allowedPages', e.target.checked ? null : PAGE_OPTIONS.map((p) => p.k))} />
+              <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las páginas <span style={{ color: 'var(--text-3)' }}>(según su rol)</span></span>
+            </label>
+            {form.allowedPages != null && (
+              <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                {PAGE_OPTIONS.map((p) => {
+                  const locked = p.k === 'overview'; // overview siempre visible (landing)
+                  const checked = locked || (form.allowedPages || []).includes(p.k);
+                  return (
+                    <label key={p.k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)', opacity: locked ? 0.6 : 1 }}>
+                      <input type="checkbox" checked={checked} disabled={locked}
+                        onChange={(e) => {
+                          const cur = new Set(form.allowedPages || []);
+                          if (e.target.checked) cur.add(p.k); else cur.delete(p.k);
+                          setField('allowedPages', [...cur]);
+                        }} />
+                      {p.l}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla qué páginas ve este usuario en el menú. "Todas" = sin restricción (su rol decide). Overview siempre visible. Las páginas de Configuración además requieren el permiso del rol.</div>
           </div>
 
           {/* Activity — only on edit */}
@@ -3752,99 +3789,6 @@ function Field({ label, required, children }) {
         {label} {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </div>
       {children}
-    </div>
-  );
-}
-
-function AlertsPrefs() {
-  // Persist toggles + destinations in localStorage so the settings survive
-  // reload. When a user-preferences API lands we can swap the storage layer
-  // without changing the UI.
-  const DEFAULTS = {
-    email: { on: true,  dest: '' },
-    sms:   { on: false, dest: '' },
-    slack: { on: false, dest: '' },
-    teams: { on: false, dest: '' },
-  };
-  const [prefs, setPrefs] = useState(() => {
-    try {
-      const raw = localStorage.getItem('eco.prefs.alertChannels');
-      if (!raw) return DEFAULTS;
-      return { ...DEFAULTS, ...JSON.parse(raw) };
-    } catch { return DEFAULTS; }
-  });
-  const [saved, setSaved] = useState(false);
-
-  function update(k, patch) {
-    setPrefs((p) => {
-      const next = { ...p, [k]: { ...p[k], ...patch } };
-      try { localStorage.setItem('eco.prefs.alertChannels', JSON.stringify(next)); } catch {}
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-      return next;
-    });
-  }
-
-  const channels = [
-    { k: 'email', l: 'Correo electrónico', placeholder: 'tu@agencia.pr.gov' },
-    { k: 'sms',   l: 'SMS',                placeholder: '+1 787 000 0000' },
-    { k: 'slack', l: 'Slack',              placeholder: '#canal-monitoreo' },
-    { k: 'teams', l: 'Microsoft Teams',    placeholder: 'Webhook URL' },
-  ];
-
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Preferencias de alertas</div>
-          <div className="card-hd-sub">Canales por defecto · se aplican a las reglas que crees desde ahora</div>
-        </div>
-        {saved && <span className="pill pill-pos">Guardado</span>}
-      </div>
-      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {channels.map((c) => {
-          const val = prefs[c.k] || { on: false, dest: '' };
-          return (
-            <div key={c.k}
-              style={{
-                display: 'grid', gridTemplateColumns: '1fr auto 40px',
-                alignItems: 'center', gap: 12,
-                padding: '12px 14px', border: '1px solid var(--hairline)', borderRadius: 10,
-              }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.l}</div>
-                <input
-                  className="input"
-                  style={{ marginTop: 4, fontSize: 11 }}
-                  placeholder={c.placeholder}
-                  value={val.dest}
-                  onChange={(e) => update(c.k, { dest: e.target.value })}
-                  disabled={!val.on}
-                />
-              </div>
-              <span style={{ fontSize: 10, color: val.on ? 'var(--pos)' : 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase' }}>
-                {val.on ? 'Activo' : 'Inactivo'}
-              </span>
-              <button
-                onClick={() => update(c.k, { on: !val.on })}
-                aria-label={`Toggle ${c.l}`}
-                style={{
-                  width: 36, height: 20, borderRadius: 999, border: 'none',
-                  background: val.on ? 'var(--pos)' : 'var(--hairline-strong)',
-                  position: 'relative', cursor: 'pointer', padding: 0,
-                }}>
-                <span style={{
-                  display: 'block', width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                  position: 'absolute', top: 2, left: val.on ? 18 : 2, transition: 'left 0.2s',
-                }} />
-              </button>
-            </div>
-          );
-        })}
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-          Estas preferencias se guardan localmente. Cuando una regla incluya estos canales, se usarán automáticamente.
-        </div>
-      </div>
     </div>
   );
 }

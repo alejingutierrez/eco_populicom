@@ -49,6 +49,26 @@ const SYSTEM_NAV = [
   { key: 'settings', icon: 'Settings', label: 'Configuración' },
 ];
 
+// --- RBAC gating: lee window.ECO_SESSION (lo puebla app.js desde /api/auth/me)
+// con { role, capabilities, allowedPages }. Mientras la sesión no carga NO se
+// oculta nada (evita parpadeo). 'overview' siempre visible como landing seguro.
+function ecoSession() { return (typeof window !== 'undefined' && window.ECO_SESSION) || null; }
+function ecoHasCap(cap) {
+  const s = ecoSession();
+  if (!s || !Array.isArray(s.capabilities)) return true;
+  return s.capabilities.includes(cap);
+}
+function ecoCanSeePage(key) {
+  const s = ecoSession();
+  if (!s) return true;
+  if (key !== 'overview' && Array.isArray(s.allowedPages) && s.allowedPages.length > 0 && !s.allowedPages.includes(key)) return false;
+  if (key === 'settings') {
+    return ecoHasCap('manage_users') || ecoHasCap('manage_templates') || ecoHasCap('manage_alert_rules');
+  }
+  return true;
+}
+if (typeof window !== 'undefined') { window.ecoCanSeePage = ecoCanSeePage; window.ecoHasCap = ecoHasCap; }
+
 function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, theme, mode }) {
   const I = Icons;
   const NavItem = ({ item }) => {
@@ -181,7 +201,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         </div>
       )}
       <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {NAV.map((n) => <NavItem key={n.key} item={n} />)}
+        {NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       {!collapsed && (
@@ -190,7 +210,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         </div>
       )}
       <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {SYSTEM_NAV.map((n) => <NavItem key={n.key} item={n} />)}
+        {SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       <div style={{ flex: 1 }} />
@@ -224,11 +244,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 10, fontWeight: 700,
-        }}>AG</div>
+        }}>{(() => { const s = ecoSession(); const nm = (s && (s.name || s.email)) || 'Usuario'; return nm.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U'; })()}</div>
         {!collapsed && (
           <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>A. Gutiérrez</div>
-            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>Admin · {agency?.name || agency}</div>
+            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
           </div>
         )}
       </div>
@@ -472,8 +492,8 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   // Real, executable commands
   const items = [
     // Navigation
-    ...NAV.map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
-    ...SYSTEM_NAV.map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
+    ...NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
+    ...SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },

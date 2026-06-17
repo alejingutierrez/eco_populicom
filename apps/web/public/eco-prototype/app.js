@@ -216,6 +216,26 @@ function App() {
     try { return new URLSearchParams(location.search).get('q') || ''; } catch (_) { return ''; }
   });
 
+  // Sesión + RBAC: el SPA consulta /api/auth/me al boot para gatear navegación y
+  // controles (rol, capacidades, páginas permitidas por usuario). window.ECO_SESSION
+  // lo leen shell.js (filtros de nav/⌘K) y screens.js (gating de tabs de config).
+  const [session, setSession] = useState(() => window.ECO_SESSION || null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((d) => { if (!cancelled && d && d.user) { window.ECO_SESSION = d.user; setSession(d.user); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  // Guard de deep-link: si el usuario no puede ver la pantalla activa (override de
+  // páginas o capacidad insuficiente), redirige a overview.
+  useEffect(() => {
+    if (session && typeof window.ecoCanSeePage === 'function' && !window.ecoCanSeePage(active)) {
+      setActive('overview');
+    }
+  }, [session, active, setActive]);
+
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);

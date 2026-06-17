@@ -4,6 +4,7 @@ import { eq, desc, inArray } from 'drizzle-orm';
 import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { setUserAgencyAccess, agencySlugsByUser } from '@/lib/provision';
 import { requireRole } from '@/lib/auth/require-admin';
+import { provisionCognitoUser } from '@/lib/auth/cognito-admin';
 import { isRole, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/log';
 
@@ -108,6 +109,12 @@ export async function POST(request: NextRequest) {
     if (firstId) primaryAgencyId = firstId;
   }
 
+  // Provisión real en Cognito: crea la cuenta + envía la invitación por email y
+  // asigna el grupo del rol. Si no se puede (SDK/permiso/pool ausente, o ya
+  // existe), realSub = null y caemos al placeholder 'invited:' que el JIT
+  // reconcilia al primer login — el invitar nunca falla en duro.
+  const realSub = await provisionCognitoUser(body.email, role);
+
   const db = getDb();
   try {
     const [row] = await db
@@ -119,9 +126,9 @@ export async function POST(request: NextRequest) {
         agencyId: primaryAgencyId,
         allAgencies: allAgencies ?? false,
         allowedPages: allowedPages ?? null,
-        // cognitoSub is NOT NULL; the real sub is claimed on first sign-in
-        // (see ensureUserProvisioned). Placeholder keeps the row valid.
-        cognitoSub: `invited:${body.email}`,
+        // sub real de Cognito si se provisionó; si no, placeholder 'invited:'
+        // (NOT NULL) que ensureUserProvisioned reclama en el primer sign-in.
+        cognitoSub: realSub ?? `invited:${body.email}`,
       })
       .returning();
     if (agencySlugs || allAgencies !== undefined) {
