@@ -135,6 +135,21 @@ export class ComputeStack extends cdk.Stack {
       ],
     }));
 
+    // Permite a /api/users crear cuentas reales en Cognito (AdminCreateUser) +
+    // asignar el grupo del rol (AdminAddUserToGroup) al invitar usuarios, y leer
+    // el sub real (AdminGetUser). Sin esto, "Invitar usuario" solo pre-autoriza
+    // una fila DB (placeholder) que el JIT reclama al primer login.
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: [
+        'cognito-idp:AdminCreateUser',
+        'cognito-idp:AdminAddUserToGroup',
+        'cognito-idp:AdminGetUser',
+      ],
+      resources: [
+        `arn:aws:cognito-idp:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:userpool/${props.userPoolId}`,
+      ],
+    }));
+
     // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus +
     // Sonnet inference profiles). Sin estos permisos, el endpoint cae al
     // fallback rule-based de buildRuleBasedInsight (sigue funcional, pero

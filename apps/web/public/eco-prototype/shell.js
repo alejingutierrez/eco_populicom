@@ -49,6 +49,26 @@ const SYSTEM_NAV = [
   { key: 'settings', icon: 'Settings', label: 'Configuración' },
 ];
 
+// --- RBAC gating: lee window.ECO_SESSION (lo puebla app.js desde /api/auth/me)
+// con { role, capabilities, allowedPages }. Mientras la sesión no carga NO se
+// oculta nada (evita parpadeo). 'overview' siempre visible como landing seguro.
+function ecoSession() { return (typeof window !== 'undefined' && window.ECO_SESSION) || null; }
+function ecoHasCap(cap) {
+  const s = ecoSession();
+  if (!s || !Array.isArray(s.capabilities)) return true;
+  return s.capabilities.includes(cap);
+}
+function ecoCanSeePage(key) {
+  const s = ecoSession();
+  if (!s) return true;
+  if (key !== 'overview' && Array.isArray(s.allowedPages) && s.allowedPages.length > 0 && !s.allowedPages.includes(key)) return false;
+  if (key === 'settings') {
+    return ecoHasCap('manage_users') || ecoHasCap('manage_templates') || ecoHasCap('manage_alert_rules');
+  }
+  return true;
+}
+if (typeof window !== 'undefined') { window.ecoCanSeePage = ecoCanSeePage; window.ecoHasCap = ecoHasCap; }
+
 function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, theme, mode }) {
   const I = Icons;
   const NavItem = ({ item }) => {
@@ -172,33 +192,16 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         )}
       </div>
 
-      {/* Command search */}
-      {!collapsed && (
-        <div style={{ padding: '12px' }}>
-          <button onClick={onOpenCommand} style={{
-            width: '100%',
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '7px 10px',
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: theme === 'gaceta' ? 3 : 6,
-            color: 'rgba(255,255,255,0.45)',
-            fontSize: 12,
-          }}>
-            <Icons.Search size={13} />
-            <span style={{ flex: 1, textAlign: 'left' }}>Buscar, ir a…</span>
-            <span className="kbd" style={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>⌘K</span>
-          </button>
-        </div>
-      )}
+      {/* El buscador se movió al header (HeaderSearch). El atajo ⌘K sigue activo
+          vía el listener global de teclado. */}
 
       {!collapsed && (
-        <div style={{ padding: '0 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
+        <div style={{ padding: '12px 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
           Análisis
         </div>
       )}
       <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {NAV.map((n) => <NavItem key={n.key} item={n} />)}
+        {NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       {!collapsed && (
@@ -207,7 +210,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         </div>
       )}
       <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {SYSTEM_NAV.map((n) => <NavItem key={n.key} item={n} />)}
+        {SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       <div style={{ flex: 1 }} />
@@ -241,11 +244,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 10, fontWeight: 700,
-        }}>AG</div>
+        }}>{(() => { const s = ecoSession(); const nm = (s && (s.name || s.email)) || 'Usuario'; return nm.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U'; })()}</div>
         {!collapsed && (
           <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>A. Gutiérrez</div>
-            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>Admin · {agency?.name || agency}</div>
+            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
           </div>
         )}
       </div>
@@ -264,7 +267,35 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
+// Buscador del header: input de texto real (no solo el botón ⌘K). Enter dispara
+// la búsqueda completa (texto o URL) navegando a /search; ⌘K sigue disponible
+// como atajo para el command palette. Petición del usuario: el buscador va en el
+// header (no en el menú lateral) y debe ser un poco más ancho.
+function HeaderSearch({ onSearch, onOpenCommand }) {
+  const [q, setQ] = React.useState('');
+  return (
+    <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 180, maxWidth: 460 }}>
+      <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text-3)', pointerEvents: 'none' }}>
+        <Icons.Search size={14} />
+      </span>
+      <input
+        className="input"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && typeof onSearch === 'function') onSearch(q.trim()); }}
+        placeholder="Buscar menciones, autor, URL…"
+        title="Buscar por texto o URL — Enter. ⌘K abre el comando rápido."
+        style={{ width: '100%', padding: '8px 56px 8px 32px', fontSize: 12 }}
+      />
+      <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
+        style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
+        <span className="kbd">⌘K</span>
+      </button>
+    </div>
+  );
+}
+
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onSearch, mode, setMode, onOpenTweaks, live = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
   // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
@@ -317,6 +348,9 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{title}</h1>
       </div>
+
+      {/* Buscador global — input real en el header (antes era solo un botón ⌘K) */}
+      <HeaderSearch onSearch={onSearch} onOpenCommand={onOpenCommand} />
 
       {/* Agency switcher */}
       <div style={{
@@ -420,11 +454,6 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         )}
       </div>
 
-      {/* Quick search — abre el command palette con foco real */}
-      <button onClick={onOpenCommand} className="btn" title="Buscar (⌘K)">
-        <Icons.Search size={13} /> <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Buscar</span> <span className="kbd">⌘K</span>
-      </button>
-
       {/* Dark/light */}
       <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')} title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
         {mode === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
@@ -463,8 +492,8 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   // Real, executable commands
   const items = [
     // Navigation
-    ...NAV.map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
-    ...SYSTEM_NAV.map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
+    ...NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
+    ...SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
@@ -585,6 +614,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
 function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
+  const roRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
@@ -612,6 +642,18 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
         : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
       L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
       mapRef.current = map;
+      // El drawer entra con animación slideLeft (~0.26s); Leaflet mide el
+      // contenedor al crear el mapa, cuando aún está transformado/sin tamaño,
+      // y pinta tiles grises/desplazados. Forzar invalidateSize tras el layout
+      // + un ResizeObserver lo corrige de forma robusta y agnóstica a duración.
+      const remeasure = () => { if (mapRef.current) mapRef.current.invalidateSize(); };
+      requestAnimationFrame(() => requestAnimationFrame(remeasure));
+      setTimeout(remeasure, 300);
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        const ro = new ResizeObserver(remeasure);
+        ro.observe(containerRef.current);
+        roRef.current = ro;
+      }
     } else {
       mapRef.current.setView(center, zoom);
     }
@@ -633,6 +675,7 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   // Cleanup on unmount — Leaflet sobre un container reusado en React
   // puede acumular handlers; remove() libera memoria y listeners.
   React.useEffect(() => () => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;

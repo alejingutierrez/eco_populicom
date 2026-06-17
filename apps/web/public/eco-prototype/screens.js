@@ -348,9 +348,12 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </KpiCard>
         <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
-          {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
+          {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
+              + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
+              ELEVADO<0.40 / ALERTA<0.60 / CRISIS≥0.60 (mismos cortes que el
+              termómetro de Overview y el bandFor del backend). */}
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
@@ -1956,7 +1959,7 @@ function SentimentBar({ t }) {
     : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)', minWidth: 40 }}>
+      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)', minWidth: 40 }}>
         <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
         <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--text-3)' }} />
         <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
@@ -2221,7 +2224,7 @@ function TopicDetail({ topic, subs, onBack }) {
                 <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
                 <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{s.dominantSentiment || 'mixed'}</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)' }}>
                     <div style={{ flexGrow: Math.max(0, s.positivePct || 0), background: 'var(--pos)' }} />
                     <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--text-3)' }} />
                     <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />
@@ -2512,6 +2515,47 @@ function splitSentiment(total, bias = 'neutral') {
 function GeographyScreen({ onMentionClick }) {
   const [metric, setMetric] = useState('count');
   const [slice, setSlice] = useState(null);
+  // Filtros de contenido: fuente / tópico / subtópico. El mapa se re-consulta a
+  // /api/eco-geo cuando cambian; D.MUNICIPALITIES (boot) es solo el estado inicial.
+  const [filters, setFilters] = useState({ source: 'all', topic: '', subtopic: '' });
+  const [munis, setMunis] = useState(D.MUNICIPALITIES || []);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+
+  // Filtros activos (sin defaults), para fusionar en cada _filter de drill-in y
+  // en la query de /api/eco-geo. Subtópico va por NOMBRE (contrato eco-mentions).
+  const contentFilter = React.useMemo(() => {
+    const f = {};
+    if (filters.source && filters.source !== 'all') f.source = filters.source;
+    if (filters.topic) f.topic = filters.topic;
+    if (filters.subtopic) f.subtopic = filters.subtopic;
+    return f;
+  }, [filters]);
+  const hasFilters = !!(contentFilter.source || contentFilter.topic || contentFilter.subtopic);
+
+  // Re-consulta la agregación por municipio cuando cambian los filtros.
+  React.useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    const agency = localStorage.getItem('eco.agency');
+    const period = localStorage.getItem('eco.period') || '1M';
+    if (agency) params.set('agency', agency);
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from');
+      const to = localStorage.getItem('eco.to');
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+    } else {
+      params.set('period', period);
+    }
+    for (const [k, v] of Object.entries(contentFilter)) params.set(k, String(v));
+    setLoadingGeo(true);
+    fetch('/api/eco-geo?' + params.toString(), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { municipalities: null }))
+      .then((d) => { if (!cancelled && Array.isArray(d.municipalities)) setMunis(d.municipalities); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingGeo(false); });
+    return () => { cancelled = true; };
+  }, [contentFilter]);
 
   function openMuniSlice(m) {
     const senti = splitSentiment(m.count, m.nss > 2 ? 'positivo' : m.nss < -2 ? 'negativo' : 'neutral');
@@ -2523,7 +2567,7 @@ function GeographyScreen({ onMentionClick }) {
       volume: m.count,
       sentiment: senti,
       mentions: [],
-      _filter: { municipality: m.slug },
+      _filter: { municipality: m.slug, ...contentFilter },
     });
   }
 
@@ -2564,8 +2608,24 @@ function GeographyScreen({ onMentionClick }) {
           </div>
         </div>
         <div className="card-bd" style={{ padding: 24 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+            <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ minWidth: 150 }} />
+            <select className="input" value={filters.topic} style={{ minWidth: 160 }}
+              onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value, subtopic: '' }))}>
+              <option value="">Todos los tópicos</option>
+              {(D.TOPICS || []).filter((t) => t && t.slug).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+            </select>
+            <select className="input" value={filters.subtopic} disabled={!filters.topic}
+              style={{ minWidth: 170, opacity: filters.topic ? 1 : 0.5 }}
+              onChange={(e) => setFilters((f) => ({ ...f, subtopic: e.target.value }))}>
+              <option value="">{filters.topic ? 'Todos los subtópicos' : 'Subtópico (elige tópico)'}</option>
+              {filters.topic && (((D.SUBTOPICS || {})[filters.topic]) || []).map((st) => <option key={st.slug || st.name} value={st.name}>{st.name}</option>)}
+            </select>
+            {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
+            {loadingGeo && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Actualizando…</span>}
+          </div>
           <PRMap
-            municipalities={D.MUNICIPALITIES}
+            municipalities={munis}
             accessor={(m) => metric === 'count' ? m.count : Math.abs(m.nss)}
             colorFn={(m) => metric === 'nss' ? (m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
             onMunicipalityClick={openMuniSlice}
@@ -2585,7 +2645,7 @@ function GeographyScreen({ onMentionClick }) {
           <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
           <div className="card-bd">
             <HBarList
-              items={[...D.MUNICIPALITIES].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
+              items={[...munis].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
               colorFn={() => 'var(--accent)'}
               onItemClick={(it) => openMuniSlice(it._muni)}
             />
@@ -2595,8 +2655,8 @@ function GeographyScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Sentimiento por región</div><div className="card-hd-sub">NSS agregado</div></div></div>
           <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {['Metro', 'Sur', 'Centro-oriental', 'Oeste', 'Norte', 'Este'].map((r, i) => {
-              const regionMunis = D.MUNICIPALITIES.filter(m => m.region === r);
+            {[...new Set((munis || []).map((m) => m.region).filter(Boolean))].map((r, i) => {
+              const regionMunis = munis.filter(m => m.region === r);
               if (regionMunis.length === 0) return null;
               const avgNss = regionMunis.reduce((s,m) => s+m.nss, 0) / regionMunis.length;
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
@@ -2609,7 +2669,7 @@ function GeographyScreen({ onMentionClick }) {
                       title: `Sentimiento en ${r}`,
                       accent: avgNss > 0 ? 'var(--pos)' : 'var(--neg)',
                       mentions: [],
-                      _filter: { region: r },
+                      _filter: { region: r, ...contentFilter },
                     });
                   }}
                   className="row-hover"
@@ -2651,10 +2711,13 @@ function CrisisAlertsTab() {
 
   const reloadAll = useCallback(async () => {
     setLoading(true);
+    // Agencia activa (no hardcodear ddecpr — al cambiar a AAA estos paneles no
+    // cambiaban). Pasamos slug en `agency` y `agencySlug` por compatibilidad.
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || 'ddecpr';
     try {
       const [cfg, hist] = await Promise.all([
-        fetch('/api/alerts/crisis-config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/alerts/history?agencySlug=ddecpr&limit=10').then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+        fetch(`/api/alerts/crisis-config?agency=${ag}&agencySlug=${ag}`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&limit=10`).then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
       ]);
       setConfig(cfg.config ?? null);
       setHistory(hist.history ?? []);
@@ -2750,10 +2813,12 @@ function ReportsTab() {
   // form se mantienen sincronizados. La carga inicial es cuando entras al tab.
   const reloadAll = useCallback(async () => {
     setLoading(true);
+    // Agencia activa (no hardcodear ddecpr). Slug en `agency` y `agencySlug`.
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || 'ddecpr';
     try {
       const [cfg, hist] = await Promise.all([
-        fetch('/api/reports/config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/reports/history?agencySlug=ddecpr&limit=14').then((r) => r.ok ? r.json() : { history: [] }),
+        fetch(`/api/reports/config?agency=${ag}&agencySlug=${ag}`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`/api/reports/history?agency=${ag}&agencySlug=${ag}&limit=14`).then((r) => r.ok ? r.json() : { history: [] }),
       ]);
       setConfig(cfg.config ?? null);
       setHistory(hist.history ?? []);
@@ -2858,7 +2923,9 @@ function ReportsTab() {
 
 // =============== ALERTS ===============
 function AlertsScreen({ onMentionClick }) {
-  const [tab, setTab] = useState('feed');
+  // Por defecto 'history' (datos reales). El "Feed en vivo" estaba vacío porque
+  // eco-data nunca pobla ALERT_FEED; ahora muestra estado vacío honesto.
+  const [tab, setTab] = useState('history');
   const [slice, setSlice] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [toast, setToast] = useState(null); // { kind, text }
@@ -2872,6 +2939,24 @@ function AlertsScreen({ onMentionClick }) {
     (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
     return m;
   });
+
+  // KPIs reales (antes eran literales 6/4/7/8m). Reglas/activas salen de D.ALERTS;
+  // disparadas-24h y última-alerta de /api/alerts/history (1 día).
+  const [fireStats, setFireStats] = useState({ fired24h: null, lastFired: null });
+  React.useEffect(() => {
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+    fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&period=1D&limit=200`, { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { history: [] }))
+      .then((j) => { const h = j.history || []; setFireStats({ fired24h: h.length, lastFired: h[0] ? h[0].triggeredAt : null }); })
+      .catch(() => {});
+  }, []);
+  const rulesTotal = (D.ALERTS || []).length;
+  const rulesActive = (D.ALERTS || []).filter((a) => a.active).length;
+  const lastFiredLabel = fireStats.lastFired
+    ? new Date(fireStats.lastFired).toLocaleString('es-PR', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+  const canRules = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_alert_rules') : true;
+  const canTemplates = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_templates') : true;
 
   function fireToast(kind, text) {
     setToast({ kind, text });
@@ -2900,20 +2985,20 @@ function AlertsScreen({ onMentionClick }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <KpiCard label="Alertas activas" value="6" icon="Bell" accent="var(--accent)" />
-        <KpiCard label="Disparadas · 24h" value="4" delta={50} sub="vs ayer" icon="Zap" accent="var(--neg)" invertDelta />
-        <KpiCard label="Reglas configuradas" value="7" icon="Shield" accent="var(--text-2)" />
-        <KpiCard label="Tiempo mediano respuesta" value="8m" delta={-2} sub="min" icon="Activity" accent="var(--pos)" invertDelta />
+        <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
+        <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--accent)" />
+        <KpiCard label="Disparadas · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
+        <KpiCard label="Última alerta" value={lastFiredLabel} icon="Activity" accent="var(--pos)" />
       </div>
 
       <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
-        <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>
-        <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
-        <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>
+        {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
+        {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
         <div style={{ flex: 1 }} />
-        {tab !== 'reports' && tab !== 'crisis' && (
+        {tab !== 'reports' && tab !== 'crisis' && canRules && (
           <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
         )}
       </div>
@@ -2922,7 +3007,12 @@ function AlertsScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Feed cronológico</div><div className="card-hd-sub">Eventos de las últimas 24 horas</div></div></div>
           <div>
-            {D.ALERT_FEED.map((a, i) => (
+            {(D.ALERT_FEED || []).length === 0 && (
+              <div style={{ padding: '28px 18px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                Sin eventos en vivo. El registro de alertas disparadas está en <strong style={{ color: 'var(--text-2)' }}>Historial</strong>.
+              </div>
+            )}
+            {(D.ALERT_FEED || []).map((a, i) => (
               <div key={a.id} style={{ display: 'flex', gap: 14, padding: '14px 18px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
                   <span className={a.severity === 'alta' ? 'ring-pulse' : ''} style={{ width: 10, height: 10, borderRadius: '50%', background: a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)' }} />
@@ -2988,9 +3078,9 @@ function AlertsScreen({ onMentionClick }) {
 
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
 
-      {tab === 'crisis' && <CrisisAlertsTab />}
+      {tab === 'crisis' && canRules && <CrisisAlertsTab />}
 
-      {tab === 'reports' && <ReportsTab />}
+      {tab === 'reports' && canTemplates && <ReportsTab />}
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
       {editorOpen && (
@@ -3022,13 +3112,22 @@ function AlertsScreen({ onMentionClick }) {
 function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [topic, setTopic] = useState('');
-  const [sentiment, setSentiment] = useState('any');
-  const [pertinence, setPertinence] = useState('any');
-  const [minVolume, setMinVolume] = useState(5);
-  const [windowMinutes, setWindowMinutes] = useState(60);
+  // Reglas de MÉTRICA sobre el snapshot diario (decisión: estandarizar en reglas
+  // de métrica). Cada métrica trae dirección + umbral por defecto sensatos.
+  const METRIC_DEFAULTS = {
+    crisis:               { comparator: 'gte', threshold: 0.40, label: 'Crisis Score (0–1)',           hint: '≥ 0.40 = banda ALERTA' },
+    bhi:                  { comparator: 'lte', threshold: 0.45, label: 'Brand Health Index (0–1)',     hint: '≤ 0.45 = salud baja' },
+    polarization:         { comparator: 'gte', threshold: 60,   label: 'Polarización (0–100)',         hint: '≥ 60 = alta polarización' },
+    engagement_velocity:  { comparator: 'gte', threshold: 2.5,  label: 'Velocidad de engagement (z)',  hint: '≥ 2.5σ sobre baseline' },
+    volume_anomaly:       { comparator: 'gte', threshold: 2.5,  label: 'Anomalía de volumen (z)',      hint: '≥ 2.5σ sobre baseline' },
+  };
+  const [metric, setMetric] = useState('crisis');
+  const [comparator, setComparator] = useState(METRIC_DEFAULTS.crisis.comparator);
+  const [threshold, setThreshold] = useState(METRIC_DEFAULTS.crisis.threshold);
+  const [cooldownHours, setCooldownHours] = useState(12);
   const [emailsText, setEmailsText] = useState('');
   const [saving, setSaving] = useState(false);
+  const onMetricChange = (m) => { setMetric(m); const d = METRIC_DEFAULTS[m]; if (d) { setComparator(d.comparator); setThreshold(d.threshold); } };
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   useEffect(() => {
@@ -3050,10 +3149,11 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
           name: name.trim(),
           description: description.trim() || undefined,
           config: {
-            topic: topic || null,
-            sentiment: sentiment === 'any' ? null : sentiment,
-            pertinence: pertinence === 'any' ? null : pertinence,
-            threshold: { minMentions: Number(minVolume), windowMinutes: Number(windowMinutes) },
+            type: 'metric_threshold',
+            metric,
+            comparator,
+            threshold: Number(threshold),
+            cooldownHours: Number(cooldownHours),
           },
           notifyEmails: emails,
         }),
@@ -3097,43 +3197,35 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
+              <select className="input" value={metric} onChange={(e) => onMetricChange(e.target.value)}>
+                {Object.entries(METRIC_DEFAULTS).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}
+              </select>
+              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{METRIC_DEFAULTS[metric] && METRIC_DEFAULTS[metric].hint}</span>
+            </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Tópico</span>
-              <select className="input" value={topic} onChange={(e) => setTopic(e.target.value)}>
-                <option value="">Cualquiera</option>
-                {(topics || []).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Condición</span>
+              <select className="input" value={comparator} onChange={(e) => setComparator(e.target.value)}>
+                <option value="gte">Mayor o igual que (≥)</option>
+                <option value="lte">Menor o igual que (≤)</option>
               </select>
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Sentimiento</span>
-              <select className="input" value={sentiment} onChange={(e) => setSentiment(e.target.value)}>
-                <option value="any">Cualquiera</option>
-                <option value="negativo">Negativo</option>
-                <option value="neutral">Neutral</option>
-                <option value="positivo">Positivo</option>
-              </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Pertinencia mínima</span>
-              <select className="input" value={pertinence} onChange={(e) => setPertinence(e.target.value)}>
-                <option value="any">Cualquiera</option>
-                <option value="alta">Alta</option>
-                <option value="media">Media</option>
-                <option value="baja">Baja</option>
-              </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral · menciones</span>
-              <input className="input" type="number" min="1" value={minVolume} onChange={(e) => setMinVolume(e.target.value)} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral</span>
+              <input className="input" type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Ventana de evaluación · minutos</span>
-              <input className="input" type="number" min="5" step="5" value={windowMinutes} onChange={(e) => setWindowMinutes(e.target.value)} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre disparos · horas</span>
+              <input className="input" type="number" min="1" max="168" value={cooldownHours} onChange={(e) => setCooldownHours(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Correos a notificar (separados por coma)</span>
               <input className="input" value={emailsText} onChange={(e) => setEmailsText(e.target.value)} placeholder="equipo@agencia.pr.gov" />
             </label>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            Se evalúa sobre el snapshot diario de la agencia (cron de métricas). Al cruzar el umbral envía un correo a los destinatarios y respeta el cooldown.
           </div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -3208,11 +3300,27 @@ function AlertsHistory({ onMentionClick }) {
 
 // =============== SETTINGS ===============
 function SettingsScreen() {
-  const [section, setSection] = useState('usuarios');
-  const sections = [
-    { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users' },
-    { k: 'alertas', l: 'Preferencias de alertas', icon: 'Bell' },
+  // "Preferencias de alertas" se eliminó: las alertas son solo por correo, así
+  // que ese módulo (stub de canales SMS/Slack en localStorage) no hacía nada.
+  // Las secciones se gatean por capacidad (editor ve Plantillas, analyst/viewer
+  // no; solo admin gestiona Usuarios). La sección 'plantillas' la consume la
+  // gestión de plantillas de correo (ver TemplatesAdmin).
+  const has = (c) => (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function' ? window.ecoHasCap(c) : true);
+  const allSections = [
+    { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users', cap: 'manage_users', render: () => <UsersAdmin /> },
+    { k: 'plantillas', l: 'Plantillas de correo', icon: 'Mail', cap: 'manage_templates', render: () => <TemplatesAdmin /> },
   ];
+  const sections = allSections.filter((s) => has(s.cap));
+  const [section, setSection] = useState(sections[0] ? sections[0].k : null);
+  const current = sections.find((s) => s.k === section) || sections[0];
+
+  if (sections.length === 0) {
+    return (
+      <div className="card"><div className="card-bd" style={{ color: 'var(--text-3)', fontSize: 13, padding: 20 }}>
+        No tienes permisos para gestionar la configuración.
+      </div></div>
+    );
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
@@ -3234,7 +3342,56 @@ function SettingsScreen() {
           );
         })}
       </div>
-      <div>{section === 'usuarios' ? <UsersAdmin /> : <AlertsPrefs />}</div>
+      <div>{current ? current.render() : null}</div>
+    </div>
+  );
+}
+
+// --- Gestión de plantillas de correo (Configuración → Plantillas) ---
+// Previsualiza los templates tal como los recibe el destinatario. El semanal se
+// renderiza vía /api/reports/preview (dryRun del lambda real). Los destinatarios
+// y la programación se gestionan en Alertas → Reportes por correo.
+function TemplatesAdmin() {
+  const [html, setHtml] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const agency = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.agency'))
+    || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+
+  const loadWeekly = () => {
+    setLoading(true); setErr(null);
+    fetch(`/api/reports/preview?agencySlug=${agency}&template=weekly`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : r.json().then((j) => Promise.reject(j.error || ('HTTP ' + r.status)))))
+      .then((j) => setHtml(j.html || ''))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <div className="card">
+      <div className="card-hd"><div>
+        <div className="card-hd-title">Plantillas de correo</div>
+        <div className="card-hd-sub">Previsualiza los correos como los reciben los destinatarios</div>
+      </div></div>
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Reporte semanal</div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Resumen ejecutivo semanal. Destinatarios y hora en Alertas → Reportes por correo.</div>
+            <button className="btn btn-primary" onClick={loadWeekly} disabled={loading || !agency}>{loading ? 'Generando…' : 'Previsualizar'}</button>
+          </div>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Alerta de crisis</div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Editorial que se envía al cruzar el umbral de crisis. Configúrala en Alertas → Alertas de crisis.</div>
+            <span className="pill pill-neu" style={{ fontSize: 10 }}>Vista previa al dispararse</span>
+          </div>
+        </div>
+        {err && <div style={{ fontSize: 12, color: 'var(--neg)' }}>No se pudo generar la vista previa: {err}</div>}
+        {html != null && (
+          <iframe title="Vista previa del correo" srcDoc={html}
+            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 10, background: '#fff' }} />
+        )}
+      </div>
     </div>
   );
 }
@@ -3249,11 +3406,27 @@ const SEED_USERS = [
   { id: 'u6', name: 'Rafael Ortiz', email: 'rafael.ortiz@dtop.pr.gov', role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 30 min', avatar: '#4A7FB5' },
 ];
 
+// Las claves coinciden con el enum del backend (admin/editor/analyst/viewer)
+// para que la etiqueta de la tabla, el filtro y los radios del drawer cuadren.
 const ROLES = [
-  { k: 'admin',    l: 'Administrador', desc: 'Control total · gestiona usuarios, reglas y configuración', perms: ['read','write','admin','billing'], count: 2 },
-  { k: 'editor',   l: 'Editor',        desc: 'Crea reglas de alerta, tags, responde menciones',           perms: ['read','write'],                   count: 4 },
-  { k: 'analista', l: 'Analista',      desc: 'Ve todos los dashboards, exporta reportes, comenta',        perms: ['read','export'],                  count: 12 },
-  { k: 'viewer',   l: 'Solo lectura',  desc: 'Vista de dashboards sin exportar ni comentar',              perms: ['read'],                           count: 8 },
+  { k: 'admin',   l: 'Administrador', desc: 'Control total · gestiona usuarios, plantillas, reglas y configuración', perms: ['Usuarios', 'Plantillas', 'Reglas', 'Editar', 'Exportar'] },
+  { k: 'editor',  l: 'Editor',        desc: 'Gestiona plantillas de correo y reglas de alerta; responde menciones',  perms: ['Plantillas', 'Reglas', 'Editar', 'Exportar'] },
+  { k: 'analyst', l: 'Analista',      desc: 'Ve dashboards y exporta; sin edición de plantillas/reglas/usuarios',     perms: ['Exportar'] },
+  { k: 'viewer',  l: 'Solo lectura',  desc: 'Vista de dashboards sin exportar ni editar',                             perms: [] },
+];
+
+// Páginas del menú para el control de visibilidad por-usuario (allowed_pages).
+// Las claves coinciden con NAV/SYSTEM_NAV en shell.js.
+const PAGE_OPTIONS = [
+  { k: 'overview', l: 'Overview' },
+  { k: 'dashboard', l: 'Scorecard' },
+  { k: 'mentions', l: 'Menciones' },
+  { k: 'sentiment', l: 'Sentimiento' },
+  { k: 'topics', l: 'Tópicos' },
+  { k: 'narrative', l: 'Narrativas' },
+  { k: 'geography', l: 'Geografía' },
+  { k: 'alerts', l: 'Alertas' },
+  { k: 'settings', l: 'Configuración' },
 ];
 
 function UsersAdmin() {
@@ -3278,9 +3451,11 @@ function UsersAdmin() {
     id: u.id,
     name: u.name || u.email.split('@')[0],
     email: u.email,
-    role: u.role, // 'admin' | 'analyst' | 'viewer'
+    role: u.role, // 'admin' | 'editor' | 'analyst' | 'viewer'
     allAgencies: !!u.allAgencies,
     agencySlugs: Array.isArray(u.agencies) ? u.agencies : [],
+    // null = ve todas las páginas que su rol permita; array = solo esas páginas.
+    allowedPages: Array.isArray(u.allowedPages) ? u.allowedPages : null,
     // Display label for the Agencia column.
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
@@ -3288,8 +3463,8 @@ function UsersAdmin() {
     avatar: '#4A7FB5',
   });
 
-  // Normalize the prototype's richer role vocabulary to the backend's enum.
-  const roleToApi = (r) => (r === 'admin' ? 'admin' : r === 'editor' || r === 'analista' || r === 'analyst' ? 'analyst' : 'viewer');
+  // Las claves de ROLES ya coinciden con el enum del backend; solo validamos.
+  const roleToApi = (r) => (['admin', 'editor', 'analyst', 'viewer'].includes(r) ? r : 'viewer');
 
   const refresh = React.useCallback(() => {
     setLoading(true);
@@ -3329,6 +3504,7 @@ function UsersAdmin() {
             isActive: u.status !== 'suspendido',
             allAgencies: !!u.allAgencies,
             agencySlugs: u.agencySlugs || [],
+            allowedPages: u.allowedPages ?? null,
           }),
         });
       } else {
@@ -3343,6 +3519,7 @@ function UsersAdmin() {
             role: roleToApi(u.role),
             allAgencies: !!u.allAgencies,
             agencySlugs: u.agencySlugs || [],
+            allowedPages: u.allowedPages ?? null,
           }),
         });
       }
@@ -3608,35 +3785,36 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
             </div>
           </div>
 
-          {/* Scope — which agencies this user can see */}
+          {/* Page visibility — qué páginas ve este usuario (override por-usuario).
+              Reemplaza el mockup "Alcance de datos" (checkboxes muertos con
+              agencias ficticias) por el control real de mostrar/esconder páginas. */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Alcance de datos</div>
-            <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              {['DTOP','DACo','Salud','AMA','Familia','Educación'].map((a, i) => (
-                <label key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)' }}>
-                  <input type="checkbox" defaultChecked={i === 0 || a === form.agency} />
-                  {a}
-                </label>
-              ))}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla de qué agencias puede ver menciones, tópicos y reportes.</div>
-          </div>
-
-          {/* Notifications */}
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Notificaciones</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[
-                { k: 'alertas_criticas', l: 'Alertas críticas (email + SMS)', d: true },
-                { k: 'resumen_diario',  l: 'Resumen diario por correo', d: true },
-                { k: 'invitacion',      l: 'Invitación de bienvenida', d: isCreate },
-              ].map(n => (
-                <label key={n.k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-                  <input type="checkbox" defaultChecked={n.d} />
-                  <span style={{ fontSize: 12 }}>{n.l}</span>
-                </label>
-              ))}
-            </div>
+            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Páginas visibles</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.allowedPages == null}
+                onChange={(e) => setField('allowedPages', e.target.checked ? null : PAGE_OPTIONS.map((p) => p.k))} />
+              <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las páginas <span style={{ color: 'var(--text-3)' }}>(según su rol)</span></span>
+            </label>
+            {form.allowedPages != null && (
+              <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                {PAGE_OPTIONS.map((p) => {
+                  const locked = p.k === 'overview'; // overview siempre visible (landing)
+                  const checked = locked || (form.allowedPages || []).includes(p.k);
+                  return (
+                    <label key={p.k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)', opacity: locked ? 0.6 : 1 }}>
+                      <input type="checkbox" checked={checked} disabled={locked}
+                        onChange={(e) => {
+                          const cur = new Set(form.allowedPages || []);
+                          if (e.target.checked) cur.add(p.k); else cur.delete(p.k);
+                          setField('allowedPages', [...cur]);
+                        }} />
+                      {p.l}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla qué páginas ve este usuario en el menú. "Todas" = sin restricción (su rol decide). Overview siempre visible. Las páginas de Configuración además requieren el permiso del rol.</div>
           </div>
 
           {/* Activity — only on edit */}
@@ -3692,99 +3870,6 @@ function Field({ label, required, children }) {
         {label} {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </div>
       {children}
-    </div>
-  );
-}
-
-function AlertsPrefs() {
-  // Persist toggles + destinations in localStorage so the settings survive
-  // reload. When a user-preferences API lands we can swap the storage layer
-  // without changing the UI.
-  const DEFAULTS = {
-    email: { on: true,  dest: '' },
-    sms:   { on: false, dest: '' },
-    slack: { on: false, dest: '' },
-    teams: { on: false, dest: '' },
-  };
-  const [prefs, setPrefs] = useState(() => {
-    try {
-      const raw = localStorage.getItem('eco.prefs.alertChannels');
-      if (!raw) return DEFAULTS;
-      return { ...DEFAULTS, ...JSON.parse(raw) };
-    } catch { return DEFAULTS; }
-  });
-  const [saved, setSaved] = useState(false);
-
-  function update(k, patch) {
-    setPrefs((p) => {
-      const next = { ...p, [k]: { ...p[k], ...patch } };
-      try { localStorage.setItem('eco.prefs.alertChannels', JSON.stringify(next)); } catch {}
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-      return next;
-    });
-  }
-
-  const channels = [
-    { k: 'email', l: 'Correo electrónico', placeholder: 'tu@agencia.pr.gov' },
-    { k: 'sms',   l: 'SMS',                placeholder: '+1 787 000 0000' },
-    { k: 'slack', l: 'Slack',              placeholder: '#canal-monitoreo' },
-    { k: 'teams', l: 'Microsoft Teams',    placeholder: 'Webhook URL' },
-  ];
-
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Preferencias de alertas</div>
-          <div className="card-hd-sub">Canales por defecto · se aplican a las reglas que crees desde ahora</div>
-        </div>
-        {saved && <span className="pill pill-pos">Guardado</span>}
-      </div>
-      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {channels.map((c) => {
-          const val = prefs[c.k] || { on: false, dest: '' };
-          return (
-            <div key={c.k}
-              style={{
-                display: 'grid', gridTemplateColumns: '1fr auto 40px',
-                alignItems: 'center', gap: 12,
-                padding: '12px 14px', border: '1px solid var(--hairline)', borderRadius: 10,
-              }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.l}</div>
-                <input
-                  className="input"
-                  style={{ marginTop: 4, fontSize: 11 }}
-                  placeholder={c.placeholder}
-                  value={val.dest}
-                  onChange={(e) => update(c.k, { dest: e.target.value })}
-                  disabled={!val.on}
-                />
-              </div>
-              <span style={{ fontSize: 10, color: val.on ? 'var(--pos)' : 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase' }}>
-                {val.on ? 'Activo' : 'Inactivo'}
-              </span>
-              <button
-                onClick={() => update(c.k, { on: !val.on })}
-                aria-label={`Toggle ${c.l}`}
-                style={{
-                  width: 36, height: 20, borderRadius: 999, border: 'none',
-                  background: val.on ? 'var(--pos)' : 'var(--hairline-strong)',
-                  position: 'relative', cursor: 'pointer', padding: 0,
-                }}>
-                <span style={{
-                  display: 'block', width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                  position: 'absolute', top: 2, left: val.on ? 18 : 2, transition: 'left 0.2s',
-                }} />
-              </button>
-            </div>
-          );
-        })}
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-          Estas preferencias se guardan localmente. Cuando una regla incluya estos canales, se usarán automáticamente.
-        </div>
-      </div>
     </div>
   );
 }
@@ -4429,6 +4514,98 @@ function NarrativeSparkline({ data, color }) {
   );
 }
 
+// Grafo de narrativas — force-directed nativo en SVG (sin react-force-graph2d).
+// Porta la idea del NarrativeGraph local del usuario a la arquitectura del SPA,
+// reusando narratives + edges (/api/narrative + /api/narrative/edges) y la
+// paleta de estado. La simulación corre una sola vez por dataset (useMemo).
+function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
+  const W = 900, H = 560;
+  const layout = React.useMemo(() => {
+    const inEdge = new Set();
+    (edges || []).forEach((e) => { inEdge.add(e.source); inEdge.add(e.target); });
+    let nodes = (narratives || []).filter((n) => inEdge.has(n.id));
+    if (nodes.length < 40) {
+      const extra = [...(narratives || [])]
+        .sort((a, b) => (b.mentionCount || 0) - (a.mentionCount || 0))
+        .filter((n) => !inEdge.has(n.id))
+        .slice(0, 40 - nodes.length);
+      nodes = nodes.concat(extra);
+    }
+    nodes = nodes.slice(0, 80);
+    const idIdx = new Map(nodes.map((n, i) => [n.id, i]));
+    const links = (edges || []).filter((e) => idIdx.has(e.source) && idIdx.has(e.target));
+    const N = nodes.length;
+    const pos = nodes.map((_, i) => {
+      const a = (i / Math.max(1, N)) * Math.PI * 2;
+      return { x: W / 2 + Math.cos(a) * 220, y: H / 2 + Math.sin(a) * 180 };
+    });
+    const vel = pos.map(() => ({ x: 0, y: 0 }));
+    for (let it = 0; it < 220; it++) {
+      for (let i = 0; i < N; i++) {
+        for (let j = i + 1; j < N; j++) {
+          const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+          const d2 = dx * dx + dy * dy || 0.01;
+          const d = Math.sqrt(d2);
+          const f = 1400 / d2;
+          const fx = (dx / d) * f, fy = (dy / d) * f;
+          vel[i].x += fx; vel[i].y += fy; vel[j].x -= fx; vel[j].y -= fy;
+        }
+      }
+      for (const e of links) {
+        const a = idIdx.get(e.source), b = idIdx.get(e.target);
+        const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const f = (d - 90) * 0.02 * (0.4 + (e.strength || 0.5));
+        const fx = (dx / d) * f, fy = (dy / d) * f;
+        vel[a].x += fx; vel[a].y += fy; vel[b].x -= fx; vel[b].y -= fy;
+      }
+      for (let i = 0; i < N; i++) {
+        vel[i].x += (W / 2 - pos[i].x) * 0.002;
+        vel[i].y += (H / 2 - pos[i].y) * 0.002;
+        vel[i].x *= 0.85; vel[i].y *= 0.85;
+        pos[i].x += vel[i].x; pos[i].y += vel[i].y;
+      }
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pos.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    return { nodes, pos, links, idIdx, bounds: { minX, minY, maxX, maxY } };
+  }, [narratives, edges]);
+
+  const { nodes, pos, links, idIdx, bounds } = layout;
+  if (!nodes.length) return <div className="narrative-empty">Sin narrativas suficientes para graficar.</div>;
+  const pad = 44;
+  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${(bounds.maxX - bounds.minX) + pad * 2} ${(bounds.maxY - bounds.minY) + pad * 2}`;
+  const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
+
+  return (
+    <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card-hd"><div>
+        <div className="card-hd-title">Grafo de narrativas</div>
+        <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · click para abrir el detalle</div>
+      </div></div>
+      <svg viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
+        {links.map((e, i) => {
+          const a = pos[idIdx.get(e.source)], b = pos[idIdx.get(e.target)];
+          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--hairline-strong)" strokeOpacity={0.2 + (e.strength || 0.3) * 0.5} strokeWidth={0.6 + (e.strength || 0.3) * 1.6} />;
+        })}
+        {nodes.map((n, i) => {
+          const p = pos[i];
+          const r = 5 + Math.sqrt((n.mentionCount || 0) / maxMent) * 16;
+          const isFocus = n.id === focusedId;
+          return (
+            <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => onSelect && onSelect(n.id)}>
+              <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es')} menc · ${n.status}`}</title>
+              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'} fillOpacity={0.85}
+                stroke={isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isFocus ? 2.5 : 1} />
+              {(isFocus || r > 12) && <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10} fill="var(--text-2)">{(n.name || '').slice(0, 26)}</text>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function NarrativeScreen({ agency }) {
   const [narratives, setNarratives] = React.useState([]);
   const [edges, setEdges] = React.useState([]);
@@ -4438,6 +4615,7 @@ function NarrativeScreen({ agency }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [selectedDay, setSelectedDay] = React.useState(null);
+  const [view, setView] = React.useState('detail'); // 'detail' | 'graph'
 
   React.useEffect(() => {
     let cancelled = false;
@@ -4569,18 +4747,33 @@ function NarrativeScreen({ agency }) {
           <div className="narrative-empty">Cargando…</div>
         ) : error ? (
           <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
-        ) : !focused ? (
-          <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
         ) : (
-          <NarrativeAnalysis
-            narrative={focused}
-            edges={edges}
-            allNarratives={narratives}
-            agency={agency}
-            selectedDay={selectedDay}
-            onSelectDay={setSelectedDay}
-            onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
-          />
+          <>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <button className={`chip ${view === 'detail' ? 'active' : ''}`} onClick={() => setView('detail')}>Detalle</button>
+              <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Grafo de narrativas</button>
+            </div>
+            {view === 'graph' ? (
+              <NarrativeGraph
+                narratives={narratives}
+                edges={edges}
+                focusedId={focusedId}
+                onSelect={(id) => { setFocusedId(id); setView('detail'); setSelectedDay(null); }}
+              />
+            ) : !focused ? (
+              <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
+            ) : (
+              <NarrativeAnalysis
+                narrative={focused}
+                edges={edges}
+                allNarratives={narratives}
+                agency={agency}
+                selectedDay={selectedDay}
+                onSelectDay={setSelectedDay}
+                onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
+              />
+            )}
+          </>
         )}
       </main>
 

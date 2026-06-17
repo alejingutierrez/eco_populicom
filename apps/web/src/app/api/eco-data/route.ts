@@ -215,8 +215,14 @@ export async function GET(request: NextRequest) {
   const since = new Date(`${startYmd}T00:00:00-04:00`);
   const until = new Date(`${endYmd}T23:59:59.999-04:00`);
 
+  // is_duplicate = false: alinea TODAS las agregaciones Drizzle (sentiment,
+  // fuentes, MUNICIPALITIES, región) con las consultas raw-SQL (#65) y con las
+  // métricas windowed (winCur), que ya excluyen duplicados. Sin esto, el dot
+  // del mapa contaba duplicados mientras el total del modal (eco-mentions) los
+  // excluía → "la modal muestra mal los datos".
   const baseWhere = and(
     eq(mentions.agencyId, agencyId),
+    eq(mentions.isDuplicate, false),
     gte(mentions.publishedAt, since),
     lte(mentions.publishedAt, until),
   );
@@ -757,7 +763,10 @@ export async function GET(request: NextRequest) {
       .from(mentionMunicipalities)
       .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
       .innerJoin(mentions, eq(mentions.id, mentionMunicipalities.mentionId))
-      .where(baseWhere)
+      // Excluye 'baja' pertinencia igual que el feed del scorecard y el modal
+      // (eco-mentions, default). Así el conteo del dot del mapa coincide con el
+      // total que muestra el modal de cada municipio/región al hacer click.
+      .where(and(baseWhere, sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
       .groupBy(municipalities.slug, municipalities.name, municipalities.region, municipalities.latitude, municipalities.longitude, effectiveSentimentSql);
 
     const mMap = new Map<string, {

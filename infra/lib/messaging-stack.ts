@@ -18,9 +18,13 @@ export class MessagingStack extends cdk.Stack {
     });
 
     // Ingestion Queue with DLQ
+    // visibilityTimeout 900s = 3x el timeout del processor (300s). Antes eran
+    // iguales (300s): bajo throttling de Bedrock un batch que corre cerca del
+    // límite se volvía visible y se reentregaba mientras aún procesaba →
+    // procesamiento duplicado y DLQ prematura de menciones válidas.
     this.ingestionQueue = new sqs.Queue(this, 'IngestionQueue', {
       queueName: 'eco-ingestion',
-      visibilityTimeout: cdk.Duration.seconds(300),
+      visibilityTimeout: cdk.Duration.seconds(900),
       retentionPeriod: cdk.Duration.days(4),
       deadLetterQueue: {
         queue: this.ingestionDlq,

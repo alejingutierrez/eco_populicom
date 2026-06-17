@@ -127,6 +127,19 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       } catch (err) {
         console.error(`[crisis] ${agency.slug} evaluation failed:`, err);
       }
+
+      // Reglas de métrica genéricas (BHI/Polarización/EngVel/Volumen/Crisis).
+      try {
+        alertsFired += await evaluateMetricThresholdAlerts(
+          client,
+          agency,
+          today,
+          event.forceCrisis === true,
+          event.recipientsOverride,
+        );
+      } catch (err) {
+        console.error(`[metric-alert] ${agency.slug} evaluation failed:`, err);
+      }
     }
 
     console.log(`[metrics-calculator] computed=${computed} crisisFired=${alertsFired}`);
@@ -206,12 +219,18 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
   const result = await client.query(
     `SELECT
       COUNT(*)::int AS total_mentions,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'positivo')::int AS positive_count,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'neutral')::int AS neutral_count,
-      COUNT(*) FILTER (WHERE nlp_sentiment = 'negativo')::int AS negative_count,
+      -- Sentimiento efectivo COALESCE(nlp, bw): idéntico al loader windowed
+      -- (metrics.ts loadAggregatesForWindow) y a la query de samples de crisis
+      -- de este mismo lambda. Antes usaba nlp_sentiment puro, así que el snapshot
+      -- diario y el recálculo windowed del dashboard contaban negativos distinto
+      -- (las menciones clasificadas por BW pero aún no por NLP no contaban en el
+      -- snapshot) → severity/score divergían entre el gate de alerta y el dashboard.
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count,
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count,
+      COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count,
       COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count,
       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count,
-      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND nlp_sentiment = 'negativo')::int AS relevant_negative_count,
+      COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count,
       COALESCE(SUM(likes), 0)::int AS total_likes,
       COALESCE(SUM(comments), 0)::int AS total_comments,
       COALESCE(SUM(shares), 0)::int AS total_shares,
@@ -438,6 +457,9 @@ interface SnapshotRow {
   crisis_velocity: number | null;
   crisis_relevance: number | null;
   volume_anomaly_zscore: number | null;
+  brand_health_index: number | null;
+  polarization_index: number | null;
+  engagement_velocity: number | null;
   total_mentions: number;
   negative_count: number;
 }
@@ -445,13 +467,144 @@ interface SnapshotRow {
 async function getTodaySnapshot(client: any, agencyId: string, today: string): Promise<SnapshotRow | null> {
   const r = await client.query(
     `SELECT crisis_risk_score, crisis_severity, crisis_velocity, crisis_relevance,
-            volume_anomaly_zscore, total_mentions, negative_count
+            volume_anomaly_zscore, brand_health_index, polarization_index, engagement_velocity,
+            total_mentions, negative_count
        FROM daily_metric_snapshots
       WHERE agency_id = $1 AND date = $2::date`,
     [agencyId, today],
   );
   const rows = r.rows as SnapshotRow[];
   return rows[0] ?? null;
+}
+
+// ============================================================
+// Reglas de MÉTRICA genéricas (metric_threshold): Crisis/BHI/Polarización/
+// EngVel/Anomalía de volumen sobre el snapshot diario. Misma plomería de
+// cooldown + SES + alert_history que crisis_threshold. Decisión de producto:
+// estandarizar el alerting en reglas de métrica.
+// ============================================================
+interface MetricRuleConfig {
+  type: 'metric_threshold';
+  metric: 'crisis' | 'bhi' | 'polarization' | 'engagement_velocity' | 'volume_anomaly';
+  comparator: 'gte' | 'lte';
+  threshold: number;
+  cooldownHours?: number;
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  crisis: 'Crisis Score',
+  bhi: 'Brand Health Index',
+  polarization: 'Índice de Polarización',
+  engagement_velocity: 'Velocidad de Engagement',
+  volume_anomaly: 'Anomalía de Volumen',
+};
+
+function snapshotMetricValue(snap: SnapshotRow, metric: MetricRuleConfig['metric']): number | null {
+  switch (metric) {
+    case 'crisis': return snap.crisis_risk_score;
+    case 'bhi': return snap.brand_health_index;
+    case 'polarization': return snap.polarization_index;
+    case 'engagement_velocity': return snap.engagement_velocity;
+    case 'volume_anomaly': return snap.volume_anomaly_zscore;
+    default: return null;
+  }
+}
+
+function escHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+async function evaluateMetricThresholdAlerts(
+  client: any,
+  agency: AgencyRow,
+  today: string,
+  force: boolean,
+  recipientsOverride?: string[],
+): Promise<number> {
+  const rulesResult = await client.query(
+    `SELECT id, name, config, notify_emails
+       FROM alert_rules
+      WHERE agency_id = $1 AND is_active = true
+        AND config->>'type' = 'metric_threshold'`,
+    [agency.id],
+  );
+  const rules = rulesResult.rows as Array<{ id: string; name: string; config: MetricRuleConfig; notify_emails: string[] }>;
+  if (rules.length === 0) return 0;
+
+  const snap = await getTodaySnapshot(client, agency.id, today);
+  if (!snap) return 0;
+
+  let fired = 0;
+  for (const rule of rules) {
+    const cfg = rule.config;
+    const value = snapshotMetricValue(snap, cfg.metric);
+    if (value == null) continue;
+    const meets = cfg.comparator === 'lte' ? value <= cfg.threshold : value >= cfg.threshold;
+    if (!force && !meets) continue;
+
+    const cooldownH = cfg.cooldownHours ?? 12;
+    if (!force) {
+      const recent = await client.query(
+        `SELECT triggered_at FROM alert_history WHERE alert_rule_id = $1 AND notification_sent = true ORDER BY triggered_at DESC LIMIT 1`,
+        [rule.id],
+      );
+      const rows = recent.rows as Array<{ triggered_at: string }>;
+      if (rows.length > 0) {
+        const hoursAgo = (Date.now() - new Date(rows[0].triggered_at).getTime()) / 3.6e6;
+        if (hoursAgo < cooldownH) continue;
+      }
+    }
+
+    const baseRecipients = Array.isArray(rule.notify_emails) ? rule.notify_emails.filter(Boolean) : [];
+    const recipients = recipientsOverride && recipientsOverride.length > 0 ? recipientsOverride : baseRecipients;
+    if (recipients.length === 0) continue;
+
+    const label = METRIC_LABELS[cfg.metric] ?? cfg.metric;
+    const cmp = cfg.comparator === 'lte' ? '≤' : '≥';
+    const valStr = Number.isInteger(value) ? String(value) : value.toFixed(2);
+    const subject = `[ECO] ${escHtml(agency.name)} · ${label} ${cmp} ${cfg.threshold}`;
+    const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0E1620;color:#E6ECF3;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;background:#121b27;border:1px solid #223;border-radius:12px;padding:24px;">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8A94A1;">Alerta de métrica · ${escHtml(agency.name)}</div>
+        <h1 style="font-size:20px;margin:8px 0 12px;">${escHtml(rule.name)}</h1>
+        <p style="font-size:14px;line-height:1.5;color:#C7D0DA;">La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${valStr}</strong>, cruzando el umbral configurado (${cmp} ${cfg.threshold}) para ${escHtml(agency.name)} el ${today}.</p>
+        <p style="font-size:12px;color:#8A94A1;margin-top:16px;">Generado por ECO Radar · evaluación diaria de métricas.</p>
+      </div></body></html>`;
+
+    const sent: string[] = [];
+    let firstMessageId: string | undefined;
+    for (const recipient of recipients) {
+      try {
+        const res = await ses.send(new SendEmailCommand({
+          Source: `${SES_FROM_NAME} <${SES_FROM_EMAIL}>`,
+          Destination: { ToAddresses: [recipient] },
+          Message: { Subject: { Data: subject, Charset: 'UTF-8' }, Body: { Html: { Data: html, Charset: 'UTF-8' } } },
+        }));
+        sent.push(recipient);
+        if (!firstMessageId) firstMessageId = res.MessageId;
+      } catch (err: any) {
+        console.warn(`[metric-alert] ${agency.slug} SKIPPED ${recipient}: ${err?.message ?? err}`);
+      }
+    }
+
+    const details = {
+      type: 'metric_threshold',
+      metric: cfg.metric,
+      comparator: cfg.comparator,
+      threshold: cfg.threshold,
+      value,
+      trigger_day: today,
+      recipients_sent: sent,
+      message_id: firstMessageId ?? null,
+    };
+    await client.query(
+      `INSERT INTO alert_history (alert_rule_id, agency_id, triggered_at, mention_ids, details, notification_sent, sent_at)
+       VALUES ($1, $2, NOW(), '[]'::jsonb, $3::jsonb, $4, $5)`,
+      [rule.id, agency.id, JSON.stringify(details), sent.length > 0, sent.length > 0 ? new Date() : null],
+    );
+    if (sent.length > 0) fired++;
+  }
+  return fired;
 }
 
 // ============================================================

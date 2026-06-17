@@ -129,6 +129,7 @@ function nssSign(nss: number | null): -1 | 0 | 1 {
 export function calculateMetrics(
   agg: DailyAggregates,
   history: HistoricalSnapshot[],
+  windowDays = 1,
 ): ComputedMetrics {
   const { totalMentions, positiveCount, negativeCount, highPertinenceCount } = agg;
   const { relevantMentionsCount, relevantNegativeCount } = agg;
@@ -219,13 +220,19 @@ export function calculateMetrics(
     + reachNormalized * 0.20
     + pertinenceRatio * 0.15;
 
-  // #22 Volume Anomaly z-score
+  // #22 Volume Anomaly z-score. La historia es POR DÍA; cuando la ventana del
+  // usuario abarca varios días, `totalMentions` es una SUMA de N días y
+  // compararla contra medias por-día disparaba volZ → crisisVelocity saturaba a
+  // 1.0 en cualquier vista 1M/1A (inflaba el Crisis Score windowed con un +0.30
+  // espurio). Normalizamos a tasa por-día. windowDays=1 (lambda diario / alert
+  // gate) deja el cálculo idéntico — cambio acotado al recálculo del dashboard.
   const volumeHistory = history.map((h) => h.totalMentions);
   let volumeAnomalyZscore: number | null = null;
   if (volumeHistory.length >= 7) {
     const avgVol = average(volumeHistory);
     const stdVol = stddev(volumeHistory);
-    volumeAnomalyZscore = stdVol > 0 ? (totalMentions - avgVol) / stdVol : 0;
+    const volPerDay = windowDays > 1 ? totalMentions / windowDays : totalMentions;
+    volumeAnomalyZscore = stdVol > 0 ? (volPerDay - avgVol) / stdVol : 0;
   }
 
   // #21 Crisis Risk — V4 (mayo 2026, post-incidente shells vacíos):
@@ -427,7 +434,14 @@ export async function loadMetricsForWindow(
     loadAggregatesForWindow(client, agencyId, startYmd, endYmd),
     loadHistoryBeforeWindow(client, agencyId, startYmd),
   ]);
-  const metrics = calculateMetrics(agg, history);
+  // Días inclusivos de la ventana, para normalizar la velocidad de crisis y el
+  // z-score de volumen a tasa por-día (ver calculateMetrics #22).
+  const dayMs = 86400000;
+  const windowDays = Math.max(
+    1,
+    Math.round((Date.parse(endYmd + 'T00:00:00Z') - Date.parse(startYmd + 'T00:00:00Z')) / dayMs) + 1,
+  );
+  const metrics = calculateMetrics(agg, history, windowDays);
   return {
     ...metrics,
     totals: {

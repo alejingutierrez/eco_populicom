@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, reportConfigs, users } from '@eco/database';
 import { eq, sql } from 'drizzle-orm';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requireCapability } from '@/lib/auth/require-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,7 +28,7 @@ interface ConfigBody {
 
 /** GET /api/reports/config?agencyId=uuid  OR  ?agencySlug=ddecpr */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdmin();
+  const auth = await requireCapability('manage_templates');
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 /** PUT /api/reports/config  (crea o actualiza) */
 export async function PUT(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdmin();
+  const auth = await requireCapability('manage_templates');
   if (!auth.ok) return auth.response;
 
   let body: ConfigBody;

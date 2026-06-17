@@ -768,6 +768,17 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
       markersLayerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+
+      // Leaflet mide el contenedor al construirse; si el ancho aún no se ha
+      // asentado (montaje inicial, colapso del sidebar que no dispara resize
+      // de window, etc.) los tiles quedan recortados/desplazados. Un
+      // ResizeObserver + un invalidateSize inicial lo mantienen correcto.
+      requestAnimationFrame(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        const ro = new ResizeObserver(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+        ro.observe(containerRef.current);
+        tilesRef.current.resizeObserver = ro;
+      }
     }
 
     const layer = markersLayerRef.current;
@@ -793,11 +804,15 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
       const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      // El tooltip siempre muestra el conteo real de menciones (m.count). En
+      // modo "Sentimiento" el accessor devuelve |NSS|, que NO es un conteo, así
+      // que nunca debe etiquetarse como "menciones".
+      const cnt = (m.count ?? 0).toLocaleString('es-PR');
       marker.bindTooltip(
         `<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;line-height:1.3;">
           <div style="font-weight:700;color:#E6ECF3;margin-bottom:2px;">${label}</div>
           <div style="color:#8A94A1;">${m.region}</div>
-          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${v.toLocaleString('es-PR')}</span> menciones</div>
+          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${cnt}</span> menciones</div>
           <div style="color:${nssColor};font-weight:600;">NSS ${nssStr}</div>
         </div>`,
         { direction: 'top', offset: [0, -4], opacity: 0.95, className: 'eco-map-tooltip' },
@@ -816,6 +831,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   // Cleanup on unmount.
   React.useEffect(() => () => {
     if (tilesRef.current.observer) tilesRef.current.observer.disconnect();
+    if (tilesRef.current.resizeObserver) tilesRef.current.resizeObserver.disconnect();
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;
@@ -839,163 +855,9 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         borderRadius: 8,
         overflow: 'hidden',
         border: '1px solid var(--hairline)',
-        background: '#0E1620',
+        background: 'var(--canvas-2)',
       }}
     />
-  );
-}
-
-function PRMapLegacy({ municipalities, accessor, colorFn, onMunicipalityClick }) {
-  const viewW = 900, viewH = 400;
-  // Zoom state (1 = fit, 2 = 2x, etc). Max 4x. Scale anchored to center of viewport.
-  const [zoom, setZoom] = React.useState(1);
-  const [layers, setLayers] = React.useState({ munis: true, roads: true, rural: false });
-  const zoomedViewW = viewW / zoom;
-  const zoomedViewH = viewH / zoom;
-  const zoomX = (viewW - zoomedViewW) / 2;
-  const zoomY = (viewH - zoomedViewH) / 2;
-
-  // More realistic PR outline (coast polygon — hand-traced into this aspect)
-  const prPath = "M 60 180 L 75 172 L 95 168 L 115 170 L 140 165 L 165 160 L 195 158 L 225 155 L 260 152 L 295 150 L 330 148 L 365 150 L 400 152 L 440 155 L 480 160 L 520 165 L 560 170 L 600 175 L 640 180 L 680 185 L 720 192 L 755 200 L 780 210 L 795 225 L 800 245 L 790 262 L 770 275 L 740 285 L 700 292 L 660 296 L 615 298 L 565 298 L 515 296 L 465 294 L 415 292 L 365 290 L 315 288 L 270 285 L 225 280 L 185 274 L 148 266 L 115 256 L 88 244 L 70 228 L 58 210 L 55 195 Z";
-
-  // Municipality positions in this coord space (approx geographic layout)
-  const positions = {
-    'aguadilla':   [95, 200],
-    'mayaguez':    [105, 250],
-    'arecibo':     [340, 195],
-    'bayamon':     [555, 195],
-    'guaynabo':    [580, 200],
-    'san-juan':    [615, 190],
-    'carolina':    [660, 195],
-    'humacao':     [745, 235],
-    'caguas':      [595, 240],
-    'ponce':       [425, 275],
-  };
-
-  const max = Math.max(...municipalities.map(accessor));
-
-  // Tile grid (fake raster)
-  const tileSize = 50;
-  const cols = Math.ceil(viewW / tileSize);
-  const rows = Math.ceil(viewH / tileSize);
-
-  // Fake road network
-  const roads = [
-    "M 55 195 L 200 192 L 340 195 L 480 195 L 615 190 L 745 230",
-    "M 615 190 L 600 240 L 595 260 L 550 280 L 500 285 L 425 275 L 350 275 L 280 272 L 200 250 L 140 240",
-    "M 95 200 L 115 230 L 105 250",
-    "M 340 195 L 360 230 L 425 275",
-    "M 615 190 L 660 195 L 745 235",
-  ];
-
-  return (
-    <div style={{ position: 'relative', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--hairline-strong)' }}>
-      <svg viewBox={`${zoomX} ${zoomY} ${zoomedViewW} ${zoomedViewH}`} width="100%" style={{ display: 'block', background: '#DCE6EC', transition: 'all 0.2s var(--ease)' }}>
-        <defs>
-          <pattern id="tile-grid" width={tileSize} height={tileSize} patternUnits="userSpaceOnUse">
-            <rect width={tileSize} height={tileSize} fill="none" />
-            <path d={`M ${tileSize} 0 L 0 0 0 ${tileSize}`} fill="none" stroke="rgba(90,110,125,0.08)" strokeWidth="1" />
-          </pattern>
-          <pattern id="water-dots" width="4" height="4" patternUnits="userSpaceOnUse">
-            <circle cx="1" cy="1" r="0.5" fill="rgba(120,150,170,0.25)" />
-          </pattern>
-          <filter id="map-shadow" x="-5%" y="-5%" width="110%" height="110%">
-            <feGaussianBlur stdDeviation="1.5" />
-          </filter>
-        </defs>
-
-        {/* Ocean base */}
-        <rect width={viewW} height={viewH} fill="#DCE6EC" />
-        <rect width={viewW} height={viewH} fill="url(#water-dots)" />
-        <rect width={viewW} height={viewH} fill="url(#tile-grid)" />
-
-        {/* Land shadow */}
-        <path d={prPath} fill="rgba(0,0,0,0.12)" transform="translate(0,3)" filter="url(#map-shadow)" />
-        {/* Land */}
-        <path d={prPath} fill="#F2EDE3" stroke="#C4B896" strokeWidth="1" />
-
-        {/* Parks / shaded regions — rural areas layer */}
-        {layers.rural && <>
-          <ellipse cx="380" cy="235" rx="80" ry="25" fill="#D8E2C8" opacity="0.7" />
-          <ellipse cx="520" cy="245" rx="55" ry="18" fill="#D8E2C8" opacity="0.7" />
-        </>}
-
-        {/* Small islands (Vieques, Culebra) */}
-        <ellipse cx="820" cy="260" rx="30" ry="9" fill="#F2EDE3" stroke="#C4B896" strokeWidth="1" />
-        <ellipse cx="855" cy="240" rx="14" ry="5" fill="#F2EDE3" stroke="#C4B896" strokeWidth="1" />
-        <text x="820" y="278" fontSize="8" textAnchor="middle" fill="#7A6F55" fontStyle="italic">Vieques</text>
-        <text x="855" y="232" fontSize="7" textAnchor="middle" fill="#7A6F55" fontStyle="italic">Culebra</text>
-
-        {/* Roads */}
-        {layers.roads && roads.map((d, i) => (
-          <path key={i} d={d} fill="none" stroke="#FFFFFF" strokeWidth="2.5" opacity="0.8" />
-        ))}
-        {layers.roads && roads.map((d, i) => (
-          <path key={'r'+i} d={d} fill="none" stroke="#E8B84A" strokeWidth="0.8" opacity="0.6" />
-        ))}
-
-        {/* Municipality bubbles */}
-        {layers.munis && municipalities.map((m) => {
-          const p = positions[m.slug];
-          if (!p) return null;
-          const v = accessor(m);
-          const r = 8 + (v / max) * 26;
-          const color = colorFn(m);
-          const clickable = !!onMunicipalityClick;
-          return (
-            <g key={m.slug}
-              onClick={clickable ? () => onMunicipalityClick(m) : undefined}
-              style={{ cursor: clickable ? 'pointer' : 'default' }}>
-              <circle cx={p[0]} cy={p[1]} r={r + 4} fill={color} opacity="0.12" />
-              <circle cx={p[0]} cy={p[1]} r={r} fill={color} opacity="0.35" stroke={color} strokeWidth="1.5" />
-              <circle cx={p[0]} cy={p[1]} r={Math.max(3, r * 0.35)} fill={color} />
-              {/* Larger transparent hit target */}
-              <circle cx={p[0]} cy={p[1]} r={Math.max(r + 6, 18)} fill="transparent" />
-              <text x={p[0]} y={p[1] - r - 6} fontSize="11" textAnchor="middle" fill="#1a1a1a" fontWeight="600" style={{ paintOrder: 'stroke', stroke: '#FFFFFF', strokeWidth: 3, pointerEvents: 'none' }}>{m.name}</text>
-              <text x={p[0]} y={p[1] + 3} fontSize="10" textAnchor="middle" fill="#FFFFFF" fontWeight="700" fontFamily="var(--ff-numeric)" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.4)', strokeWidth: 2, pointerEvents: 'none' }}>{v > 999 ? (v/1000).toFixed(1) + 'K' : v}</text>
-            </g>
-          );
-        })}
-
-        {/* Graticule labels */}
-        <text x="20" y="15" fontSize="9" fill="#7A6F55" fontFamily="var(--ff-numeric)">18.5°N</text>
-        <text x="20" y={viewH - 6} fontSize="9" fill="#7A6F55" fontFamily="var(--ff-numeric)">17.9°N</text>
-        <text x={viewW - 60} y="15" fontSize="9" fill="#7A6F55" fontFamily="var(--ff-numeric)">65.6°W</text>
-      </svg>
-
-      {/* Map chrome overlay */}
-      <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', flexDirection: 'column', border: '1px solid rgba(0,0,0,0.2)', borderRadius: 3, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }}>
-        <button onClick={() => setZoom((z) => Math.min(4, z * 1.4))}
-          style={{ width: 28, height: 28, background: '#fff', border: 'none', borderBottom: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>+</button>
-        <button onClick={() => setZoom((z) => Math.max(1, z / 1.4))}
-          style={{ width: 28, height: 28, background: '#fff', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#333' }}>−</button>
-      </div>
-
-      {/* Scale bar */}
-      <div style={{ position: 'absolute', bottom: 10, left: 10, background: 'rgba(255,255,255,0.85)', padding: '3px 8px', fontSize: 10, color: '#333', fontFamily: 'var(--ff-numeric)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{ width: 60, height: 6, borderLeft: '1px solid #333', borderRight: '1px solid #333', borderBottom: '1px solid #333' }} />
-        50 km
-      </div>
-
-      {/* Attribution */}
-      <div style={{ position: 'absolute', bottom: 0, right: 0, background: 'rgba(255,255,255,0.75)', padding: '2px 6px', fontSize: 9, color: '#555' }}>
-        © Eco Intel · Base map tiles
-      </div>
-
-      {/* Layer toggle */}
-      <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(0,0,0,0.15)', padding: '6px 10px', fontSize: 10, display: 'flex', flexDirection: 'column', gap: 3, boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
-        <div style={{ fontWeight: 600, marginBottom: 2, color: '#333' }}>Capas</div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}>
-          <input type="checkbox" checked={layers.munis} onChange={(e) => setLayers((l) => ({ ...l, munis: e.target.checked }))} style={{ margin: 0 }} /> Municipios
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#444' }}>
-          <input type="checkbox" checked={layers.roads} onChange={(e) => setLayers((l) => ({ ...l, roads: e.target.checked }))} style={{ margin: 0 }} /> Carreteras
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#888' }}>
-          <input type="checkbox" checked={layers.rural} onChange={(e) => setLayers((l) => ({ ...l, rural: e.target.checked }))} style={{ margin: 0 }} /> Áreas rurales
-        </label>
-      </div>
-    </div>
   );
 }
 
