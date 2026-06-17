@@ -1330,7 +1330,11 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 const label = (slice && (slice.title || slice.eyebrow)) || 'filtro actual';
                 const name = prompt('Nombre de la alerta', 'Menciones · ' + label);
                 if (!name || !name.trim()) return;
-                const config = { threshold: { volumeMinutes: 60, minMentions: 5 } };
+                // config.type debe pertenecer a KNOWN_CONFIG_TYPES del backend o
+                // /api/alerts responde 422. negative_sentiment para slices
+                // negativos; volume_spike para cualquier otro segmento.
+                const type = (f.sentiment === 'negativo' || f.sentiment === 'negative') ? 'negative_sentiment' : 'volume_spike';
+                const config = { type, threshold: { volumeMinutes: 60, minMentions: 5 } };
                 ['topic', 'municipality', 'sentiment', 'source', 'emotion', 'region', 'minEngagement', 'day', 'dow', 'hour'].forEach((k) => {
                   if (f[k] != null && f[k] !== '') config[k] = f[k];
                 });
