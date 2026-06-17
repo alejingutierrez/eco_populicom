@@ -3308,7 +3308,7 @@ function SettingsScreen() {
   const has = (c) => (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function' ? window.ecoHasCap(c) : true);
   const allSections = [
     { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users', cap: 'manage_users', render: () => <UsersAdmin /> },
-    // 'plantillas' (gestión de plantillas de correo) se añade en PR4.
+    { k: 'plantillas', l: 'Plantillas de correo', icon: 'Mail', cap: 'manage_templates', render: () => <TemplatesAdmin /> },
   ];
   const sections = allSections.filter((s) => has(s.cap));
   const [section, setSection] = useState(sections[0] ? sections[0].k : null);
@@ -3343,6 +3343,55 @@ function SettingsScreen() {
         })}
       </div>
       <div>{current ? current.render() : null}</div>
+    </div>
+  );
+}
+
+// --- Gestión de plantillas de correo (Configuración → Plantillas) ---
+// Previsualiza los templates tal como los recibe el destinatario. El semanal se
+// renderiza vía /api/reports/preview (dryRun del lambda real). Los destinatarios
+// y la programación se gestionan en Alertas → Reportes por correo.
+function TemplatesAdmin() {
+  const [html, setHtml] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const agency = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.agency'))
+    || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+
+  const loadWeekly = () => {
+    setLoading(true); setErr(null);
+    fetch(`/api/reports/preview?agencySlug=${agency}&template=weekly`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : r.json().then((j) => Promise.reject(j.error || ('HTTP ' + r.status)))))
+      .then((j) => setHtml(j.html || ''))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <div className="card">
+      <div className="card-hd"><div>
+        <div className="card-hd-title">Plantillas de correo</div>
+        <div className="card-hd-sub">Previsualiza los correos como los reciben los destinatarios</div>
+      </div></div>
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Reporte semanal</div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Resumen ejecutivo semanal. Destinatarios y hora en Alertas → Reportes por correo.</div>
+            <button className="btn btn-primary" onClick={loadWeekly} disabled={loading || !agency}>{loading ? 'Generando…' : 'Previsualizar'}</button>
+          </div>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Alerta de crisis</div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Editorial que se envía al cruzar el umbral de crisis. Configúrala en Alertas → Alertas de crisis.</div>
+            <span className="pill pill-neu" style={{ fontSize: 10 }}>Vista previa al dispararse</span>
+          </div>
+        </div>
+        {err && <div style={{ fontSize: 12, color: 'var(--neg)' }}>No se pudo generar la vista previa: {err}</div>}
+        {html != null && (
+          <iframe title="Vista previa del correo" srcDoc={html}
+            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 10, background: '#fff' }} />
+        )}
+      </div>
     </div>
   );
 }
