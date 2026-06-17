@@ -1323,22 +1323,26 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             <button className="btn"><Icons.Download size={13} /> Exportar</button>
             <button className="btn"
               onClick={async () => {
-                const name = prompt('Nombre de la alerta (ej. "Menciones sobre ' + (mention.topicName || 'este tópico') + '")');
-                if (!name) return;
+                // La regla se deriva del slice activo (slice._filter + slice.title);
+                // antes referenciaba una variable `mention` inexistente y lanzaba
+                // ReferenceError al primer clic en cualquier drill-down.
+                const f = (slice && slice._filter) || {};
+                const label = (slice && (slice.title || slice.eyebrow)) || 'filtro actual';
+                const name = prompt('Nombre de la alerta', 'Menciones · ' + label);
+                if (!name || !name.trim()) return;
+                const config = { threshold: { volumeMinutes: 60, minMentions: 5 } };
+                ['topic', 'municipality', 'sentiment', 'source', 'emotion', 'region', 'minEngagement', 'day', 'dow', 'hour'].forEach((k) => {
+                  if (f[k] != null && f[k] !== '') config[k] = f[k];
+                });
                 try {
                   const res = await fetch('/api/alerts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
                     body: JSON.stringify({
-                      name,
-                      description: 'Creada desde la mención: ' + mention.title.slice(0, 80),
-                      config: {
-                        topic: mention.topic || null,
-                        municipality: mention.municipality || null,
-                        sentiment: mention.sentiment,
-                        threshold: { volumeMinutes: 60, minMentions: 5 },
-                      },
+                      name: name.trim(),
+                      description: 'Creada desde: ' + label,
+                      config,
                       notifyEmails: [],
                     }),
                   });
