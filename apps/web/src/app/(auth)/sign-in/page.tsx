@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, Form, Input, Button, Alert, Typography } from 'antd';
 import { signIn } from '@/lib/auth/cognito';
@@ -26,6 +26,55 @@ function SignInPageInner() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // If the gate bounced us here (?next=...), the ID token likely just expired.
+  // Try a silent refresh with the still-valid refresh token before showing the
+  // login form, so an active user isn't forced to retype their password.
+  const nextParam = search?.get('next') || '';
+  const [checking, setChecking] = useState(!!nextParam);
+
+  useEffect(() => {
+    if (!nextParam) return;
+    // Loop guard: if we tried a silent refresh <8s ago (e.g. it returned ok but
+    // the session didn't stick), show the form instead of bouncing forever.
+    let recentlyTried = false;
+    try {
+      const last = Number(sessionStorage.getItem('eco_refresh_attempt') || 0);
+      recentlyTried = Date.now() - last < 8000;
+    } catch {
+      /* sessionStorage unavailable — proceed without the guard */
+    }
+    if (recentlyTried) {
+      setChecking(false);
+      return;
+    }
+    try {
+      sessionStorage.setItem('eco_refresh_attempt', String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+        if (!cancelled && res.ok) {
+          try {
+            sessionStorage.removeItem('eco_refresh_attempt');
+          } catch {
+            /* ignore */
+          }
+          router.replace(nextParam.startsWith('/') ? nextParam : '/overview');
+          return;
+        }
+      } catch {
+        /* fall through to the login form */
+      }
+      if (!cancelled) setChecking(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [nextParam, router]);
+
   async function handleFinish(values: SignInFormValues) {
     setError('');
     setLoading(true);
@@ -47,6 +96,24 @@ function SignInPageInner() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checking) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#F4F7FA',
+          color: '#64748B',
+          fontSize: 14,
+        }}
+      >
+        Restaurando sesión…
+      </div>
+    );
   }
 
   return (

@@ -4,6 +4,30 @@ const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHE
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
+// Fetch autenticado para los feeds. Si la API responde 401 (sesión expirada),
+// intenta renovar UNA vez con el refresh token (/api/auth/refresh) y reintenta.
+// Si no se puede renovar, lanza un error con code=401 — así la pantalla puede
+// distinguir "sesión caída" de "sin resultados" (antes un 401 se mostraba como
+// lista vacía, indistinguible de un período sin menciones).
+async function ecoFetchAuthed(url, opts) {
+  let res = await fetch(url, opts);
+  if (res.status === 401) {
+    const renewed = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (!renewed) { const e = new Error('UNAUTHENTICATED'); e.code = 401; throw e; }
+    res = await fetch(url, opts);
+  }
+  if (!res.ok) { const e = new Error('HTTP ' + res.status); e.code = res.status; throw e; }
+  return res.json();
+}
+
+// Redirige al login preservando el destino. Se usa cuando ni el refresh token
+// permite renovar la sesión.
+function ecoBounceToSignIn() {
+  location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
+}
+
 function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
@@ -710,6 +734,8 @@ function MentionsScreen({ onMentionClick }) {
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
   const [moreOpen, setMoreOpen] = useState(false);
   const [slice, setSlice] = useState(null);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
 
@@ -730,6 +756,7 @@ function MentionsScreen({ onMentionClick }) {
   React.useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
+    setError(false);
     const agency = localStorage.getItem('eco.agency') || '';
     // ecoGetPeriodParams respeta el rango personalizado (eco.from/to); leer
     // eco.period a mano lo ignoraba y /mentions mostraba 30 días rolantes.
@@ -746,13 +773,16 @@ function MentionsScreen({ onMentionClick }) {
     if (filters.region) params.set('region', filters.region);
     const sort = resolveSort(filters.sortBy, !!filters.q);
     if (sort !== 'recent') params.set('sortBy', sort);
-    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : { mentions: [], total: 0 })
+    ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
-      .catch(() => {})
+      .catch((e) => {
+        if (e && e.name === 'AbortError') return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setError(true); // un fallo real ya no se confunde con "sin resultados"
+      })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [filters, page]);
+  }, [filters, page, reloadKey]);
 
   // Conteo de "Virales": una consulta separada con limit=1 (solo nos
   // interesa `total`). Se recalcula cuando cambia el período/agency, pero
@@ -870,7 +900,7 @@ function MentionsScreen({ onMentionClick }) {
           <div>
             <div className="card-hd-title">Menciones</div>
             <div className="card-hd-sub">
-              {loading ? 'Cargando…' : (
+              {loading ? 'Cargando…' : error ? 'Error de conexión' : (
                 data.total === 0
                   ? 'Sin resultados'
                   : `Página ${page} de ${totalPages} · ${data.total.toLocaleString('es-PR')} en total`
@@ -879,15 +909,21 @@ function MentionsScreen({ onMentionClick }) {
           </div>
           <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
         </div>
-        {data.mentions.length === 0 && !loading && (
+        {!loading && error && (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--neg)', fontSize: 13 }}>
+            No se pudieron cargar las menciones.
+            <button className="chip" style={{ marginLeft: 8 }} onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button>
+          </div>
+        )}
+        {!loading && !error && data.mentions.length === 0 && (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
             No se encontraron menciones con los filtros actuales.
           </div>
         )}
-        {viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {data.total > PAGE_SIZE && (
+        {!error && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+        {!error && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+        {!error && viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+        {!error && data.total > PAGE_SIZE && (
           <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
             <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
@@ -1156,6 +1192,8 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
   const [recent, setRecent] = useState(readRecentSearches);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1202,9 +1240,10 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
   // Fetch de resultados. Se omite cuando no hay criterio (estado vacío).
   React.useEffect(() => {
     const active = (!!q && q.length >= 2) || filters.sentiment !== 'all' || filters.source !== 'all' || !!filters.topic || !!filters.region;
-    if (!active) { setData({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }); setLoading(false); return; }
+    if (!active) { setData({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }); setLoading(false); setError(false); return; }
     const ctrl = new AbortController();
     setLoading(true);
+    setError(false);
     const params = new URLSearchParams({ ...window.ecoGetPeriodParams(), limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
     if (agency) params.set('agency', agency);
     if (q && q.length >= 2) params.set('q', q);
@@ -1214,13 +1253,16 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
     if (filters.source !== 'all') params.set('source', filters.source);
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
-    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
+    ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), sentiment: j.sentiment || { pos: 0, neu: 0, neg: 0 } }))
-      .catch(() => {})
+      .catch((e) => {
+        if (e && e.name === 'AbortError') return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setError(true);
+      })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [q, sortBy, filters, page, agency]);
+  }, [q, sortBy, filters, page, agency, reloadKey]);
 
   const sentChips = [
     { k: 'all', l: 'Todas', tone: null, count: data.total },
@@ -1338,9 +1380,11 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
                 <div className="card-hd-sub">
                   {loading
                     ? 'Buscando…'
-                    : (data.total === 0
-                        ? 'Sin resultados'
-                        : `${data.total.toLocaleString('es-PR')} menciones · página ${page} de ${totalPages}`)}
+                    : error
+                        ? 'Error de conexión'
+                        : (data.total === 0
+                            ? 'Sin resultados'
+                            : `${data.total.toLocaleString('es-PR')} menciones · página ${page} de ${totalPages}`)}
                 </div>
               </div>
               <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
@@ -1348,7 +1392,13 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
             {loading && data.mentions.length === 0 && (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Buscando…</div>
             )}
-            {!loading && data.total === 0 && (
+            {!loading && error && (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--neg)', fontSize: 13 }}>
+                No se pudo completar la búsqueda.
+                <button className="chip" style={{ marginLeft: 8 }} onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button>
+              </div>
+            )}
+            {!loading && !error && data.total === 0 && (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
                 No se encontraron menciones{q ? <> para «{q}»</> : ''}{filtersActive ? ' con los filtros actuales' : ''}.
                 {filtersActive && (
@@ -1358,9 +1408,9 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
                 )}
               </div>
             )}
-            {data.mentions.length > 0 && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-            {data.mentions.length > 0 && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-            {data.mentions.length > 0 && viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {!error && data.mentions.length > 0 && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {!error && data.mentions.length > 0 && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
+            {!error && data.mentions.length > 0 && viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
             {data.total > PAGE_SIZE && (
               <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
                 <Pagination page={page} totalPages={totalPages} onChange={setPage} />

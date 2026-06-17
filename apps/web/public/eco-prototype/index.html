@@ -1282,8 +1282,19 @@
       if (res.ok) {
         window.ECO_DATA_REMOTE = await res.json();
       } else if (res.status === 401) {
-        location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
-        return;
+        // La sesión expiró: intenta renovarla con el refresh token antes de
+        // mandar al usuario al login (antes lo expulsaba directo).
+        const renewed = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+          .then((r) => r.ok).catch(() => false);
+        const res2 = renewed
+          ? await fetch('/api/eco-data?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' })
+          : null;
+        if (res2 && res2.ok) {
+          window.ECO_DATA_REMOTE = await res2.json();
+        } else {
+          location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
+          return;
+        }
       } else if (res.status === 429) {
         apiFailed = true;
         apiError = 'Demasiadas solicitudes al servidor. Esperando y reintentando…';
@@ -1295,6 +1306,12 @@
       apiFailed = true;
       apiError = 'No hay conexión con el servidor. Revisa tu red.';
     }
+    // Keep-alive: renueva el idToken (~1h de vida) cada 20 min mientras la
+    // pestaña está abierta, para que la sesión no expire en medio del trabajo
+    // y expulse al usuario al login al cambiar de período/agencia.
+    setInterval(function () {
+      fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+    }, 20 * 60 * 1000);
     const boot = document.getElementById('eco-boot');
     if (boot) boot.remove();
     if (apiFailed) showApiBanner('error', apiError);
@@ -1306,7 +1323,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc11';
+        s.src = base + '/' + f + '?v=prodc12';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
