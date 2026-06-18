@@ -1320,7 +1320,29 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 </button>
               );
             })()}
-            <button className="btn"><Icons.Download size={13} /> Exportar</button>
+            <button className="btn"
+              onClick={() => {
+                // Export CSV client-side de las menciones cargadas en el slice
+                // (antes el botón no tenía onClick — no hacía nada).
+                const rows = mentions || [];
+                if (!rows.length) { (window.ecoToast || (() => {}))('err', 'No hay menciones para exportar.'); return; }
+                const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+                const headers = ['Título', 'Autor', 'Fuente', 'Dominio', 'Sentimiento', 'Tópico', 'Engagement', 'Fecha', 'URL'];
+                const lines = [headers.join(',')];
+                for (const mn of rows) {
+                  lines.push([esc(mn.title), esc(mn.author), esc(mn.source), esc(mn.domain), esc(mn.sentiment), esc(mn.topicName), esc(mn.engagement), esc(mn.publishedAt), esc(mn.url)].join(','));
+                }
+                const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const safe = ((slice && (slice.title || slice.eyebrow)) || 'menciones').toString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'menciones';
+                a.href = url; a.download = `eco-${safe}.csv`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                (window.ecoToast || (() => {}))('ok', `${rows.length} menciones exportadas.`);
+              }}>
+              <Icons.Download size={13} /> Exportar
+            </button>
             <button className="btn"
               onClick={async () => {
                 // La regla se deriva del slice activo (slice._filter + slice.title);

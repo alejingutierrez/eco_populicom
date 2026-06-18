@@ -28,7 +28,19 @@ function ecoBounceToSignIn() {
   location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
 }
 
-function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children, onClick }) {
+// Fuente ÚNICA de la banda de Riesgo de Crisis (escala 0–1) para que el
+// veredicto NO difiera entre Overview y Scorecard. Cortes: NORMAL <0.25,
+// ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60 (mismos del backend/termómetro).
+const CRISIS_GRADIENT = 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, #E0662E 40%, #E0662E 60%, var(--neg) 60%, var(--neg) 100%)';
+function crisisBand(score) {
+  const s = score == null ? 0 : score;
+  if (s >= 0.60) return { label: 'CRISIS', tone: 'neg', color: 'var(--neg)' };
+  if (s >= 0.40) return { label: 'ALERTA', tone: 'neg', color: '#E0662E' };
+  if (s >= 0.25) return { label: 'ELEVADO', tone: 'warn', color: 'var(--warn)' };
+  return { label: 'NORMAL', tone: 'pos', color: 'var(--pos)' };
+}
+
+function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
@@ -51,7 +63,7 @@ function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--ac
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         {IconC && <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
-        {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal'}</span>}
+        {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{toneLabel || (tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal')}</span>}
         {clickable && !tone && (
           <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
             <I2.Sparkles size={10} /> Detalles
@@ -156,6 +168,7 @@ function sanitizeBriefingHtml(html) {
 // =============== DASHBOARD ===============
 function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency }) {
   const m = D.CURRENT_METRICS;
+  const cb = crisisBand(m && m.crisisRiskScore);
   // Default: solo "Menciones" (issue #6). El usuario puede sumar series con
   // los chips, máx 3 a la vez.
   const [activeMetrics, setActiveMetrics] = useState(['totalMentions']);
@@ -370,15 +383,15 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone={cb.tone} toneLabel={cb.label} invertDelta highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
               + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
               ELEVADO<0.40 / ALERTA<0.60 / CRISIS≥0.60 (mismos cortes que el
               termómetro de Overview y el bandFor del backend). */}
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 100%)', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--neg)', transform: 'translateX(-50%)' }} />
+            <div style={{ height: 6, borderRadius: 3, background: CRISIS_GRADIENT, position: 'relative' }}>
+              <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${cb.color}`, transform: 'translateX(-50%)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
               <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
@@ -2326,7 +2339,7 @@ function TopicDetail({ topic, subs, onBack }) {
             </div>
           )}
           {!mentionsState.loading && mentionsState.mentions.length > 0 && (
-            <MentionsTable mentions={mentionsState.mentions} onMentionClick={() => {}} />
+            <MentionsTable mentions={mentionsState.mentions} onMentionClick={onMentionClick} />
           )}
         </div>
         {!mentionsState.loading && mentionsState.total > pageSize && (
@@ -4175,11 +4188,9 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   // Crisis Risk en escala 0–1 (backtest 482d, PR #37). Thresholds:
   // NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
   const score = m.crisisRiskScore;
-  const band = score >= 0.60 ? 'CRISIS'
-    : score >= 0.40 ? 'ALERTA'
-    : score >= 0.25 ? 'ELEVADO'
-    : 'NORMAL';
-  const bandColor = score >= 0.40 ? 'var(--neg)' : score >= 0.25 ? 'var(--warn)' : 'var(--pos)';
+  const cb = crisisBand(score);
+  const band = cb.label;
+  const bandColor = cb.color;
   return (
     <button
       onClick={() => onOpenInsight && onOpenInsight('crisis', score.toFixed(2), 'var(--neg)')}
@@ -4195,7 +4206,7 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Icons.Shield size={14} color="var(--neg)" />
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Riesgo de crisis
+            02 · Riesgo de crisis
           </div>
           <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
@@ -4204,11 +4215,11 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
             {score.toFixed(2)}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>/1</div>
-          <span className={`pill pill-${score >= 0.40 ? 'neg' : score >= 0.25 ? 'warn' : 'pos'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
+          <span className={`pill pill-${cb.tone}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
         </div>
       </div>
       <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
-        <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+        <div style={{ height: 6, borderRadius: 3, background: CRISIS_GRADIENT, position: 'relative' }}>
           <div style={{ position: 'absolute', left: `${Math.min(score * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor}`, transform: 'translateX(-50%)' }} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)', letterSpacing: '0.04em' }}>
@@ -4247,7 +4258,7 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">02 · Tendencia · Día a día</div>
+          <div className="card-hd-title">03 · Tendencia · Día a día</div>
           <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones</div>
         </div>
       </div>
@@ -4291,7 +4302,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">03 · Tópico principal</div>
+          <div className="card-hd-title">04 · Tópico principal</div>
           <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
         </div>
       </div>
@@ -4433,7 +4444,7 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
 
   const eyebrow = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-      <div className="section-eyebrow" style={{ marginBottom: 0 }}>02 · Insights · análisis IA del periodo</div>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>05 · Insights · análisis IA del periodo</div>
       {state.phase === 'computing' && (
         <span style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
@@ -4530,6 +4541,31 @@ const NARRATIVE_STATUS_LABELS = {
   declining: 'Decae',
   dormant: 'Dormida',
 };
+
+// Etiquetas amigables para claves crudas de plataforma / tipo de arista
+// (antes se mostraban "facebook_public", "co_occurrence", etc. al usuario).
+const PLATFORM_LABELS = {
+  facebook_public: 'Facebook', facebook: 'Facebook',
+  instagram_public: 'Instagram', instagram: 'Instagram',
+  news: 'Noticias', bluesky: 'Bluesky',
+  twitter: 'X', x: 'X', tumblr: 'Tumblr', youtube: 'YouTube',
+  reddit: 'Reddit', forum: 'Foros', blog: 'Blogs', desconocido: 'Otros',
+};
+function platformLabel(key) {
+  if (!key) return 'Otros';
+  const k = String(key).toLowerCase();
+  if (PLATFORM_LABELS[k]) return PLATFORM_LABELS[k];
+  const base = k.replace(/_(public|private)$/, '');
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+const EDGE_TYPE_LABELS = {
+  co_occurrence: 'Co-ocurrencia',
+  author_overlap: 'Autores en común',
+  semantic: 'Similitud semántica',
+};
+function edgeTypeLabel(key) {
+  return EDGE_TYPE_LABELS[key] || (key ? String(key).replace(/_/g, ' ') : '');
+}
 
 // Catmull-Rom → cubic bezier. Devuelve un string SVG path.
 function smoothPath(points) {
@@ -4982,7 +5018,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                 const max = platforms[0].mentions || 1;
                 return (
                   <li key={p.platform}>
-                    <span className="narrative-bar-name">{p.platform}</span>
+                    <span className="narrative-bar-name">{platformLabel(p.platform)}</span>
                     <span className="narrative-bar-track">
                       <span className="narrative-bar-fill" style={{ width: `${(p.mentions / max) * 100}%` }} />
                     </span>
@@ -5006,7 +5042,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
             <div>
               <div className="narrative-init-author">
                 <strong>{init.author || '—'}</strong>
-                {init.platform && <span className="narrative-tag-mini">{init.platform}</span>}
+                {init.platform && <span className="narrative-tag-mini">{platformLabel(init.platform)}</span>}
               </div>
               <div className="narrative-init-date">
                 {new Date(init.publishedAt).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -5075,11 +5111,11 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                   type="button"
                   className="narrative-related-btn"
                   onClick={() => onSelectNarrative(r.id)}
-                  title={`${r.edgeType} (${(r.strength * 100).toFixed(0)}%)`}
+                  title={`${edgeTypeLabel(r.edgeType)} (${(r.strength * 100).toFixed(0)}%)`}
                 >
                   <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[r.status] }} />
                   <span className="narrative-related-name">{r.name}</span>
-                  <span className="narrative-related-meta">{r.edgeType} · {(r.strength * 100).toFixed(0)}%</span>
+                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)} · {(r.strength * 100).toFixed(0)}%</span>
                 </button>
               </li>
             ))}

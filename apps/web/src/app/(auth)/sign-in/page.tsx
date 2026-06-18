@@ -92,7 +92,7 @@ function SignInPageInner() {
       const next = search?.get('next') || '/dashboard';
       router.push(next.startsWith('/') ? next : '/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Error al iniciar sesion');
+      setError(err.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -161,7 +161,7 @@ function SignInPageInner() {
             ECO
           </Title>
           <Text style={{ color: '#64748B' }}>
-            Social Listening — Gobierno de Puerto Rico
+            Monitoreo de medios y redes — Gobierno de Puerto Rico
           </Text>
         </div>
 
@@ -181,21 +181,21 @@ function SignInPageInner() {
           size="large"
         >
           <Form.Item
-            label="Correo electronico"
+            label="Correo electrónico"
             name="email"
             rules={[
-              { required: true, message: 'Ingrese su correo electronico' },
-              { type: 'email', message: 'Correo electronico invalido' },
+              { required: true, message: 'Ingrese su correo electrónico' },
+              { type: 'email', message: 'Correo electrónico inválido' },
             ]}
           >
             <Input placeholder="usuario@agencia.pr.gov" />
           </Form.Item>
 
           <Form.Item
-            label="Contrasena"
+            label="Contraseña"
             name="password"
             rules={[
-              { required: true, message: 'Ingrese su contrasena' },
+              { required: true, message: 'Ingrese su contraseña' },
             ]}
           >
             <Input.Password />
@@ -208,7 +208,7 @@ function SignInPageInner() {
               loading={loading}
               block
             >
-              Iniciar sesion
+              Iniciar sesión
             </Button>
           </Form.Item>
         </Form>
