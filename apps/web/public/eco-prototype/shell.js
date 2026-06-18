@@ -335,9 +335,12 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
           {live && (
+            // Los datos del dashboard son una ventana CERRADA (termina ayer en
+            // TZ PR, incluso en 1D), así que "En vivo" engañaba. Etiqueta honesta,
+            // sin pulso ni verde.
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>
-              <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)' }} />
-              <span className="mono" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>En vivo</span>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)' }} />
+              <span className="mono" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Datos al cierre de ayer</span>
             </div>
           )}
         </div>
