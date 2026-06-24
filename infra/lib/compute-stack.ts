@@ -155,7 +155,10 @@ export class ComputeStack extends cdk.Stack {
     // fallback rule-based de buildRuleBasedInsight (sigue funcional, pero
     // sin la interpretación AI coloquial del modal del KPI).
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-      actions: ['bedrock:InvokeModel'],
+      // InvokeModelWithResponseStream es una acción IAM DISTINTA de InvokeModel;
+      // el chat contextual hace streaming token-por-token y la necesita o da
+      // AccessDenied (403). Ambas comparten los mismos recursos de modelo.
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
       resources: [
         `arn:aws:bedrock:${cdk.Stack.of(this).region}::foundation-model/anthropic.claude-*`,
         `arn:aws:bedrock:*::foundation-model/anthropic.claude-*`,

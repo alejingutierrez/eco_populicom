@@ -15,6 +15,7 @@ export * from './prompts/briefing-crisis';
 export * from './prompts/crisis-editorial';
 export * from './prompts/metric-insight';
 export * from './prompts/metric-insight-cached';
+export * from './prompts/chat';
 export * from './narratives-math';
 // `./bedrock` se importa directamente desde lambdas via
 // `@eco/shared/src/bedrock`. NO se re-exporta aquí porque trae el SDK
