@@ -28,7 +28,26 @@ export interface AuthResult {
   refreshToken: string;
 }
 
-export function signIn(email: string, password: string): Promise<AuthResult> {
+/**
+ * Resultado de `signIn`:
+ * - `success`: la sesión está lista (`tokens`).
+ * - `newPasswordRequired`: la cuenta fue creada por un admin (estado
+ *   FORCE_CHANGE_PASSWORD) y debe fijar su contraseña; se devuelve el
+ *   `CognitoUser` para completar el reto con `completeNewPassword`.
+ */
+export type SignInResult =
+  | { kind: 'success'; tokens: AuthResult }
+  | { kind: 'newPasswordRequired'; user: CognitoUser };
+
+function sessionToTokens(session: CognitoUserSession): AuthResult {
+  return {
+    idToken: session.getIdToken().getJwtToken(),
+    accessToken: session.getAccessToken().getJwtToken(),
+    refreshToken: session.getRefreshToken().getToken(),
+  };
+}
+
+export function signIn(email: string, password: string): Promise<SignInResult> {
   return new Promise((resolve, reject) => {
     const pool = getUserPool();
     const user = new CognitoUser({ Username: email, Pool: pool });
@@ -36,14 +55,54 @@ export function signIn(email: string, password: string): Promise<AuthResult> {
 
     user.authenticateUser(authDetails, {
       onSuccess: (session: CognitoUserSession) => {
-        resolve({
-          idToken: session.getIdToken().getJwtToken(),
-          accessToken: session.getAccessToken().getJwtToken(),
-          refreshToken: session.getRefreshToken().getToken(),
-        });
+        resolve({ kind: 'success', tokens: sessionToTokens(session) });
       },
       onFailure: (err) => reject(err),
-      newPasswordRequired: () => reject(new Error('New password required')),
+      // Cuenta creada por admin con contraseña temporal: hay que fijar la
+      // contraseña definitiva antes de obtener sesión. Conservamos el mismo
+      // CognitoUser para `completeNewPassword`.
+      newPasswordRequired: () => {
+        resolve({ kind: 'newPasswordRequired', user });
+      },
+    });
+  });
+}
+
+/** Completa el reto FORCE_CHANGE_PASSWORD fijando la contraseña definitiva. */
+export function completeNewPassword(user: CognitoUser, newPassword: string): Promise<AuthResult> {
+  return new Promise((resolve, reject) => {
+    // No reenviamos atributos requeridos: email ya viene seteado/verificado
+    // desde AdminCreateUser, así que un objeto vacío evita el error de
+    // "attributes ... cannot be updated".
+    user.completeNewPasswordChallenge(
+      newPassword,
+      {},
+      {
+        onSuccess: (session: CognitoUserSession) => resolve(sessionToTokens(session)),
+        onFailure: (err) => reject(err),
+      },
+    );
+  });
+}
+
+/** Dispara el envío del código de recuperación al correo del usuario. */
+export function forgotPassword(email: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({ Username: email, Pool: getUserPool() });
+    user.forgotPassword({
+      onSuccess: () => resolve(),
+      onFailure: (err) => reject(err),
+    });
+  });
+}
+
+/** Confirma el código y fija la nueva contraseña. */
+export function confirmForgotPassword(email: string, code: string, newPassword: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = new CognitoUser({ Username: email, Pool: getUserPool() });
+    user.confirmPassword(code, newPassword, {
+      onSuccess: () => resolve(),
+      onFailure: (err) => reject(err),
     });
   });
 }
