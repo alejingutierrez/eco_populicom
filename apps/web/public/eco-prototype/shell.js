@@ -295,7 +295,7 @@ function HeaderSearch({ onSearch, onOpenCommand }) {
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onSearch, mode, setMode, onOpenTweaks, live = true }) {
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
   // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
@@ -456,6 +456,15 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           </>
         )}
       </div>
+
+      {/* Chat contextual — asistente sobre la vista actual (⌘⏎) */}
+      {onOpenChat && (
+        <button className="btn" onClick={onOpenChat} title="Asistente contextual (⌘⏎)"
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icons.Sparkles size={14} color="var(--accent)" />
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Chat</span>
+        </button>
+      )}
 
       {/* Dark/light */}
       <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')} title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>

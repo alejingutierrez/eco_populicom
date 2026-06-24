@@ -500,6 +500,85 @@
   }
   @keyframes slideLeft { from { transform: translateX(20px); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }
 
+  /* Chat contextual — drawer derecho que corre la interfaz a la izquierda.
+     No usa backdrop: el dashboard sigue visible y usable mientras chateas. */
+  :root { --chat-w: 460px; }
+  .chat-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: var(--chat-w); max-width: 100vw;
+    background: var(--canvas);
+    border-left: 1px solid var(--hairline);
+    z-index: 1999;
+    display: flex; flex-direction: column;
+    box-shadow: -16px 0 48px -28px rgba(0,0,0,0.55);
+    animation: slideLeft 0.28s var(--ease);
+  }
+  /* padding-right sobre el grid .eco-app encoge el área de contenido (la
+     columna 1fr reflota) con transición — el efecto "escalada y responsive". */
+  .eco-app[data-chat-open="true"] {
+    padding-right: var(--chat-w);
+    transition: padding-right 0.28s var(--ease);
+  }
+  .chat-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--hairline); flex: 0 0 auto;
+  }
+  .chat-title-btn {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--canvas-2); border: 1px solid var(--hairline);
+    border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
+    color: var(--text); cursor: pointer; max-width: 240px;
+  }
+  .chat-list {
+    border-bottom: 1px solid var(--hairline);
+    max-height: 240px; overflow-y: auto; flex: 0 0 auto; background: var(--canvas-2);
+  }
+  .chat-list-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; font-size: 12px; color: var(--text-2);
+    cursor: pointer; border-bottom: 1px solid var(--hairline);
+  }
+  .chat-list-item:hover { background: var(--canvas); }
+  .chat-list-item.active { color: var(--text); background: var(--accent-fill); }
+  .chat-del {
+    background: transparent; border: none; color: var(--text-3);
+    cursor: pointer; padding: 2px; display: flex; opacity: 0; transition: opacity .15s;
+  }
+  .chat-list-item:hover .chat-del { opacity: 1; }
+  .chat-del:hover { color: var(--neg); }
+  .chat-msgs {
+    flex: 1 1 auto; overflow-y: auto; padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .chat-empty { margin: auto 0; }
+  .chat-suggest {
+    text-align: left; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--hairline); background: var(--canvas-2);
+    color: var(--text-2); font-size: 12.5px; cursor: pointer; line-height: 1.4;
+  }
+  .chat-suggest:hover { background: var(--accent-fill); color: var(--text); border-color: var(--accent); }
+  .chat-composer {
+    flex: 0 0 auto; display: flex; align-items: flex-end; gap: 8px;
+    padding: 12px 14px; border-top: 1px solid var(--hairline); background: var(--canvas);
+  }
+  .chat-input {
+    flex: 1; resize: none; border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.4;
+    background: var(--canvas-2); color: var(--text); font-family: inherit;
+    max-height: 140px; min-height: 40px;
+  }
+  .chat-input:focus { outline: none; border-color: var(--accent); }
+  .chat-send {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
+    border: none; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .chat-send:disabled { opacity: 0.45; cursor: default; }
+  @media (max-width: 1100px) {
+    .chat-drawer { width: 100vw; max-width: 100vw; border-left: none; }
+    .eco-app[data-chat-open="true"] { padding-right: 0; }
+  }
+
   /* Tweaks */
   .tweaks-panel {
     position: fixed; bottom: 16px; right: 16px;
@@ -1319,11 +1398,11 @@
     // Babel-in-browser cost). Sequential to preserve global dependency order
     // (data -> icons -> charts -> shell -> screens -> app).
     const base = '/eco-prototype/dist';
-    const files = ['data.js', 'icons.js', 'charts.js', 'shell.js', 'screens.js', 'app.js'];
+    const files = ['data.js', 'icons.js', 'charts.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc15';
+        s.src = base + '/' + f + '?v=prodc16';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

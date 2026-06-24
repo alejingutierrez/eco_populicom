@@ -1,6 +1,7 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
+const ChatDrawer = (window.ECO_CHAT && window.ECO_CHAT.ChatDrawer) || (() => null);
 const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
@@ -207,6 +208,7 @@ function App() {
   });
   const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '7D');
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
   const [mentionsFilter, setMentionsFilter] = useState(null);
   // Query del buscador global. La setea el command palette (⌘K → "ver todos
@@ -275,7 +277,8 @@ function App() {
     const handler = (e) => {
       const metaKey = e.metaKey || e.ctrlKey;
       if (metaKey && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmdOpen(true); return; }
-      if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); return; }
+      if (metaKey && e.key === 'Enter') { e.preventDefault(); setChatOpen((v) => !v); return; }
+      if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); setChatOpen(false); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (!metaKey && !e.altKey) {
         const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts', n: 'narrative' };
@@ -303,7 +306,7 @@ function App() {
   }[active];
 
   return (
-    <div className="eco-app" data-collapsed={collapsed} data-density={density}>
+    <div className="eco-app" data-collapsed={collapsed} data-density={density} data-chat-open={chatOpen}>
       <Sidebar
         active={active} onNav={setActive}
         collapsed={collapsed} setCollapsed={setCollapsed}
@@ -319,6 +322,7 @@ function App() {
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
           onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
+          onOpenChat={() => setChatOpen(true)}
           mode={mode} setMode={setMode} live={true}
         />
         <main className="eco-page"
@@ -351,6 +355,15 @@ function App() {
           onMentionClick={(m) => setDrawerMention(m)}
         />
       )}
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        agency={agency}
+        period={period}
+        screen={active}
+        screenLabel={screenMeta.label}
+        filters={mentionsFilter || (searchQuery ? { q: searchQuery } : null)}
+      />
       <ToastHost />
     </div>
   );
