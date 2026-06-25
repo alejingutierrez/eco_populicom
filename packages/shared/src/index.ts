@@ -5,6 +5,7 @@ export * from './dates';
 export * from './format-period';
 export * from './aggregations';
 export * from './metrics';
+export * from './format/metrics-display';
 export * from './email/render-weekly-report';
 export * from './email/render-crisis-alert';
 export * from './prompts/weekly-report-insights';

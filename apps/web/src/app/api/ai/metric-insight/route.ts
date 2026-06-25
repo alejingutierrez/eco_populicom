@@ -28,11 +28,17 @@ import {
   loadMetricsForWindow,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
+  formatMetric,
+  formatDelta,
+  toBhi10,
   type MetricKey,
   type MetricBand,
   type MetricInsightInput,
   type MetricInsightOutput,
   type PgClientLike,
+  type BandedMetricKey,
+  type MetricDisplay,
+  type DeltaDisplay,
 } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -271,7 +277,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // AI hable en la misma escala que ve el usuario en el KpiCard. Las bandas
     // (CRÍTICO/DÉBIL/SANO/FUERTE) se calculan del valor crudo y por lo tanto
     // no cambian; solo los números mostrados se reescalan.
-    const toBhi = (v: number | null): number | null => v == null ? null : Number((1 + v * 9).toFixed(1));
+    const toBhi = (v: number | null): number | null => v == null ? null : Number(toBhi10(v).toFixed(1));
     const displayValue = metric === 'bhi' ? toBhi(value) : value;
     const displayDelta = metric === 'bhi' && deltaVsPrev != null
       ? Number((deltaVsPrev * 9).toFixed(1))
@@ -305,12 +311,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       interpretation = buildRuleBasedInsight(insightInput);
     }
 
+    // Formato legible-para-el-público del headline del drawer (palabra + número
+    // de apoyo + tono). Single source: @eco/shared/format. `value`/`prevValue`
+    // son crudos (0-1 para bhi/crisis); formatMetric hace toda la conversión.
+    let valueDisplay: MetricDisplay;
+    let deltaDisplay: DeltaDisplay;
+    if (metric === 'volume') {
+      const v = value ?? 0;
+      valueDisplay = {
+        word: v.toLocaleString('es-PR'), value: null, short: v.toLocaleString('es-PR'),
+        raw: v, band: null, tone: 'neutral', color: 'var(--text-3)',
+      };
+      deltaDisplay = formatDelta(value, prevValue, { kind: 'percent', decimals: 0 });
+    } else {
+      valueDisplay = formatMetric(metric as BandedMetricKey, value);
+      deltaDisplay = metric === 'crisis'
+        ? formatDelta(value != null ? value * 100 : null, prevValue != null ? prevValue * 100 : null, { kind: 'absolute', decimals: 0, suffix: ' pts', invert: true })
+        : metric === 'bhi'
+          ? formatDelta(value != null ? toBhi10(value) : null, prevValue != null ? toBhi10(prevValue) : null, { kind: 'absolute', decimals: 1 })
+          : metric === 'polarization'
+            ? formatDelta(value, prevValue, { kind: 'absolute', decimals: 0, suffix: ' pts' })
+            : formatDelta(value, prevValue, { kind: 'absolute', decimals: 1 }); // nss
+    }
+
     const payload = {
       metric,
       label: METRIC_LABELS[metric],
       value: displayValue,
       band,
       deltaVsPrev: displayDelta,
+      valueDisplay,
+      deltaDisplay,
       windowDays: days,
       periodStart: startYmd,
       periodEnd: endYmd,

@@ -5,8 +5,10 @@ import {
   closedWindowYmdInTZ,
   formatPeriodLabel,
   loadMetricsForWindow,
+  formatMetric,
+  formatDelta,
 } from '@eco/shared';
-import type { PgClientLike, SentimentReport } from '@eco/shared';
+import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -101,6 +103,14 @@ interface OverviewResponse {
     totalMentions: number;
     totalReach: number;
     totalMentionsDelta: number;
+    /** Formato legible (palabra + número de apoyo). Single source: @eco/shared/format. */
+    display: {
+      nss: MetricDisplay;
+      crisis: MetricDisplay;
+      brandHealth: MetricDisplay;
+    };
+    /** Tendencia del volumen vs período anterior (palabra + distingue sin-base). */
+    totalMentionsDeltaDisplay: DeltaDisplay;
   };
 }
 
@@ -180,6 +190,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         totalMentions: winCur.totals.total,
         totalReach: winCur.totalReach,
         totalMentionsDelta,
+        display: {
+          nss: formatMetric('nss', winCur.nss),
+          crisis: formatMetric('crisis', winCur.crisisRiskScore),
+          brandHealth: formatMetric('bhi', winCur.brandHealthIndex),
+        },
+        totalMentionsDeltaDisplay: formatDelta(winCur.totals.total, winPrev.totals.total, { kind: 'percent', decimals: 0 }),
       },
     };
 
