@@ -11,6 +11,8 @@
  * de QuickChart, igual que en el semanal.
  */
 
+import { formatMetric } from '../format/metrics-display';
+
 export interface CrisisAlertRenderData {
   agencyName: string;
   agencyShortName: string;
@@ -156,12 +158,8 @@ function fmtInt(n: number): string {
   return n.toLocaleString('es-PR');
 }
 
-function fmtScore(n: number | null | undefined, digits = 2): string {
+function fmtPct(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—';
-  return n.toFixed(digits);
-}
-
-function fmtPct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
@@ -353,13 +351,17 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
 
   const score24hHint = m.crisisRiskScore24hAgo == null
     ? 'sin baseline 24h'
-    : `hace 24h: ${fmtScore(m.crisisRiskScore24hAgo)}`;
+    : `hace 24h: ${fmtPct(m.crisisRiskScore24hAgo)}`;
 
+  // Mismas representaciones que el dashboard (@eco/shared/format): el Crisis
+  // Score como % de riesgo (vía formatMetric, una sola fuente con el scorecard);
+  // los subcomponentes 0–1 como % para no mostrar "0.42" crudo al público. La
+  // banda ya sale como palabra (bandLabelEs ≡ NORMAL/ELEVADO/ALERTA/CRISIS).
   const indicators = [
-    indicatorTile('Crisis Score', fmtScore(m.crisisRiskScore), accent, score24hHint),
-    indicatorTile('Severidad', fmtScore(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
-    indicatorTile('Velocidad', fmtScore(m.crisisVelocity), COLORS.elevado, `volumen ${fmtZ(m.volumeAnomalyZscore)}`),
-    indicatorTile('Relevancia', fmtScore(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
+    indicatorTile('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, score24hHint),
+    indicatorTile('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
+    indicatorTile('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, `volumen ${fmtZ(m.volumeAnomalyZscore)}`),
+    indicatorTile('Relevancia', fmtPct(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
   ].join('');
 
   const volumeDeltaLine = v.prevDayTotal != null

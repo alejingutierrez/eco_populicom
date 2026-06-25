@@ -67,8 +67,14 @@ valor **redondeado** (no del float crudo), eliminando el bug `0% sube`.
   esos campos. **No** importan el módulo TS (bundle estático): reciben los strings
   ya formateados desde la API. El único formateo escalar por-punto que vive
   espejado allí es `charts.js:fmtVal` (hover del chart), marcado como espejo.
-- **Correo semanal** (`render-weekly-report.ts`): `deltaWord` usa el mismo
-  vocabulario (`sube/baja/estable`) y redondea para no contradecir a `signedPct`.
+- **Correo semanal** (`render-weekly-report.ts`): no muestra los compuestos
+  0–1; sus deltas usan el mismo vocabulario (`sube/baja/estable`) que el
+  dashboard y redondean para no contradecir a `signedPct`.
+- **Correo de alerta de crisis** (`render-crisis-alert.ts`): el Crisis Score se
+  formatea con `formatMetric('crisis', …).value` (misma fuente que el scorecard
+  → mismo `56%`, no `0.56`); los subcomponentes (severidad/velocidad/relevancia)
+  se muestran como % en vez de `0.XX`; la banda ya salía como palabra
+  (`bandLabelEs` ≡ Normal/Elevado/Alerta/Crisis). **Consistencia dashboard ↔ correo.**
 
 ## Tests
 
