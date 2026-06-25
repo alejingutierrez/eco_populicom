@@ -40,10 +40,36 @@ function crisisBand(score) {
   return { label: 'NORMAL', tone: 'pos', color: 'var(--pos)' };
 }
 
-function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, children, onClick }) {
+// Badge de tendencia legible: usa el objeto DeltaDisplay del API
+// (@eco/shared/format). Distingue "estable" (cambio ≈ 0) de "sin base"
+// (falta período de comparación) — antes ambos salían como "0".
+function DeltaBadge({ info }) {
+  if (!info) return null;
+  const toneC = { pos: 'var(--pos)', neg: 'var(--neg)', neutral: 'var(--text-3)' }[info.tone] || 'var(--text-3)';
+  if (!info.hasBaseline) {
+    return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>— sin base</span>;
+  }
+  if (info.direction === 'flat') {
+    return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>· {info.word}</span>;
+  }
+  return (
+    <span style={{ fontSize: 11, color: toneC, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+      {info.arrow} {info.value}
+    </span>
+  );
+}
+
+// KpiCard: dos modos.
+//  • valueWord presente → "palabra protagonista" (coloreada por tono) con
+//    `value` como número de apoyo debajo. Para métricas 0–1 / con banda.
+//  • si no → modo número clásico (volumen, contadores).
+// `deltaInfo` (DeltaDisplay) reemplaza al `delta` numérico cuando está presente.
+function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
+  const TONE_C = { neg: 'var(--neg)', warn: 'var(--warn)', pos: 'var(--pos)', accent: 'var(--accent)', neutral: 'var(--text-3)' };
+  const wordMode = valueWord != null;
   return (
     <div
       className="card"
@@ -70,16 +96,30 @@ function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--ac
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
-        {delta != null && (
-          <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 2 }}>
-            {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
-            {Math.abs(delta)}{typeof delta === 'number' && Number.isInteger(Math.abs(delta) * 10) ? '' : ''}
-            {sub ? ` ${sub}` : ''}
+      {wordMode ? (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <div className="num" style={{ fontSize: 23, fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.15, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            {deltaInfo ? <DeltaBadge info={deltaInfo} /> : null}
           </div>
-        )}
-      </div>
+          {value && (
+            <div className="num" style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600, marginTop: 3 }}>
+              {value}{sub ? <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> · {sub}</span> : ''}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
+          {deltaInfo ? <DeltaBadge info={deltaInfo} /> : (delta != null && (
+            <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 2 }}>
+              {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
+              {Math.abs(delta)}{typeof delta === 'number' && Number.isInteger(Math.abs(delta) * 10) ? '' : ''}
+              {sub ? ` ${sub}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
       {trendData && <div style={{ marginTop: 10 }}><Sparkline data={trendData} width={200} height={30} color={accent} /></div>}
       {children && <div style={{ marginTop: 10 }}>{children}</div>}
     </div>
@@ -302,7 +342,15 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       else if (key === 'polarization') value = m.polarizationIndex;
       else value = m.nss;
     }
-    setMetricModal({ metricKey: key, value, label, accent });
+    // Display legible inicial (palabra + número) mientras carga el insight AI;
+    // evita el parpadeo del valor crudo "0.59" en el headline del drawer.
+    const dsp = (m && m.display) || {};
+    const valueDisplay = key === 'crisis' ? dsp.crisis
+      : key === 'bhi' ? dsp.brandHealth
+      : key === 'polarization' ? dsp.polarization
+      : key === 'nss' ? dsp.nss
+      : null;
+    setMetricModal({ metricKey: key, value, label, accent, valueDisplay });
   }
 
   return (
@@ -376,14 +424,14 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
 
       {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
+        <KpiCard label="Net Sentiment Score" valueWord={m.display.nss.word} valueTone={m.display.nss.tone} value={m.display.nss.value} deltaInfo={m.deltaDisplay.nss} icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
           onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
             <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone={cb.tone} toneLabel={cb.label} invertDelta highlight
+        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} value={m.display.crisis.value} sub="de riesgo" deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
               + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
@@ -398,18 +446,18 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ventana ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} deltaInfo={m.deltaDisplay.totalMentions} sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
           onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
             y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
-        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? (1 + m.brandHealthIndex * 9).toFixed(1) : '—'} delta={m.brandHealthDelta != null ? Number((m.brandHealthDelta * 9).toFixed(1)) : null} sub="escala 1–10" icon="Heart" accent="var(--pos)"
+        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
           onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
           onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
 
           <div style={{ marginTop: -2 }}>
@@ -504,6 +552,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         <MetricInsightModal
           metricKey={metricModal.metricKey}
           value={metricModal.value}
+          valueDisplay={metricModal.valueDisplay}
           label={metricModal.label}
           accent={metricModal.accent}
           period={period}
@@ -894,11 +943,18 @@ function MentionsScreen({ onMentionClick }) {
         </span>
       </div>
 
-      {/* Quick metrics — 4 cards (sin "Alta pertinencia"). "Virales" es clickeable. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
+          período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
         <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} />
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
-        <QuickMetric label="Engagement rate" value={D.CURRENT_METRICS.engagementRate + '%'} />
+        <QuickMetric label="Engagement rate" value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate.word) || '—'} />
+        <QuickMetric
+          label="Velocidad"
+          value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.word) || '—'}
+          sub={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.value) ? D.CURRENT_METRICS.display.velocity.value + ' vs período ant.' : ''}
+          valueColor={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.color) || undefined}
+        />
         <QuickMetric
           label={`Virales (≥ ${(VIRAL_THRESHOLD / 1000)}K)`}
           value={viralCount == null ? '…' : fmt(viralCount)}
@@ -949,8 +1005,8 @@ function MentionsScreen({ onMentionClick }) {
   );
 }
 
-function QuickMetric({ label, value, tone, onClick }) {
-  const color = tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)';
+function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
+  const color = valueColor || (tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)');
   const baseStyle = {
     padding: 14,
     cursor: onClick ? 'pointer' : 'default',
@@ -972,6 +1028,7 @@ function QuickMetric({ label, value, tone, onClick }) {
         {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
       </div>
       <div className="num" style={{ fontSize: 22, fontWeight: 600, color, marginTop: 6, fontFamily: 'var(--ff-display)' }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -1553,12 +1610,19 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             className="row-hover"
             title="Ver insight del NSS para el periodo"
             style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-            <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{m.nss > 0 ? '+' : ''}{m.nss}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>NSS</div>
+            <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{(m.display && m.display.nss.value) || ((m.nss > 0 ? '+' : '') + m.nss)}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: (m.display && m.display.nss.color) || 'var(--text-2)' }}>{(m.display && m.display.nss.word) || 'NSS'}</div>
             <Icons.ArrowRight size={14} color="var(--text-3)" />
-            <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Icons.ArrowDown size={12} /> 3.2 vs período anterior
-            </div>
+            {m.deltaDisplay && m.deltaDisplay.nss && (
+              m.deltaDisplay.nss.hasBaseline ? (
+                <div style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: m.deltaDisplay.nss.direction === 'flat' ? 'var(--text-3)' : (m.deltaDisplay.nss.tone === 'pos' ? 'var(--pos)' : m.deltaDisplay.nss.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
+                  {m.deltaDisplay.nss.direction === 'flat' ? `· ${m.deltaDisplay.nss.word}` : `${m.deltaDisplay.nss.arrow} ${m.deltaDisplay.nss.value}`}
+                  <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> vs período anterior</span>
+                </div>
+              ) : (
+                <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
+              )
+            )}
           </button>
           <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 12, maxWidth: 640, lineHeight: 1.55 }}>
             Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
@@ -4189,11 +4253,17 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   // NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
   const score = m.crisisRiskScore;
   const cb = crisisBand(score);
+  // Formato legible (palabra + % de riesgo) desde el API (@eco/shared/format),
+  // con fallback al crisisBand local por si el payload no trae display.
+  const cd = (m.display && m.display.crisis) || null;
   const band = cb.label;
+  const word = cd ? cd.word : cb.label;
+  const valueLabel = cd && cd.value ? cd.value : (Math.round(score * 100) + '%');
+  const wordColor = cd ? cd.color : cb.color;
   const bandColor = cb.color;
   return (
     <button
-      onClick={() => onOpenInsight && onOpenInsight('crisis', score.toFixed(2), 'var(--neg)')}
+      onClick={() => onOpenInsight && onOpenInsight('crisis', valueLabel, 'var(--neg)')}
       className="card row-hover"
       style={{
         padding: 16,
@@ -4211,10 +4281,10 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
           <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div className="num" style={{ fontSize: 28, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-            {score.toFixed(2)}
+          <div className="num" style={{ fontSize: 26, fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
+            {word}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>/1</div>
+          <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>{valueLabel}</div>
           <span className={`pill pill-${cb.tone}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
         </div>
       </div>

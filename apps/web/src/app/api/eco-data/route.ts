@@ -13,7 +13,10 @@ import {
   agencyBriefings,
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
-import { closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike } from '@eco/shared';
+import {
+  closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
+  formatMetric, formatDelta, formatVelocity,
+} from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -357,6 +360,42 @@ export async function GET(request: NextRequest) {
       neutralCount: winCur.totals.neutral,
       negativeCount: winCur.totals.negative,
       highPertinenceCount: Number(engAgg?.hiPert ?? 0),
+
+      // ---- Formato legible-para-el-público (single source: @eco/shared/format) ----
+      // Cada métrica trae su representación principal (palabra) + número de
+      // apoyo + tono/color, ya formateados, para que la SPA estática no tenga
+      // que re-derivar escalas/bandas (eso causaba "6.3" vs "0.59" en pantallas
+      // contiguas). Los campos numéricos crudos de arriba se conservan para los
+      // ejes de los charts.
+      display: {
+        nss: formatMetric('nss', winCur.nss),
+        brandHealth: formatMetric('bhi', winCur.brandHealthIndex),
+        crisis: formatMetric('crisis', winCur.crisisRiskScore),
+        polarization: formatMetric('polarization', winCur.polarizationIndex),
+        engagementRate: formatMetric('engagementRate', winCur.engagementRate),
+        amplificationRate: formatMetric('amplificationRate', winCur.amplificationRate),
+        // Velocidad redefinida: cambio % del engagement-por-mención vs el
+        // período anterior de igual duración (resuelve el "0" → "Estable").
+        velocity: formatVelocity(winCur.engagementPerMention, winPrev.engagementPerMention),
+      },
+      // Tendencias vs período anterior, con palabra y distinguiendo
+      // "estable" (cambio ≈ 0) de "sin base de comparación" (sin período previo).
+      deltaDisplay: {
+        nss: formatDelta(winCur.nss, winPrev.nss, { kind: 'absolute', decimals: 1 }),
+        brandHealth: formatDelta(
+          winCur.brandHealthIndex != null ? 1 + winCur.brandHealthIndex * 9 : null,
+          winPrev.brandHealthIndex != null ? 1 + winPrev.brandHealthIndex * 9 : null,
+          { kind: 'absolute', decimals: 1, suffix: '' },
+        ),
+        crisis: formatDelta(
+          winCur.crisisRiskScore != null ? winCur.crisisRiskScore * 100 : null,
+          winPrev.crisisRiskScore != null ? winPrev.crisisRiskScore * 100 : null,
+          { kind: 'absolute', decimals: 0, suffix: ' pts', invert: true },
+        ),
+        engagementRate: formatDelta(winCur.engagementRate, winPrev.engagementRate, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
+        totalMentions: formatDelta(winCur.totals.total, winPrev.totals.total, { kind: 'percent', decimals: 0 }),
+        polarization: formatDelta(winCur.polarizationIndex, winPrev.polarizationIndex, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
+      },
     };
 
     // ---- TOP_SOURCES ----

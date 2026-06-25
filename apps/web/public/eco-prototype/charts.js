@@ -223,12 +223,18 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
     if (idx >= 0 && idx < data.length) setHover(idx);
   }
 
+  // Formato del hover del strip multi-métrica. ESPEJO de @eco/shared/format
+  // (escalas/umbrales canónicos viven allí; esto solo formatea por-punto del
+  // chart, que la SPA estática no puede importar). Mantener en sync:
+  //   crisis → % de riesgo · BHI → escala 1–10 · polarización → %.
+  // Antes crisis/BHI salían como "0.59" crudo en el hover.
   function fmtVal(key, v) {
     if (typeof valueFormat === 'function') return valueFormat(v);
     if (key === 'totalMentions') return v >= 1000 ? (v/1000).toFixed(1) + 'K' : v.toFixed(0);
     if (key === 'nss') return (v > 0 ? '+' : '') + v.toFixed(1);
-    if (key === 'crisisRiskScore') return v.toFixed(2);
-    if (key === 'brandHealthIndex') return v.toFixed(2);
+    if (key === 'crisisRiskScore') return Math.round(v * 100) + '%';
+    if (key === 'brandHealthIndex') return (1 + v * 9).toFixed(1);
+    if (key === 'polarizationIndex') return Math.round(v) + '%';
     if (key === 'engagementRate') return v.toFixed(1) + '%';
     return v.toFixed(1);
   }

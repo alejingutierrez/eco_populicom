@@ -1411,7 +1411,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
 //   period:    period activo del header (1D/7D/...)
 //   agency:    slug de la agencia activa
 // =========================================================
-function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)', period, agency, onClose }) {
+function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'var(--accent)', period, agency, onClose }) {
   const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -1516,6 +1516,11 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
 
   const displayValue = data ? data.value : value;
   const displayBand = data ? data.band : null;
+  // Formato legible (palabra + número de apoyo). Viene del API
+  // (@eco/shared/format) o del placeholder inicial pasado por openMetric.
+  // Cae a formatValue() si ninguno está disponible.
+  const vd = (data && data.valueDisplay) || valueDisplay || null;
+  const dd = (data && data.deltaDisplay) || null;
   const cfg = bandConfig();
   const series = (data && data.series) || [];
 
@@ -1548,21 +1553,33 @@ function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)',
             <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
               {label}
             </div>
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12 }}>
-              <div className="num" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
-                {formatValue(displayValue)}
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <div className="num" style={{ fontSize: 34, fontWeight: 600, color: vd ? vd.color : 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                {vd ? vd.word : formatValue(displayValue)}
               </div>
-              {displayBand && (
+              {vd && vd.value && (
+                <div className="num" style={{ fontSize: 15, color: 'var(--text-2)', fontWeight: 600 }}>{vd.value}</div>
+              )}
+              {!vd && displayBand && (
                 <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
                   {displayBand}
                 </div>
               )}
-              {data && data.deltaVsPrev != null && (
+              {dd ? (
+                dd.hasBaseline ? (
+                  <div style={{ fontSize: 11, fontWeight: 600, color: dd.direction === 'flat' ? 'var(--text-3)' : (dd.tone === 'pos' ? 'var(--pos)' : dd.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
+                    {dd.direction === 'flat' ? `· ${dd.word}` : `${dd.arrow} ${dd.value}`}
+                    <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> vs período anterior</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
+                )
+              ) : (data && data.deltaVsPrev != null && (
                 <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
                   {data.deltaVsPrev > 0 ? '▲ +' : data.deltaVsPrev < 0 ? '▼ ' : '· '}
                   {Math.abs(data.deltaVsPrev)} vs ventana anterior
                 </div>
-              )}
+              ))}
             </div>
           </div>
           <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>

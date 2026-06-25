@@ -124,8 +124,13 @@ function fmtInt(n: number): string {
 }
 
 function deltaWord(n: number): string {
-  if (n > 0) return 'sube';
-  if (n < 0) return 'baja';
+  // Deriva la palabra del valor REDONDEADO para que concuerde con signedPct
+  // (que también redondea). Antes leía el float crudo, produciendo el
+  // contradictorio "0% sube" cuando un +0.4% redondeaba a 0%. Mismo vocabulario
+  // que @eco/shared/format:formatDelta (sube/baja/estable).
+  const r = Math.round(n);
+  if (r > 0) return 'sube';
+  if (r < 0) return 'baja';
   return 'estable';
 }
 

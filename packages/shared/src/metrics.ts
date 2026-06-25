@@ -417,6 +417,11 @@ export interface WindowMetrics extends ComputedMetrics {
     negative: number;
   };
   totalReach: number;
+  /** Suma de engagement_score del periodo (para la velocidad % vs período anterior). */
+  totalEngagementScore: number;
+  /** engagement_score promedio por mención del periodo, o null si no hay menciones.
+   *  Es el insumo de `formatVelocity` (cambio % vs la misma medida del período previo). */
+  engagementPerMention: number | null;
 }
 
 /**
@@ -451,5 +456,7 @@ export async function loadMetricsForWindow(
       negative: agg.negativeCount,
     },
     totalReach: agg.totalReach,
+    totalEngagementScore: agg.totalEngagementScore,
+    engagementPerMention: agg.totalMentions > 0 ? agg.totalEngagementScore / agg.totalMentions : null,
   };
 }

@@ -47,6 +47,25 @@ const _mocks = {
     neutralCount: 0,
     negativeCount: 0,
     highPertinenceCount: 0,
+    // Formato legible (lo llena /api/eco-data vía @eco/shared/format). Estos
+    // placeholders evitan que el scorecard rompa antes de que resuelva el fetch.
+    display: {
+      nss: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      brandHealth: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      crisis: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      polarization: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      engagementRate: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      amplificationRate: { word: '—', value: null, short: '—', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+      velocity: { word: 'Sin base', value: null, short: 'Sin base de comparación', raw: null, band: null, tone: 'neutral', color: 'var(--text-3)' },
+    },
+    deltaDisplay: {
+      nss: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+      brandHealth: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+      crisis: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+      engagementRate: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+      totalMentions: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+      polarization: { word: 'sin base', direction: 'none', arrow: '—', value: null, magnitude: null, hasBaseline: false, tone: 'neutral' },
+    },
   },
   SENTIMENT_BREAKDOWN: [
     { name: 'positivo', value: 0, label: 'Positivo' },
