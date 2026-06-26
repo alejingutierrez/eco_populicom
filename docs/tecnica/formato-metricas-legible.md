@@ -98,6 +98,30 @@ python3 -m http.server 8901 --directory apps/web/public/eco-prototype
 y carga el bundle compilado. Hay una config `eco-verify` equivalente en
 `.claude/launch.json`.
 
+## Sistema de cards (consistencia visual)
+
+Para que todas las cards del dashboard se lean como una sola familia (evitar los
+~9 tamaños distintos que había), aplica este sistema a cualquier card de métrica:
+
+- **Label (eyebrow): uno solo** — 11px / 600 / `var(--text-2)` / uppercase / `0.08em`.
+  Aplica a `KpiCard`, `QuickMetric`, termómetro, etc.
+- **Palabra-vs-número por TIPO de métrica, no por pantalla**: métricas con banda
+  (NSS, Crisis, BHI, Polarización, Engagement, Velocidad) → **palabra protagonista**
+  (tono) + número de apoyo; cantidades (volumen, alcance, virales, conteos) → **número**.
+  La misma métrica usa el mismo modo en todas las pantallas.
+- **Escala de 4 niveles** (palabra y número comparten tamaño en cada nivel):
+  **Hero 40px** (máx 1 por pantalla, p.ej. NSS de Sentimiento), **Standard 30px**
+  (TODA card de métrica: scorecard, Menciones, Overview, Alertas, modales),
+  **Compact 18px** (tiles secundarios), **Row 13px** (filas de tabla).
+- **Banda una sola vez**: si la palabra-banda es el protagonista, no repetirla en
+  pill ni resaltarla en el gauge. La barra de posición conserva solo sus anclas de
+  escala (NORMAL/ELEVADO/… como leyenda estática).
+- **Delta: un solo formato** (`DeltaBadge`): `▲ +X` / `▼ −X` / `· estable` /
+  `— sin base`. El termómetro usa el mismo formato.
+- **Soporte/sub**: bajo el valor, 13px; en modo-número el sub se muestra como
+  caption (antes se ocultaba si no había delta). No repetir el label en el sub.
+- **Densidad**: padding 16, gap 12 entre cards, label→valor marginTop 8, valor→sub 3.
+
 ## Pendientes conocidos (fuera de alcance de esta iteración)
 
 - **NSS geográfico** (`/api/eco-data`): se sirve en escala `−10..10` bajo el

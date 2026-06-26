@@ -99,26 +99,29 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       {wordMode ? (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 23, fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.15, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            <div className="num" style={{ fontSize: 30, fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
             {deltaInfo ? <DeltaBadge info={deltaInfo} /> : null}
           </div>
-          {value && (
-            <div className="num" style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600, marginTop: 3 }}>
-              {value}{sub ? <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> · {sub}</span> : ''}
+          {(value || sub) && (
+            <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginTop: 3 }}>
+              {value && <span className="num">{value}</span>}
+              {sub && <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>{value ? ' · ' : ''}{sub}</span>}
             </div>
           )}
         </div>
       ) : (
+        <>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
+          <div className="num" style={{ fontSize: 30, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
           {deltaInfo ? <DeltaBadge info={deltaInfo} /> : (delta != null && (
             <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 2 }}>
               {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
-              {Math.abs(delta)}{typeof delta === 'number' && Number.isInteger(Math.abs(delta) * 10) ? '' : ''}
-              {sub ? ` ${sub}` : ''}
+              {Math.abs(delta)}
             </div>
           ))}
         </div>
+        {sub && <div style={{ fontSize: 13, color: 'var(--text-3)', fontWeight: 500, marginTop: 3 }}>{sub}</div>}
+        </>
       )}
       {trendData && <div style={{ marginTop: 10 }}><Sparkline data={trendData} width={200} height={30} color={accent} /></div>}
       {children && <div style={{ marginTop: 10 }}>{children}</div>}
@@ -431,7 +434,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} value={m.display.crisis.value} sub="de riesgo" deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
+        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
               + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
@@ -612,8 +615,6 @@ function BrandHealthMini({ value }) {
     { from: 0.6, to: 0.8, color: 'var(--pos)' },
     { from: 0.8, to: 1, color: 'var(--accent)' },
   ];
-  const bandLabel = value < 0.4 ? 'Crítico' : value < 0.6 ? 'Débil' : value < 0.8 ? 'Sano' : 'Fuerte';
-  const bandColor = value < 0.4 ? 'var(--neg)' : value < 0.6 ? 'var(--warn)' : value < 0.8 ? 'var(--pos)' : 'var(--accent)';
   return (
     <div style={{ marginTop: -2 }}>
       <div style={{ display: 'flex', gap: 2, height: 8, borderRadius: 2, overflow: 'hidden' }}>
@@ -640,7 +641,6 @@ function BrandHealthMini({ value }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--ff-mono)' }}>
         <span>1</span><span>4.6</span><span>6.4</span><span>8.2</span><span>10</span>
       </div>
-      <div style={{ fontSize: 10, color: bandColor, fontWeight: 700, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{bandLabel}</div>
     </div>
   );
 }
@@ -1008,7 +1008,7 @@ function MentionsScreen({ onMentionClick }) {
 function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
   const color = valueColor || (tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)');
   const baseStyle = {
-    padding: 14,
+    padding: 16,
     cursor: onClick ? 'pointer' : 'default',
     transition: 'background 0.15s ease',
   };
@@ -1023,11 +1023,11 @@ function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         {label}
         {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
       </div>
-      <div className="num" style={{ fontSize: 22, fontWeight: 600, color, marginTop: 6, fontFamily: 'var(--ff-display)' }}>{value}</div>
+      <div className="num" style={{ fontSize: 30, fontWeight: 600, color, marginTop: 8, fontFamily: 'var(--ff-display)' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -1610,8 +1610,8 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             className="row-hover"
             title="Ver insight del NSS para el periodo"
             style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-            <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{(m.display && m.display.nss.value) || ((m.nss > 0 ? '+' : '') + m.nss)}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: (m.display && m.display.nss.color) || 'var(--text-2)' }}>{(m.display && m.display.nss.word) || 'NSS'}</div>
+            <div className="num" style={{ fontSize: 40, fontWeight: 600, color: (m.display && m.display.nss.color) || 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{(m.display && m.display.nss.word) || 'NSS'}</div>
+            <div className="num" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }}>{(m.display && m.display.nss.value) || ((m.nss > 0 ? '+' : '') + m.nss)}</div>
             <Icons.ArrowRight size={14} color="var(--text-3)" />
             {m.deltaDisplay && m.deltaDisplay.nss && (
               m.deltaDisplay.nss.hasBaseline ? (
@@ -2870,15 +2870,16 @@ function CrisisAlertsTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <KpiCard
           label="Estado del disparador"
-          value={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
+          valueWord={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
+          valueTone={isActive ? 'pos' : 'neutral'}
           sub={isActive ? 'evalúa cada 10 min' : 'no se enviarán alertas'}
           icon="Bell"
           accent={isActive ? 'var(--pos)' : 'var(--text-3)'}
         />
         <KpiCard
           label="Umbral de disparo"
-          value={loading ? '…' : crisisMin.toFixed(2)}
-          sub="Crisis Score (0–1)"
+          value={loading ? '…' : `${Math.round(crisisMin * 100)}%`}
+          sub="Crisis Score"
           icon="Shield"
           accent="var(--neg)"
         />
@@ -4221,14 +4222,14 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
                 <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <div className="num" style={{ fontSize: 32, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                <div className="num" style={{ fontSize: 30, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                   {fmt(c.value)}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</div>
               </div>
               <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: dColor, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
-                {Math.abs(Math.round(c.delta))}% vs ventana previa
+                {c.delta === 0 ? 'estable' : `${c.delta > 0 ? '+' : ''}${Math.round(c.delta)}%`}
               </div>
             </button>
           );
@@ -4281,11 +4282,10 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
           <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div className="num" style={{ fontSize: 26, fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
+          <div className="num" style={{ fontSize: 30, fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
             {word}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>{valueLabel}</div>
-          <span className={`pill pill-${cb.tone}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
         </div>
       </div>
       <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
@@ -4431,7 +4431,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
             Total del periodo
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>{fmt(totals.total)}</div>
+            <div className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{fmt(totals.total)}</div>
           </div>
           <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} />
         </div>
@@ -4750,7 +4750,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
           const isFocus = n.id === focusedId;
           return (
             <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => onSelect && onSelect(n.id)}>
-              <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es')} menc · ${n.status}`}</title>
+              <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es-PR')} menc · ${n.status}`}</title>
               <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'} fillOpacity={0.85}
                 stroke={isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isFocus ? 2.5 : 1} />
               {(isFocus || r > 12) && <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10} fill="var(--text-2)">{(n.name || '').slice(0, 26)}</text>}
@@ -4882,7 +4882,7 @@ function NarrativeScreen({ agency }) {
               <div className="narrative-item-body">
                 <div className="narrative-item-name">{n.name}</div>
                 <div className="narrative-item-meta">
-                  <span>{n.mentionCount.toLocaleString('es')} menc</span>
+                  <span>{n.mentionCount.toLocaleString('es-PR')} menc</span>
                   <span>·</span>
                   <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
                 </div>
@@ -5018,7 +5018,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
         <div className="narrative-header-metrics">
           <div className="narrative-metric">
             <div className="narrative-metric-label">Menciones</div>
-            <div className="narrative-metric-value">{narrative.mentionCount.toLocaleString('es')}</div>
+            <div className="narrative-metric-value">{narrative.mentionCount.toLocaleString('es-PR')}</div>
           </div>
           <div className="narrative-metric">
             <div className="narrative-metric-label">Vel. 24h</div>
@@ -5026,7 +5026,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           </div>
           <div className="narrative-metric">
             <div className="narrative-metric-label">Engagement</div>
-            <div className="narrative-metric-value">{Number(narrative.totalEngagement || 0).toLocaleString('es')}</div>
+            <div className="narrative-metric-value">{Number(narrative.totalEngagement || 0).toLocaleString('es-PR')}</div>
           </div>
         </div>
       </div>
@@ -5137,7 +5137,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                 <strong>{inf.author || '—'}</strong>
               </div>
               <div className="narrative-init-meta">
-                Reach {(inf.reach || 0).toLocaleString('es')} · Eng {(inf.engagement || 0).toLocaleString('es')}
+                Reach {(inf.reach || 0).toLocaleString('es-PR')} · Eng {(inf.engagement || 0).toLocaleString('es-PR')}
               </div>
               {inf.url && (
                 <a href={inf.url} target="_blank" rel="noopener noreferrer" className="narrative-link">

@@ -1196,7 +1196,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             }}>
               {headlineValue != null && (
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                  <div className="num" style={{ fontSize: 32, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                  <div className="num" style={{ fontSize: 30, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                     {headlineValue}
                   </div>
                   {slice.headlineLabel && (
@@ -1554,11 +1554,11 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
               {label}
             </div>
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <div className="num" style={{ fontSize: 34, fontWeight: 600, color: vd ? vd.color : 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+              <div className="num" style={{ fontSize: 30, fontWeight: 600, color: vd ? vd.color : 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                 {vd ? vd.word : formatValue(displayValue)}
               </div>
               {vd && vd.value && (
-                <div className="num" style={{ fontSize: 15, color: 'var(--text-2)', fontWeight: 600 }}>{vd.value}</div>
+                <div className="num" style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>{vd.value}</div>
               )}
               {!vd && displayBand && (
                 <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
