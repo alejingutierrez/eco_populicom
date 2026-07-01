@@ -5,7 +5,7 @@
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
-import { TOPICS_BY_AGENCY } from '@eco/shared';
+import { TOPICS_BY_AGENCY, scrapeImageForMention } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
 const bedrock = new BedrockRuntimeClient({});
@@ -802,6 +802,90 @@ export const handler = async (event: { action?: string; query?: string; queryIds
           user_role_values: en.rows.map((r: { enumlabel: string }) => r.enumlabel),
           allowed_pages_column: col.rows.length > 0,
         }),
+      };
+    }
+
+    if (action === 'add-resolved-image-column') {
+      // Idempotente: añade la columna `resolved_image_url` a mentions. La
+      // puebla el processor en ingesta y el backfill 'backfill-resolved-images'.
+      const stmts = [
+        `ALTER TABLE mentions ADD COLUMN IF NOT EXISTS resolved_image_url text`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) { await client.query(s); applied.push(s); }
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'mentions' AND column_name = 'resolved_image_url'`,
+      );
+      return { statusCode: 200, body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name) }, null, 2) };
+    }
+
+    if (action === 'backfill-resolved-images') {
+      // Recorre menciones sin resolved_image_url (page_type news/blog/youtube) y
+      // corre la cadena de scrape (@eco/shared.scrapeImageForMention). Solo hace
+      // UPDATE cuando resuelve una imagen — best-effort y reinvocable. Requiere
+      // que 'add-resolved-image-column' ya haya corrido.
+      const wantLimit = Math.max(1, Math.min(500, Number(event.limit ?? 100)));
+      const sel = await client.query(
+        `SELECT id, media_urls, page_type, url, author_avatar_url
+           FROM mentions
+          WHERE resolved_image_url IS NULL
+            AND page_type IN ('news','blog','youtube')
+          ORDER BY published_at DESC
+          LIMIT $1`,
+        [wantLimit],
+      );
+      const rows = sel.rows as Array<{
+        id: string;
+        media_urls: string[] | null;
+        page_type: string | null;
+        url: string | null;
+        author_avatar_url: string | null;
+      }>;
+      console.log(`backfill-resolved-images: ${rows.length} pending in this batch`);
+
+      const concurrency = 5;
+      let resolved = 0;
+      let unresolved = 0;
+      let failed = 0;
+      for (let i = 0; i < rows.length; i += concurrency) {
+        const chunk = rows.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map(async (row) => {
+          const img = await scrapeImageForMention({
+            mediaUrl: Array.isArray(row.media_urls) ? row.media_urls[0] ?? null : null,
+            pageType: row.page_type,
+            url: row.url,
+            avatarUrl: row.author_avatar_url,
+          });
+          if (!img) { unresolved += 1; return; }
+          await client.query(
+            'UPDATE mentions SET resolved_image_url = $1 WHERE id = $2 AND resolved_image_url IS NULL',
+            [img, row.id],
+          );
+          resolved += 1;
+        }));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            failed += 1;
+            console.warn('backfill-resolved-images row failed:', r.reason);
+          }
+        }
+      }
+
+      const remaining = await client.query(
+        `SELECT COUNT(*)::int AS c FROM mentions
+          WHERE resolved_image_url IS NULL
+            AND page_type IN ('news','blog','youtube')`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          resolved,
+          unresolved,
+          failed,
+          remaining: remaining.rows[0].c,
+        }, null, 2),
       };
     }
 

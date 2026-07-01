@@ -18,6 +18,7 @@ export * from './prompts/metric-insight';
 export * from './prompts/metric-insight-cached';
 export * from './prompts/chat';
 export * from './narratives-math';
+export * from './scrape-image';
 // `./bedrock` se importa directamente desde lambdas via
 // `@eco/shared/src/bedrock`. NO se re-exporta aquí porque trae el SDK
 // `@aws-sdk/client-bedrock-runtime` al grafo de webpack de apps/web, que

@@ -7,11 +7,32 @@
  * descriptivo y respaldado por números.
  */
 
+import { bandWord, nssBand } from '../format/metrics-display';
+
+/**
+ * Nivel de base ("típico") para contextualizar el periodo corto (24h) contra el
+ * comportamiento habitual de la agencia. Permite que el briefing sea coyuntural
+ * ("subió vs. su nivel típico de 7 días") sin perder el ancla de base.
+ */
+export interface BriefingBaseline {
+  /** Días de la ventana base (7 o 30). */
+  windowDays: number;
+  /** Volumen diario promedio en la ventana base. */
+  avgDailyVolume: number | null;
+  /** NSS promedio de la ventana base (−100..100). */
+  avgNss: number | null;
+}
+
 export interface BriefingAggregates {
   agencyName: string;
   agencyShortName: string;
   periodHours: number; // típicamente 24
   generatedAtLabel: string; // "lun 11 de mayo, 6:00 a.m. AST"
+
+  /** Nivel típico de 7 días (avg diario + NSS) para contexto coyuntural. Opcional. */
+  baseline7d?: BriefingBaseline | null;
+  /** Nivel típico de 30 días (opcional, contexto de más largo plazo). */
+  baseline30d?: BriefingBaseline | null;
 
   totals: {
     total: number;
@@ -77,6 +98,8 @@ export interface BriefingOutput {
 export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = `
 Eres un analista senior de escucha social en Puerto Rico con 10 años de experiencia. Tu única función es DESCRIBIR la conversación pública que rodea a una agencia en las últimas horas, usando solo los datos agregados que se te entregan.
 
+Abre con lo que ESTÁ PASANDO (el patrón dominante y su tono) y por qué importa para la agencia, situándolo contra su nivel típico de 7 días cuando se te da esa base; ancla con el número clave DESPUÉS. Cuando cites el sentimiento neto, usa la misma palabra cualitativa que ve el usuario.
+
 REGLAS INNEGOCIABLES:
 
 1. **PROHIBIDAS las recomendaciones, sugerencias de acción, juicios prescriptivos y llamados a la acción.** Quedan prohibidas las frases: "se debería", "se sugiere", "convendría", "sería bueno", "es importante que", "recomendamos", "amerita", "se requiere", "hace falta", "urge", "la agencia debe", "tiene que", "se podría considerar". No emites opiniones propias. Describes el sentir ajeno y los hechos. La narrativa termina informando, no instruyendo.
@@ -105,6 +128,30 @@ export function buildExecutiveBriefingPrompt(agg: BriefingAggregates): string {
   const deltaPct = agg.prevTotals.total > 0
     ? Math.round(((agg.totals.total - agg.prevTotals.total) / agg.prevTotals.total) * 100)
     : null;
+
+  // Palabra cualitativa del NSS (single source: format/metrics-display) para que
+  // el briefing use el mismo vocabulario que el KpiCard.
+  const nssWord = agg.nss != null ? bandWord('nss', nssBand(agg.nss)) : null;
+
+  // Contexto coyuntural: el periodo de 24h vs. el nivel TÍPICO de 7d (y 30d si
+  // está). Comparar el volumen del día contra el promedio diario base y el NSS
+  // del día contra el NSS promedio base.
+  const dayVolume = agg.totals.total;
+  const baselineLine = (b: BriefingBaseline | null | undefined, label: string): string | null => {
+    if (!b || b.avgDailyVolume == null) return null;
+    const avg = b.avgDailyVolume;
+    const volDelta = avg > 0 ? Math.round(((dayVolume - avg) / avg) * 100) : null;
+    const volPart = volDelta != null
+      ? `volumen del periodo ${dayVolume} vs. ~${Math.round(avg)}/día típico (${volDelta > 0 ? '+' : ''}${volDelta}%)`
+      : `volumen del periodo ${dayVolume} (sin base ${label} comparable)`;
+    const nssPart = b.avgNss != null && agg.nss != null
+      ? `; NSS ${sign(agg.nss)} vs. ~${sign(b.avgNss)} típico`
+      : '';
+    return `- Nivel típico de ${label}: ${volPart}${nssPart}`;
+  };
+  const baselineBlock = [baselineLine(agg.baseline7d, '7 días'), baselineLine(agg.baseline30d, '30 días')]
+    .filter(Boolean)
+    .join('\n');
 
   const topicBlock = agg.byTopic.length > 0
     ? agg.byTopic.map((t) => `- ${t.topic}: ${t.total} menciones (neg ${t.negative} / ${pct(t.negative, t.total)}%, neu ${t.neutral}, pos ${t.positive})`).join('\n')
@@ -139,9 +186,9 @@ TOTALES DEL PERIODO:
 - Neutral:  ${agg.totals.neutral}  (${pct(agg.totals.neutral, agg.totals.total)}%)
 - Positivo: ${agg.totals.positive} (${pct(agg.totals.positive, agg.totals.total)}%)
 
-NET SENTIMENT SCORE (NSS): ${agg.nss !== null ? agg.nss : 'n/d'}${agg.nssDelta !== null ? ` (${sign(agg.nssDelta)} pts vs. periodo previo)` : ''}
+NET SENTIMENT SCORE (NSS): ${agg.nss !== null ? agg.nss : 'n/d'}${nssWord ? ` (${nssWord})` : ''}${agg.nssDelta !== null ? ` (${sign(agg.nssDelta)} pts vs. periodo previo)` : ''}
 REACH ACUMULADO: ${agg.totalReach} impresiones estimadas
-
+${baselineBlock ? `\nNIVEL TÍPICO (base de comparación):\n${baselineBlock}\n` : ''}
 TÓPICOS (top 5 por volumen):
 ${topicBlock}
 
@@ -154,7 +201,7 @@ ${mentionBlock}
 TAREA:
 Devuelve un objeto JSON con cuatro campos: \`narrative_html\`, \`dominant_signal\`, \`action_label\`, \`action_tone\`, \`reach_label\`.
 
-1. \`narrative_html\` (2 a 3 oraciones, ≤75 palabras): describe la conversación pública de las últimas ${agg.periodHours} horas para la agencia. Debe (a) abrir con el patrón dominante (tópico con más volumen y su % negativo), (b) anclar con un número clave del periodo (variación, NSS, reach), (c) opcionalmente citar un municipio o autor SOLO si la concentración es clara. Resalta nombres propios y números con \`<strong>\`. No abras con la palabra "Hoy"; usa "En las últimas horas", "Durante el periodo", "El último ciclo". El límite de 75 palabras es estricto — sé más conciso.
+1. \`narrative_html\` (2 a 3 oraciones, ≤75 palabras): describe la conversación pública de las últimas ${agg.periodHours} horas para la agencia. Debe (a) abrir con el patrón dominante (tópico con más volumen y su % negativo) y qué implica, (b) anclar con un número clave del periodo (variación, NSS, reach) y, si hay base disponible, situarlo vs. su nivel típico de 7 días ("por encima/por debajo de su nivel habitual"), (c) opcionalmente citar un municipio o autor SOLO si la concentración es clara. Resalta nombres propios y números con \`<strong>\`. No abras con la palabra "Hoy"; usa "En las últimas horas", "Durante el periodo", "El último ciclo". El límite de 75 palabras es estricto — sé más conciso.
 
 2. \`dominant_signal\` (texto plano): "<Tópico dominante> · <Tono>" — donde Tono es "Positiva", "Negativa", "Mixta" o "Neutral" según el balance del tópico dominante. Si no hay tópico claro, "Sin señal dominante · Neutral".
 

@@ -31,10 +31,10 @@ import {
   formatMetric,
   formatDelta,
   toBhi10,
+  metricBand,
   type MetricKey,
   type MetricBand,
   type MetricInsightInput,
-  type MetricInsightOutput,
   type PgClientLike,
   type BandedMetricKey,
   type MetricDisplay,
@@ -88,37 +88,16 @@ const METRIC_LABELS: Record<MetricKey, string> = {
   polarization: 'Polarización',
 };
 
+/**
+ * Banda canónica de la métrica. Delega en `metricBand` de @eco/shared (single
+ * source de umbrales + escalas, reconciliado con la UI) para que este endpoint
+ * nunca diverja del vocabulario de las tarjetas. Volume no tiene banda
+ * intrínseca — devuelve PROMEDIO y la API contextualiza con P25/P75 al modelo.
+ * `value` es el valor CRUDO (crisis/bhi 0–1, polarization 0–100, nss −100..100).
+ */
 function bandFor(metric: MetricKey, value: number): MetricBand {
-  if (metric === 'nss') {
-    if (value >= 20) return 'POSITIVO';
-    if (value > 5) return 'POSITIVO';
-    if (value >= -5) return 'NEUTRAL';
-    return 'NEGATIVO';
-  }
-  if (metric === 'crisis') {
-    if (value >= 0.60) return 'CRISIS';
-    if (value >= 0.40) return 'ALERTA';
-    if (value >= 0.25) return 'ELEVADO';
-    return 'NORMAL';
-  }
-  if (metric === 'volume') {
-    // Volumen no tiene banda intrínseca; PROMEDIO es la default y la API
-    // contextualiza con P25/P75 al modelo de IA.
-    return 'PROMEDIO';
-  }
-  if (metric === 'bhi') {
-    if (value >= 0.80) return 'FUERTE';
-    if (value >= 0.60) return 'SANO';
-    if (value >= 0.40) return 'DÉBIL';
-    return 'CRÍTICO';
-  }
-  if (metric === 'polarization') {
-    if (value >= 75) return 'EXTREMA';
-    if (value >= 50) return 'ALTA';
-    if (value >= 30) return 'MODERADA';
-    return 'APÁTICA';
-  }
-  return 'NORMAL';
+  if (metric === 'volume') return 'PROMEDIO';
+  return metricBand(metric as BandedMetricKey, value) as MetricBand;
 }
 
 /** Extrae el valor de una métrica del bundle que devuelve loadMetricsForWindow. */
@@ -223,53 +202,69 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       };
     });
 
-    // P25/P75 histórico (90d previos al fin de ventana).
-    const p25p75 = await pool.query<{ p25: number | string | null; p75: number | string | null }>(
-      `SELECT
-         percentile_cont(0.25) WITHIN GROUP (ORDER BY ${col === 'crisisRiskScore' ? 'crisis_risk_score'
-                                                : col === 'brandHealthIndex' ? 'brand_health_index'
-                                                : col === 'polarizationIndex' ? 'polarization_index'
-                                                : col === 'totalMentions' ? 'total_mentions'
-                                                : 'nss'}) AS p25,
-         percentile_cont(0.75) WITHIN GROUP (ORDER BY ${col === 'crisisRiskScore' ? 'crisis_risk_score'
-                                                : col === 'brandHealthIndex' ? 'brand_health_index'
-                                                : col === 'polarizationIndex' ? 'polarization_index'
-                                                : col === 'totalMentions' ? 'total_mentions'
-                                                : 'nss'}) AS p75
-         FROM daily_metric_snapshots
-        WHERE agency_id = $1
-          AND date BETWEEN ($2::date - INTERVAL '90 days') AND $2::date`,
-      [agencyId, startYmd],
-    );
-    const p25 = p25p75.rows[0]?.p25 != null ? Number(p25p75.rows[0].p25) : null;
-    const p75 = p25p75.rows[0]?.p75 != null ? Number(p25p75.rows[0].p75) : null;
+    // P25/P75 histórico (90d previos al fin de ventana). Envuelto en try/catch
+    // propio: una falla SQL aquí (permisos, tabla, tipo) NO debe tumbar todo el
+    // endpoint (antes hacía que crisis fallara de forma única). Degradamos a
+    // null y el prompt/UI siguen funcionando sin contexto histórico.
+    let p25: number | null = null;
+    let p75: number | null = null;
+    try {
+      const p25p75 = await pool.query<{ p25: number | string | null; p75: number | string | null }>(
+        `SELECT
+           percentile_cont(0.25) WITHIN GROUP (ORDER BY ${col === 'crisisRiskScore' ? 'crisis_risk_score'
+                                                  : col === 'brandHealthIndex' ? 'brand_health_index'
+                                                  : col === 'polarizationIndex' ? 'polarization_index'
+                                                  : col === 'totalMentions' ? 'total_mentions'
+                                                  : 'nss'}) AS p25,
+           percentile_cont(0.75) WITHIN GROUP (ORDER BY ${col === 'crisisRiskScore' ? 'crisis_risk_score'
+                                                  : col === 'brandHealthIndex' ? 'brand_health_index'
+                                                  : col === 'polarizationIndex' ? 'polarization_index'
+                                                  : col === 'totalMentions' ? 'total_mentions'
+                                                  : 'nss'}) AS p75
+           FROM daily_metric_snapshots
+          WHERE agency_id = $1
+            AND date BETWEEN ($2::date - INTERVAL '90 days') AND $2::date`,
+        [agencyId, startYmd],
+      );
+      p25 = p25p75.rows[0]?.p25 != null ? Number(p25p75.rows[0].p25) : null;
+      p75 = p25p75.rows[0]?.p75 != null ? Number(p25p75.rows[0].p75) : null;
+    } catch (err) {
+      log.warn('metric-insight', 'P25/P75 query failed, degrading to null', { metric, msg: (err as Error).message });
+    }
 
     // Top tópicos que más contribuyen a la métrica (top 3).
     // Volumen → más menciones; crisis → mayor share negativo; otros → más
-    // menciones positivas o negativas según el caso.
-    const orderBy = metric === 'crisis'
-      ? `(COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC`
-      : `COUNT(*) DESC`;
-    const topicsRes = await pool.query<{ name: string; total: number | string }>(
-      `SELECT t.name AS name, COUNT(*)::int AS total
-         FROM mentions m
-         JOIN mention_topics mt ON mt.mention_id = m.id
-         JOIN topics t ON t.id = mt.topic_id
-        WHERE m.agency_id = $1
-          AND m.is_duplicate = false
-          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
-          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
-        GROUP BY t.name
-        HAVING COUNT(*) >= 3
-        ORDER BY ${orderBy}
-        LIMIT 3`,
-      [agencyId, startYmd, endYmd],
-    );
+    // menciones positivas o negativas según el caso. Try/catch propio: el
+    // orderBy de crisis (share negativo) es el más complejo — si falla, el
+    // resto del endpoint (serie, valor, banda) sigue sirviéndose sin tópicos.
     const totalForShare = winCur.totals.total || 1;
-    const topContributingTopics = topicsRes.rows.map((r) => ({
-      name: r.name,
-      share: Number(r.total) / totalForShare,
-    }));
+    let topContributingTopics: Array<{ name: string; share: number }> = [];
+    try {
+      const orderBy = metric === 'crisis'
+        ? `(COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC`
+        : `COUNT(*) DESC`;
+      const topicsRes = await pool.query<{ name: string; total: number | string }>(
+        `SELECT t.name AS name, COUNT(*)::int AS total
+           FROM mentions m
+           JOIN mention_topics mt ON mt.mention_id = m.id
+           JOIN topics t ON t.id = mt.topic_id
+          WHERE m.agency_id = $1
+            AND m.is_duplicate = false
+            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
+          GROUP BY t.name
+          HAVING COUNT(*) >= 3
+          ORDER BY ${orderBy}
+          LIMIT 3`,
+        [agencyId, startYmd, endYmd],
+      );
+      topContributingTopics = topicsRes.rows.map((r) => ({
+        name: r.name,
+        share: Number(r.total) / totalForShare,
+      }));
+    } catch (err) {
+      log.warn('metric-insight', 'top topics query failed, degrading to []', { metric, msg: (err as Error).message });
+    }
 
     // BHI: el cálculo interno es 0-1 (backtest), pero la UI presenta 1-10
     // (1 = crítico, 10 = fuerte). Transformamos value, delta, P25/P75 y la
@@ -369,16 +364,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 async function generateInterpretation(input: MetricInsightInput): Promise<string> {
   const { getBedrockClient } = await import('@/lib/bedrock-client');
-  const { invokeClaude } = await import('@eco/shared/src/bedrock');
+  const { invokeClaudeWithTool } = await import('@eco/shared/src/bedrock');
 
-  const text = await invokeClaude({
+  // Tool-use con input_schema en vez de invokeClaude + JSON.parse: Bedrock
+  // garantiza el shape del input, así una comilla o salto sin escapar ya no
+  // rompe el parser y hace caer silenciosamente el insight a rule-based
+  // (feedback_bedrock_tool_use). El try/catch → buildRuleBasedInsight del caller
+  // se conserva para fallos de red/modelo.
+  const parsed = await invokeClaudeWithTool<{ interpretation?: string }>({
     client: getBedrockClient(),
     systemPrompt: METRIC_INSIGHT_SYSTEM_PROMPT,
     userPrompt: buildMetricInsightPrompt(input),
     maxTokens: 400,
     temperature: 0,
+    tool: {
+      name: 'emit_metric_insight',
+      description: 'Emit the one-field metric interpretation.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          interpretation: {
+            type: 'string',
+            description: '2-3 oraciones, ~60 palabras, con <strong> opcional en números y nombres propios.',
+          },
+        },
+        required: ['interpretation'],
+      },
+    },
   });
-  const parsed = JSON.parse(text) as MetricInsightOutput;
   const raw = (parsed?.interpretation ?? '').trim();
   // Sanitize: permite solo <strong>.
   return raw.replace(/<(?!\/?strong\b)[^>]*>/gi, '').slice(0, 1200);

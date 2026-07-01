@@ -38,7 +38,7 @@ const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-op
 const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
 const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'agutierrez@populicom.com';
 const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://app.populicom.com';
+const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com';
 
 const REPORT_TIMEZONE = 'America/Puerto_Rico';
 

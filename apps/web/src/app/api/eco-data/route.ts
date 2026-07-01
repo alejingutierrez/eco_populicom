@@ -251,6 +251,13 @@ export async function GET(request: NextRequest) {
       long: a.name,
     }));
 
+    // Sentinel "TODAS" para la vista ejecutiva multi-agencia — solo staff
+    // (allowedSlugs === null ≡ ve todas las agencias) puede seleccionarla.
+    // El frontend rutea la selección __all__ a /api/exec-overview.
+    if (allowedSlugs === null) {
+      AGENCIES_FULL.unshift({ key: '__all__', name: 'TODAS', long: 'Todas las agencias' });
+    }
+
     // ---- TIMELINE from snapshots (un punto por día dentro de la ventana) ----
     const snapshots = await db
       .select()

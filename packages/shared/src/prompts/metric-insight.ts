@@ -6,6 +6,8 @@
  * coloquial que explique qué dice el número sin entrar en la fórmula.
  */
 
+import { formatMetric, bandWord, metricBand, type BandedMetricKey } from '../format/metrics-display';
+
 export type MetricKey = 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization';
 
 /** Bandas semánticas posibles de cada métrica (la API se las pasa ya calculadas). */
@@ -47,13 +49,13 @@ Eres un analista de escucha social en Puerto Rico que explica métricas en lengu
 
 REGLAS INNEGOCIABLES:
 
-1. **PROHIBIDO mencionar fórmulas o componentes técnicos.** No digas "es 0.40 * NSS + 0.25 * engagement…", "se calcula como (pos − neg)/total", "z-score", "logaritmo", "saturado en 0-1". El lector NO quiere la fórmula — quiere saber qué significa el número.
+1. **Empieza cualitativo, no numérico.** Abre con la PALABRA de banda del input (Normal/Elevado/Alerta/Crisis, Sano/Débil, Positivo/Negativo, etc.) y qué está pasando en la conversación, más un matiz de por qué eso es bueno o malo para la agencia. El número de apoyo (el valor legible que ve el usuario) va DESPUÉS, como ancla, no como apertura. Usa EXACTAMENTE la misma palabra y el mismo número que se muestran en pantalla — no los reformules ni conviertas de escala.
 
-2. **PROHIBIDO recomendar acciones.** No digas "se debería", "se sugiere", "convendría", "es importante". Describes; no instruyes.
+2. **PROHIBIDO mencionar fórmulas o componentes técnicos.** No digas "es 0.40 * NSS + 0.25 * engagement…", "se calcula como (pos − neg)/total", "z-score", "logaritmo", "saturado en 0-1". El lector NO quiere la fórmula — quiere saber qué significa el número.
 
-3. **Cada afirmación debe estar respaldada por un número del input:** valor actual, delta vs. previo, P25/P75 histórico, % de share de tópicos. Sin número no hay afirmación.
+3. **PROHIBIDO recomendar acciones.** No digas "se debería", "se sugiere", "convendría", "es importante". Describes por qué el valor es bueno o malo; no instruyes qué hacer.
 
-4. **Empieza con la conclusión, no con la métrica.** "La conversación se inclina más hacia lo positivo…", no "El NSS de 12 indica…". El lector ya sabe qué métrica está viendo.
+4. **Cada afirmación debe estar respaldada por un número del input:** valor actual, delta vs. previo, P25/P75 histórico, % de share de tópicos. Sin número no hay afirmación.
 
 5. **Compara con el histórico.** Si el valor está cerca del P25/P75, dilo. Si la métrica subió o bajó vs. periodo previo, cuantifica el cambio.
 
@@ -82,20 +84,40 @@ export function buildMetricInsightPrompt(input: MetricInsightInput): string {
     ? `Municipio con mayor concentración: ${input.topMunicipality.name} (${Math.round(input.topMunicipality.share * 100)}% del total).`
     : '';
 
-  // Guía contextual del rango de la métrica, para que el modelo no invente significados.
-  const semantics: Record<MetricKey, string> = {
-    nss: 'Net Sentiment Score: rango −100 (todo negativo) a +100 (todo positivo). >+20 muy positivo, +5 a +20 moderadamente positivo, −5 a +5 neutral, −20 a −5 moderadamente negativo, <−20 muy negativo.',
-    crisis: 'Crisis Risk Score: rango 0 a 1, ahora con transición continua (sin gate binario). 0–0.25 NORMAL, 0.25–0.40 ELEVADO, 0.40–0.60 ALERTA, ≥0.60 CRISIS. Es la combinación ponderada de severity (concentración negativa), velocity (anomalía de volumen) y relevance (pertinencia), escalada por confidence (log10 del volumen).',
-    volume: 'Volumen total de menciones en el periodo. Sin escala fija — interpreta vs. P25/P75 histórico.',
-    bhi: 'Brand Health Index: ESCALA 1 a 10 (1 = crítico, 10 = fuerte). Bandas: 1.0–4.6 CRÍTICO, 4.6–6.4 DÉBIL, 6.4–8.2 SANO, 8.2–10 FUERTE. Combina sentimiento, engagement, alcance y pertinencia. SIEMPRE refiere al valor en escala 1–10 (no menciones 0.X).',
-    polarization: 'Polarization Index: 0 a 100%. % de menciones que tienen postura clara (pos o neg). >60% APÁTICA es contradicción — alta polarización = pocos neutrales.',
+  // Palabra + número canónicos (los MISMOS que ve el usuario en pantalla). Para
+  // las métricas con banda derivamos la palabra desde el token de banda vía
+  // bandWord (single source: format/metrics-display) para que el vocabulario del
+  // prompt nunca diverja de la UI. Volume no lleva banda cualitativa.
+  const isBanded = (m: MetricKey): m is Exclude<MetricKey, 'volume'> => m !== 'volume';
+  const word = isBanded(input.metric)
+    ? bandWord(input.metric as BandedMetricKey, input.band)
+    : null;
+  // Número legible tal cual aparece en la tarjeta.
+  const displayNumber = input.metric === 'volume'
+    ? `${input.currentValue.toLocaleString('es-PR')} menciones`
+    : input.metric === 'crisis'
+      ? `${Math.round(input.currentValue * 100)}%`
+      : input.metric === 'bhi'
+        ? `${input.currentValue} / 10`
+        : input.metric === 'polarization'
+          ? `${Math.round(input.currentValue)}%`
+          : (input.currentValue > 0 ? `+${input.currentValue}` : `${input.currentValue}`); // nss
+  const displayLine = word ? `${word} · ${displayNumber}` : displayNumber;
+
+  // Qué es "bueno" o "malo" para cada métrica — sin fórmula, solo dirección.
+  const direction: Record<MetricKey, string> = {
+    nss: 'Más positivo (hacia +100) es mejor; más negativo (hacia −100) es peor.',
+    crisis: 'Más bajo (Normal) es mejor; más alto (Alerta/Crisis) es peor.',
+    volume: 'Sin escala fija de bueno/malo — interpreta vs. su rango histórico P25/P75.',
+    bhi: 'Más alto (hacia 10, Fuerte) es mejor; más bajo (hacia 1, Crítico) es peor.',
+    polarization: 'Más alto significa una conversación más dividida (menos neutrales), no necesariamente peor.',
   };
 
   return `
 MÉTRICA: ${input.metricLabel} (${input.metric})
-SIGNIFICADO: ${semantics[input.metric]}
 
-VALOR ACTUAL: ${input.currentValue} (banda: ${input.band})
+COMO SE MUESTRA AL USUARIO: ${displayLine}
+INTERPRETACIÓN DE DIRECCIÓN: ${direction[input.metric]}
 VENTANA: últimos ${input.windowDays} días (cerrada, terminando ayer en AST PR).
 CAMBIO vs ventana anterior de la misma duración: ${deltaStr}
 RANGO HISTÓRICO 90d: P25 = ${p25Str} ; P75 = ${p75Str}
@@ -108,7 +130,7 @@ TAREA:
 Devuelve un objeto JSON con un único campo \`interpretation\` (2-3 oraciones, máximo 60 palabras, con \`<strong>\` opcional en números y nombres propios).
 
 Estructura esperada:
-1. Primera oración: conclusión cualitativa (qué dice el número en lenguaje natural, sin fórmula).
+1. Primera oración: cualitativa — usa la PALABRA "${word ?? 'el volumen'}" y di qué está pasando y por qué es bueno o malo, sin fórmula. Ancla con el número "${displayNumber}" DESPUÉS de la palabra, no antes.
 2. Segunda oración: comparación con el histórico O con la ventana previa (usa los números del input).
 3. Tercera oración (opcional, solo si aporta): nombrar 1 tópico que está dominando o cambiando el valor.
 

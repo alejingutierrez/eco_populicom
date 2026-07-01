@@ -4,7 +4,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -203,6 +203,22 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mergedMunis = Array.from(new Set([...(nlp.municipalities ?? []), ...regexMunis]));
   nlp.municipalities = mergedMunis.filter((m) => MUNICIPALITY_SLUGS.includes(m));
 
+  // Best-effort: resuelve una imagen representativa (media directa → thumbnail
+  // de YouTube → og:image de news/blog/forum → avatar → null). Nunca lanza; si
+  // el scrape falla o tarda, la mención queda sin imagen y el backfill de
+  // eco-migration la recogerá después.
+  let resolvedImageUrl: string | null = null;
+  try {
+    resolvedImageUrl = await scrapeImageForMention({
+      mediaUrl: mention.mediaUrls?.[0] ?? null,
+      pageType: mention.pageType,
+      url: mention.url,
+      avatarUrl: mention.avatarUrl,
+    });
+  } catch {
+    resolvedImageUrl = null;
+  }
+
   // Insert mention
   const mentionResult = await pgClient.query(
     `INSERT INTO mentions (
@@ -216,7 +232,8 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       nlp_sentiment, nlp_emotions, nlp_pertinence, nlp_summary,
       text_hash, is_duplicate, duplicate_of_id,
       media_urls, has_image, has_video,
-      published_at, processed_at, language
+      published_at, processed_at, language,
+      resolved_image_url
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6, $7, $8, $9,
@@ -228,7 +245,8 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $34, $35, $36, $37,
       $38, $39, $40,
       $41, $42, $43,
-      $44, NOW(), $45
+      $44, NOW(), $45,
+      $46
     ) ON CONFLICT (bw_resource_id) DO NOTHING
     RETURNING id`,
     [
@@ -250,6 +268,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       (mention.mediaUrls?.length ?? 0) > 0 && mention.subtype === 'photo',
       mention.subtype === 'video',
       parsePublishedAt(mention), mention.language ?? 'es',
+      resolvedImageUrl,
     ],
   );
 

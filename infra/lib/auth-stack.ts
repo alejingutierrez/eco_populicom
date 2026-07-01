@@ -21,7 +21,10 @@ export class AuthStack extends cdk.Stack {
     // desde un worktree no resuelve @eco/shared de forma fiable.
     // {username} = correo de la cuenta; {####} = contraseña temporal
     // (invitación) o código de un solo uso (recuperación).
-    const SIGN_IN_URL = 'https://app.populicom.com/sign-in';
+    // El dominio app.populicom.com aún no está cableado (sin DNS/cert; el ALB
+    // solo tiene listener HTTP:80). Hasta que se cablee, los correos apuntan a
+    // la URL del ALB — que es donde la app realmente vive y responde 200.
+    const SIGN_IN_URL = 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com/sign-in';
     const C = {
       page: '#F5F6F8', surface: '#FFFFFF', border: '#E6E8EC', borderSoft: '#EEF0F4',
       ink: '#0E1E2C', inkSoft: '#4A5563', inkMute: '#8A93A0',
@@ -68,7 +71,7 @@ export class AuthStack extends cdk.Stack {
             <td class="px-32" style="padding:18px 32px 14px 32px;border-bottom:1px solid ${C.borderSoft};">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
                 <td align="left" valign="middle"><span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${C.ink};">ECO <span style="color:${C.brand};">Radar</span></span></td>
-                <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${C.inkMute};letter-spacing:0.02em;font-weight:600;">Social Listening · Gobierno de PR</td>
+                <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${C.inkMute};letter-spacing:0.02em;font-weight:600;">Escucha Ciudadana · Gobierno de PR</td>
               </tr></table>
             </td>
           </tr>
@@ -152,7 +155,7 @@ export class AuthStack extends cdk.Stack {
         sesRegion: 'us-east-1',
       }),
       userInvitation: {
-        emailSubject: 'Tu acceso a ECO — Social Listening',
+        emailSubject: 'Tu acceso a ECO — Escucha Ciudadana Online',
         emailBody: invitationEmailBody,
       },
       userVerification: {
@@ -172,6 +175,10 @@ export class AuthStack extends cdk.Stack {
         requireDigits: true,
         requireSymbols: false,
         requireLowercase: false,
+        // La contraseña temporal de invitación vencía en 7 días (default), lo
+        // que dejaba a los invitados atascados si no ingresaban a tiempo. 30
+        // días da margen razonable para completar el registro.
+        tempPasswordValidity: cdk.Duration.days(30),
       },
       mfa: cognito.Mfa.OPTIONAL,
       mfaSecondFactor: {
