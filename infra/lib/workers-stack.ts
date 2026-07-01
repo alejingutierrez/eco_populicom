@@ -232,7 +232,7 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         SES_FROM_EMAIL: 'agutierrez@populicom.com',
         SES_FROM_NAME: 'ECO Radar',
-        DASHBOARD_BASE_URL: 'https://app.populicom.com',
+        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
       },
       logGroup: importLogGroup('MetricsCalcLogGroup', 'eco-metrics-calculator'),
       bundling: bundlingOptions,
@@ -416,8 +416,12 @@ export class WorkersStack extends cdk.Stack {
         // Tunables (defaults sensatos en el código si faltan)
         NARRATIVE_THRESHOLD: '0.78',
         NARRATIVE_EWMA_ALPHA: '0.05',
-        NARRATIVE_MIN_MENTIONS_BIRTH: '10',
-        NARRATIVE_DBSCAN_EPS: '0.22',
+        // Detección temprana más rápida y precisa: baja el umbral de nacimiento
+        // (10→7 menciones) para no esperar tanto a que emerja una narrativa, y
+        // ajusta el radio DBSCAN (0.22→0.19) para clusters más cohesivos. Validar
+        // con dryRun tras el deploy.
+        NARRATIVE_MIN_MENTIONS_BIRTH: '7',
+        NARRATIVE_DBSCAN_EPS: '0.19',
         NARRATIVE_TOP_N_MATCHES: '3',
         NARRATIVE_INFLUENCE_WINDOW_HOURS: '24',
         NARRATIVE_PER_AGENCY_LIMIT: '5000',
@@ -444,8 +448,10 @@ export class WorkersStack extends cdk.Stack {
     // (que está en minuto 0). Da margen para que ingestion + processor de la
     // hora previa terminen de poblar embeddings antes de cluster.
     const narrativeClusterRule = new events.Rule(this, 'NarrativeClusterSchedule', {
-      ruleName: 'eco-narrative-cluster-hourly',
-      schedule: events.Schedule.cron({ minute: '15' }),
+      ruleName: 'eco-narrative-cluster-30min',
+      // Cada 30 min (antes cada hora) para detectar narrativas emergentes antes.
+      // Timeout 900s < 30 min ⇒ sin solapamiento con reservedConcurrency=1.
+      schedule: events.Schedule.cron({ minute: '15,45' }),
       description: 'Clustering de menciones nuevas en narrativas: asigna a centroides existentes, spawnea con DBSCAN, recalcula lifecycle.',
     });
     narrativeClusterRule.addTarget(new targets.LambdaFunction(this.narrativeClusterFunction));

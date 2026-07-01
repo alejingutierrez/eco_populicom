@@ -498,11 +498,42 @@ async function loadBriefingAggregates(
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
 
+  // Nivel TÍPICO de la agencia (volumen diario promedio + NSS promedio) para
+  // contexto coyuntural: permite que el briefing diga "por encima/por debajo de
+  // su nivel habitual de 7 días" sin perder el ancla de base. Se computa desde
+  // mentions (misma fuente que los totales) sobre las ventanas de 7 y 30 días
+  // CERRADAS previas a la ventana actual, para que "típico" no incluya el pico
+  // que estamos describiendo.
+  const loadBaseline = async (baselineDays: number): Promise<{ windowDays: number; avgDailyVolume: number | null; avgNss: number | null }> => {
+    const baseSince = new Date(Date.now() - (baselineDays * 24 + periodHours) * 3600 * 1000);
+    const baseUntil = since; // hasta el arranque de la ventana actual
+    const res = await client.query(
+      `SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS pos,
+          COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS neg
+         FROM mentions
+        WHERE agency_id = $1 AND is_duplicate = false
+          AND published_at >= $2 AND published_at < $3`,
+      [agency.id, baseSince.toISOString(), baseUntil.toISOString()],
+    );
+    const row = res.rows[0] ?? {};
+    const total = Number(row.total ?? 0);
+    const pos = Number(row.pos ?? 0);
+    const neg = Number(row.neg ?? 0);
+    const avgDailyVolume = total > 0 ? Math.round((total / baselineDays) * 10) / 10 : null;
+    const avgNss = total > 0 ? Math.round(((pos - neg) / total) * 100 * 10) / 10 : null;
+    return { windowDays: baselineDays, avgDailyVolume, avgNss };
+  };
+  const [baseline7d, baseline30d] = await Promise.all([loadBaseline(7), loadBaseline(30)]);
+
   return {
     agencyName: agency.name,
     agencyShortName: agency.slug.toUpperCase().slice(0, 6),
     periodHours,
     generatedAtLabel,
+    baseline7d,
+    baseline30d,
     totals: { total: totalCur, positive: positiveCur, neutral: neutralCur, negative: negativeCur },
     prevTotals: { total: totalPrev, positive: positivePrev, neutral: Math.max(0, totalPrev - positivePrev - negativePrev), negative: negativePrev },
     nss,
@@ -579,6 +610,7 @@ async function loadEmergingAggregates(
     emergingTopics: emerging,
     totals: base.totals,
     totalReach: base.totalReach,
+    baseline7d: base.baseline7d,
   };
 }
 

@@ -45,6 +45,20 @@ function getNav() {
   ];
 }
 const NAV = getNav();
+
+// Navegación de la vista ejecutiva multi-agencia. Solo se muestra cuando la
+// agencia seleccionada es el sentinel '__all__' (staff). Reemplaza la nav de
+// una sola agencia — no tiene sentido mezclar pantallas de una agencia con la
+// vista de gobierno compuesta.
+const EXEC_NAV = [
+  { key: 'exec-tabla', icon: 'Table', label: 'Tabla de posiciones' },
+  { key: 'exec-sala', icon: 'Grid', label: 'Sala de mando' },
+  { key: 'exec-radar', icon: 'Radio', label: 'Radar de crisis' },
+];
+function navForAgency(agencyKey) {
+  return agencyKey === '__all__' ? EXEC_NAV : NAV;
+}
+
 const SYSTEM_NAV = [
   { key: 'settings', icon: 'Settings', label: 'Configuración' },
 ];
@@ -71,6 +85,10 @@ if (typeof window !== 'undefined') { window.ecoCanSeePage = ecoCanSeePage; windo
 
 function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, theme, mode }) {
   const I = Icons;
+  // Con '__all__' seleccionada, la nav de análisis muestra las 3 pantallas
+  // ejecutivas (Tabla / Sala / Radar); con una agencia real, la nav normal.
+  const isExecView = (agency && agency.key) === '__all__';
+  const analysisNav = navForAgency(agency && agency.key);
   const NavItem = ({ item }) => {
     const IconC = I[item.icon];
     const isActive = active === item.key;
@@ -197,11 +215,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 
       {!collapsed && (
         <div style={{ padding: '12px 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
-          Análisis
+          {isExecView ? 'Vista ejecutiva' : 'Análisis'}
         </div>
       )}
       <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
+        {analysisNav.filter((n) => isExecView || ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       {!collapsed && (
@@ -501,10 +519,13 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [query]);
 
-  // Real, executable commands
+  // Real, executable commands. La nav de análisis depende de la agencia
+  // activa: con '__all__' (staff) ofrece las pantallas ejecutivas.
+  const paletteAgency = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.agency')) || '';
+  const paletteNav = navForAgency(paletteAgency);
   const items = [
     // Navigation
-    ...NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
+    ...paletteNav.filter((n) => paletteAgency === '__all__' || ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     ...SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
@@ -767,6 +788,11 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
               <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
+            {mention.image && (
+              <img src={mention.image} alt="" loading="lazy"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, margin: '2px 0 12px', background: 'var(--canvas-2)' }} />
+            )}
             <h2 style={{ margin: '4px 0 8px', fontSize: 20, fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
               {mention.title}
             </h2>

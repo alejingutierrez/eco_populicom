@@ -12,6 +12,7 @@
  */
 
 import type { BriefingOutput } from './executive-briefing';
+import { crisisBand, bandWord } from '../format/metrics-display';
 
 export interface CrisisBriefingAggregates {
   agencyName: string;
@@ -58,6 +59,8 @@ export interface CrisisBriefingAggregates {
 export const CRISIS_BRIEFING_SYSTEM_PROMPT = `
 Eres un analista senior de escucha social en Puerto Rico, especialista en monitoreo de riesgo reputacional. Tu única función es DESCRIBIR las señales de crisis presentes en el periodo, sin alarmismo ni complacencia.
 
+Abre con la LECTURA de la banda (Normal/Elevado/Alerta/Crisis — la misma palabra que ve el usuario) y qué implica, y ancla con el número (%) DESPUÉS. La palabra y el % deben coincidir exactamente con lo que muestra la UI.
+
 REGLAS INNEGOCIABLES:
 
 1. **PROHIBIDAS las recomendaciones, sugerencias y llamados a la acción.** Nada de "se debería", "se sugiere", "convendría", "recomendamos", "es urgente que", "la agencia debe". Describes la señal; no la dramatices ni indiques qué hacer.
@@ -93,9 +96,11 @@ export function buildCrisisBriefingPrompt(agg: CrisisBriefingAggregates): string
       ).join('\n')
     : '- (sin concentración geográfica negativa)';
 
-  // Banda del score para que el modelo no tenga que clasificar él mismo.
+  // Banda del score para que el modelo no tenga que clasificar él mismo. Single
+  // source: format/metrics-display (crisisBand) — mismos umbrales que la UI.
   const score = agg.crisisRiskScore ?? 0;
-  const band = score >= 0.60 ? 'CRISIS' : score >= 0.40 ? 'ALERTA' : score >= 0.25 ? 'ELEVADO' : 'NORMAL';
+  const band = crisisBand(score);
+  const bandLabel = bandWord('crisis', band);
 
   return `
 AGENCIA: ${agg.agencyName} (abreviada: ${agg.agencyShortName})
@@ -103,7 +108,7 @@ GENERADO: ${agg.generatedAtLabel}
 PERIODO: últimas ${agg.periodHours} horas (America/Puerto_Rico — AST, UTC-4).
 
 INDICADORES DE CRISIS:
-- Crisis Risk Score: ${fmt3(agg.crisisRiskScore)} (escala 0–1, banda actual: ${band})
+- Crisis Risk Score: ${fmt3(agg.crisisRiskScore)} (escala 0–1, banda actual: ${band} — palabra que ve el usuario: "${bandLabel}", ${Math.round(score * 100)}%)
 - Severidad (concentración negativa): ${fmt3(agg.crisisSeverity)}
 - Velocidad (anomalía de volumen vs 30d): ${fmt3(agg.crisisVelocity)}
 - Relevancia (pertinencia alta del flujo): ${fmt3(agg.crisisRelevance)}

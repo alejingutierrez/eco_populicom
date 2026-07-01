@@ -11,6 +11,7 @@
  */
 
 import { renderWeeklyReportHtml, type WeeklyReportRenderData } from '../packages/shared/src/email/render-weekly-report.ts';
+import { formatMetric, formatDelta, formatVelocity } from '../packages/shared/src/format/metrics-display.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -63,6 +64,20 @@ const data: WeeklyReportRenderData = {
   dailySummary: {
     label: 'Resumen del día · 4 may',
     paragraph: 'La jornada cerró con <strong>107 menciones</strong>, el volumen más alto de la semana (15% sobre el día anterior). El 53% tuvo carga negativa, empujada por <strong>Permisos / Reforma</strong> (37 menciones) y <strong>Críticas / Controversias</strong> (18). En el lado neutral, la <strong>gestión del Secretario</strong> sumó 28 menciones de cobertura informativa. La conversación se concentró en cuentas de prensa y hilos de X/Twitter.',
+  },
+  // Deltas de sentimiento formateados igual que el lambda (% vs período previo).
+  deltaDisplay: {
+    negative: formatDelta(258, 219, { kind: 'percent', decimals: 0 }),
+    neutral: formatDelta(259, 275, { kind: 'percent', decimals: 0 }),
+    positive: formatDelta(42, 30, { kind: 'percent', decimals: 0 }),
+  },
+  // Indicadores compuestos — mismos valores crudos que produce calculateMetrics
+  // (crisis 0–1, bhi 0–1, nss −100..100) formateados por la capa única.
+  metrics: {
+    crisis: formatMetric('crisis', 0.59),
+    bhi: formatMetric('bhi', 0.59),
+    nss: formatMetric('nss', -14),
+    velocity: formatVelocity(3.8, 3.2),
   },
 };
 

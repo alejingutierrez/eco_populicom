@@ -2,7 +2,7 @@
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
 const ChatDrawer = (window.ECO_CHAT && window.ECO_CHAT.ChatDrawer) || (() => null);
-const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen } = window.ECO_SCREENS;
+const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen, TablaScreen, SalaScreen, RadarScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
 // Shared state stored on window and observed by the React <ToastHost>.
@@ -88,6 +88,10 @@ const PATH_TO_SCREEN = {
   '/alerts': 'alerts',
   '/settings': 'settings',
   '/narrative': 'narrative',
+  // Vista ejecutiva multi-agencia (solo cuando agency === '__all__').
+  '/exec/tabla': 'exec-tabla',
+  '/exec/sala': 'exec-sala',
+  '/exec/radar': 'exec-radar',
 };
 const SCREEN_TO_PATH = {
   overview: '/overview',
@@ -100,6 +104,9 @@ const SCREEN_TO_PATH = {
   alerts: '/alerts',
   settings: '/settings',
   narrative: '/narrative',
+  'exec-tabla': '/exec/tabla',
+  'exec-sala': '/exec/sala',
+  'exec-radar': '/exec/radar',
 };
 
 // Topics has a nested drill-in route (/topics/<slug>). Resolve any such path
@@ -150,6 +157,9 @@ const SCREEN_META = {
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
   settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
   narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
+  'exec-tabla': { label: 'Tabla de posiciones', eyebrow: 'Vista ejecutiva · ranking de salud digital' },
+  'exec-sala':  { label: 'Sala de mando',       eyebrow: 'Vista ejecutiva · sala de mando multi-agencia' },
+  'exec-radar': { label: 'Radar de crisis',     eyebrow: 'Vista ejecutiva · sala situacional' },
 };
 
 // El selector de agencias toma SIEMPRE la lista del backend
@@ -157,6 +167,16 @@ const SCREEN_META = {
 // menciones inventadas — si el API falla, mostramos lista vacía y la UI
 // resuelve con su empty state en lugar de fingir agencias falsas.
 const AGENCIES = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || [];
+
+// Sentinel de la vista ejecutiva multi-agencia. Cuando la agencia seleccionada
+// es '__all__' (solo staff — lo inyecta AGENCIES_FULL), el dashboard muestra
+// las 3 pantallas ejecutivas (Tabla / Sala / Radar) en vez de las de una sola
+// agencia. Esas pantallas consumen /api/exec-overview (NO /api/eco-data), así
+// que da igual que el slug '__all__' no resuelva en el boot de eco-data.
+const ALL_AGENCIES_KEY = '__all__';
+const EXEC_SCREENS = ['exec-tabla', 'exec-sala', 'exec-radar'];
+const DEFAULT_EXEC_SCREEN = 'exec-sala';
+function isExecScreen(key) { return EXEC_SCREENS.indexOf(key) !== -1; }
 
 function App() {
   const [theme] = useState(TWEAK_DEFAULTS.theme);
@@ -238,6 +258,21 @@ function App() {
     }
   }, [session, active, setActive]);
 
+  // Coherencia agencia ↔ pantalla para la vista ejecutiva '__all__'.
+  //  • Con '__all__' seleccionada: si la pantalla activa NO es ejecutiva
+  //    (una de una sola agencia), saltar a la pantalla ejecutiva por defecto.
+  //    Esto también corre tras el reload que dispara el cambio de agencia, así
+  //    que seleccionar "TODAS" aterriza en Sala de mando.
+  //  • Con una agencia real seleccionada: si la pantalla activa es ejecutiva,
+  //    volver a overview (evita quedar atascado en una vista multi-agencia).
+  useEffect(() => {
+    if (agency === ALL_AGENCIES_KEY) {
+      if (!isExecScreen(active)) setActive(DEFAULT_EXEC_SCREEN);
+    } else if (isExecScreen(active)) {
+      setActive('overview');
+    }
+  }, [agency, active, setActive]);
+
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);
@@ -303,6 +338,9 @@ function App() {
     alerts: AlertsScreen,
     settings: SettingsScreen,
     narrative: NarrativeScreen,
+    'exec-tabla': TablaScreen,
+    'exec-sala': SalaScreen,
+    'exec-radar': RadarScreen,
   }[active];
 
   return (

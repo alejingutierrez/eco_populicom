@@ -1134,9 +1134,16 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
             style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HL text={mn.title} terms={highlight} /></div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
+              {(mn.image || mn.avatar) && (
+                <img src={mn.image || mn.avatar} alt="" loading="lazy"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  style={{ width: 30, height: 30, borderRadius: 5, objectFit: 'cover', flex: '0 0 auto', background: 'var(--canvas-2)' }} />
+              )}
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HL text={mn.title} terms={highlight} /></div>
+                <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
+              </div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
             <span style={{ color: 'var(--text-2)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
@@ -1163,6 +1170,11 @@ function MentionsCards({ mentions, onMentionClick, highlight }) {
             style={{ background: 'var(--canvas)', border: '1px solid var(--hairline)', borderLeft: `3px solid ${accent}`, padding: 14, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 10 }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--canvas-2)'}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--canvas)'}>
+            {mn.image && (
+              <img src={mn.image} alt="" loading="lazy"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 6, background: 'var(--canvas-2)' }} />
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
               <SIcon size={12} /> {mn.domain}
               <span>·</span>
@@ -1171,7 +1183,8 @@ function MentionsCards({ mentions, onMentionClick, highlight }) {
             </div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.title} terms={highlight} /></div>
             {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.snippet} terms={highlight} /></div>}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+              {mn.avatar && <img src={mn.avatar} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover', flex: '0 0 auto' }} />}
               <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</span>
             </div>
@@ -1948,7 +1961,7 @@ function TopicsScreen({ onMentionClick }) {
   }, []);
 
   // Drill-in view
-  if (sel) return <TopicDetail topic={sel} subs={subs} onBack={closeTopic} />;
+  if (sel) return <TopicDetail topic={sel} subs={subs} onBack={closeTopic} onMentionClick={onMentionClick} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2210,7 +2223,7 @@ function TopicList({ topics, onSelect }) {
 }
 
 // --- Drill-in: topic detail with subtopics + back ---
-function TopicDetail({ topic, subs, onBack }) {
+function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
   const subMax = Math.max(1, ...subs.map(s => s.count));
 
@@ -2436,6 +2449,11 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   const slugIdx = {};
   D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
   const colorFor = (slug) => palette[slugIdx[slug] % palette.length];
+  // Semáforo de sentimiento: el color del día = su sentimiento dominante
+  // (verde positivo / rojo negativo / gris neutral). La opacidad = volumen.
+  const SENT_HEX = { positivo: '#2E8B6A', negativo: '#C2412F', neutral: '#7C8698' };
+  const sentColor = (s) => SENT_HEX[s] || SENT_HEX.neutral;
+  const sentLabel = (s) => (s === 'positivo' ? 'Positivo' : s === 'negativo' ? 'Negativo' : 'Neutral');
 
   if (!data || data.length === 0) {
     return (
@@ -2526,13 +2544,13 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
                   {week.map((c, i) => {
                     if (!c) return <div key={`e${wIdx}-${i}`} />;
-                    const color = colorFor(c.topicSlug);
+                    const color = sentColor(c.sentiment);
                     const intensity = 0.3 + (c.volume / maxV) * 0.7;
                     const dayNum = c.dt.getDate();
                     const isFirstOfMonth = dayNum === 1;
                     return (
                       <button key={c.date} onClick={() => onDayClick(c)}
-                        title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${fmt(c.volume)} menciones`}
+                        title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${sentLabel(c.sentiment)} · ${fmt(c.volume)} menciones`}
                         style={{
                           position: 'relative',
                           aspectRatio: '1 / 1', minHeight: 62,
@@ -2548,8 +2566,6 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                         }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                           <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
-                          {c.sentiment === 'negativo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />}
-                          {c.sentiment === 'positivo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pos)' }} />}
                         </div>
                         <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
                           {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
@@ -2565,28 +2581,37 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
         </div>
 
         {/* Legend */}
-        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div className="section-eyebrow" style={{ margin: 0 }}>Leyenda</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {uniqueTopics.map(t => (
-              <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, textAlign: 'left', cursor: 'pointer' }} className="row-hover">
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: colorFor(t.slug) }} />
-                <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{t.name}</span>
-              </button>
-            ))}
+        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Sentimiento del día</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: 'var(--text-2)' }}>
+              {[['positivo', 'Positivo'], ['negativo', 'Negativo'], ['neutral', 'Neutral']].map(([k, l]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: SENT_HEX[k] }} />
+                  <span>{l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10 }}>
+            <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Tópicos del período</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 168, overflowY: 'auto' }}>
+              {uniqueTopics.map(t => (
+                <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, textAlign: 'left', cursor: 'pointer' }} className="row-hover">
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)', flex: '0 0 auto' }} />
+                  <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{t.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 10, color: 'var(--text-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ display: 'flex', gap: 2 }}>
-                <span style={{ width: 8, height: 8, background: '#4A7FB54D' }} />
-                <span style={{ width: 8, height: 8, background: '#4A7FB599' }} />
-                <span style={{ width: 8, height: 8, background: '#4A7FB5FF' }} />
+                <span style={{ width: 8, height: 8, background: '#7C86984D' }} />
+                <span style={{ width: 8, height: 8, background: '#7C869999' }} />
+                <span style={{ width: 8, height: 8, background: '#7C8698FF' }} />
               </span>
-              Opacidad = volumen
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />
-              Día con sentimiento negativo dominante
+              Opacidad = volumen del día
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 2 }} />
@@ -2877,7 +2902,7 @@ function CrisisAlertsTab() {
           accent={isActive ? 'var(--pos)' : 'var(--text-3)'}
         />
         <KpiCard
-          label="Umbral de disparo"
+          label="Umbral de activación"
           value={loading ? '…' : `${Math.round(crisisMin * 100)}%`}
           sub="Crisis Score"
           icon="Shield"
@@ -3057,11 +3082,7 @@ function AlertsScreen({ onMentionClick }) {
   const [slice, setSlice] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [toast, setToast] = useState(null); // { kind, text }
-  // Local overrides for feed event state (attended / muted) — since these are
-  // user acknowledgements that don't persist yet to the backend.
-  const [attended, setAttended] = useState(() => new Set());
-  const [muted, setMuted] = useState(() => new Map()); // ruleName -> expiresAt
-  // Local overrides for rule active toggle (same reason).
+  // Local overrides for rule active toggle (not yet persisted to backend).
   const [ruleActive, setRuleActive] = useState(() => {
     const m = {};
     (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
@@ -3091,92 +3112,36 @@ function AlertsScreen({ onMentionClick }) {
     setTimeout(() => setToast(null), 3600);
   }
 
-  function openAlertSlice(a) {
-    const accent = a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)';
-    // Alert rules don't have a deterministic mention filter today. Best
-    // approximation: show high-severity recent negatives / lower-severity
-    // all mentions. A future task will persist each alert firing with the
-    // actual matched mention IDs.
-    const filter = a.severity === 'alta' ? { sentiment: 'negativo' } : {};
-    setSlice({
-      eyebrow: `Alerta · ${a.time} · severidad ${a.severity}`,
-      title: a.rule,
-      accent,
-      mentions: [],
-      _filter: filter,
-      ctaLabel: 'Marcar atendida',
-      ctaIcon: 'Check',
-      onCta: () => setSlice(null),
-    });
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
         <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--accent)" />
-        <KpiCard label="Disparadas · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
+        <KpiCard label="Activaciones · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
         <KpiCard label="Última alerta" value={lastFiredLabel} icon="Activity" accent="var(--pos)" />
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
-        <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
-        {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
-        {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
+        {(canRules || canTemplates) && (
+          <>
+            <span aria-hidden style={{ width: 1, height: 18, background: 'var(--hairline-strong)', margin: '0 6px' }} />
+            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Configuración</span>
+            {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
+            {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
+          </>
+        )}
         <div style={{ flex: 1 }} />
         {tab !== 'reports' && tab !== 'crisis' && canRules && (
           <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
         )}
       </div>
 
-      {tab === 'feed' && (
-        <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Feed cronológico</div><div className="card-hd-sub">Eventos de las últimas 24 horas</div></div></div>
-          <div>
-            {(D.ALERT_FEED || []).length === 0 && (
-              <div style={{ padding: '28px 18px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-                Sin eventos en vivo. El registro de alertas disparadas está en <strong style={{ color: 'var(--text-2)' }}>Historial</strong>.
-              </div>
-            )}
-            {(D.ALERT_FEED || []).map((a, i) => (
-              <div key={a.id} style={{ display: 'flex', gap: 14, padding: '14px 18px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
-                  <span className={a.severity === 'alta' ? 'ring-pulse' : ''} style={{ width: 10, height: 10, borderRadius: '50%', background: a.severity === 'alta' ? 'var(--neg)' : 'var(--warn)' }} />
-                  {i < D.ALERT_FEED.length - 1 && <div style={{ flex: 1, width: 1, background: 'var(--hairline)', marginTop: 4 }} />}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span className={`pill ${a.severity === 'alta' ? 'pill-neg' : 'pill-warn'}`}>{a.severity}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{a.rule}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)' }}>{a.time}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{a.detail}</div>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <button className="chip" onClick={() => openAlertSlice(a)}>Ver menciones</button>
-                    <button className={`chip ${attended.has(a.id) ? 'active' : ''}`}
-                      onClick={() => setAttended((s) => new Set(s).add(a.id))}
-                      disabled={attended.has(a.id)}>
-                      {attended.has(a.id) ? '✓ Atendida' : 'Marcar atendida'}
-                    </button>
-                    <button className={`chip ${muted.has(a.rule) ? 'active' : ''}`}
-                      onClick={() => setMuted((m) => { const n = new Map(m); n.set(a.rule, Date.now() + 3600000); return n; })}
-                      disabled={muted.has(a.rule)}>
-                      {muted.has(a.rule) ? '🔕 Silenciada 1h' : 'Silenciar regla 1h'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {tab === 'rules' && (
         <div className="card">
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
-            <span>Regla</span><span>Prioridad</span><span style={{ textAlign: 'right' }}>Disparos 30d</span><span>Estado</span><span>Canales</span><span>Último</span><span />
+            <span>Regla</span><span>Prioridad</span><span style={{ textAlign: 'right' }}>Activaciones 30d</span><span>Estado</span><span>Canales</span><span>Último</span><span />
           </div>
           {D.ALERTS.map((a) => (
             <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
@@ -3344,7 +3309,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
               <input className="input" type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre disparos · horas</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre activaciones · horas</span>
               <input className="input" type="number" min="1" max="168" value={cooldownHours} onChange={(e) => setCooldownHours(e.target.value)} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
@@ -3392,10 +3357,48 @@ function AlertsHistory({ onMentionClick }) {
   });
   const days = Object.keys(byDay).sort();
   const max = Math.max(1, ...Object.values(byDay));
+  // Analítica derivada del mismo historial (sin backend nuevo): mezcla de
+  // severidad + ranking de reglas por número de activaciones.
+  const sev = { alta: 0, media: 0, baja: 0 };
+  rows.forEach((r) => { const s = (r.severity === 'alta' || r.severity === 'baja') ? r.severity : 'media'; sev[s]++; });
+  const byRule = {};
+  rows.forEach((r) => { const n = r.ruleName || r.rule || 'Regla'; byRule[n] = (byRule[n] || 0) + 1; });
+  const ruleRank = Object.entries(byRule).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const ruleMax = Math.max(1, ...ruleRank.map((x) => x[1]));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="card">
+          <div className="card-hd"><div><div className="card-hd-title">Mezcla de severidad</div><div className="card-hd-sub">{rows.length} activaciones</div></div></div>
+          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[['alta', 'var(--neg)'], ['media', 'var(--warn)'], ['baja', 'var(--text-3)']].map(([k, c]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 54, fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{k}</span>
+                <div style={{ flex: 1, height: 8, background: 'var(--canvas-2)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${(sev[k] / Math.max(1, rows.length)) * 100}%`, height: '100%', background: c }} />
+                </div>
+                <span className="num" style={{ width: 32, textAlign: 'right', fontWeight: 600, fontSize: 12 }}>{sev[k]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-hd"><div><div className="card-hd-title">Reglas más activas</div><div className="card-hd-sub">Top {ruleRank.length} por activaciones</div></div></div>
+          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {ruleRank.map(([name, n]) => (
+              <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                <div style={{ width: 90, height: 8, background: 'var(--canvas-2)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${(n / ruleMax) * 100}%`, height: '100%', background: 'var(--accent)' }} />
+                </div>
+                <span className="num" style={{ width: 24, textAlign: 'right', fontWeight: 600, fontSize: 12 }}>{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Disparos por día</div><div className="card-hd-sub">{rows.length} eventos en el período</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">Activaciones por día</div><div className="card-hd-sub">{rows.length} eventos en el período</div></div></div>
         <div className="card-bd">
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 2, height: 110, alignItems: 'end' }}>
             {days.map((d) => (
@@ -4728,32 +4731,67 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
   }, [narratives, edges]);
 
   const { nodes, pos, links, idIdx, bounds } = layout;
+  const [hovered, setHovered] = React.useState(null);
   if (!nodes.length) return <div className="narrative-empty">Sin narrativas suficientes para graficar.</div>;
   const pad = 44;
   const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${(bounds.maxX - bounds.minX) + pad * 2} ${(bounds.maxY - bounds.minY) + pad * 2}`;
   const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
+  // Nodo activo (hover o foco): resalta sus conexiones y atenúa el resto para
+  // que las relaciones se lean claramente en vez de ser una maraña uniforme.
+  const active = hovered || focusedId;
+  const connected = new Set();
+  if (active) {
+    connected.add(active);
+    links.forEach((e) => {
+      if (e.source === active) connected.add(e.target);
+      if (e.target === active) connected.add(e.source);
+    });
+  }
+  // Etiquetar siempre las narrativas más grandes (top 12 por menciones) para
+  // que el mapa se entienda de un vistazo, no solo al hacer hover.
+  const topLabelIds = new Set(
+    [...nodes].sort((a, b) => (b.mentionCount || 0) - (a.mentionCount || 0)).slice(0, 12).map((n) => n.id)
+  );
 
   return (
     <div className="card" style={{ overflow: 'hidden' }}>
       <div className="card-hd"><div>
-        <div className="card-hd-title">Grafo de narrativas</div>
-        <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · click para abrir el detalle</div>
+        <div className="card-hd-title">Mapa de conexiones</div>
+        <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · pasa el cursor para ver relaciones, click para abrir</div>
       </div></div>
       <svg viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
         {links.map((e, i) => {
           const a = pos[idIdx.get(e.source)], b = pos[idIdx.get(e.target)];
-          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--hairline-strong)" strokeOpacity={0.2 + (e.strength || 0.3) * 0.5} strokeWidth={0.6 + (e.strength || 0.3) * 1.6} />;
+          const on = active && (e.source === active || e.target === active);
+          const dim = active && !on;
+          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+            stroke={on ? 'var(--accent)' : 'var(--hairline-strong)'}
+            strokeOpacity={dim ? 0.06 : on ? 0.9 : 0.2 + (e.strength || 0.3) * 0.5}
+            strokeWidth={(on ? 1.4 : 0.6) + (e.strength || 0.3) * 1.6} />;
         })}
         {nodes.map((n, i) => {
           const p = pos[i];
-          const r = 5 + Math.sqrt((n.mentionCount || 0) / maxMent) * 16;
+          const r = 7 + Math.sqrt((n.mentionCount || 0) / maxMent) * 15;
           const isFocus = n.id === focusedId;
+          const isActive = n.id === active;
+          const dim = active && !connected.has(n.id);
+          const showLabel = !dim && (isActive || isFocus || topLabelIds.has(n.id) || connected.has(n.id));
           return (
-            <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => onSelect && onSelect(n.id)}>
+            <g key={n.id} style={{ cursor: 'pointer' }}
+              onClick={() => onSelect && onSelect(n.id)}
+              onMouseEnter={() => setHovered(n.id)}
+              onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}>
               <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es-PR')} menc · ${n.status}`}</title>
-              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'} fillOpacity={0.85}
-                stroke={isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isFocus ? 2.5 : 1} />
-              {(isFocus || r > 12) && <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10} fill="var(--text-2)">{(n.name || '').slice(0, 26)}</text>}
+              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'}
+                fillOpacity={dim ? 0.18 : 0.9}
+                stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
+              {showLabel && (
+                <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10}
+                  fill="var(--text)" stroke="var(--canvas)" strokeWidth={3} paintOrder="stroke"
+                  style={{ pointerEvents: 'none', fontWeight: isActive || isFocus ? 700 : 500 }}>
+                  {(n.name || '').slice(0, 28)}
+                </text>
+              )}
             </g>
           );
         })}
@@ -4907,7 +4945,7 @@ function NarrativeScreen({ agency }) {
           <>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
               <button className={`chip ${view === 'detail' ? 'active' : ''}`} onClick={() => setView('detail')}>Detalle</button>
-              <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Grafo de narrativas</button>
+              <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Mapa de conexiones</button>
             </div>
             {view === 'graph' ? (
               <NarrativeGraph
@@ -5322,6 +5360,17 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           </g>
         )}
 
+        {/* Marcador de inicio de la narrativa: el timeline arranca en su primer
+            día de actividad (born_at), así que el borde izquierdo es el nacimiento.
+            Lo etiquetamos explícitamente porque antes la fecha de inicio no se
+            entendía. */}
+        <g style={{ pointerEvents: 'none' }}>
+          <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerH} stroke="var(--pos)" strokeWidth="1.5" opacity={0.85} />
+          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="10" fontWeight="700">
+            ▸ inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
+          </text>
+        </g>
+
         {months.map((d, i) => {
           if (i % monthEvery !== 0) return null;
           const x = xScale(d);
@@ -5418,4 +5467,490 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
   );
 }
 
-window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen };
+// =====================================================================
+// VISTA EJECUTIVA MULTI-AGENCIA (agencia === '__all__' → /api/exec-overview)
+// =====================================================================
+// Tres pantallas de gobierno: Tabla de posiciones, Sala de mando y Radar de
+// crisis. Todas consumen el MISMO endpoint /api/exec-overview (cache no-store),
+// que devuelve un composite reach-weighted + fila por agencia + crisisFeed +
+// topicWaves. El endpoint responde 403 a no-staff; las pantallas muestran ese
+// caso como un empty state ("solo disponible para staff"). Re-autoría de los
+// mockups en apps/web/public/exec-mockups/{01,02,06}.* con el estilo real del
+// SPA (tokens var(--…), pill-*, KpiCard) — no el CSS standalone del mockup.
+
+// Hook compartido: fetch único de /api/exec-overview al montar. Devuelve
+// { data, loading, error }. `error.code === 403` distingue "sin permiso" de un
+// fallo genérico. Se re-ejecuta si cambia `period` (mismo control del Header).
+function useExecOverview(period) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setData(null);
+    setError(null);
+    const params = new URLSearchParams({ period: period || '7D' });
+    if (period === 'custom') {
+      const from = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.from')) || '';
+      const to = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.to')) || '';
+      if (from && to) { params.set('from', from); params.set('to', to); }
+    }
+    const ctrl = new AbortController();
+    fetch('/api/exec-overview?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => {
+        if (r.ok) return r.json();
+        const e = new Error('HTTP ' + r.status); e.code = r.status; return Promise.reject(e);
+      })
+      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch((e) => {
+        if (cancelled || e?.name === 'AbortError') return;
+        setError(e); setLoading(false);
+      });
+    return () => { cancelled = true; ctrl.abort(); };
+  }, [period]);
+  return { data, loading, error };
+}
+
+// Envoltorio de estados (cargando / error / 403 / vacío) común a las 3
+// pantallas ejecutivas. `render(data)` solo se llama con datos válidos.
+function ExecStateWrap({ loading, error, data, empty, children }) {
+  if (loading) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+        Cargando vista ejecutiva…
+      </div>
+    );
+  }
+  if (error) {
+    const forbidden = error.code === 403;
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+        <div className="section-eyebrow" style={{ color: forbidden ? 'var(--warn)' : 'var(--neg)', marginBottom: 6 }}>
+          {forbidden ? 'Acceso restringido' : 'Error'}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          {forbidden
+            ? 'La vista ejecutiva multi-agencia solo está disponible para usuarios con acceso a todas las agencias.'
+            : `No se pudo cargar la vista ejecutiva: ${error.message || error}`}
+        </div>
+      </div>
+    );
+  }
+  if (!data || empty) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+        Sin datos para el período seleccionado.
+      </div>
+    );
+  }
+  return children;
+}
+
+// Color por tono (MetricDisplay.tone) → var CSS. Reusa el mapa de DeltaBadge.
+const EXEC_TONE_C = { pos: 'var(--pos)', neg: 'var(--neg)', warn: 'var(--warn)', accent: 'var(--accent)', neutral: 'var(--text-3)' };
+function execToneColor(tone) { return EXEC_TONE_C[tone] || 'var(--text)'; }
+
+// Clase pill según banda de crisis (label CRISIS/ALERTA/ELEVADO/NORMAL).
+function crisisBandPill(band) {
+  const b = String(band || 'NORMAL').toUpperCase();
+  if (b === 'CRISIS' || b === 'ALERTA') return { cls: 'pill-neg', color: 'var(--neg)', label: b };
+  if (b === 'ELEVADO') return { cls: 'pill-warn', color: 'var(--warn)', label: b };
+  return { cls: 'pill-pos', color: 'var(--pos)', label: 'NORMAL' };
+}
+
+// Barra apilada de sentimiento pos/neu/neg (mismo patrón que el mockup Tabla).
+function SentimentSplitBar({ pos, neu, neg, height = 6 }) {
+  const total = (pos || 0) + (neu || 0) + (neg || 0);
+  if (total <= 0) {
+    return <div style={{ height, borderRadius: height / 2, background: 'color-mix(in oklab, var(--text-3) 16%, transparent)' }} />;
+  }
+  return (
+    <div style={{ display: 'flex', height, borderRadius: height / 2, overflow: 'hidden', background: 'color-mix(in oklab, var(--text-3) 16%, transparent)' }}>
+      <div style={{ flexGrow: pos || 0, background: 'var(--pos)' }} />
+      <div style={{ flexGrow: neu || 0, background: 'var(--text-3)' }} />
+      <div style={{ flexGrow: neg || 0, background: 'var(--neg)' }} />
+    </div>
+  );
+}
+
+// Delta de posición (rankDelta: + = subió puestos). null = sin base previa.
+function RankDelta({ delta }) {
+  if (delta == null) return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
+  if (delta > 0) return <span style={{ fontSize: 11, color: 'var(--pos)', fontWeight: 700 }}>▲ {delta}</span>;
+  if (delta < 0) return <span style={{ fontSize: 11, color: 'var(--neg)', fontWeight: 700 }}>▼ {Math.abs(delta)}</span>;
+  return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
+}
+
+// Strip superior de KPIs del composite gobierno — compartido por Tabla y Sala.
+// Usa KpiCard en modo "palabra" para BHI/NSS/Crisis (word+value coloreado por
+// tono) y modo número para volumen.
+function ExecCompositeStrip({ composite, agencyCount }) {
+  const c = composite;
+  const inCrisis = null; // se calcula fuera si se necesita; aquí solo el compuesto
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+      <KpiCard
+        label="Índice de salud" icon="Activity" accent="var(--accent)"
+        valueWord={c.display.bhi.word} valueTone={c.display.bhi.tone}
+        value={c.display.bhi.value} deltaInfo={c.deltaDisplay.bhi}
+        sub="Compuesto ponderado"
+      />
+      <KpiCard
+        label="Sentimiento neto" icon="Heart" accent="var(--pos)"
+        valueWord={c.display.nss.word} valueTone={c.display.nss.tone}
+        value={c.display.nss.value} deltaInfo={c.deltaDisplay.nss}
+      />
+      <KpiCard
+        label="Riesgo de crisis" icon="AlertTriangle" accent="var(--neg)"
+        valueWord={c.display.crisis.word} valueTone={c.display.crisis.tone}
+        value={c.display.crisis.value} deltaInfo={c.deltaDisplay.crisis}
+        tone={crisisBandPill(c.crisisBand).cls === 'pill-neg' ? 'neg' : crisisBandPill(c.crisisBand).cls === 'pill-warn' ? 'warn' : 'pos'}
+        toneLabel={crisisBandPill(c.crisisBand).label}
+      />
+      <KpiCard
+        label="Menciones" icon="Mentions" accent="var(--text-2)"
+        value={fmt(c.totalMentions)} deltaInfo={c.deltaDisplay.totalMentions}
+        sub={`${agencyCount} agencias · alcance ${fmt(c.totalReach)}`}
+      />
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------
+// TablaScreen — ranking de salud digital (BHI desc)
+// --------------------------------------------------------------------
+function TablaScreen({ period }) {
+  const { data, loading, error } = useExecOverview(period);
+  return (
+    <ExecStateWrap loading={loading} error={error} data={data} empty={data && (!data.agencies || data.agencies.length === 0)}>
+      {data && (() => {
+        // El backend ya ordena por rank (BHI desc). Refuerzo defensivo.
+        const rows = [...data.agencies].sort((a, b) => a.rank - b.rank);
+        const maxReach = Math.max(1, ...rows.map((r) => r.totalReach || 0));
+        // Marcador segmentado sobre la escala pública BHI 1–10.
+        const bhiMarkPct = (raw10) => {
+          if (raw10 == null) return null;
+          return Math.min(100, Math.max(0, (raw10 / 10) * 100));
+        };
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <ExecCompositeStrip composite={data.composite} agencyCount={rows.length} />
+
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span>Ranking de salud digital · {rows.length} agencias · {data.periodLabel}</span>
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--pos)' }} /> Positivo</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--text-3)' }} /> Neutral</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--neg)' }} /> Negativo</span>
+                </span>
+              </div>
+
+              <div className="card" style={{ overflowX: 'auto' }}>
+                <div style={{ minWidth: 720 }}>
+                  {/* Cabecera */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '52px 1.5fr 1.5fr 1.3fr 108px 74px 88px',
+                    gap: 14, alignItems: 'center',
+                    padding: '11px 20px', background: 'var(--canvas-2)',
+                    borderBottom: '1px solid var(--hairline-strong)',
+                  }}>
+                    {['Pos', 'Agencia', 'Índice de salud ▾', 'Sentimiento', 'Riesgo', 'Velocidad', 'Alcance'].map((h, i) => (
+                      <span key={h} style={{
+                        fontSize: 10, fontWeight: 700, color: i === 2 ? 'var(--accent)' : 'var(--text-3)',
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        textAlign: i >= 4 ? (i === 5 ? 'center' : 'right') : 'left',
+                      }}>{h}</span>
+                    ))}
+                  </div>
+
+                  {rows.map((a, idx) => {
+                    const bb = { color: execToneColor(a.display.bhi.tone) };
+                    const cb = crisisBandPill(a.crisisBand);
+                    const markPct = bhiMarkPct(a.display.bhi.raw != null ? a.display.bhi.raw : (a.bhi != null ? a.bhi / 10 : null));
+                    const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
+                    const velInfo = a.deltaDisplay.totalMentions;
+                    return (
+                      <div key={a.slug} className="row-hover" style={{
+                        display: 'grid',
+                        gridTemplateColumns: '52px 1.5fr 1.5fr 1.3fr 108px 74px 88px',
+                        gap: 14, alignItems: 'center',
+                        padding: '10px 20px', minHeight: 54,
+                        borderTop: idx === 0 ? 'none' : '1px solid var(--hairline)',
+                      }}>
+                        {/* Pos */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span className="num" style={{ fontSize: 16, fontWeight: 700, minWidth: 16, textAlign: 'right' }}>{a.rank}</span>
+                          <RankDelta delta={a.rankDelta} />
+                        </div>
+                        {/* Agencia */}
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: cb.color, flex: 'none' }} />
+                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                          </div>
+                          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 16 }}>{a.slug}</div>
+                        </div>
+                        {/* Índice de salud */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <span className="num" style={{ fontSize: 20, fontWeight: 600, color: bb.color, lineHeight: 1 }}>{a.display.bhi.value || '—'}</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: bb.color }}>{a.display.bhi.word}</span>
+                            <DeltaBadge info={a.deltaDisplay.bhi} />
+                          </div>
+                          {markPct != null && (
+                            <div style={{ position: 'relative', height: 5 }}>
+                              <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'color-mix(in oklab, var(--text-3) 20%, transparent)' }} />
+                              <div style={{ position: 'absolute', top: 0, left: 0, width: `${markPct}%`, height: 5, borderRadius: 2, background: bb.color, opacity: 0.85 }} />
+                            </div>
+                          )}
+                        </div>
+                        {/* Sentimiento */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                            <span className="num" style={{ fontSize: 13, fontWeight: 700, color: nssColor }}>{a.display.nss.value || '—'}</span>
+                            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>{a.pos}/{a.neu}/{a.neg}</span>
+                          </div>
+                          <SentimentSplitBar pos={a.pos} neu={a.neu} neg={a.neg} />
+                        </div>
+                        {/* Riesgo */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
+                          <span className="num" style={{ fontSize: 15, fontWeight: 600, color: cb.color }}>{a.display.crisis.value || '—'}</span>
+                          <span className={`pill ${cb.cls}`} style={{ fontSize: 9, padding: '2px 6px' }}>{cb.label}</span>
+                        </div>
+                        {/* Velocidad (Δ% menciones vs período previo) */}
+                        <div style={{ textAlign: 'center' }}>
+                          {velInfo && velInfo.hasBaseline
+                            ? <span className="num" style={{ fontSize: 13, fontWeight: 600, color: execToneColor(velInfo.tone) }}>{velInfo.arrow} {velInfo.value}</span>
+                            : <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>sin base</span>}
+                        </div>
+                        {/* Alcance */}
+                        <div style={{ textAlign: 'right' }}>
+                          <div className="num" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fmt(a.totalReach)}</div>
+                          <div className="num" style={{ fontSize: 9.5, color: 'var(--text-3)' }}>{fmt(a.totalMentions)} menc.</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </ExecStateWrap>
+  );
+}
+
+// --------------------------------------------------------------------
+// SalaScreen — "sala de mando" (war room): strip + muro de tiles + actividad
+// --------------------------------------------------------------------
+function SalaScreen({ period }) {
+  const { data, loading, error } = useExecOverview(period);
+  return (
+    <ExecStateWrap loading={loading} error={error} data={data} empty={data && (!data.agencies || data.agencies.length === 0)}>
+      {data && (() => {
+        // Muro ordenado por riesgo de crisis descendente.
+        const tiles = [...data.agencies].sort((a, b) => (b.crisis || 0) - (a.crisis || 0));
+        const feed = data.crisisFeed || [];
+        const sevPill = (sev) => sev === 'alta' ? 'pill-neg' : sev === 'media' ? 'pill-warn' : 'pill-neu';
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <ExecCompositeStrip composite={data.composite} agencyCount={tiles.length} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)', gap: 16, alignItems: 'start' }}>
+              {/* Muro de tiles */}
+              <div>
+                <div className="section-eyebrow" style={{ marginBottom: 8 }}>El muro · {tiles.length} agencias · orden por riesgo</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                  {tiles.map((a) => {
+                    const cb = crisisBandPill(a.crisisBand);
+                    const isCrisis = cb.cls === 'pill-neg';
+                    const bhiColor = execToneColor(a.display.bhi.tone);
+                    const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-3)';
+                    return (
+                      <div key={a.slug} className="card" style={{
+                        padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10,
+                        borderLeft: `3px solid ${cb.color}`,
+                        background: isCrisis ? 'linear-gradient(180deg, var(--neg-bg), transparent 60%), var(--canvas)' : 'var(--canvas)',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                          <span className={`pill ${cb.cls}`} style={{ marginLeft: 'auto', fontSize: 9, padding: '2px 6px' }}>{cb.label}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                          <div>
+                            <div className="num" style={{ fontSize: 26, fontWeight: 600, color: bhiColor, lineHeight: 0.95 }}>{a.display.bhi.value || '—'}</div>
+                            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>Salud · {a.display.bhi.word}</div>
+                          </div>
+                          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                            <div className="num" style={{ fontSize: 15, fontWeight: 600, color: nssColor, lineHeight: 1 }}>{a.display.nss.value || '—'}</div>
+                            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>Sent. neto</div>
+                          </div>
+                        </div>
+                        <SentimentSplitBar pos={a.pos} neu={a.neu} neg={a.neg} height={5} />
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-2)' }}>
+                          <span style={{ color: cb.color, fontWeight: 600 }}>Riesgo {a.display.crisis.value || '—'}</span>
+                          <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(a.totalMentions)} menc.</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Actividad — crisisFeed */}
+              <div>
+                <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <I2.Zap size={12} color="var(--accent)" /> Actividad · escalamientos
+                </div>
+                <div className="card" style={{ padding: 0, maxHeight: 620, overflowY: 'auto' }}>
+                  {feed.length === 0 ? (
+                    <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
+                  ) : feed.map((f, i) => (
+                    <div key={i} style={{
+                      padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4,
+                      borderTop: i === 0 ? 'none' : '1px solid var(--hairline)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 9, padding: '2px 6px' }}>{f.band || f.severity}</span>
+                        <span className="mono" style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--text-3)' }}>
+                          {(() => { try { return new Date(f.triggeredAt).toLocaleString('es-PR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; } })()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{f.ruleName}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </ExecStateWrap>
+  );
+}
+
+// --------------------------------------------------------------------
+// RadarScreen — sala situacional de crisis (3 columnas)
+// --------------------------------------------------------------------
+function RadarScreen({ period }) {
+  const { data, loading, error } = useExecOverview(period);
+  return (
+    <ExecStateWrap loading={loading} error={error} data={data} empty={data && (!data.agencies || data.agencies.length === 0)}>
+      {data && (() => {
+        const ranked = [...data.agencies].sort((a, b) => (b.crisis || 0) - (a.crisis || 0));
+        const maxCrisis = Math.max(0.0001, ...ranked.map((a) => a.crisis || 0));
+        const feed = [...(data.crisisFeed || [])];
+        const sevOrder = { alta: 0, media: 1, baja: 2 };
+        feed.sort((a, b) => (sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3));
+        const sevPill = (sev) => sev === 'alta' ? 'pill-neg' : sev === 'media' ? 'pill-warn' : 'pill-neu';
+        // Olas temáticas: agrupadas por agencia (no hay taxonomía cross-agencia).
+        const wavesByAgency = {};
+        for (const w of (data.topicWaves || [])) {
+          (wavesByAgency[w.agencyName] ??= []).push(w);
+        }
+        const waveGroups = Object.entries(wavesByAgency);
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(0, 1.4fr) minmax(240px, 1fr)', gap: 16, alignItems: 'start' }}>
+            {/* Columna izquierda — ranking por crisis */}
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Riesgo por agencia ▾</div>
+              <div className="card" style={{ padding: '6px 0' }}>
+                {ranked.map((a) => {
+                  const cb = crisisBandPill(a.crisisBand);
+                  const w = Math.max(6, ((a.crisis || 0) / maxCrisis) * 100);
+                  return (
+                    <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr auto', gap: 8, alignItems: 'center', padding: '8px 14px' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                      <div style={{ height: 6, borderRadius: 3, background: 'color-mix(in oklab, var(--text-3) 16%, transparent)', overflow: 'hidden' }}>
+                        <div style={{ width: `${w.toFixed(1)}%`, height: '100%', borderRadius: 3, background: cb.color }} />
+                      </div>
+                      <span className="num" style={{ fontSize: 12, fontWeight: 600, color: cb.color, minWidth: 34, textAlign: 'right' }}>{a.display.crisis.value || '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Columna central — feed en vivo */}
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <I2.Radio size={12} color="var(--neg)" /> Escalamientos · orden por severidad
+              </div>
+              <div className="card" style={{ padding: 0, maxHeight: 640, overflowY: 'auto' }}>
+                {feed.length === 0 ? (
+                  <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
+                ) : feed.map((f, i) => {
+                  const cb = crisisBandPill(f.band || (f.severity === 'alta' ? 'ALERTA' : f.severity === 'media' ? 'ELEVADO' : 'NORMAL'));
+                  return (
+                    <div key={i} className="row-hover" style={{
+                      display: 'grid', gridTemplateColumns: '64px auto 1fr', gap: 10, alignItems: 'start',
+                      padding: '11px 14px', borderTop: i === 0 ? 'none' : '1px solid var(--hairline)',
+                    }}>
+                      <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', paddingTop: 2 }}>
+                        {(() => { try { return new Date(f.triggeredAt).toLocaleString('es-PR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; } })()}
+                      </div>
+                      <div>
+                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 9, padding: '2px 6px' }}>
+                          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: cb.color, marginRight: 4 }} />
+                          {f.band || f.severity}
+                        </span>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{f.ruleName}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Columna derecha — olas temáticas por agencia */}
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Olas temáticas · vol ▾</div>
+              <div style={{
+                fontSize: 10, color: 'var(--text-3)', marginBottom: 8, lineHeight: 1.5,
+                padding: '8px 10px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)',
+              }}>
+                Los tópicos están definidos por agencia — no existe (aún) una taxonomía cross-agencia unificada, así que las olas se agrupan por agencia.
+              </div>
+              <div className="card" style={{ padding: 0, maxHeight: 560, overflowY: 'auto' }}>
+                {waveGroups.length === 0 ? (
+                  <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin tópicos destacados en el período.</div>
+                ) : waveGroups.map(([agencyName, waves], gi) => (
+                  <div key={agencyName} style={{ borderTop: gi === 0 ? 'none' : '1px solid var(--hairline)' }}>
+                    <div className="mono" style={{ padding: '9px 14px 4px', fontSize: 9.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{agencyName}</div>
+                    {waves.map((w, wi) => {
+                      const nssColor = w.nss == null ? 'var(--text-3)' : w.nss > 0 ? 'var(--pos)' : w.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
+                      const dArrow = w.volumeDelta > 0 ? '▲' : w.volumeDelta < 0 ? '▼' : '·';
+                      const dColor = w.volumeDelta > 0 ? 'var(--pos)' : w.volumeDelta < 0 ? 'var(--neg)' : 'var(--text-3)';
+                      return (
+                        <div key={w.topicSlug + wi} style={{ padding: '4px 14px 9px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.topicSlug}</span>
+                            <span className="num" style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>{fmt(w.volume)}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 10 }}>
+                            <span style={{ color: dColor, fontWeight: 600 }}>{dArrow} {w.volumeDelta === 0 ? 'estable' : fmt(Math.abs(w.volumeDelta))}</span>
+                            <span className="num" style={{ color: nssColor, fontWeight: 600 }}>NSS {w.nss == null ? '—' : (w.nss > 0 ? '+' : '') + w.nss}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </ExecStateWrap>
+  );
+}
+
+window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen, TablaScreen, SalaScreen, RadarScreen };

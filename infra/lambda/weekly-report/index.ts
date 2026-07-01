@@ -26,6 +26,10 @@ import {
   formatPeriodLabel,
   formatShortDay,
   formatUpdatedAtLabel,
+  loadMetricsForWindow,
+  formatMetric,
+  formatDelta,
+  formatVelocity,
   type MentionSample,
   type WeeklyAggregates,
   type WeeklyReportRenderData,
@@ -306,6 +310,17 @@ async function buildReport(
     client as PgClientLike, agency.id, startDate, endDate, prevStartDate, prevEndDate,
   );
 
+  // 1b) Métricas compuestas (Crisis/BHI/NSS + velocidad) recalculadas sobre la
+  //     VENTANA del period actual y la previa. Misma fuente y patrón que
+  //     /api/overview (loadMetricsForWindow del paquete @eco/shared/metrics),
+  //     para que el correo muestre exactamente los mismos indicadores y bandas
+  //     que el dashboard. formatMetric/formatDelta/formatVelocity son la capa
+  //     única de formato legible.
+  const [winCur, winPrev] = await Promise.all([
+    loadMetricsForWindow(client as PgClientLike, agency.id, startDate, endDate),
+    loadMetricsForWindow(client as PgClientLike, agency.id, prevStartDate, prevEndDate),
+  ]);
+
   // 2) Contexto extra para el LLM (top tópicos, municipios, autores, fuentes,
   //    emociones). Estas queries son específicas del prompt — no las usa el
   //    dashboard.
@@ -324,6 +339,14 @@ async function buildReport(
     updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
     totals: sentimentReport.totals,
     deltaVsPrev: sentimentReport.deltaVsPrev,
+    // Deltas de sentimiento formateados con formatDelta (% vs período previo)
+    // — el KPI del termómetro los consume para hablar el mismo vocabulario
+    // que el dashboard (sube/baja/estable + magnitud con signo tipográfico).
+    deltaDisplay: {
+      negative: formatDelta(winCur.totals.negative, winPrev.totals.negative, { kind: 'percent', decimals: 0 }),
+      neutral: formatDelta(winCur.totals.neutral, winPrev.totals.neutral, { kind: 'percent', decimals: 0 }),
+      positive: formatDelta(winCur.totals.positive, winPrev.totals.positive, { kind: 'percent', decimals: 0 }),
+    },
     chartImageUrl: buildChartImageUrl(sentimentReport.dailySeries),
     dailySeries: sentimentReport.dailySeries,
     topicsTable: sentimentReport.topicsTable,
@@ -331,6 +354,13 @@ async function buildReport(
     dailySummary: {
       label: `Resumen del día · ${formatShortDay(endDate)}`,
       paragraph: dailySummary,
+    },
+    // Indicadores compuestos — misma capa de formato que el dashboard.
+    metrics: {
+      crisis: formatMetric('crisis', winCur.crisisRiskScore),
+      bhi: formatMetric('bhi', winCur.brandHealthIndex),
+      nss: formatMetric('nss', winCur.nss),
+      velocity: formatVelocity(winCur.engagementPerMention, winPrev.engagementPerMention),
     },
   };
 

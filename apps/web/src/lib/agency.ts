@@ -33,7 +33,7 @@ async function firstActiveAgencyId(): Promise<string | null> {
   return first?.id ?? null;
 }
 
-async function listActiveAgencies(): Promise<{ id: string; slug: string }[]> {
+export async function listActiveAgencies(): Promise<{ id: string; slug: string }[]> {
   const db = getDb();
   return db
     .select({ id: agencies.id, slug: agencies.slug })

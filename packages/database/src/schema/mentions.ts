@@ -86,6 +86,10 @@ export const mentions = pgTable(
     mediaUrls: jsonb('media_urls').$type<string[]>(),
     hasImage: boolean('has_image').notNull().default(false),
     hasVideo: boolean('has_video').notNull().default(false),
+    // Imagen representativa resuelta por el scraper (og:image / thumbnail de
+    // YouTube / media directa / avatar). Nullable — se puebla en ingesta y por
+    // el backfill de eco-migration.
+    resolvedImageUrl: text('resolved_image_url'),
 
     // Timestamps
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),

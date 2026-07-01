@@ -396,6 +396,9 @@ export async function GET(request: NextRequest) {
       shares: mentions.shares,
       publishedAt: mentions.publishedAt,
       url: mentions.url,
+      mediaUrls: mentions.mediaUrls,
+      authorAvatarUrl: mentions.authorAvatarUrl,
+      resolvedImageUrl: mentions.resolvedImageUrl,
     })
     .from(mentions)
     .where(whereClause)
@@ -489,6 +492,8 @@ export async function GET(request: NextRequest) {
       coords: mu?.coords,
       url: m.url,
       summary: m.nlpSummary ?? null,
+      image: m.resolvedImageUrl ?? m.mediaUrls?.[0] ?? null,
+      avatar: m.authorAvatarUrl ?? null,
     };
   });
 
@@ -609,6 +614,9 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
       shares: mentions.shares,
       publishedAt: mentions.publishedAt,
       url: mentions.url,
+      mediaUrls: mentions.mediaUrls,
+      authorAvatarUrl: mentions.authorAvatarUrl,
+      resolvedImageUrl: mentions.resolvedImageUrl,
     })
     .from(mentions)
     .where(inArray(mentions.id, neighborIds));
@@ -696,6 +704,8 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
       coords: mu?.coords,
       url: m.url,
       summary: m.nlpSummary ?? null,
+      image: m.resolvedImageUrl ?? m.mediaUrls?.[0] ?? null,
+      avatar: m.authorAvatarUrl ?? null,
     };
   });
 

@@ -7,6 +7,8 @@
  * Imagen PNG externa (QuickChart) para el gráfico de tendencia.
  */
 
+import type { MetricDisplay, DeltaDisplay } from '../format/metrics-display';
+
 export interface WeeklyReportRenderData {
   agencyName: string;
   /** Siglas de la agencia destinataria (ej. "DDEC", "AAA"). Se usa en `<title>`. */
@@ -24,6 +26,18 @@ export interface WeeklyReportRenderData {
     negative: number;
     neutral: number;
     positive: number;
+  };
+  /**
+   * Deltas de sentimiento ya formateados con `formatDelta` (@eco/shared/format).
+   * Opcional y retro-compatible: si falta, el termómetro cae al cálculo local
+   * `signedPct()`/`deltaWord()` a partir de `deltaVsPrev`. Cuando se provee,
+   * el KPI consume estos objetos para hablar el mismo vocabulario que el
+   * dashboard (sube/baja/estable + magnitud con signo tipográfico).
+   */
+  deltaDisplay?: {
+    negative: DeltaDisplay;
+    neutral: DeltaDisplay;
+    positive: DeltaDisplay;
   };
   /** URL absoluta del PNG del gráfico de tendencia (QuickChart u otro). */
   chartImageUrl: string;
@@ -61,6 +75,19 @@ export interface WeeklyReportRenderData {
   dailySummary: {
     label: string;
     paragraph: string;
+  };
+  /**
+   * Indicadores compuestos (Crisis / BHI / NSS) ya formateados con
+   * `formatMetric` (@eco/shared/format) — misma fuente que el dashboard y la
+   * alerta de crisis. Opcional y retro-compatible: si falta, la sección
+   * "Indicadores" no se renderiza. Cada uno lleva `velocity` opcional
+   * (producido por `formatVelocity`) para la velocidad de engagement.
+   */
+  metrics?: {
+    crisis: MetricDisplay;
+    bhi: MetricDisplay;
+    nss: MetricDisplay;
+    velocity?: MetricDisplay;
   };
 }
 
@@ -132,6 +159,22 @@ function deltaWord(n: number): string {
   if (r > 0) return 'sube';
   if (r < 0) return 'baja';
   return 'estable';
+}
+
+// Mapa tono → hex del palette del correo. Los `MetricDisplay`/`DeltaDisplay`
+// traen `color` como variable CSS ("var(--neg)") que NO resuelve en clientes
+// de email; consumimos `tone` y lo mapeamos a un hex sólido de esta paleta.
+type MetricTone = MetricDisplay['tone'];
+const TONE_HEX: Record<MetricTone, string> = {
+  neg: COLORS.neg,
+  warn: COLORS.accent,   // ámbar de marca para "advertencia" (Elevado/Débil)
+  pos: COLORS.pos,
+  accent: COLORS.brand,  // azul de marca para "destacado" (Fuerte/Muy pos)
+  neutral: COLORS.inkSoft,
+};
+
+function toneHex(tone: MetricTone): string {
+  return TONE_HEX[tone] ?? COLORS.inkSoft;
 }
 
 // ------------------------------------------------------------
@@ -232,6 +275,10 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   const neuPct = pct(totals.neutral, totals.total);
   const posPct = pct(totals.positive, totals.total);
 
+  // Sección "Indicadores" (Crisis/BHI/NSS): sólo si el caller adjuntó las
+  // métricas ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
+  const indicatorsBlock = data.metrics ? renderIndicators(data.metrics) : '';
+
   return `<!doctype html>
 <html lang="es" style="color-scheme:light only;supported-color-schemes:light only;">
 <head>
@@ -329,9 +376,9 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
 
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 <tr>
-                  ${kpiCard('Negativo', COLORS.neg, COLORS.negSoft, totals.negative, negPct, deltaVsPrev.negative, 'right')}
-                  ${kpiCard('Neutral', COLORS.neu, COLORS.neuSoft, totals.neutral, neuPct, deltaVsPrev.neutral, 'both')}
-                  ${kpiCard('Positivo', COLORS.pos, COLORS.posSoft, totals.positive, posPct, deltaVsPrev.positive, 'left')}
+                  ${kpiCard('Negativo', COLORS.neg, COLORS.negSoft, totals.negative, negPct, deltaVsPrev.negative, 'right', data.deltaDisplay?.negative)}
+                  ${kpiCard('Neutral', COLORS.neu, COLORS.neuSoft, totals.neutral, neuPct, deltaVsPrev.neutral, 'both', data.deltaDisplay?.neutral)}
+                  ${kpiCard('Positivo', COLORS.pos, COLORS.posSoft, totals.positive, posPct, deltaVsPrev.positive, 'left', data.deltaDisplay?.positive)}
                 </tr>
               </table>
 
@@ -340,7 +387,7 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
               </div>
             </td>
           </tr>
-
+${indicatorsBlock}
           <!-- 02 · TENDENCIA -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
@@ -460,12 +507,19 @@ function kpiCard(
   percentOfTotal: number,
   delta: number,
   side: 'left' | 'right' | 'both',
+  deltaDisplay?: DeltaDisplay,
 ): string {
   const padCss = side === 'right'
     ? 'padding-right:5px;'
     : side === 'left'
     ? 'padding-left:5px;'
     : 'padding-left:5px;padding-right:5px;';
+
+  // Preferimos el DeltaDisplay de @eco/shared/format (vocabulario y magnitud
+  // idénticos al dashboard) cuando se provee; de lo contrario caemos al
+  // cálculo local retro-compatible sobre el número crudo.
+  const deltaValue = deltaDisplay?.value ?? signedPct(delta);
+  const deltaWordStr = deltaDisplay?.word ?? deltaWord(delta);
 
   return `<td class="stack stack-pad" valign="top" width="33.33%" style="${padCss}">
     <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
@@ -475,12 +529,64 @@ function kpiCard(
           <div class="kpi-value force-text-dark" style="font-size:32px;line-height:1;font-weight:700;color:${COLORS.ink};margin-top:14px;letter-spacing:-0.025em;">${fmtInt(value)}</div>
           <div class="force-text-mute" style="font-size:12.5px;color:${COLORS.inkSoft};margin-top:4px;font-weight:500;">${percentOfTotal}% del total</div>
           <div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.4;">
-            <span style="color:${color};font-weight:600;">${signedPct(delta)}</span> ${deltaWord(delta)} vs. semana previa
+            <span style="color:${color};font-weight:600;">${esc(deltaValue)}</span> ${esc(deltaWordStr)} vs. semana previa
           </div>
         </td>
       </tr>
     </table>
   </td>`;
+}
+
+// ------------------------------------------------------------
+// Indicador compuesto — tarjeta "palabra · valor" (Crisis/BHI/NSS).
+// Reusa el patrón visual de indicatorTile de render-crisis-alert.ts: pill
+// de etiqueta arriba, palabra grande coloreada por tono, número de apoyo
+// debajo. El color viene del tono del MetricDisplay mapeado a un hex sólido
+// (var(--*) no resuelve en clientes de email).
+// ------------------------------------------------------------
+
+function indicatorTile(label: string, m: MetricDisplay, widthPct: string): string {
+  const accent = toneHex(m.tone);
+  const support = m.value ?? '';
+  return `<td class="stack stack-pad" valign="top" width="${widthPct}" style="padding:0 4px;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
+      <tr>
+        <td valign="top" style="padding:14px 14px 12px 14px;">
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;">${esc(label)}</div>
+          <div class="force-text-dark" style="font-size:22px;line-height:1.15;font-weight:700;color:${accent};margin-top:8px;letter-spacing:-0.02em;">${esc(m.word)}</div>
+          ${support
+            ? `<div class="force-text-soft" style="margin-top:6px;font-size:12px;color:${COLORS.inkMute};line-height:1.4;">${esc(support)}</div>`
+            : ''}
+        </td>
+      </tr>
+    </table>
+  </td>`;
+}
+
+function renderIndicators(metrics: NonNullable<WeeklyReportRenderData['metrics']>): string {
+  const tiles: string[] = [
+    indicatorTile('Crisis', metrics.crisis, '25%'),
+    indicatorTile('Salud de marca', metrics.bhi, '25%'),
+    indicatorTile('Sentimiento neto', metrics.nss, '25%'),
+  ];
+  if (metrics.velocity) {
+    tiles.push(indicatorTile('Velocidad', metrics.velocity, '25%'));
+  }
+  // Con 3 indicadores dejamos un cuarto slot vacío para no romper el grid
+  // fijo de 4 columnas (mismo layout que la alerta de crisis).
+  const filler = tiles.length < 4
+    ? `<td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">&nbsp;</td>`
+    : '';
+
+  return `
+          <tr>
+            <td class="px-32" style="padding:6px 32px 8px 32px;">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:10px;">Indicadores</div>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+                <tr>${tiles.join('')}${filler}</tr>
+              </table>
+            </td>
+          </tr>`;
 }
 
 // ------------------------------------------------------------
