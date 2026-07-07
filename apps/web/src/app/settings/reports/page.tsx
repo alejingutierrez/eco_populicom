@@ -39,6 +39,8 @@ interface ReportConfig {
   weeklyEnabled: boolean;
   /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
   weeklySendDow: number;
+  /** Hora local (0–23) del semanal, independiente del diario. */
+  weeklySendHourLocal: number;
   updatedAt?: string;
 }
 interface HistoryEntry {
@@ -218,7 +220,7 @@ export default function ReportsSettingsPage() {
               showIcon
               icon={<InfoCircleOutlined />}
               message="Solo administradores pueden editar esta configuración"
-              description="El reporte diario se envía todos los días a la hora local configurada; el resumen semanal comparativo, solo el día de la semana elegido (viernes por default), a la misma hora."
+              description="El reporte diario se envía todos los días a la hora local configurada; el resumen semanal comparativo, solo el día elegido (viernes por default) a su propia hora (3:00 PM por default)."
             />
           )}
 
@@ -278,6 +280,7 @@ function ConfigForm({
     fromName: 'ECO Radar',
     weeklyEnabled: true,
     weeklySendDow: 5,
+    weeklySendHourLocal: 15,
   }), [initial]);
 
   useEffect(() => { form.setFieldsValue(defaults); }, [defaults, form]);
@@ -323,12 +326,15 @@ function ConfigForm({
             name="weeklyEnabled"
             valuePropName="checked"
             style={{ flex: 1 }}
-            extra="Compara la semana cerrada contra la anterior. Llega además del diario, a la misma hora."
+            extra="Compara la semana cerrada contra la anterior. Llega además del diario, en su propio horario."
           >
             <Switch checkedChildren="Activo" unCheckedChildren="Inactivo" />
           </Form.Item>
           <Form.Item label="Día de envío" name="weeklySendDow" style={{ flex: 1 }} rules={[{ required: true }]}>
             <Select options={DOW_OPTIONS} />
+          </Form.Item>
+          <Form.Item label="Hora local del semanal" name="weeklySendHourLocal" style={{ flex: 1 }} rules={[{ required: true }]}>
+            <Select options={HOUR_OPTIONS} />
           </Form.Item>
         </Space>
 

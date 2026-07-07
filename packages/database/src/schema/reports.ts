@@ -26,6 +26,8 @@ export const reportConfigs = pgTable(
     weeklyEnabled: boolean('weekly_enabled').notNull().default(true),
     /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
     weeklySendDow: integer('weekly_send_dow').notNull().default(5),
+    /** Hora local (0–23) del semanal, independiente del diario. Default 15 = 3 PM. */
+    weeklySendHourLocal: integer('weekly_send_hour_local').notNull().default(15),
     recipients: jsonb('recipients').notNull().$type<string[]>().default([]),
     fromEmail: varchar('from_email', { length: 255 }).notNull().default('agutierrez@populicom.com'),
     fromName: varchar('from_name', { length: 255 }).notNull().default('Populicom Radar'),

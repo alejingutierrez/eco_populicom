@@ -35,8 +35,9 @@ working tree del monorepo principal (sucio). Usa SIEMPRE
 
 - Correos de reporte (jul 2026): el DIARIO ("[Diario] …", ventana rolante de
   7 días cerrados) se envía TODOS los días a las 6 AM PR; el SEMANAL
-  comparativo ("[Semanal] …", semana vs anterior) solo los viernes
-  (report_configs.weekly_send_dow, weekly_enabled). El viernes llegan AMBOS.
+  comparativo ("[Semanal] …", semana vs anterior) solo los viernes a las
+  3:00 PM PR (weekly_send_dow=5, weekly_send_hour_local=15, weekly_enabled).
+  El viernes llegan AMBOS, cada uno a su hora.
 - `admin/diagnostics` cuenta menciones SIN filtrar `is_duplicate` a propósito.
 - Reglas de alerta de crisis: las 3 agencias tienen `crisis_threshold`
   (0.4/0.5/12h). aaa y gobernadora notifican solo a agutierrez@ hasta que el
@@ -181,7 +182,7 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 | Tipo | Asunto | Fuente | Cuándo |
 |---|---|---|---|
 | Diario | `[Diario]` | `eco-weekly-report` → render-daily-report | todos los días, send_hour_local |
-| Semanal | `[Semanal]` | `eco-weekly-report` → render-weekly-summary | weekly_send_dow (default viernes), misma hora |
+| Semanal | `[Semanal]` | `eco-weekly-report` → render-weekly-summary | weekly_send_dow + weekly_send_hour_local (default vie 3:00 PM) |
 | Alerta reglas | `[Alerta]` | `eco-alerts` → render-simple-alert | SQS por mención |
 | Alerta métrica | `[Alerta]` | `eco-metrics-calculator` → render-simple-alert | evaluación diaria |
 | Crisis | `[Crisis]`/`[Alerta]` | `eco-metrics-calculator` → render-crisis-alert | umbral crisis |
@@ -191,9 +192,12 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 - **Trigger**: EventBridge cron `cron(0 * * * ? *)` — cada hora, minuto 0
   UTC. La lambda itera `report_configs is_active = true` y envía el DIARIO
   cuando `hourInTimeZone(nowUtc, cfg.timezone) === cfg.send_hour_local`; el
-  SEMANAL además exige `weekly_enabled` y `dowInTimeZone == weekly_send_dow`
-  (default 5 = viernes, convención JS getDay).
-- **Hora de envío DDEC**: 6:00 AM `America/Puerto_Rico` = 10:00 UTC.
+  SEMANAL cuando `weekly_enabled` Y `dowInTimeZone == weekly_send_dow`
+  (default 5 = viernes, convención JS getDay) Y
+  `hourInTimeZone == weekly_send_hour_local` (default 15) — hora
+  independiente de la del diario.
+- **Horas DDEC**: diario 6:00 AM PR = 10:00 UTC; semanal viernes 3:00 PM PR
+  = 19:00 UTC (AST no tiene DST).
 - **Periodo**: 7 días naturales **cerrados** terminando AYER en TZ PR. El
   semanal compara además contra los 7 días anteriores a esos.
 - **Recipients**: editables vía `/settings/reports` o por SQL en

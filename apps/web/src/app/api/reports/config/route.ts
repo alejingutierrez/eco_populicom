@@ -28,6 +28,8 @@ interface ConfigBody {
   weeklyEnabled?: boolean;
   /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
   weeklySendDow?: number;
+  /** Hora local (0–23) del semanal, independiente del diario. */
+  weeklySendHourLocal?: number;
 }
 
 /** Acepta el key vigente y el histórico; siempre se persiste el vigente.
@@ -77,6 +79,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       fromName: cfg.fromName,
       weeklyEnabled: cfg.weeklyEnabled,
       weeklySendDow: cfg.weeklySendDow,
+      weeklySendHourLocal: cfg.weeklySendHourLocal,
       updatedAt: cfg.updatedAt,
     } : null,
   });
@@ -129,6 +132,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   if (body.weeklySendDow != null && (!Number.isInteger(body.weeklySendDow) || body.weeklySendDow < 0 || body.weeklySendDow > 6)) {
     errors.push('weeklySendDow must be integer 0–6');
   }
+  if (body.weeklySendHourLocal != null && (!Number.isInteger(body.weeklySendHourLocal) || body.weeklySendHourLocal < 0 || body.weeklySendHourLocal > 23)) {
+    errors.push('weeklySendHourLocal must be integer 0–23');
+  }
   if (errors.length) return NextResponse.json({ error: 'validation', details: errors }, { status: 422 });
 
   // Buscar o crear usuario (updated_by) — tolerante si no existe aún en tabla users
@@ -153,6 +159,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         ...(body.fromName && { fromName: body.fromName }),
         ...(body.weeklyEnabled != null && { weeklyEnabled: body.weeklyEnabled }),
         ...(body.weeklySendDow != null && { weeklySendDow: body.weeklySendDow }),
+        ...(body.weeklySendHourLocal != null && { weeklySendHourLocal: body.weeklySendHourLocal }),
         updatedBy: updatedByUuid,
         updatedAt: now,
       })
@@ -169,6 +176,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       fromName: body.fromName ?? 'ECO Radar',
       weeklyEnabled: body.weeklyEnabled ?? true,
       weeklySendDow: body.weeklySendDow ?? 5,
+      weeklySendHourLocal: body.weeklySendHourLocal ?? 15,
       updatedBy: updatedByUuid,
       createdAt: now,
       updatedAt: now,
@@ -193,6 +201,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       fromName: fresh.fromName,
       weeklyEnabled: fresh.weeklyEnabled,
       weeklySendDow: fresh.weeklySendDow,
+      weeklySendHourLocal: fresh.weeklySendHourLocal,
       updatedAt: fresh.updatedAt,
     },
   });

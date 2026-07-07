@@ -9,8 +9,9 @@
  *    (report_configs.send_hour_local, default 6 AM). Ventana rolante de 7
  *    días cerrados terminando ayer.
  *  - SEMANAL ("[Semanal] …"): solo el día configurado
- *    (report_configs.weekly_send_dow, default 5 = viernes) a la misma hora.
- *    Compara la semana cerrada (7 días terminando ayer) contra la anterior.
+ *    (report_configs.weekly_send_dow, default 5 = viernes) a SU propia hora
+ *    (weekly_send_hour_local, default 15 = 3:00 PM). Compara la semana
+ *    cerrada (7 días terminando ayer) contra la anterior.
  *
  * Disparador 1 — EventBridge (cada hora, minuto 0): itera report_configs
  * activos, calcula la hora local de cada agencia según su timezone, y envía
@@ -141,7 +142,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
     const configs = await client.query(
       `SELECT rc.agency_id, rc.send_hour_local, rc.timezone, rc.template_key,
               rc.recipients, rc.from_email, rc.from_name,
-              rc.weekly_enabled, rc.weekly_send_dow,
+              rc.weekly_enabled, rc.weekly_send_dow, rc.weekly_send_hour_local,
               a.slug, a.name
          FROM report_configs rc
          JOIN agencies a ON a.id = rc.agency_id
@@ -153,8 +154,18 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
     const runs: RunResult[] = [];
     for (const cfg of configs.rows) {
       const localHour = hourInTimeZone(nowUtc, cfg.timezone);
-      if (localHour !== cfg.send_hour_local) {
-        console.log(`[weekly-report] skip ${cfg.slug} · localHour=${localHour} vs sendHour=${cfg.send_hour_local} (${cfg.timezone})`);
+      const localDow = dowInTimeZone(nowUtc, cfg.timezone);
+
+      // Diario: todos los días a send_hour_local. Semanal: SOLO el día
+      // configurado (default viernes) a SU propia hora (default 15 = 3 PM),
+      // independiente de la hora del diario.
+      const dailyDue = localHour === cfg.send_hour_local;
+      const weeklyDue = cfg.weekly_enabled === true
+        && localDow === (cfg.weekly_send_dow ?? 5)
+        && localHour === (cfg.weekly_send_hour_local ?? 15);
+
+      if (!dailyDue && !weeklyDue) {
+        console.log(`[weekly-report] skip ${cfg.slug} · localHour=${localHour}/dow=${localDow} vs daily=${cfg.send_hour_local} weekly=${cfg.weekly_send_hour_local ?? 15}@dow${cfg.weekly_send_dow ?? 5} (${cfg.timezone})`);
         continue;
       }
       if (!Array.isArray(cfg.recipients) || cfg.recipients.length === 0) {
@@ -178,17 +189,8 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
         triggeredBy: null,
       };
 
-      // Diario — todos los días a la hora configurada.
-      runs.push(await runForAgency(client, inputs, 'daily'));
-
-      // Semanal — además del diario, solo el día local configurado (default
-      // viernes). Decisión jul 2026: el viernes llegan AMBOS correos (el
-      // semanal complementa, no reemplaza, al diario).
-      const localDow = dowInTimeZone(nowUtc, cfg.timezone);
-      const weeklyDow = cfg.weekly_send_dow ?? 5;
-      if (cfg.weekly_enabled === true && localDow === weeklyDow) {
-        runs.push(await runForAgency(client, inputs, 'weekly'));
-      }
+      if (dailyDue) runs.push(await runForAgency(client, inputs, 'daily'));
+      if (weeklyDue) runs.push(await runForAgency(client, inputs, 'weekly'));
     }
     return { ok: true, runs };
   } finally {
@@ -672,6 +674,7 @@ async function ensureReportsSchema(client: any): Promise<void> {
       from_name VARCHAR(255) NOT NULL DEFAULT 'ECO Radar',
       weekly_enabled BOOLEAN NOT NULL DEFAULT true,
       weekly_send_dow INTEGER NOT NULL DEFAULT 5,
+      weekly_send_hour_local INTEGER NOT NULL DEFAULT 15,
       updated_by UUID REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -683,8 +686,11 @@ async function ensureReportsSchema(client: any): Promise<void> {
   //  - weekly_enabled: on/off del semanal por agencia (default ON).
   //  - weekly_send_dow: día local de envío, convención JS getDay
   //    (0=domingo … 6=sábado). Default 5 = viernes.
+  //  - weekly_send_hour_local: hora local (0–23) del semanal, independiente
+  //    del diario. Default 15 = 3:00 PM (pedido del cliente jul 2026).
   await client.query(`ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS weekly_enabled BOOLEAN NOT NULL DEFAULT true;`);
   await client.query(`ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS weekly_send_dow INTEGER NOT NULL DEFAULT 5;`);
+  await client.query(`ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS weekly_send_hour_local INTEGER NOT NULL DEFAULT 15;`);
 
   // Self-heal jul 2026: el template_key histórico 'weekly-sentiment-summary'
   // describía un correo que en realidad es DIARIO. Se renombra una sola vez;
