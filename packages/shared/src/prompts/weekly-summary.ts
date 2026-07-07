@@ -112,7 +112,7 @@ ${sourceBlock}
 EMOCIONES AGREGADAS DE LA SEMANA ACTUAL:
 ${emotionBlock}
 
-MUESTRAS DE MENCIONES DE LA SEMANA ACTUAL (pre-filtradas a pertinencia alta/media):
+MUESTRAS DE MENCIONES DE LA SEMANA ACTUAL (pre-filtradas a pertinencia alta/media, ORDENADAS POR ENGAGEMENT — las primeras son las de mayor resonancia; úsalas para anclar los hechos concretos):
 --- NEGATIVAS (${samples.negative.length}) ---
 ${samples.negative.slice(0, 12).map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 --- NEUTRALES (${samples.neutral.length}) ---
@@ -133,6 +133,7 @@ TAREA — DOS SALIDAS, AMBAS CENTRADAS EN LA COMPARACIÓN:
 
 REGLAS (además de las del sistema):
 - TODO se afirma en clave comparativa: "X pasó de N a M", "sube/baja/entra/sale". Nada de describir la semana actual en el vacío.
+- PRECISIÓN SOBRE CATEGORÍAS: cada afirmación debe decir QUÉ pasó o QUÉ se dijo en concreto (el anuncio, la queja, la historia — tomado de las muestras, priorizando las de mayor engagement), no solo el nombre del tópico con un conteo. "Permisos / Reforma bajó de 152 a 84" solo es aceptable si a continuación dices qué conversación concreta se apagó.
 - Si una variación es "nuevo" (la semana anterior no registraba), dilo explícitamente en lugar de inventar un porcentaje.
 - Si no hay señal suficiente para 4 highlights, entrega menos (mínimo 1). Mejor pocos y verdaderos.
 - NUNCA "hoy"/"ayer": habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}).

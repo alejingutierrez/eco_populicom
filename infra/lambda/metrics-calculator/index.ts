@@ -499,8 +499,12 @@ const METRIC_LABELS: Record<string, string> = {
   bhi: 'Brand Health Index',
   polarization: 'Índice de Polarización',
   engagement_velocity: 'Velocidad de Engagement',
-  volume_anomaly: 'Anomalía de Volumen',
+  volume_anomaly: 'Pico inusual de volumen',
 };
+
+/** Las métricas cuyo valor es un nivel interno (0 = usual) y necesitan la
+ *  fila aclaratoria en el correo. */
+const LEVEL_SCALE_METRICS = new Set(['engagement_velocity', 'volume_anomaly']);
 
 /**
  * Representación pública de un valor de métrica de regla — misma capa de
@@ -515,8 +519,10 @@ function metricRuleDisplay(metric: MetricRuleConfig['metric'], value: number): s
     case 'polarization': return formatMetric('polarization', value).value ?? String(value);
     case 'engagement_velocity':
     case 'volume_anomaly': {
+      // Escala interna sin unidad pública: se muestra el nivel con signo y
+      // el correo aclara "0 = nivel usual" — sin σ ni jerga estadística.
       const r = Math.round(value * 10) / 10;
-      return `${r > 0 ? '+' : ''}${r.toFixed(1)}σ`;
+      return `${r > 0 ? '+' : ''}${r.toFixed(1)}`;
     }
     default: return String(value);
   }
@@ -599,6 +605,9 @@ async function evaluateMetricThresholdAlerts(
         { label: 'Métrica', value: label },
         { label: 'Valor actual', value: valStr, color: '#C8462F' },
         { label: 'Umbral configurado', value: `${cmp} ${thrStr}` },
+        ...(LEVEL_SCALE_METRICS.has(cfg.metric)
+          ? [{ label: 'Referencia de la escala', value: '0 = nivel usual' }]
+          : []),
         { label: 'Día evaluado', value: today },
       ],
       dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
@@ -1317,7 +1326,9 @@ async function buildScoreTrendUrl(client: any, agencyId: string, today: string):
   if (rows.length < 2) return '';
 
   const labels = rows.map((r) => formatShortDay(r.date));
-  const data = rows.map((r) => r.crisis_risk_score == null ? 0 : Math.round(r.crisis_risk_score * 1000) / 1000);
+  // Escala pública %: el eje del chart debe hablar el mismo idioma que las
+  // tarjetas del correo (56%), no el 0–1 interno.
+  const data = rows.map((r) => r.crisis_risk_score == null ? 0 : Math.round(r.crisis_risk_score * 100));
 
   const config = {
     type: 'line',
@@ -1337,10 +1348,10 @@ async function buildScoreTrendUrl(client: any, agencyId: string, today: string):
           tension: 0.3,
           fill: true,
         },
-        // Línea de umbral 0.4
+        // Línea de umbral (banda ALERTA = 40%)
         {
-          label: 'Umbral 0.40',
-          data: rows.map(() => 0.40),
+          label: 'Umbral 40%',
+          data: rows.map(() => 40),
           borderColor: '#8A93A0',
           borderWidth: 1,
           borderDash: [4, 4],
@@ -1353,7 +1364,7 @@ async function buildScoreTrendUrl(client: any, agencyId: string, today: string):
       layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
       plugins: { legend: { display: false }, title: { display: false } },
       scales: {
-        y: { beginAtZero: true, max: 1, grid: { color: '#EEF0F4', drawBorder: false },
+        y: { beginAtZero: true, max: 100, grid: { color: '#EEF0F4', drawBorder: false },
           ticks: { font: { size: 10 }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
         x: { grid: { display: false, drawBorder: false },
           ticks: { font: { size: 11 }, color: '#4A5563', padding: 6 } },

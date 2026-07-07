@@ -592,6 +592,23 @@ async function buildWeeklySummaryEmail(
   const weekLabel = formatPeriodLabel(startYmd, endYmd);
   const prevWeekLabel = formatPeriodLabel(prevStartYmd, prevEndYmd);
 
+  // Menciones con mayor engagement de la semana — aterrizan el reporte en
+  // contenido concreto. Se toman de las mismas muestras que van al LLM
+  // (pertinencia alta/media, ya ordenadas por engagement por sentimiento).
+  const topMentions = [...samples.negative, ...samples.neutral, ...samples.positive]
+    .filter((m) => typeof m.engagement === 'number' && m.engagement > 0)
+    .sort((a, b) => (b.engagement ?? 0) - (a.engagement ?? 0))
+    .slice(0, 5)
+    .map((m) => ({
+      sourceLabel: m.source ?? m.pageType ?? 'Fuente desconocida',
+      title: null,
+      snippet: m.text.length > 220 ? `${m.text.slice(0, 220)}…` : m.text,
+      url: m.url ?? null,
+      engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
+      publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
+      tone: m.sentiment,
+    }));
+
   const ai = await generateWeeklyComparison({
     current: aggregates,
     prevTotals,
@@ -622,6 +639,7 @@ async function buildWeeklySummaryEmail(
     weeklySummary: ai.summary,
     highlights: ai.highlights,
     topicsCompare,
+    topMentions,
     dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
   };
 

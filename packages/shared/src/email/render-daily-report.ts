@@ -419,7 +419,7 @@ function renderIndicators(metrics: NonNullable<DailyReportRenderData['metrics']>
     { label: 'Sentimiento neto', metric: metrics.nss },
   ];
   if (metrics.polarization) entries.push({ label: 'Polarización', metric: metrics.polarization });
-  if (metrics.velocity) entries.push({ label: 'Velocidad engagement', metric: metrics.velocity });
+  if (metrics.velocity) entries.push({ label: 'Velocidad', metric: metrics.velocity });
   if (metrics.engagementRate) entries.push({ label: 'Tasa de interacción', metric: metrics.engagementRate });
 
   return `

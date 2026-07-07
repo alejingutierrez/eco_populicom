@@ -96,7 +96,7 @@ const data: CrisisAlertRenderData = {
     headline: 'DDEC en banda ALERTA tras pico de quejas sobre permisos y crítica al Secretario',
     lede: 'Se observan señales elevadas en Críticas / Controversias: el volumen subió de 43 a 131 menciones (Δ +205%) con 46% negativas, concentradas en San Juan.',
     bodyParagraphsHtml: [
-      'El 18 de mayo el flujo de menciones triplicó al día previo (<strong>131 vs 43</strong>), con un Crisis Score que pasó de <strong>0.24 a 0.557</strong>. La banda actual es <strong>ALERTA</strong>, impulsada por una severidad de 0.65 y un z-score de volumen de +1.5σ contra el baseline de 30 días.',
+      'El 18 de mayo el flujo de menciones triplicó al día previo (<strong>131 vs 43</strong>), con un Crisis Score que pasó de <strong>24% a 56%</strong>. La banda actual es <strong>ALERTA</strong>, impulsada por una concentración negativa de 65% y un volumen muy por encima de lo usual de los últimos 30 días.',
       'La conversación se concentra en <strong>Críticas / Controversias</strong>, donde el 100% de las 16 menciones del tópico son negativas. La queja predominante es la <strong>demora en los permisos</strong>: empresarios y ciudadanos describen esperas de meses, llamadas sin respuesta y reclamos sobre la reforma anunciada por el Secretario.',
       'La concentración geográfica es total en <strong>San Juan</strong> (7/7 menciones negativas, 100%). Medios tradicionales como ElNuevoDia.com y PrimeraHora.com replicaron las críticas, lo que amplificó el volumen en redes en las horas posteriores. El día previo el indicador estaba en banda NORMAL.',
     ],
@@ -124,7 +124,7 @@ const data: CrisisAlertRenderData = {
       },
       {
         label: 'Salto de volumen',
-        description: 'El volumen pasó de 43 a 131 menciones en 24 horas (+205%), con z-score de +1.5σ.',
+        description: 'El volumen pasó de 43 a 131 menciones en 24 horas (+205%), muy por encima de lo usual del mes.',
       },
       {
         label: 'Cobertura en medios',
@@ -145,13 +145,13 @@ console.log(`Preview: http://localhost:3000/emails/crisis-alert-preview.html`);
 
 // ------------------------------------------------------------
 // Mock para el chart de evolución del Crisis Score (14 días)
-// Pico el 28-abr (0.77), valle, segundo pico el 18-may (0.557)
+// Pico el 28-abr, valle, segundo pico el 18-may (56%)
 // ------------------------------------------------------------
 
 function buildMockTrendUrl(): string {
   const labels = ['5 may', '6 may', '7 may', '8 may', '9 may', '10 may', '11 may',
                   '12 may', '13 may', '14 may', '15 may', '16 may', '17 may', '18 may'];
-  const data = [0.29, 0.28, 0.28, 0.18, 0.12, 0.17, 0.18, 0.24, 0.24, 0.19, 0.20, 0.33, 0.24, 0.557];
+  const data = [29, 28, 28, 18, 12, 17, 18, 24, 24, 19, 20, 33, 24, 56];
   const config = {
     type: 'line',
     data: {
@@ -171,8 +171,8 @@ function buildMockTrendUrl(): string {
           fill: true,
         },
         {
-          label: 'Umbral 0.40',
-          data: data.map(() => 0.40),
+          label: 'Umbral 40%',
+          data: data.map(() => 40),
           borderColor: '#8A93A0',
           borderWidth: 1,
           borderDash: [4, 4],
@@ -185,7 +185,7 @@ function buildMockTrendUrl(): string {
       layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
       plugins: { legend: { display: false }, title: { display: false } },
       scales: {
-        y: { beginAtZero: true, max: 1, grid: { color: '#EEF0F4', drawBorder: false },
+        y: { beginAtZero: true, max: 100, grid: { color: '#EEF0F4', drawBorder: false },
           ticks: { font: { size: 10 }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
         x: { grid: { display: false, drawBorder: false },
           ticks: { font: { size: 11 }, color: '#4A5563', padding: 6 } },

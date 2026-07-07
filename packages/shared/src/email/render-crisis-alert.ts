@@ -137,10 +137,13 @@ function fmtPct(n: number | null | undefined): string {
   return `${Math.round(n * 100)}%`;
 }
 
-function fmtZ(n: number | null): string {
-  if (n == null) return '—';
-  const r = Math.round(n * 10) / 10;
-  return `${r > 0 ? '+' : ''}${r.toFixed(1)}σ`;
+/** Describe la anomalía de volumen en lenguaje llano (sin z-scores ni σ). */
+function volumeVsUsual(z: number | null): string {
+  if (z == null) return 'sin referencia de volumen';
+  if (z >= 2) return 'volumen muy sobre lo usual';
+  if (z >= 1) return 'volumen sobre lo usual';
+  if (z > -1) return 'volumen dentro de lo usual';
+  return 'volumen bajo lo usual';
 }
 
 // ------------------------------------------------------------
@@ -316,7 +319,7 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
   const indicators = [
     indicatorTileNum('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, esc(score24hHint)),
     indicatorTileNum('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
-    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(`volumen ${fmtZ(m.volumeAnomalyZscore)}`)),
+    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(volumeVsUsual(m.volumeAnomalyZscore))),
     indicatorTileNum('Relevancia', fmtPct(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
   ].join('');
 

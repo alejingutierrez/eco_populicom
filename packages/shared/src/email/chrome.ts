@@ -166,13 +166,16 @@ export function indicatorTileNum(
   hintHtml: string,
   widthPct = '25%',
 ): string {
-  return `<td class="stack stack-pad" valign="top" width="${widthPct}" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${EMAIL_COLORS.surface}" style="background:${EMAIL_COLORS.surface};background-color:${EMAIL_COLORS.surface};border-radius:8px;border:1px solid ${EMAIL_COLORS.border};">
+  // Altura uniforme: la tabla interna llena el <td> de la fila (height:100%)
+  // y label/hint reservan su alto aunque el contenido sea corto, para que
+  // todas las cajas de una sección midan lo mismo.
+  return `<td class="stack stack-pad" valign="top" width="${widthPct}" style="padding:0 4px;height:100%;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${EMAIL_COLORS.surface}" style="background:${EMAIL_COLORS.surface};background-color:${EMAIL_COLORS.surface};border-radius:8px;border:1px solid ${EMAIL_COLORS.border};height:100%;">
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${EMAIL_COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;">${esc(label)}</div>
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${EMAIL_COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;min-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(label)}</div>
           <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:${accentColor};margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">${esc(value)}</div>
-          ${hintHtml ? `<div class="force-text-soft" style="margin-top:6px;font-size:11px;color:${EMAIL_COLORS.inkMute};line-height:1.4;">${hintHtml}</div>` : ''}
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:${EMAIL_COLORS.inkMute};line-height:1.4;min-height:31px;">${hintHtml || '&nbsp;'}</div>
         </td>
       </tr>
     </table>

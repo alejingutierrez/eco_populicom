@@ -81,6 +81,22 @@ export interface WeeklySummaryRenderData {
     delta: DeltaDisplay;
   }>;
 
+  /**
+   * Menciones con mayor engagement de la semana (3–5), para aterrizar el
+   * reporte en contenido concreto y no solo en categorías.
+   */
+  topMentions?: Array<{
+    sourceLabel: string;
+    title: string | null;
+    snippet: string;
+    url: string | null;
+    /** "1,240 interacciones". */
+    engagementLabel: string;
+    /** "2 jul". */
+    publishedAtLabel: string;
+    tone: 'negative' | 'neutral' | 'positive';
+  }>;
+
   /** Deeplink al dashboard (opcional — se omite el CTA si falta). */
   dashboardUrl?: string | null;
 }
@@ -213,7 +229,7 @@ function highlightsBlock(items: string[]): string {
   return `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('06 · Qué cambió')}
+              ${sectionKicker('07 · Qué cambió')}
               <h2 class="section-title force-text-dark" style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Los movimientos de la semana
               </h2>
@@ -223,6 +239,67 @@ function highlightsBlock(items: string[]): string {
                     <ul style="margin:0;padding:0;list-style:none;">${lis}</ul>
                   </td>
                 </tr>
+              </table>
+            </td>
+          </tr>`;
+}
+
+// ------------------------------------------------------------
+// Lo más resonante — menciones top por engagement
+// ------------------------------------------------------------
+
+const TONE_META: Record<'negative' | 'neutral' | 'positive', { label: string; color: string; pillBg: string }> = {
+  negative: { label: 'Negativo', color: COLORS.neg, pillBg: COLORS.negSoft },
+  neutral: { label: 'Neutral', color: COLORS.neu, pillBg: COLORS.neuSoft },
+  positive: { label: 'Positivo', color: COLORS.pos, pillBg: COLORS.posSoft },
+};
+
+function topMentionsBlock(data: WeeklySummaryRenderData): string {
+  const items = (data.topMentions ?? []).slice(0, 5);
+  if (!items.length) return '';
+
+  const rows = items.map((m, i) => {
+    const border = i === items.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
+    const tone = TONE_META[m.tone];
+    return `
+      <tr>
+        <td style="padding:14px 16px;${border}">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td align="left" valign="middle">
+                <span class="force-text-soft" style="font-size:10.5px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;">${esc(m.sourceLabel)} <span style="color:${COLORS.borderSoft};">·</span> ${esc(m.publishedAtLabel)}</span>
+              </td>
+              <td align="right" valign="middle" style="white-space:nowrap;">
+                <span style="display:inline-block;background:${tone.pillBg};color:${tone.color};font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:2px 7px;border-radius:4px;">${tone.label}</span>
+              </td>
+            </tr>
+          </table>
+          ${m.title
+            ? `<div class="force-text-dark" style="margin-top:6px;font-size:13.5px;font-weight:700;color:${COLORS.ink};line-height:1.4;">${esc(m.title)}</div>`
+            : ''}
+          <div class="force-text-dark" style="margin-top:${m.title ? '3px' : '6px'};font-size:13px;line-height:1.55;color:${COLORS.inkSoft};">
+            ${esc(m.snippet)}
+          </div>
+          <div style="margin-top:8px;">
+            <span class="force-text-dark" style="font-size:12px;font-weight:700;color:${COLORS.ink};">${esc(m.engagementLabel)}</span>
+            ${m.url ? `<span style="color:${COLORS.borderSoft};">&nbsp;·&nbsp;</span><a href="${esc(m.url)}" style="color:${COLORS.brand};text-decoration:none;font-size:11.5px;font-weight:600;">Ver mención →</a>` : ''}
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+          <tr>
+            <td class="px-32" style="padding:24px 32px 8px 32px;">
+              ${sectionKicker('05 · Lo más resonante')}
+              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
+                Las menciones con mayor engagement
+              </h2>
+              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
+                Ordenadas por interacciones (likes, comentarios y compartidos) durante la semana.
+              </div>
+              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
+                ${rows}
               </table>
             </td>
           </tr>`;
@@ -243,7 +320,7 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
                 { label: 'Salud de marca', metric: data.metrics.bhi },
                 { label: 'Sentimiento neto', metric: data.metrics.nss },
                 ...(data.metrics.polarization ? [{ label: 'Polarización', metric: data.metrics.polarization }] : []),
-                ...(data.metrics.velocity ? [{ label: 'Velocidad engagement', metric: data.metrics.velocity }] : []),
+                ...(data.metrics.velocity ? [{ label: 'Velocidad', metric: data.metrics.velocity }] : []),
                 ...(data.metrics.engagementRate ? [{ label: 'Tasa de interacción', metric: data.metrics.engagementRate }] : []),
               ], { cols: 3, deltaSuffix: 'vs semana anterior' })}
             </td>
@@ -342,10 +419,11 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
           </tr>
 ${indicatorsBlock}
 ${chartBlock}
-          <!-- 05 · TÓPICOS QUE SUBIERON / BAJARON -->
+${topMentionsBlock(data)}
+          <!-- 06 · TÓPICOS QUE SUBIERON / BAJARON -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('05 · Tópicos')}
+              ${sectionKicker('06 · Tópicos')}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Qué subió y qué bajó
               </h2>
