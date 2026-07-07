@@ -12,6 +12,13 @@
  */
 
 import { formatMetric } from '../format/metrics-display';
+import {
+  EMAIL_COLORS,
+  esc,
+  fmtInt,
+  indicatorTileNum,
+  emailDocument,
+} from './chrome';
 
 export interface CrisisAlertRenderData {
   agencyName: string;
@@ -104,29 +111,8 @@ export interface CrisisAlertRenderData {
 // Paleta — alineada con render-weekly-report.ts para coherencia de marca
 // ------------------------------------------------------------
 
-const COLORS = {
-  page: '#F5F6F8',
-  surface: '#FFFFFF',
-  border: '#E6E8EC',
-  borderSoft: '#EEF0F4',
-
-  ink: '#0E1E2C',
-  inkSoft: '#4A5563',
-  inkMute: '#8A93A0',
-
-  brand: '#0A7EA4',
-  brandSoft: '#E6F1F7',
-  accent: '#F4C300',
-
-  // Banda de severidad (toda la jerarquía visual de la alerta)
-  crisis: '#A6321F',         // rojo más oscuro/serio para banda CRISIS
-  alerta: '#C8462F',         // rojo "neg" del semanal
-  elevado: '#D97706',        // ámbar
-  normal: '#0A7EA4',         // azul de marca
-
-  alertSoft: '#FBE9E5',
-  alertSofter: '#FFF4F1',
-};
+// Paleta = chrome compartido + alias local para la banda NORMAL (azul marca).
+const COLORS = { ...EMAIL_COLORS, normal: EMAIL_COLORS.brand };
 
 function bandColor(band: CrisisAlertRenderData['band']): string {
   if (band === 'CRISIS') return COLORS.crisis;
@@ -146,18 +132,6 @@ function bandLabelEs(band: CrisisAlertRenderData['band']): string {
 // Helpers
 // ------------------------------------------------------------
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function fmtInt(n: number): string {
-  return n.toLocaleString('es-PR');
-}
-
 function fmtPct(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—';
   return `${Math.round(n * 100)}%`;
@@ -167,24 +141,6 @@ function fmtZ(n: number | null): string {
   if (n == null) return '—';
   const r = Math.round(n * 10) / 10;
   return `${r > 0 ? '+' : ''}${r.toFixed(1)}σ`;
-}
-
-// ------------------------------------------------------------
-// Indicator tile — 4 columnas en una fila, ancho ~25%
-// ------------------------------------------------------------
-
-function indicatorTile(label: string, value: string, accentColor: string, hint: string): string {
-  return `<td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
-      <tr>
-        <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;">${esc(label)}</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:${accentColor};margin-top:8px;letter-spacing:-0.02em;">${esc(value)}</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:${COLORS.inkMute};line-height:1.4;">${esc(hint)}</div>
-        </td>
-      </tr>
-    </table>
-  </td>`;
 }
 
 // ------------------------------------------------------------
@@ -358,10 +314,10 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
   // los subcomponentes 0–1 como % para no mostrar "0.42" crudo al público. La
   // banda ya sale como palabra (bandLabelEs ≡ NORMAL/ELEVADO/ALERTA/CRISIS).
   const indicators = [
-    indicatorTile('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, score24hHint),
-    indicatorTile('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
-    indicatorTile('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, `volumen ${fmtZ(m.volumeAnomalyZscore)}`),
-    indicatorTile('Relevancia', fmtPct(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
+    indicatorTileNum('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, esc(score24hHint)),
+    indicatorTileNum('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
+    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(`volumen ${fmtZ(m.volumeAnomalyZscore)}`)),
+    indicatorTileNum('Relevancia', fmtPct(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
   ].join('');
 
   const volumeDeltaLine = v.prevDayTotal != null
@@ -459,68 +415,7 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
       </tr>`
     : '';
 
-  return `<!doctype html>
-<html lang="es" style="color-scheme:light only;supported-color-schemes:light only;">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="x-apple-disable-message-reformatting">
-  <meta name="color-scheme" content="light only">
-  <meta name="supported-color-schemes" content="light only">
-  <title>${esc(bandLabelEs(data.band))} · ${esc(data.agencyShortName)} · ${esc(data.triggerDayLabel)}</title>
-  <style>
-    :root { color-scheme: light only; supported-color-schemes: light only; }
-    body { margin: 0; padding: 0; background: ${COLORS.page}; }
-    a { text-decoration: none; }
-    img { -ms-interpolation-mode: bicubic; }
-    .appleLinks a { color: inherit !important; text-decoration: none !important; }
-    [data-ogsc] .force-bg-page { background-color: ${COLORS.page} !important; }
-    [data-ogsc] .force-bg-white { background-color: ${COLORS.surface} !important; }
-    [data-ogsc] .force-text-dark { color: ${COLORS.ink} !important; }
-    [data-ogsc] .force-text-mute { color: ${COLORS.inkSoft} !important; }
-    [data-ogsc] .force-text-soft { color: ${COLORS.inkMute} !important; }
-    [data-ogsc] .force-border { border-color: ${COLORS.border} !important; }
-    u + .body .gmail-dark-fix { background: ${COLORS.page} !important; }
-    @media (max-width: 620px) {
-      .container { width: 100% !important; border-radius: 0 !important; }
-      .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
-      .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding: 0 0 8px 0 !important; }
-      h1.headline { font-size: 22px !important; line-height: 1.25 !important; }
-    }
-  </style>
-</head>
-<body class="body" style="margin:0;padding:0;background:${COLORS.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${COLORS.ink};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${COLORS.page};opacity:0;">
-    ${esc(bandLabelEs(data.band))} · ${esc(data.agencyShortName)} · ${esc(data.editorial.headline)}
-  </div>
-
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:${COLORS.page};">
-    <tr>
-      <td align="center" style="padding:24px 16px;">
-        <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="width:600px;max-width:600px;background:${COLORS.surface};background-color:${COLORS.surface};border-radius:10px;overflow:hidden;border:1px solid ${COLORS.border};">
-
-          <!-- BAND BAR -->
-          <tr>
-            <td style="background:${accent};background-color:${accent};height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>
-          </tr>
-
-          <!-- HEADER -->
-          <tr>
-            <td class="px-32" style="padding:18px 32px 14px 32px;border-bottom:1px solid ${COLORS.borderSoft};">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td align="left" valign="middle">
-                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${COLORS.ink};">ECO <span style="color:${COLORS.brand};">Radar</span></span>
-                  </td>
-                  <td align="right" valign="middle">
-                    <span style="display:inline-block;background:${accent};color:#FFFFFF;font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 10px;border-radius:4px;">${esc(bandLabelEs(data.band))}</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
+  const contentRows = `
           <!-- HERO -->
           <tr>
             <td class="px-32" style="padding:24px 32px 18px 32px;">
@@ -624,22 +519,15 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
-          <!-- FOOTER -->
-          <tr>
-            <td class="px-32" style="padding:18px 32px 22px 32px;border-top:1px solid ${COLORS.borderSoft};" align="center">
-              <div class="force-text-soft" style="color:${COLORS.inkMute};font-size:11.5px;line-height:1.6;">
-                ECO Radar &nbsp;·&nbsp; IDEA
-              </div>
-              <div class="force-text-soft" style="margin-top:6px;color:${COLORS.inkMute};font-size:11px;line-height:1.5;">
-                Recibes este correo porque eres administrador del Radar de tu agencia.
-              </div>
-            </td>
-          </tr>
+`;
 
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return emailDocument({
+    title: `${bandLabelEs(data.band)} · ${data.agencyShortName} · ${data.triggerDayLabel}`,
+    preheader: `${bandLabelEs(data.band)} · ${data.agencyShortName} · ${data.editorial.headline}`,
+    kind: 'crisis',
+    // El badge y la barra superior llevan la BANDA (Crisis/Alerta/Elevado) con
+    // su color de severidad — más específico que la etiqueta genérica del tipo.
+    badge: { label: bandLabelEs(data.band), color: accent },
+    contentRows,
+  });
 }

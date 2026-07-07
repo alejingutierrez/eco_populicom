@@ -3050,8 +3050,8 @@ function ReportsTab() {
       <div className="card" style={{ overflow: 'hidden' }}>
         <div className="card-hd">
           <div>
-            <div className="card-hd-title">Configuración del correo semanal</div>
-            <div className="card-hd-sub">Edita destinatarios, hora de envío, zona horaria y plantilla. Los cambios se guardan vía “Guardar cambios”.</div>
+            <div className="card-hd-title">Configuración de reportes por correo</div>
+            <div className="card-hd-sub">Diario (cada mañana) y semanal comparativo (viernes). Edita destinatarios, hora, día del semanal y plantilla; guarda con “Guardar cambios”.</div>
           </div>
           <button className="chip" onClick={() => { reloadAll(); if (iframeRef.current) iframeRef.current.src = iframeRef.current.src; }}>
             Recargar

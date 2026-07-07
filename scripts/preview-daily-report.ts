@@ -1,21 +1,22 @@
 /**
- * Preview local del template del reporte semanal.
+ * Preview local del template del REPORTE DIARIO.
  * Genera un HTML con datos mock que cubren los casos típicos:
  * - Volumen mediano-alto (no edge cases)
  * - Mix de sentimientos (60% neg, 35% neu, 5% pos)
  * - Insights de IA llenos (3 por sentimiento)
  * - Resumen del día con HTML inline
+ * - Indicadores numéricos con delta vs 7 días previos
  *
- * Uso: tsx scripts/preview-weekly-report.ts
- *      → escribe a apps/web/public/emails/weekly-report-preview.html
+ * Uso: tsx scripts/preview-daily-report.ts
+ *      → escribe a apps/web/public/emails/daily-report-preview.html
  */
 
-import { renderWeeklyReportHtml, type WeeklyReportRenderData } from '../packages/shared/src/email/render-weekly-report.ts';
+import { renderDailyReportHtml, type DailyReportRenderData } from '../packages/shared/src/email/render-daily-report.ts';
 import { formatMetric, formatDelta, formatVelocity } from '../packages/shared/src/format/metrics-display.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const data: WeeklyReportRenderData = {
+const data: DailyReportRenderData = {
   agencyName: 'Departamento de Desarrollo Económico y Comercio',
   agencyShortName: 'DDEC',
   agencyKicker: 'DDEC · Departamento de Desarrollo Económico y Comercio',
@@ -71,13 +72,34 @@ const data: WeeklyReportRenderData = {
     neutral: formatDelta(259, 275, { kind: 'percent', decimals: 0 }),
     positive: formatDelta(42, 30, { kind: 'percent', decimals: 0 }),
   },
-  // Indicadores compuestos — mismos valores crudos que produce calculateMetrics
-  // (crisis 0–1, bhi 0–1, nss −100..100) formateados por la capa única.
+  // Indicadores compuestos NUMÉRICOS — mismos valores crudos que produce
+  // calculateMetrics (crisis 0–1, bhi 0–1, nss −100..100) formateados por la
+  // capa única + delta vs los 7 días previos con la semántica del dashboard.
   metrics: {
-    crisis: formatMetric('crisis', 0.59),
-    bhi: formatMetric('bhi', 0.59),
-    nss: formatMetric('nss', -14),
-    velocity: formatVelocity(3.8, 3.2),
+    crisis: {
+      display: formatMetric('crisis', 0.36),
+      delta: formatDelta(36, 42, { kind: 'absolute', decimals: 0, suffix: ' pts', invert: true }),
+    },
+    bhi: {
+      display: formatMetric('bhi', 0.59),
+      delta: formatDelta(1 + 0.59 * 9, 1 + 0.55 * 9, { kind: 'absolute', decimals: 1, suffix: '' }),
+    },
+    nss: {
+      display: formatMetric('nss', -14),
+      delta: formatDelta(-14, -9.5, { kind: 'absolute', decimals: 1 }),
+    },
+    polarization: {
+      display: formatMetric('polarization', 46),
+      delta: formatDelta(46, 41, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
+    },
+    velocity: {
+      display: formatVelocity(3.8, 3.2),
+      hint: 'engagement por mención vs período previo',
+    },
+    engagementRate: {
+      display: formatMetric('engagementRate', 2.4),
+      delta: formatDelta(2.4, 2.1, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
+    },
   },
 };
 
@@ -118,9 +140,9 @@ function buildMockChartUrl(): string {
   return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
-const html = renderWeeklyReportHtml(data);
+const html = renderDailyReportHtml(data);
 const repoRoot = join(__dirname, '..');
-const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', 'weekly-report-preview.html');
+const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', 'daily-report-preview.html');
 writeFileSync(outPath, html, 'utf8');
 console.log(`Preview escrito: ${outPath}`);
 console.log(`HTML length: ${html.length} bytes`);

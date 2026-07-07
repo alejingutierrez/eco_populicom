@@ -7,25 +7,41 @@
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light only">
   <title>Alerta · DDEC · 18 may</title>
+  <!--[if mso]>
+  <style type="text/css">
+    table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
+  </style>
+  <![endif]-->
   <style>
     :root { color-scheme: light only; supported-color-schemes: light only; }
     body { margin: 0; padding: 0; background: #F5F6F8; }
     a { text-decoration: none; }
     img { -ms-interpolation-mode: bicubic; }
+    /* iOS / Apple Mail: evita auto-detección coloreada de fechas y direcciones */
     .appleLinks a { color: inherit !important; text-decoration: none !important; }
+    /* Outlook.com / Office 365 dark mode override — fuerza colores claros */
     [data-ogsc] .force-bg-page { background-color: #F5F6F8 !important; }
     [data-ogsc] .force-bg-white { background-color: #FFFFFF !important; }
     [data-ogsc] .force-text-dark { color: #0E1E2C !important; }
     [data-ogsc] .force-text-mute { color: #4A5563 !important; }
     [data-ogsc] .force-text-soft { color: #8A93A0 !important; }
     [data-ogsc] .force-border { border-color: #E6E8EC !important; }
+    /* Gmail iOS: no invertir backgrounds claros */
     u + .body .gmail-dark-fix { background: #F5F6F8 !important; }
+    @media (prefers-color-scheme: dark) {
+      .container, .container td, .container div, .container p, .container h1, .container h2, .container h3, .container span, .container strong {
+        color-scheme: light only !important;
+      }
+    }
     @media (max-width: 620px) {
       .container { width: 100% !important; border-radius: 0 !important; }
       .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
       .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding: 0 0 8px 0 !important; }
+      .stack-pad { padding: 0 0 10px 0 !important; }
+      .kpi-value { font-size: 30px !important; }
+      h1.title { font-size: 22px !important; }
       h1.headline { font-size: 22px !important; line-height: 1.25 !important; }
+      h2.section-title { font-size: 16px !important; }
     }
   </style>
 </head>
@@ -36,12 +52,12 @@
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:#F5F6F8;">
     <tr>
-      <td align="center" style="padding:24px 16px;">
+      <td align="center" style="padding:28px 16px;">
         <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="width:600px;max-width:600px;background:#FFFFFF;background-color:#FFFFFF;border-radius:10px;overflow:hidden;border:1px solid #E6E8EC;">
 
-          <!-- BAND BAR -->
+          <!-- BARRA DE TIPO -->
           <tr>
-            <td style="background:#C8462F;background-color:#C8462F;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>
+            <td style="background:#C8462F;background-color:#C8462F;height:5px;line-height:5px;font-size:0;padding:0;">&nbsp;</td>
           </tr>
 
           <!-- HEADER -->
@@ -60,6 +76,7 @@
             </td>
           </tr>
 
+          
           <!-- HERO -->
           <tr>
             <td class="px-32" style="padding:24px 32px 18px 32px;">
@@ -99,8 +116,8 @@
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
           <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Crisis Score</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;">0.56</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">hace 24h: 0.24</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">56%</div>
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">hace 24h: 24%</div>
         </td>
       </tr>
     </table>
@@ -109,7 +126,7 @@
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
           <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Severidad</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;">0.65</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">65%</div>
           <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">concentración negativa</div>
         </td>
       </tr>
@@ -119,7 +136,7 @@
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
           <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Velocidad</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#D97706;margin-top:8px;letter-spacing:-0.02em;">0.51</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#D97706;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">51%</div>
           <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">volumen +1.5σ</div>
         </td>
       </tr>
@@ -129,7 +146,7 @@
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
           <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Relevancia</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#0A7EA4;margin-top:8px;letter-spacing:-0.02em;">0.38</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#0A7EA4;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">38%</div>
           <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">pertinencia alta</div>
         </td>
       </tr>
@@ -508,14 +525,16 @@
             </td>
           </tr>
 
+
+
           <!-- FOOTER -->
           <tr>
-            <td class="px-32" style="padding:18px 32px 22px 32px;border-top:1px solid #EEF0F4;" align="center">
+            <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid #EEF0F4;" align="center">
               <div class="force-text-soft" style="color:#8A93A0;font-size:11.5px;line-height:1.6;">
-                ECO Radar &nbsp;·&nbsp; IDEA
+                ECO Radar &nbsp;·&nbsp; IDEA &nbsp;·&nbsp; Alerta de crisis
               </div>
               <div class="force-text-soft" style="margin-top:6px;color:#8A93A0;font-size:11px;line-height:1.5;">
-                Recibes este correo porque eres administrador del Radar de tu agencia.
+                Recibes esta alerta automática porque estás en la lista de notificación de crisis de tu agencia.
               </div>
             </td>
           </tr>

@@ -19,8 +19,11 @@ import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import {
   CRISIS_EDITORIAL_SYSTEM_PROMPT,
   buildCrisisEditorialPrompt,
+  buildSubject,
   calculateMetrics,
+  formatMetric,
   renderCrisisAlertHtml,
+  renderSimpleAlertHtml,
   type CrisisAlertRenderData,
   type CrisisEditorialInputs,
   type CrisisEditorialOutput,
@@ -499,6 +502,26 @@ const METRIC_LABELS: Record<string, string> = {
   volume_anomaly: 'Anomalía de Volumen',
 };
 
+/**
+ * Representación pública de un valor de métrica de regla — misma capa de
+ * formato que el dashboard (formatMetric). Los z-scores (velocidad de
+ * engagement legacy y anomalía de volumen) no tienen display público en el
+ * dash; se muestran como sigma con 1 decimal.
+ */
+function metricRuleDisplay(metric: MetricRuleConfig['metric'], value: number): string {
+  switch (metric) {
+    case 'crisis': return formatMetric('crisis', value).value ?? String(value);
+    case 'bhi': return formatMetric('bhi', value).value ?? String(value);
+    case 'polarization': return formatMetric('polarization', value).value ?? String(value);
+    case 'engagement_velocity':
+    case 'volume_anomaly': {
+      const r = Math.round(value * 10) / 10;
+      return `${r > 0 ? '+' : ''}${r.toFixed(1)}σ`;
+    }
+    default: return String(value);
+  }
+}
+
 function snapshotMetricValue(snap: SnapshotRow, metric: MetricRuleConfig['metric']): number | null {
   switch (metric) {
     case 'crisis': return snap.crisis_risk_score;
@@ -561,15 +584,25 @@ async function evaluateMetricThresholdAlerts(
 
     const label = METRIC_LABELS[cfg.metric] ?? cfg.metric;
     const cmp = cfg.comparator === 'lte' ? '≤' : '≥';
-    const valStr = Number.isInteger(value) ? String(value) : value.toFixed(2);
-    const subject = `[ECO] ${escHtml(agency.name)} · ${label} ${cmp} ${cfg.threshold}`;
-    const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0E1620;color:#E6ECF3;padding:24px;">
-      <div style="max-width:600px;margin:0 auto;background:#121b27;border:1px solid #223;border-radius:12px;padding:24px;">
-        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8A94A1;">Alerta de métrica · ${escHtml(agency.name)}</div>
-        <h1 style="font-size:20px;margin:8px 0 12px;">${escHtml(rule.name)}</h1>
-        <p style="font-size:14px;line-height:1.5;color:#C7D0DA;">La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${valStr}</strong>, cruzando el umbral configurado (${cmp} ${cfg.threshold}) para ${escHtml(agency.name)} el ${today}.</p>
-        <p style="font-size:12px;color:#8A94A1;margin-top:16px;">Generado por ECO Radar · evaluación diaria de métricas.</p>
-      </div></body></html>`;
+    // Valor y umbral en el MISMO formato numérico que el dashboard
+    // ("59%", "4.6 / 10", "+2.3σ") — nunca el 0–1 crudo ni niveles verbales.
+    const valStr = metricRuleDisplay(cfg.metric, value);
+    const thrStr = metricRuleDisplay(cfg.metric, cfg.threshold);
+    const subject = buildSubject('Alerta', agencyShortName(agency.slug), `${label} ${valStr} (${cmp} ${thrStr})`);
+    const html = renderSimpleAlertHtml({
+      agencyName: agency.name,
+      agencyShortName: agencyShortName(agency.slug),
+      ruleName: rule.name,
+      detectedAtLabel: formatShortTimestamp(new Date(), REPORT_TIMEZONE),
+      leadHtml: `La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${escHtml(valStr)}</strong> en la evaluación diaria del ${today}, cruzando el umbral configurado (${cmp} ${escHtml(thrStr)}).`,
+      facts: [
+        { label: 'Métrica', value: label },
+        { label: 'Valor actual', value: valStr, color: '#C8462F' },
+        { label: 'Umbral configurado', value: `${cmp} ${thrStr}` },
+        { label: 'Día evaluado', value: today },
+      ],
+      dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
+    });
 
     const sent: string[] = [];
     let firstMessageId: string | undefined;
@@ -908,7 +941,14 @@ async function fireCrisisAlert(
   };
 
   const html = renderCrisisAlertHtml(renderData);
-  const subject = `[${bandLabelEs(band)}] ${agencyShortName(agency.slug)} · ${truncate(editorial.headline, 80)}`;
+  // Asunto tipado: "[Crisis]" solo en banda CRISIS; el resto "[Alerta]".
+  // Incluye el Crisis Score numérico (mismo formato % que el dashboard).
+  const crisisValueStr = formatMetric('crisis', snap.crisis_risk_score).value ?? '—';
+  const subject = buildSubject(
+    band === 'CRISIS' ? 'Crisis' : 'Alerta',
+    agencyShortName(agency.slug),
+    `Riesgo de crisis ${crisisValueStr} — ${truncate(editorial.headline, 60)}`,
+  );
 
   // PreviewOnly: salimos sin SES ni alert_history. Útil para iterar el template.
   if (opts.previewOnly) {

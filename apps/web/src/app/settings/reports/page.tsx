@@ -35,6 +35,10 @@ interface ReportConfig {
   recipients: string[];
   fromEmail: string;
   fromName: string;
+  /** Correo semanal comparativo (viernes por default). */
+  weeklyEnabled: boolean;
+  /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
+  weeklySendDow: number;
   updatedAt?: string;
 }
 interface HistoryEntry {
@@ -67,7 +71,17 @@ const TIMEZONE_OPTIONS = [
 ];
 
 const TEMPLATE_OPTIONS = [
-  { value: 'weekly-sentiment-summary', label: 'Resumen semanal de sentimiento (últimos 7 días)' },
+  { value: 'daily-sentiment-summary', label: 'Reporte diario (ventana de 7 días)' },
+];
+
+const DOW_OPTIONS = [
+  { value: 5, label: 'Viernes' },
+  { value: 1, label: 'Lunes' },
+  { value: 2, label: 'Martes' },
+  { value: 3, label: 'Miércoles' },
+  { value: 4, label: 'Jueves' },
+  { value: 6, label: 'Sábado' },
+  { value: 0, label: 'Domingo' },
 ];
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -148,7 +162,7 @@ export default function ReportsSettingsPage() {
     }
   }, [selectedAgencySlug, message]);
 
-  const handleSendTest = useCallback(async () => {
+  const handleSendTest = useCallback(async (reportType: 'daily' | 'weekly' = 'daily') => {
     if (!config || !config.recipients.length) {
       message.warning('Añade al menos un destinatario antes de enviar una prueba');
       return;
@@ -158,7 +172,7 @@ export default function ReportsSettingsPage() {
       const res = await fetch('/api/reports/send-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agencySlug: selectedAgencySlug }),
+        body: JSON.stringify({ agencySlug: selectedAgencySlug, reportType }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'error');
@@ -204,7 +218,7 @@ export default function ReportsSettingsPage() {
               showIcon
               icon={<InfoCircleOutlined />}
               message="Solo administradores pueden editar esta configuración"
-              description="La Lambda eco-weekly-report corre cada hora y envía únicamente a las agencias cuya hora local (según timezone) coincide con la hora configurada."
+              description="El reporte diario se envía todos los días a la hora local configurada; el resumen semanal comparativo, solo el día de la semana elegido (viernes por default), a la misma hora."
             />
           )}
 
@@ -250,7 +264,7 @@ function ConfigForm({
   saving: boolean;
   sendingTest: boolean;
   onSave: (values: ReportConfig) => void;
-  onSendTest: () => void;
+  onSendTest: (reportType?: 'daily' | 'weekly') => void;
 }) {
   const [form] = Form.useForm<ReportConfig>();
   const defaults: ReportConfig = useMemo(() => (initial ?? {
@@ -258,10 +272,12 @@ function ConfigForm({
     isActive: true,
     sendHourLocal: 6,
     timezone: 'America/Puerto_Rico',
-    templateKey: 'weekly-sentiment-summary',
+    templateKey: 'daily-sentiment-summary',
     recipients: [],
     fromEmail: 'agutierrez@populicom.com',
-    fromName: 'Populicom Radar',
+    fromName: 'ECO Radar',
+    weeklyEnabled: true,
+    weeklySendDow: 5,
   }), [initial]);
 
   useEffect(() => { form.setFieldsValue(defaults); }, [defaults, form]);
@@ -295,9 +311,26 @@ function ConfigForm({
           </Form.Item>
         </Space>
 
-        <Form.Item label="Template del correo" name="templateKey" rules={[{ required: true }]}>
+        <Form.Item label="Template del correo diario" name="templateKey" rules={[{ required: true }]}>
           <Select options={TEMPLATE_OPTIONS} />
         </Form.Item>
+
+        <Divider plain>Correo semanal (comparativo)</Divider>
+
+        <Space size={16} style={{ width: '100%', display: 'flex' }}>
+          <Form.Item
+            label="Resumen semanal"
+            name="weeklyEnabled"
+            valuePropName="checked"
+            style={{ flex: 1 }}
+            extra="Compara la semana cerrada contra la anterior. Llega además del diario, a la misma hora."
+          >
+            <Switch checkedChildren="Activo" unCheckedChildren="Inactivo" />
+          </Form.Item>
+          <Form.Item label="Día de envío" name="weeklySendDow" style={{ flex: 1 }} rules={[{ required: true }]}>
+            <Select options={DOW_OPTIONS} />
+          </Form.Item>
+        </Space>
 
         <Divider plain>Destinatarios y remitente</Divider>
 
@@ -347,7 +380,8 @@ function ConfigForm({
 
         <Space>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>Guardar cambios</Button>
-          <Button icon={<SendOutlined />} onClick={onSendTest} loading={sendingTest} disabled={saving}>Enviar prueba ahora</Button>
+          <Button icon={<SendOutlined />} onClick={() => onSendTest('daily')} loading={sendingTest} disabled={saving}>Probar diario</Button>
+          <Button icon={<SendOutlined />} onClick={() => onSendTest('weekly')} loading={sendingTest} disabled={saving}>Probar semanal</Button>
         </Space>
       </Form>
     </Card>
@@ -378,6 +412,14 @@ function HistoryTable({ rows }: { rows: HistoryEntry[] }) {
           dataIndex: 'status',
           width: 130,
           render: (s: string) => <StatusTag status={s} />,
+        },
+        {
+          title: 'Tipo',
+          dataIndex: 'templateKey',
+          width: 90,
+          render: (k: string) => k === 'weekly-comparison-v1'
+            ? <Tag color="geekblue">Semanal</Tag>
+            : <Tag color="blue">Diario</Tag>,
         },
         {
           title: 'Trigger',

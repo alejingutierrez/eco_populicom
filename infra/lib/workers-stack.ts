@@ -188,6 +188,7 @@ export class WorkersStack extends cdk.Stack {
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         SES_FROM_EMAIL: 'noreply@populicom.com',
+        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
       },
       logGroup: importLogGroup('AlertsLogGroup', 'eco-alerts'),
       bundling: bundlingOptions,
@@ -304,6 +305,7 @@ export class WorkersStack extends cdk.Stack {
         SES_FROM_NAME: 'ECO Radar',
         REPORT_RECIPIENTS: 'agutierrez@populicom.com',
         AGENCY_SLUG: 'ddecpr',
+        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
       },
       logGroup: importLogGroup('WeeklyReportLogGroup', 'eco-weekly-report'),
       bundling: bundlingOptions,

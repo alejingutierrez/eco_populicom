@@ -1,15 +1,30 @@
 /**
- * Renderiza el template HTML del reporte semanal con datos reales.
+ * Template HTML del REPORTE DIARIO (antes "reporte semanal" — se renombró en
+ * jul 2026 porque siempre se envió todos los días con ventana rolante de 7
+ * días y el nombre confundía al destinatario).
+ *
+ * Identidad: asunto "[Diario] …", barra y badge azul marca, footer "reporte
+ * diario". Los indicadores compuestos se muestran NUMÉRICOS (%, /10, con
+ * signo — paridad con el dashboard), sin palabra cualitativa; el color del
+ * número codifica la banda.
  *
  * Diseño: minimalista, fondo claro, marca ECO (azul + amarillo) usada con
- * moderación. Sin gradients oscuros ni elementos decorativos. Tablas e
- * inline styles para compatibilidad con Gmail / Outlook / Apple Mail.
- * Imagen PNG externa (QuickChart) para el gráfico de tendencia.
+ * moderación. Tablas e inline styles para compatibilidad con Gmail /
+ * Outlook / Apple Mail. Imagen PNG externa (QuickChart) para la tendencia.
  */
 
-import type { MetricDisplay, DeltaDisplay } from '../format/metrics-display';
+import type { DeltaDisplay } from '../format/metrics-display';
+import {
+  EMAIL_COLORS as COLORS,
+  esc,
+  fmtInt,
+  sectionKicker,
+  renderMetricTiles,
+  emailDocument,
+  type EmailMetric,
+} from './chrome';
 
-export interface WeeklyReportRenderData {
+export interface DailyReportRenderData {
   agencyName: string;
   /** Siglas de la agencia destinataria (ej. "DDEC", "AAA"). Se usa en `<title>`. */
   agencyShortName: string;
@@ -30,9 +45,7 @@ export interface WeeklyReportRenderData {
   /**
    * Deltas de sentimiento ya formateados con `formatDelta` (@eco/shared/format).
    * Opcional y retro-compatible: si falta, el termómetro cae al cálculo local
-   * `signedPct()`/`deltaWord()` a partir de `deltaVsPrev`. Cuando se provee,
-   * el KPI consume estos objetos para hablar el mismo vocabulario que el
-   * dashboard (sube/baja/estable + magnitud con signo tipográfico).
+   * `signedPct()`/`deltaWord()` a partir de `deltaVsPrev`.
    */
   deltaDisplay?: {
     negative: DeltaDisplay;
@@ -77,62 +90,24 @@ export interface WeeklyReportRenderData {
     paragraph: string;
   };
   /**
-   * Indicadores compuestos (Crisis / BHI / NSS) ya formateados con
-   * `formatMetric` (@eco/shared/format) — misma fuente que el dashboard y la
-   * alerta de crisis. Opcional y retro-compatible: si falta, la sección
-   * "Indicadores" no se renderiza. Cada uno lleva `velocity` opcional
-   * (producido por `formatVelocity`) para la velocidad de engagement.
+   * Indicadores compuestos ya formateados con `formatMetric`/`formatDelta`
+   * (@eco/shared/format) — misma fuente que el dashboard. Se renderizan como
+   * tiles numéricos con el delta vs los 7 días previos como línea de apoyo.
+   * Opcional y retro-compatible: si falta, la sección no se renderiza.
    */
   metrics?: {
-    crisis: MetricDisplay;
-    bhi: MetricDisplay;
-    nss: MetricDisplay;
-    velocity?: MetricDisplay;
+    crisis: EmailMetric;
+    bhi: EmailMetric;
+    nss: EmailMetric;
+    polarization?: EmailMetric;
+    velocity?: EmailMetric;
+    engagementRate?: EmailMetric;
   };
 }
 
 // ------------------------------------------------------------
-// Paleta — sobria, light-first
+// Helpers locales
 // ------------------------------------------------------------
-
-const COLORS = {
-  // Estructura
-  page: '#F5F6F8',          // gris muy claro detrás del email
-  surface: '#FFFFFF',       // tarjetas y secciones
-  border: '#E6E8EC',        // bordes sutiles
-  borderSoft: '#EEF0F4',    // separadores internos
-
-  // Tipografía
-  ink: '#0E1E2C',           // texto principal (azul muy oscuro de marca)
-  inkSoft: '#4A5563',       // texto secundario
-  inkMute: '#8A93A0',       // texto terciario, labels
-
-  // Marca ECO
-  brand: '#0A7EA4',         // azul de marca
-  brandSoft: '#E6F1F7',     // azul muy claro para acentos
-  accent: '#F4C300',        // amarillo de marca
-  accentSoft: '#FFF8DB',    // amarillo crema para destacar
-
-  // Semánticos
-  neg: '#C8462F',           // rojo, ligeramente más oscuro/serio
-  negSoft: '#FBE9E5',
-  neu: '#6B7280',
-  neuSoft: '#EEF0F3',
-  pos: '#1F8A47',
-  posSoft: '#E6F4EC',
-};
-
-// ------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 function pct(n: number, total: number): number {
   if (!total) return 0;
@@ -146,42 +121,20 @@ function signedPct(n: number): string {
   return '0%';
 }
 
-function fmtInt(n: number): string {
-  return n.toLocaleString('es-PR');
-}
-
 function deltaWord(n: number): string {
   // Deriva la palabra del valor REDONDEADO para que concuerde con signedPct
-  // (que también redondea). Antes leía el float crudo, produciendo el
-  // contradictorio "0% sube" cuando un +0.4% redondeaba a 0%. Mismo vocabulario
-  // que @eco/shared/format:formatDelta (sube/baja/estable).
+  // (que también redondea). Mismo vocabulario que formatDelta (sube/baja/estable).
   const r = Math.round(n);
   if (r > 0) return 'sube';
   if (r < 0) return 'baja';
   return 'estable';
 }
 
-// Mapa tono → hex del palette del correo. Los `MetricDisplay`/`DeltaDisplay`
-// traen `color` como variable CSS ("var(--neg)") que NO resuelve en clientes
-// de email; consumimos `tone` y lo mapeamos a un hex sólido de esta paleta.
-type MetricTone = MetricDisplay['tone'];
-const TONE_HEX: Record<MetricTone, string> = {
-  neg: COLORS.neg,
-  warn: COLORS.accent,   // ámbar de marca para "advertencia" (Elevado/Débil)
-  pos: COLORS.pos,
-  accent: COLORS.brand,  // azul de marca para "destacado" (Fuerte/Muy pos)
-  neutral: COLORS.inkSoft,
-};
-
-function toneHex(tone: MetricTone): string {
-  return TONE_HEX[tone] ?? COLORS.inkSoft;
-}
-
 // ------------------------------------------------------------
 // Gráfico — PNG externo (QuickChart) con alt-text descriptivo
 // ------------------------------------------------------------
 
-function renderChart(data: WeeklyReportRenderData): string {
+function renderChart(data: DailyReportRenderData): string {
   if (!data.dailySeries.length) {
     return `<div style="padding:32px;text-align:center;color:${COLORS.inkMute};font-size:13px;">Sin datos en el periodo.</div>`;
   }
@@ -207,7 +160,7 @@ function renderInsights(items: string[], color: string): string {
   }
   return clean
     .map(
-      (s, i, arr) => {
+      (s, i) => {
         const borderTop = i === 0 ? '' : `border-top:1px solid ${COLORS.borderSoft};`;
         return `<li class="force-text-dark" style="padding:12px 0 12px 28px;${borderTop}font-size:13.5px;line-height:1.6;color:${COLORS.ink};position:relative;">
           <span style="position:absolute;left:0;top:12px;color:${color};font-weight:700;font-size:13px;">${i + 1}.</span>
@@ -222,7 +175,7 @@ function renderInsights(items: string[], color: string): string {
 // Main render
 // ------------------------------------------------------------
 
-export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
+export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const { totals, deltaVsPrev } = data;
 
   const topicsList = data.topicsTable.slice(0, 9);
@@ -275,101 +228,46 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
   const neuPct = pct(totals.neutral, totals.total);
   const posPct = pct(totals.positive, totals.total);
 
-  // Sección "Indicadores" (Crisis/BHI/NSS): sólo si el caller adjuntó las
-  // métricas ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
+  // Indicadores compuestos numéricos: sólo si el caller adjuntó las métricas
+  // ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
   const indicatorsBlock = data.metrics ? renderIndicators(data.metrics) : '';
 
-  return `<!doctype html>
-<html lang="es" style="color-scheme:light only;supported-color-schemes:light only;">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="x-apple-disable-message-reformatting">
-  <meta name="color-scheme" content="light only">
-  <meta name="supported-color-schemes" content="light only">
-  <title>Resumen semanal ECO · ${esc(data.agencyShortName)} · ${esc(data.periodLabel)}</title>
-  <!--[if mso]>
-  <style type="text/css">
-    table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
-  </style>
-  <![endif]-->
-  <style>
-    :root { color-scheme: light only; supported-color-schemes: light only; }
-    body { margin: 0; padding: 0; background: ${COLORS.page}; }
-    a { text-decoration: none; }
-    img { -ms-interpolation-mode: bicubic; }
-    /* iOS / Apple Mail: evita auto-detección coloreada de fechas y direcciones */
-    .appleLinks a { color: inherit !important; text-decoration: none !important; }
-    /* Outlook.com / Office 365 dark mode override — fuerza colores claros */
-    [data-ogsc] .force-bg-page { background-color: ${COLORS.page} !important; }
-    [data-ogsc] .force-bg-white { background-color: ${COLORS.surface} !important; }
-    [data-ogsc] .force-text-dark { color: ${COLORS.ink} !important; }
-    [data-ogsc] .force-text-mute { color: ${COLORS.inkSoft} !important; }
-    [data-ogsc] .force-text-soft { color: ${COLORS.inkMute} !important; }
-    [data-ogsc] .force-border { border-color: ${COLORS.border} !important; }
-    /* Gmail iOS: no invertir backgrounds claros */
-    u + .body .gmail-dark-fix { background: ${COLORS.page} !important; }
-    @media (prefers-color-scheme: dark) {
-      .container, .container td, .container div, .container p, .container h1, .container h2, .container h3, .container span, .container strong {
-        color-scheme: light only !important;
-      }
-    }
-    @media (max-width: 620px) {
-      .container { width: 100% !important; border-radius: 0 !important; }
-      .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
-      .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding-bottom: 10px !important; padding-left: 0 !important; padding-right: 0 !important; }
-      .kpi-value { font-size: 30px !important; }
-      h1.title { font-size: 22px !important; }
-      h2.section-title { font-size: 16px !important; }
-    }
-  </style>
-</head>
-<body class="body" style="margin:0;padding:0;background:${COLORS.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:${COLORS.ink};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${COLORS.page};opacity:0;">
-    ${esc(data.agencyKicker)} — ${fmtInt(totals.total)} menciones · periodo ${esc(data.periodLabel)}
-  </div>
-
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:${COLORS.page};">
-    <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="width:600px;max-width:600px;background:${COLORS.surface};background-color:${COLORS.surface};border-radius:10px;overflow:hidden;border:1px solid ${COLORS.border};">
-
-          <!-- HEADER -->
+  const contentRows = `
+          <!-- HERO -->
           <tr>
-            <td class="px-32" style="padding:22px 32px 18px 32px;border-bottom:1px solid ${COLORS.borderSoft};">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <td class="px-32" style="padding:26px 32px 22px 32px;">
+              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
+                ${esc(data.agencyKicker)}
+              </div>
+              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
+                Reporte diario de<br>conversación pública
+              </h1>
+              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
+                Ventana: últimos 7 días (${esc(data.periodLabel)}) &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
+              </div>
+            </td>
+          </tr>
+
+          <!-- 01 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
+          <tr>
+            <td class="px-32" style="padding:0 32px 22px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
                 <tr>
-                  <td align="left" valign="middle">
-                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:${COLORS.ink};">ECO <span style="color:${COLORS.brand};">Radar</span></span>
-                  </td>
-                  <td align="right" valign="middle" class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};letter-spacing:0.02em;font-weight:600;">
-                    IDEA
+                  <td style="padding:18px 22px;">
+                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
+                      ${esc(data.dailySummary.label)}
+                    </div>
+                    <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.dailySummary.paragraph}</p>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- HERO -->
+          <!-- 02 · TERMÓMETRO -->
           <tr>
-            <td class="px-32" style="padding:28px 32px 24px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
-                ${esc(data.agencyKicker)}
-              </div>
-              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
-                Conversación pública<br>de los últimos 7 días
-              </h1>
-              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
-                ${esc(data.periodLabel)} &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
-              </div>
-            </td>
-          </tr>
-
-          <!-- 01 · TERMÓMETRO -->
-          <tr>
-            <td class="px-32" style="padding:6px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">01 · Termómetro</div>
+            <td class="px-32" style="padding:0 32px 8px 32px;">
+              ${sectionKicker('02 · Termómetro · últimos 7 días')}
               <h2 class="section-title force-text-dark" style="margin:0 0 18px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Cómo se sintió la conversación
               </h2>
@@ -383,15 +281,15 @@ export function renderWeeklyReportHtml(data: WeeklyReportRenderData): string {
               </table>
 
               <div class="force-text-soft" style="margin-top:14px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Total del periodo: <strong style="color:${COLORS.ink};">${fmtInt(totals.total)}</strong> menciones &nbsp;·&nbsp; comparado con la semana previa
+                Total del periodo: <strong style="color:${COLORS.ink};">${fmtInt(totals.total)}</strong> menciones &nbsp;·&nbsp; comparado con los 7 días previos
               </div>
             </td>
           </tr>
 ${indicatorsBlock}
-          <!-- 02 · TENDENCIA -->
+          <!-- 03 · TENDENCIA -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">02 · Tendencia</div>
+              ${sectionKicker('03 · Tendencia')}
               <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Día a día
               </h2>
@@ -420,10 +318,10 @@ ${indicatorsBlock}
             </td>
           </tr>
 
-          <!-- 03 · TÓPICO PRINCIPAL -->
+          <!-- 04 · TÓPICO PRINCIPAL -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">03 · Tópico principal</div>
+              ${sectionKicker('04 · Tópico principal')}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Dónde se concentra la conversación
               </h2>
@@ -444,10 +342,10 @@ ${indicatorsBlock}
             </td>
           </tr>
 
-          <!-- 04 · INSIGHTS -->
+          <!-- 05 · INSIGHTS -->
           <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:6px;">04 · Insights</div>
+            <td class="px-32" style="padding:24px 32px 20px 32px;">
+              ${sectionKicker('05 · Insights')}
               <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Lo que está diciendo la audiencia
               </h2>
@@ -456,42 +354,14 @@ ${indicatorsBlock}
               ${insightBlock('Neutral', `${neuPct}% del total`, COLORS.neu, COLORS.neuSoft, renderInsights(data.insights.neutral, COLORS.neu))}
               ${insightBlock('Positivo', `${posPct}% del total`, COLORS.pos, COLORS.posSoft, renderInsights(data.insights.positive, COLORS.pos))}
             </td>
-          </tr>
+          </tr>`;
 
-          <!-- RESUMEN DEL DÍA -->
-          <tr>
-            <td class="px-32" style="padding:14px 32px 28px 32px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
-                <tr>
-                  <td style="padding:18px 22px;">
-                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
-                      ${esc(data.dailySummary.label)}
-                    </div>
-                    <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.dailySummary.paragraph}</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- FOOTER -->
-          <tr>
-            <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid ${COLORS.borderSoft};" align="center">
-              <div class="force-text-soft" style="color:${COLORS.inkMute};font-size:11.5px;line-height:1.6;">
-                ECO Radar &nbsp;·&nbsp; IDEA
-              </div>
-              <div class="force-text-soft" style="margin-top:6px;color:${COLORS.inkMute};font-size:11px;line-height:1.5;">
-                Recibes este correo porque eres administrador del Radar de tu agencia.
-              </div>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return emailDocument({
+    title: `Reporte diario ECO · ${data.agencyShortName} · ${data.periodLabel}`,
+    preheader: `Reporte diario · ${data.agencyKicker} — ${fmtInt(totals.total)} menciones · últimos 7 días (${data.periodLabel})`,
+    kind: 'daily',
+    contentRows,
+  });
 }
 
 // ------------------------------------------------------------
@@ -529,7 +399,7 @@ function kpiCard(
           <div class="kpi-value force-text-dark" style="font-size:32px;line-height:1;font-weight:700;color:${COLORS.ink};margin-top:14px;letter-spacing:-0.025em;">${fmtInt(value)}</div>
           <div class="force-text-mute" style="font-size:12.5px;color:${COLORS.inkSoft};margin-top:4px;font-weight:500;">${percentOfTotal}% del total</div>
           <div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.4;">
-            <span style="color:${color};font-weight:600;">${esc(deltaValue)}</span> ${esc(deltaWordStr)} vs. semana previa
+            <span style="color:${color};font-weight:600;">${esc(deltaValue)}</span> ${esc(deltaWordStr)} vs. 7 días previos
           </div>
         </td>
       </tr>
@@ -538,53 +408,25 @@ function kpiCard(
 }
 
 // ------------------------------------------------------------
-// Indicador compuesto — tarjeta "palabra · valor" (Crisis/BHI/NSS).
-// Reusa el patrón visual de indicatorTile de render-crisis-alert.ts: pill
-// de etiqueta arriba, palabra grande coloreada por tono, número de apoyo
-// debajo. El color viene del tono del MetricDisplay mapeado a un hex sólido
-// (var(--*) no resuelve en clientes de email).
+// Indicadores compuestos — tiles numéricos (paridad dashboard), sin palabra
+// cualitativa. Delta vs los 7 días previos como línea de apoyo.
 // ------------------------------------------------------------
 
-function indicatorTile(label: string, m: MetricDisplay, widthPct: string): string {
-  const accent = toneHex(m.tone);
-  const support = m.value ?? '';
-  return `<td class="stack stack-pad" valign="top" width="${widthPct}" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
-      <tr>
-        <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;">${esc(label)}</div>
-          <div class="force-text-dark" style="font-size:22px;line-height:1.15;font-weight:700;color:${accent};margin-top:8px;letter-spacing:-0.02em;">${esc(m.word)}</div>
-          ${support
-            ? `<div class="force-text-soft" style="margin-top:6px;font-size:12px;color:${COLORS.inkMute};line-height:1.4;">${esc(support)}</div>`
-            : ''}
-        </td>
-      </tr>
-    </table>
-  </td>`;
-}
-
-function renderIndicators(metrics: NonNullable<WeeklyReportRenderData['metrics']>): string {
-  const tiles: string[] = [
-    indicatorTile('Crisis', metrics.crisis, '25%'),
-    indicatorTile('Salud de marca', metrics.bhi, '25%'),
-    indicatorTile('Sentimiento neto', metrics.nss, '25%'),
+function renderIndicators(metrics: NonNullable<DailyReportRenderData['metrics']>): string {
+  const entries: Array<{ label: string; metric: EmailMetric }> = [
+    { label: 'Riesgo de crisis', metric: metrics.crisis },
+    { label: 'Salud de marca', metric: metrics.bhi },
+    { label: 'Sentimiento neto', metric: metrics.nss },
   ];
-  if (metrics.velocity) {
-    tiles.push(indicatorTile('Velocidad', metrics.velocity, '25%'));
-  }
-  // Con 3 indicadores dejamos un cuarto slot vacío para no romper el grid
-  // fijo de 4 columnas (mismo layout que la alerta de crisis).
-  const filler = tiles.length < 4
-    ? `<td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">&nbsp;</td>`
-    : '';
+  if (metrics.polarization) entries.push({ label: 'Polarización', metric: metrics.polarization });
+  if (metrics.velocity) entries.push({ label: 'Velocidad engagement', metric: metrics.velocity });
+  if (metrics.engagementRate) entries.push({ label: 'Tasa de interacción', metric: metrics.engagementRate });
 
   return `
           <tr>
             <td class="px-32" style="padding:6px 32px 8px 32px;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.brand};margin-bottom:10px;">Indicadores</div>
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
-                <tr>${tiles.join('')}${filler}</tr>
-              </table>
+              ${sectionKicker('Indicadores · mismos valores que el dashboard')}
+              ${renderMetricTiles(entries, { cols: 3, deltaSuffix: 'vs 7 días previos' })}
             </td>
           </tr>`;
 }

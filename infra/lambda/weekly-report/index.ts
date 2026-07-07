@@ -1,15 +1,28 @@
 /**
- * eco-weekly-report Lambda
+ * eco-weekly-report Lambda — envía los REPORTES por correo (diario y semanal).
+ *
+ * (El nombre del lambda es histórico; desde jul 2026 maneja DOS tipos de
+ * correo. No se renombra el recurso para no recrear la función en CDK.)
+ *
+ * Tipos de correo:
+ *  - DIARIO ("[Diario] …"): todos los días a la hora local configurada
+ *    (report_configs.send_hour_local, default 6 AM). Ventana rolante de 7
+ *    días cerrados terminando ayer.
+ *  - SEMANAL ("[Semanal] …"): solo el día configurado
+ *    (report_configs.weekly_send_dow, default 5 = viernes) a la misma hora.
+ *    Compara la semana cerrada (7 días terminando ayer) contra la anterior.
  *
  * Disparador 1 — EventBridge (cada hora, minuto 0): itera report_configs
  * activos, calcula la hora local de cada agencia según su timezone, y envía
- * si la hora coincide con send_hour_local.
+ * si la hora coincide con send_hour_local (+ gate de día para el semanal).
  *
  * Disparador 2 — invocación manual/API (payload con agencySlug): envía
- * inmediatamente para esa agencia, ignorando la hora. Se usa para "Enviar
- * prueba" desde el dashboard admin.
+ * inmediatamente para esa agencia, ignorando hora y día. `reportType`
+ * ('daily' | 'weekly', default 'daily') elige el correo. Se usa para
+ * "Enviar prueba" desde el dashboard admin y para dryRun.
  *
- * Cada envío (o skip/fail) se registra en report_send_log.
+ * Cada envío (o skip/fail) se registra en report_send_log; el semanal se
+ * distingue por template_key = 'weekly-comparison-v1'.
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -18,23 +31,32 @@ import {
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
   buildDailySummaryPrompt,
-  renderWeeklyReportHtml,
+  buildWeeklySummaryPrompt,
+  renderDailyReportHtml,
+  renderWeeklySummaryHtml,
   buildSentimentReport,
+  buildSubject,
   closedWindowYmdInTZ,
   ymdInTimeZone,
   hourInTimeZone,
+  dowInTimeZone,
+  addDaysYmd,
   formatPeriodLabel,
   formatShortDay,
+  formatDayLabel,
   formatUpdatedAtLabel,
   loadMetricsForWindow,
   formatMetric,
   formatDelta,
   formatVelocity,
+  type EmailMetric,
   type MentionSample,
   type WeeklyAggregates,
-  type WeeklyReportRenderData,
+  type DailyReportRenderData,
+  type WeeklySummaryRenderData,
   type PgClientLike,
   type SentimentReport,
+  type WindowMetrics,
 } from '@eco/shared';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -44,6 +66,11 @@ const ses = new SESClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
 const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com';
+
+/** template_key con el que el SEMANAL se registra en report_send_log. El
+ *  diario usa el template_key de la config ('daily-sentiment-summary'). */
+const WEEKLY_TEMPLATE_KEY = 'weekly-comparison-v1';
 
 /**
  * TZ para todo cálculo de "día calendario" del reporte. Puerto Rico es AST
@@ -56,9 +83,13 @@ const REPORT_TIMEZONE = 'America/Puerto_Rico';
 let dbUrl: string | null = null;
 let schemaEnsured = false;
 
+type ReportType = 'daily' | 'weekly';
+
 interface InvokePayload {
-  /** Si se especifica, ejecuta solo para esa agencia e ignora la hora (útil para tests manuales). */
+  /** Si se especifica, ejecuta solo para esa agencia e ignora hora/día (tests manuales). */
   agencySlug?: string;
+  /** Tipo de correo a generar en invocación dirigida. Default: 'daily'. */
+  reportType?: ReportType;
   /** Override de destinatarios (solo si viene agencySlug). Si no, usa los de report_configs. */
   recipients?: string[];
   /** True = renderiza y devuelve HTML sin enviar y sin logear. */
@@ -72,10 +103,12 @@ interface InvokePayload {
 interface RunResult {
   ok: boolean;
   agency?: string;
+  reportType?: ReportType;
   status?: 'sent' | 'skipped' | 'failed' | 'no_recipients' | 'no_data';
   sent?: number;
   messageId?: string;
   html?: string;
+  subject?: string;
   error?: string;
 }
 
@@ -94,19 +127,21 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
 
     // Modo: invocación dirigida (manual/send-test desde UI)
     if (event.agencySlug) {
-      console.log(`[weekly-report] targeted run · agency=${event.agencySlug} · dryRun=${event.dryRun === true}`);
+      console.log(`[weekly-report] targeted run · agency=${event.agencySlug} · type=${event.reportType ?? 'daily'} · dryRun=${event.dryRun === true}`);
       const result = await runForAgencyBySlug(client, event);
       return result;
     }
 
     // Modo: scheduled (EventBridge cada hora). Itera configs activas y
-    // decide cuáles corresponden a esta hora local.
+    // decide cuáles corresponden a esta hora local (y, para el semanal,
+    // a este día local).
     const nowUtc = new Date();
     console.log(`[weekly-report] scheduled sweep · now=${nowUtc.toISOString()}`);
 
     const configs = await client.query(
       `SELECT rc.agency_id, rc.send_hour_local, rc.timezone, rc.template_key,
               rc.recipients, rc.from_email, rc.from_name,
+              rc.weekly_enabled, rc.weekly_send_dow,
               a.slug, a.name
          FROM report_configs rc
          JOIN agencies a ON a.id = rc.agency_id
@@ -131,7 +166,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
         runs.push({ ok: false, agency: cfg.slug, status: 'no_recipients' });
         continue;
       }
-      const run = await runForAgency(client, {
+      const inputs: AgencyRunInputs = {
         agencyId: cfg.agency_id,
         agencySlug: cfg.slug,
         agencyName: cfg.name,
@@ -141,8 +176,19 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
         templateKey: cfg.template_key,
         trigger: 'scheduled',
         triggeredBy: null,
-      });
-      runs.push(run);
+      };
+
+      // Diario — todos los días a la hora configurada.
+      runs.push(await runForAgency(client, inputs, 'daily'));
+
+      // Semanal — además del diario, solo el día local configurado (default
+      // viernes). Decisión jul 2026: el viernes llegan AMBOS correos (el
+      // semanal complementa, no reemplaza, al diario).
+      const localDow = dowInTimeZone(nowUtc, cfg.timezone);
+      const weeklyDow = cfg.weekly_send_dow ?? 5;
+      if (cfg.weekly_enabled === true && localDow === weeklyDow) {
+        runs.push(await runForAgency(client, inputs, 'weekly'));
+      }
     }
     return { ok: true, runs };
   } finally {
@@ -168,15 +214,16 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
     return { ok: false, error: `agency '${event.agencySlug}' not found` };
   }
   const a = agencyRow.rows[0];
+  const reportType: ReportType = event.reportType === 'weekly' ? 'weekly' : 'daily';
   const recipients = event.recipients ?? (a.recipients as string[] | null) ?? [];
   const fromEmail = a.from_email ?? 'agutierrez@populicom.com';
   const fromName = a.from_name ?? 'ECO Radar';
-  const templateKey = a.template_key ?? 'weekly-sentiment-summary';
+  const templateKey = a.template_key ?? 'daily-sentiment-summary';
   const trigger = event.trigger ?? 'manual';
 
   if (event.dryRun === true) {
-    const { html } = await buildReport(client, { id: a.id, slug: a.slug, name: a.name });
-    return { ok: true, agency: a.slug, html, status: 'sent' };
+    const built = await buildEmail(client, { id: a.id, slug: a.slug, name: a.name }, reportType);
+    return { ok: true, agency: a.slug, reportType, html: built.html, subject: built.subject, status: 'sent' };
   }
 
   if (recipients.length === 0) {
@@ -184,7 +231,7 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
       recipients: [], fromEmail, templateKey, trigger, status: 'no_recipients',
       triggeredBy: event.triggeredBy,
     });
-    return { ok: false, agency: a.slug, status: 'no_recipients', error: 'no recipients configured' };
+    return { ok: false, agency: a.slug, reportType, status: 'no_recipients', error: 'no recipients configured' };
   }
 
   return runForAgency(client, {
@@ -197,7 +244,7 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
     templateKey,
     trigger,
     triggeredBy: event.triggeredBy ?? null,
-  });
+  }, reportType);
 }
 
 // ============================================================
@@ -216,22 +263,21 @@ interface AgencyRunInputs {
   triggeredBy: string | null;
 }
 
-async function runForAgency(client: any, i: AgencyRunInputs): Promise<RunResult> {
+async function runForAgency(client: any, i: AgencyRunInputs, reportType: ReportType): Promise<RunResult> {
+  const logTemplateKey = reportType === 'weekly' ? WEEKLY_TEMPLATE_KEY : i.templateKey;
   try {
-    const { html, aggregates } = await buildReport(client, {
+    const built = await buildEmail(client, {
       id: i.agencyId, slug: i.agencySlug, name: i.agencyName,
-    });
+    }, reportType);
 
-    if (aggregates.totals.total === 0) {
-      console.warn(`[weekly-report] ${i.agencySlug} — no mentions in period, skipping send`);
+    if (!built.hasData) {
+      console.warn(`[weekly-report] ${i.agencySlug} (${reportType}) — no mentions in period, skipping send`);
       await logSend(client, i.agencyId, {
-        recipients: i.recipients, fromEmail: i.fromEmail, templateKey: i.templateKey,
-        trigger: i.trigger, status: 'no_data', stats: aggregates.totals, triggeredBy: i.triggeredBy ?? undefined,
+        recipients: i.recipients, fromEmail: i.fromEmail, templateKey: logTemplateKey,
+        trigger: i.trigger, status: 'no_data', stats: built.stats, triggeredBy: i.triggeredBy ?? undefined,
       });
-      return { ok: false, agency: i.agencySlug, status: 'no_data' };
+      return { ok: false, agency: i.agencySlug, reportType, status: 'no_data' };
     }
-
-    const subject = `${agencyShortName(i.agencySlug)} · Resumen semanal ${formatShortDay(aggregates.periodStart)} – ${formatShortDay(aggregates.periodEnd)}`;
 
     // Enviar por destinatario individual: en SES sandbox, una dirección no
     // verificada tumba el mensaje entero si va en TO compartido. Individual
@@ -245,61 +291,89 @@ async function runForAgency(client: any, i: AgencyRunInputs): Promise<RunResult>
           Source: `${i.fromName} <${i.fromEmail}>`,
           Destination: { ToAddresses: [recipient] },
           Message: {
-            Subject: { Data: subject, Charset: 'UTF-8' },
-            Body: { Html: { Data: html, Charset: 'UTF-8' } },
+            Subject: { Data: built.subject, Charset: 'UTF-8' },
+            Body: { Html: { Data: built.html, Charset: 'UTF-8' } },
           },
         }));
         sent.push(recipient);
         if (!firstMessageId) firstMessageId = result.MessageId;
-        console.log(`[weekly-report] ${i.agencySlug} sent to=${recipient} messageId=${result.MessageId}`);
+        console.log(`[weekly-report] ${i.agencySlug} (${reportType}) sent to=${recipient} messageId=${result.MessageId}`);
       } catch (err: any) {
         failed.push({ email: recipient, error: String(err?.message ?? err) });
-        console.warn(`[weekly-report] ${i.agencySlug} SKIPPED ${recipient}: ${err?.message ?? err}`);
+        console.warn(`[weekly-report] ${i.agencySlug} (${reportType}) SKIPPED ${recipient}: ${err?.message ?? err}`);
       }
     }
 
     const status = sent.length > 0 ? 'sent' : 'failed';
     await logSend(client, i.agencyId, {
-      recipients: sent, fromEmail: i.fromEmail, templateKey: i.templateKey,
+      recipients: sent, fromEmail: i.fromEmail, templateKey: logTemplateKey,
       trigger: i.trigger, status, messageId: firstMessageId,
       error: failed.length > 0 ? `partial: ${failed.map((f) => f.email).join(',')}` : undefined,
-      stats: aggregates.totals, triggeredBy: i.triggeredBy ?? undefined,
+      stats: built.stats, triggeredBy: i.triggeredBy ?? undefined,
     });
     return {
       ok: sent.length > 0,
       agency: i.agencySlug,
+      reportType,
       status,
       sent: sent.length,
       messageId: firstMessageId,
       ...(failed.length > 0 && { error: `${failed.length} recipient(s) failed: ${failed.map((f) => f.email).join(', ')}` }),
     };
   } catch (err: any) {
-    console.error(`[weekly-report] ${i.agencySlug} FAILED:`, err);
+    console.error(`[weekly-report] ${i.agencySlug} (${reportType}) FAILED:`, err);
     await logSend(client, i.agencyId, {
-      recipients: i.recipients, fromEmail: i.fromEmail, templateKey: i.templateKey,
+      recipients: i.recipients, fromEmail: i.fromEmail, templateKey: logTemplateKey,
       trigger: i.trigger, status: 'failed', error: String(err?.message ?? err),
       triggeredBy: i.triggeredBy ?? undefined,
     });
-    return { ok: false, agency: i.agencySlug, status: 'failed', error: String(err?.message ?? err) };
+    return { ok: false, agency: i.agencySlug, reportType, status: 'failed', error: String(err?.message ?? err) };
   }
 }
 
 // ============================================================
-// Build report (aggregates + Bedrock + render HTML)
+// Build email (dispatch por tipo)
 // ============================================================
 
-interface BuiltReport {
+interface BuiltEmail {
   html: string;
-  aggregates: WeeklyAggregates;
+  subject: string;
+  stats: { negative: number; neutral: number; positive: number; total: number };
+  /** false → no se envía (status no_data). */
+  hasData: boolean;
 }
 
-async function buildReport(
+async function buildEmail(
   client: any,
   agency: { id: string; slug: string; name: string },
-): Promise<BuiltReport> {
+  reportType: ReportType,
+): Promise<BuiltEmail> {
+  return reportType === 'weekly'
+    ? buildWeeklySummaryEmail(client, agency)
+    : buildDailyReportEmail(client, agency);
+}
+
+/** "lun 7 jul" — día de envío para el asunto del diario. */
+function fullDayEs(ymd: string): string {
+  const monthPart = formatShortDay(ymd).split(' ')[1] ?? '';
+  return `${formatDayLabel(ymd)} ${monthPart}`.trim();
+}
+
+function fmtIntEs(n: number): string {
+  return n.toLocaleString('es-PR');
+}
+
+// ============================================================
+// REPORTE DIARIO — ventana rolante de 7 días cerrados
+// ============================================================
+
+async function buildDailyReportEmail(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+): Promise<BuiltEmail> {
   // Periodo: últimos 7 días CERRADOS (terminando AYER) en America/Puerto_Rico.
   // El correo se envía 6 AM PR; ayer ya es un día completo. No incluimos hoy
-  // parcial — eso sesgaría el termómetro y el delta vs. semana previa.
+  // parcial — eso sesgaría el termómetro y el delta vs. los 7 días previos.
   const nowUtc = new Date();
   const window = closedWindowYmdInTZ(7, nowUtc, REPORT_TIMEZONE);
   const { startYmd: startDate, endYmd: endDate, prevStartYmd: prevStartDate, prevEndYmd: prevEndDate } = window;
@@ -310,12 +384,8 @@ async function buildReport(
     client as PgClientLike, agency.id, startDate, endDate, prevStartDate, prevEndDate,
   );
 
-  // 1b) Métricas compuestas (Crisis/BHI/NSS + velocidad) recalculadas sobre la
-  //     VENTANA del period actual y la previa. Misma fuente y patrón que
-  //     /api/overview (loadMetricsForWindow del paquete @eco/shared/metrics),
-  //     para que el correo muestre exactamente los mismos indicadores y bandas
-  //     que el dashboard. formatMetric/formatDelta/formatVelocity son la capa
-  //     única de formato legible.
+  // 1b) Métricas compuestas recalculadas sobre la ventana actual y la previa.
+  //     Misma fuente y mismos formatos de delta que /api/eco-data (el dash).
   const [winCur, winPrev] = await Promise.all([
     loadMetricsForWindow(client as PgClientLike, agency.id, startDate, endDate),
     loadMetricsForWindow(client as PgClientLike, agency.id, prevStartDate, prevEndDate),
@@ -331,7 +401,7 @@ async function buildReport(
   const insights = await generateInsights(aggregates, samples);
   const dailySummary = await generateDailySummary(aggregates, todaySamples, endDate);
 
-  const renderData: WeeklyReportRenderData = {
+  const renderData: DailyReportRenderData = {
     agencyName: agency.name,
     agencyShortName: agencyShortName(agency.slug),
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
@@ -355,16 +425,216 @@ async function buildReport(
       label: `Resumen del día · ${formatShortDay(endDate)}`,
       paragraph: dailySummary,
     },
-    // Indicadores compuestos — misma capa de formato que el dashboard.
-    metrics: {
-      crisis: formatMetric('crisis', winCur.crisisRiskScore),
-      bhi: formatMetric('bhi', winCur.brandHealthIndex),
-      nss: formatMetric('nss', winCur.nss),
-      velocity: formatVelocity(winCur.engagementPerMention, winPrev.engagementPerMention),
-    },
+    // Indicadores compuestos NUMÉRICOS — mismos valores y mismos deltas que
+    // el dashboard (paridad con /api/eco-data deltaDisplay).
+    metrics: buildEmailMetrics(winCur, winPrev),
   };
 
-  return { html: renderWeeklyReportHtml(renderData), aggregates };
+  const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
+  const subject = buildSubject(
+    'Diario',
+    agencyShortName(agency.slug),
+    `${fullDayEs(todayYmd)} · ${fmtIntEs(sentimentReport.totals.total)} menciones`,
+  );
+
+  return {
+    html: renderDailyReportHtml(renderData),
+    subject,
+    stats: sentimentReport.totals,
+    hasData: sentimentReport.totals.total > 0,
+  };
+}
+
+/**
+ * Indicadores compuestos como EmailMetric (display numérico + delta), con
+ * EXACTAMENTE la misma semántica de escala/suffix/invert que el deltaDisplay
+ * de /api/eco-data — la fuente del dashboard.
+ */
+function buildEmailMetrics(cur: WindowMetrics, prev: WindowMetrics): NonNullable<DailyReportRenderData['metrics']> {
+  return {
+    crisis: {
+      display: formatMetric('crisis', cur.crisisRiskScore),
+      delta: formatDelta(
+        cur.crisisRiskScore != null ? cur.crisisRiskScore * 100 : null,
+        prev.crisisRiskScore != null ? prev.crisisRiskScore * 100 : null,
+        { kind: 'absolute', decimals: 0, suffix: ' pts', invert: true },
+      ),
+    },
+    bhi: {
+      display: formatMetric('bhi', cur.brandHealthIndex),
+      delta: formatDelta(
+        cur.brandHealthIndex != null ? 1 + cur.brandHealthIndex * 9 : null,
+        prev.brandHealthIndex != null ? 1 + prev.brandHealthIndex * 9 : null,
+        { kind: 'absolute', decimals: 1, suffix: '' },
+      ),
+    },
+    nss: {
+      display: formatMetric('nss', cur.nss),
+      delta: formatDelta(cur.nss, prev.nss, { kind: 'absolute', decimals: 1 }),
+    },
+    polarization: {
+      display: formatMetric('polarization', cur.polarizationIndex),
+      delta: formatDelta(cur.polarizationIndex, prev.polarizationIndex, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
+    },
+    velocity: {
+      // Ya es un "cambio % vs período previo" — no lleva delta adicional.
+      display: formatVelocity(cur.engagementPerMention, prev.engagementPerMention),
+      hint: 'engagement por mención vs período previo',
+    },
+    engagementRate: {
+      display: formatMetric('engagementRate', cur.engagementRate),
+      delta: formatDelta(cur.engagementRate, prev.engagementRate, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
+    },
+  };
+}
+
+// ============================================================
+// RESUMEN SEMANAL — semana cerrada vs semana anterior (viernes)
+// ============================================================
+
+interface TopicWindowCount {
+  topic: string;
+  total: number;
+  negative: number;
+}
+
+/**
+ * Conteo COMPLETO de menciones por tópico principal en una ventana (sin el
+ * truncado top-7 del topicsTable — necesario para que la comparación semanal
+ * no marque como "nuevo" un tópico que la semana pasada quedó fuera del top).
+ * Misma semántica que loadTopicsTable: top-confidence por mención, día
+ * calendario en TZ PR, sin duplicados. Excluye "Sin clasificar".
+ */
+async function loadTopicCounts(
+  client: any,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+): Promise<TopicWindowCount[]> {
+  const r = await client.query(
+    `SELECT t.name AS topic,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative
+       FROM (
+         SELECT m.id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                (SELECT topic_id FROM mention_topics
+                  WHERE mention_id = m.id
+                  ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.is_duplicate = false
+            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
+       ) pt
+       JOIN topics t ON t.id = pt.topic_id
+      GROUP BY t.name
+      ORDER BY total DESC`,
+    [agencyId, startYmd, endYmd],
+  );
+  return r.rows.map((row: any) => ({
+    topic: row.topic,
+    total: Number(row.total),
+    negative: Number(row.negative),
+  }));
+}
+
+async function buildWeeklySummaryEmail(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+): Promise<BuiltEmail> {
+  // Semana cerrada: 7 días terminando AYER. Enviado el viernes ⇒ vie–jue.
+  const nowUtc = new Date();
+  const window = closedWindowYmdInTZ(7, nowUtc, REPORT_TIMEZONE);
+  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
+  // Ventana previa-previa: solo para satisfacer la firma de buildSentimentReport
+  // al calcular la semana anterior (su deltaVsPrev no se usa aquí).
+  const prevPrevEnd = addDaysYmd(prevStartYmd, -1);
+  const prevPrevStart = addDaysYmd(prevPrevEnd, -6);
+
+  const [curReport, prevReport, winCur, winPrev, curTopics, prevTopics] = await Promise.all([
+    buildSentimentReport(client as PgClientLike, agency.id, startYmd, endYmd, prevStartYmd, prevEndYmd),
+    buildSentimentReport(client as PgClientLike, agency.id, prevStartYmd, prevEndYmd, prevPrevStart, prevPrevEnd),
+    loadMetricsForWindow(client as PgClientLike, agency.id, startYmd, endYmd),
+    loadMetricsForWindow(client as PgClientLike, agency.id, prevStartYmd, prevEndYmd),
+    loadTopicCounts(client, agency.id, startYmd, endYmd),
+    loadTopicCounts(client, agency.id, prevStartYmd, prevEndYmd),
+  ]);
+
+  const totals = curReport.totals;
+  const prevTotals = prevReport.totals;
+
+  // Comparación de tópicos: unión de ambas semanas, orden por volumen actual.
+  const prevTopicMap = new Map(prevTopics.map((t) => [t.topic, t]));
+  const curTopicNames = new Set(curTopics.map((t) => t.topic));
+  const compare = [
+    ...curTopics.map((t) => ({ topic: t.topic, cur: t.total, prev: prevTopicMap.get(t.topic)?.total ?? 0 })),
+    ...prevTopics.filter((t) => !curTopicNames.has(t.topic)).map((t) => ({ topic: t.topic, cur: 0, prev: t.total })),
+  ].sort((a, b) => b.cur - a.cur || b.prev - a.prev);
+  const topicsCompare = compare.slice(0, 8).map((t) => ({
+    ...t,
+    delta: formatDelta(t.cur, t.prev, { kind: 'percent', decimals: 0 }),
+  }));
+
+  // Contexto LLM de la semana actual (mismas queries que el diario).
+  const aggregates = await buildAggregates(client, agency, startYmd, endYmd, curReport);
+  const samples = await loadSamples(client, agency.id, startYmd, endYmd);
+
+  const metrics = buildEmailMetrics(winCur, winPrev);
+  const indicatorLines = [
+    { label: 'Riesgo de crisis', cur: metrics.crisis.display.value ?? '—', prev: formatMetric('crisis', winPrev.crisisRiskScore).value ?? '—' },
+    { label: 'Salud de marca', cur: metrics.bhi.display.value ?? '—', prev: formatMetric('bhi', winPrev.brandHealthIndex).value ?? '—' },
+    { label: 'Sentimiento neto', cur: metrics.nss.display.value ?? '—', prev: formatMetric('nss', winPrev.nss).value ?? '—' },
+    { label: 'Polarización', cur: metrics.polarization?.display.value ?? '—', prev: formatMetric('polarization', winPrev.polarizationIndex).value ?? '—' },
+    { label: 'Tasa de interacción', cur: metrics.engagementRate?.display.value ?? '—', prev: formatMetric('engagementRate', winPrev.engagementRate).value ?? '—' },
+  ];
+
+  const weekLabel = formatPeriodLabel(startYmd, endYmd);
+  const prevWeekLabel = formatPeriodLabel(prevStartYmd, prevEndYmd);
+
+  const ai = await generateWeeklyComparison({
+    current: aggregates,
+    prevTotals,
+    prevByTopic: prevTopics.map((t) => ({ topic: t.topic, total: t.total, negative: t.negative })),
+    indicatorLines,
+    samples,
+    weekLabel,
+    prevWeekLabel,
+  });
+
+  const renderData: WeeklySummaryRenderData = {
+    agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
+    agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
+    weekLabel,
+    prevWeekLabel,
+    updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
+    totals,
+    prevTotals,
+    totalDelta: formatDelta(totals.total, prevTotals.total, { kind: 'percent', decimals: 0 }),
+    sentimentDelta: {
+      negative: formatDelta(totals.negative, prevTotals.negative, { kind: 'percent', decimals: 0, invert: true }),
+      neutral: formatDelta(totals.neutral, prevTotals.neutral, { kind: 'percent', decimals: 0 }),
+      positive: formatDelta(totals.positive, prevTotals.positive, { kind: 'percent', decimals: 0 }),
+    },
+    metrics,
+    chartImageUrl: buildWeeklyOverlayChartUrl(curReport, prevReport),
+    weeklySummary: ai.summary,
+    highlights: ai.highlights,
+    topicsCompare,
+    dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
+  };
+
+  const subject = buildSubject('Semanal', agencyShortName(agency.slug), `semana ${weekLabel}`);
+
+  return {
+    html: renderWeeklySummaryHtml(renderData),
+    subject,
+    stats: totals,
+    // Enviamos también cuando la semana actual quedó en cero pero la anterior
+    // tuvo volumen — "la conversación se apagó" ES señal semanal.
+    hasData: totals.total > 0 || prevTotals.total > 0,
+  };
 }
 
 // ============================================================
@@ -378,16 +648,34 @@ async function ensureReportsSchema(client: any): Promise<void> {
       is_active BOOLEAN NOT NULL DEFAULT true,
       send_hour_local INTEGER NOT NULL DEFAULT 6,
       timezone VARCHAR(64) NOT NULL DEFAULT 'America/Puerto_Rico',
-      template_key VARCHAR(64) NOT NULL DEFAULT 'weekly-sentiment-summary',
+      template_key VARCHAR(64) NOT NULL DEFAULT 'daily-sentiment-summary',
       recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
       from_email VARCHAR(255) NOT NULL DEFAULT 'agutierrez@populicom.com',
       from_name VARCHAR(255) NOT NULL DEFAULT 'ECO Radar',
+      weekly_enabled BOOLEAN NOT NULL DEFAULT true,
+      weekly_send_dow INTEGER NOT NULL DEFAULT 5,
       updated_by UUID REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_report_configs_active ON report_configs(is_active);`);
+
+  // Migración jul 2026 — correo semanal de los viernes:
+  //  - weekly_enabled: on/off del semanal por agencia (default ON).
+  //  - weekly_send_dow: día local de envío, convención JS getDay
+  //    (0=domingo … 6=sábado). Default 5 = viernes.
+  await client.query(`ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS weekly_enabled BOOLEAN NOT NULL DEFAULT true;`);
+  await client.query(`ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS weekly_send_dow INTEGER NOT NULL DEFAULT 5;`);
+
+  // Self-heal jul 2026: el template_key histórico 'weekly-sentiment-summary'
+  // describía un correo que en realidad es DIARIO. Se renombra una sola vez;
+  // no-op cuando ya migró. (La API de settings acepta ambos valores.)
+  await client.query(`
+    UPDATE report_configs
+       SET template_key = 'daily-sentiment-summary', updated_at = NOW()
+     WHERE template_key = 'weekly-sentiment-summary';
+  `);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS report_send_log (
@@ -442,8 +730,6 @@ async function ensureReportsSchema(client: any): Promise<void> {
   // Self-heal: una sola vez, migra la config DDEC de Bogotá a Puerto Rico aun
   // si la UI ya tocó la fila (updated_by NOT NULL). Detectamos el estado
   // antiguo por la timezone — si ya es 'America/Puerto_Rico', no hace nada.
-  // Esto es necesario porque el ON CONFLICT de arriba respeta filas tocadas
-  // por la UI, pero el cambio Bogotá→PR es estructural y aplica para todos.
   await client.query(`
     UPDATE report_configs rc
        SET timezone = 'America/Puerto_Rico',
@@ -843,6 +1129,53 @@ async function generateDailySummary(
   }
 }
 
+async function generateWeeklyComparison(
+  inputs: Parameters<typeof buildWeeklySummaryPrompt>[0],
+): Promise<{ summary: string; highlights: string[] }> {
+  const fallback = {
+    summary: 'Resumen no disponible.',
+    highlights: [] as string[],
+  };
+  if (inputs.current.totals.total === 0 && inputs.prevTotals.total === 0) {
+    return { summary: 'Sin menciones registradas en las últimas dos semanas en los canales monitoreados.', highlights: [] };
+  }
+  const prompt = buildWeeklySummaryPrompt(inputs);
+  try {
+    const parsed = await invokeClaudeWithTool<{ summary?: unknown; highlights?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      1200,
+      {
+        name: 'submit_weekly_comparison',
+        description: 'Entrega el resumen ejecutivo semanal y los highlights de qué cambió vs la semana anterior.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: 'Párrafo único de 3–5 oraciones, comparativo semana vs semana.' },
+            highlights: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '2–4 oraciones independientes, cada una sobre un cambio distinto vs la semana anterior.',
+            },
+          },
+          required: ['summary', 'highlights'],
+          additionalProperties: false,
+        },
+      },
+    );
+    const summary = typeof parsed.summary === 'string' && parsed.summary.trim().length > 0
+      ? parsed.summary
+      : fallback.summary;
+    const highlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
+      : [];
+    return { summary, highlights };
+  } catch (err) {
+    console.error('[weekly-report] weekly comparison generation failed:', err);
+    return fallback;
+  }
+}
+
 // ============================================================
 // Send log
 // ============================================================
@@ -884,7 +1217,7 @@ async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<
 }
 
 // ============================================================
-// Chart image (QuickChart.io)
+// Chart images (QuickChart.io)
 // ============================================================
 
 function buildChartImageUrl(
@@ -896,7 +1229,7 @@ function buildChartImageUrl(
   const pos = series.map((d) => d.positive);
 
   // El template HTML del correo ya muestra su propia leyenda; aquí desactivamos
-  // la del chart para no duplicar. Paleta alineada con render-weekly-report.
+  // la del chart para no duplicar. Paleta alineada con el chrome de email.
   const config = {
     type: 'line',
     data: {
@@ -929,6 +1262,48 @@ function buildChartImageUrl(
   };
   // version=4 fuerza Chart.js v4 en QuickChart; en v2 (default) los toggles
   // de plugins.legend no se respetan y la leyenda se renderiza igual.
+  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
+}
+
+/**
+ * Chart del semanal: volumen TOTAL diario de esta semana (línea sólida azul)
+ * superpuesto al de la semana anterior (línea punteada gris), alineados por
+ * posición (día 1 de cada semana = mismo día de la semana).
+ */
+function buildWeeklyOverlayChartUrl(cur: SentimentReport, prev: SentimentReport): string {
+  if (!cur.dailySeries.length) return '';
+  const labels = cur.dailySeries.map((d) => d.dayLabel);
+  const total = (d: { negative: number; neutral: number; positive: number }) => d.negative + d.neutral + d.positive;
+  const curData = cur.dailySeries.map(total);
+  const prevData = prev.dailySeries.map(total);
+
+  const config = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Esta semana', data: curData, borderColor: '#0A7EA4', backgroundColor: 'rgba(10,126,164,0.10)',
+          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#0A7EA4',
+          pointBorderWidth: 1.5, tension: 0.3, fill: true },
+        { label: 'Semana anterior', data: prevData, borderColor: '#8A93A0', backgroundColor: 'rgba(138,147,160,0)',
+          borderWidth: 2, borderDash: [6, 4], pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#8A93A0',
+          pointBorderWidth: 1.5, tension: 0.3, fill: false },
+      ],
+    },
+    options: {
+      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
+      plugins: {
+        legend: { display: false },
+        title: { display: false },
+      },
+      scales: {
+        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
+          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
+        x: { grid: { display: false, drawBorder: false },
+          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
+      },
+    },
+  };
   return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 

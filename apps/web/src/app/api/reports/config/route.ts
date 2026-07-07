@@ -24,6 +24,19 @@ interface ConfigBody {
   recipients?: string[];
   fromEmail?: string;
   fromName?: string;
+  /** Correo semanal comparativo (viernes por default). */
+  weeklyEnabled?: boolean;
+  /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
+  weeklySendDow?: number;
+}
+
+/** Acepta el key vigente y el histórico; siempre se persiste el vigente.
+ *  ('weekly-sentiment-summary' era el nombre original del template del
+ *  reporte DIARIO — el self-heal del lambda lo migró en jul 2026.) */
+const TEMPLATE_KEYS = new Set(['daily-sentiment-summary', 'weekly-sentiment-summary']);
+
+function normalizeTemplateKey(key: string): string {
+  return key === 'weekly-sentiment-summary' ? 'daily-sentiment-summary' : key;
 }
 
 /** GET /api/reports/config?agencyId=uuid  OR  ?agencySlug=ddecpr */
@@ -58,10 +71,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       isActive: cfg.isActive,
       sendHourLocal: cfg.sendHourLocal,
       timezone: cfg.timezone,
-      templateKey: cfg.templateKey,
+      templateKey: normalizeTemplateKey(cfg.templateKey),
       recipients: cfg.recipients ?? [],
       fromEmail: cfg.fromEmail,
       fromName: cfg.fromName,
+      weeklyEnabled: cfg.weeklyEnabled,
+      weeklySendDow: cfg.weeklySendDow,
       updatedAt: cfg.updatedAt,
     } : null,
   });
@@ -108,8 +123,11 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
   if (body.fromEmail && !EMAIL_REGEX.test(body.fromEmail)) errors.push('fromEmail invalid');
   if (body.fromName && body.fromName.length > 120) errors.push('fromName too long');
-  if (body.templateKey && body.templateKey !== 'weekly-sentiment-summary') {
+  if (body.templateKey && !TEMPLATE_KEYS.has(body.templateKey)) {
     errors.push('unknown templateKey');
+  }
+  if (body.weeklySendDow != null && (!Number.isInteger(body.weeklySendDow) || body.weeklySendDow < 0 || body.weeklySendDow > 6)) {
+    errors.push('weeklySendDow must be integer 0–6');
   }
   if (errors.length) return NextResponse.json({ error: 'validation', details: errors }, { status: 422 });
 
@@ -129,10 +147,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         ...(body.isActive != null && { isActive: body.isActive }),
         ...(body.sendHourLocal != null && { sendHourLocal: body.sendHourLocal }),
         ...(body.timezone && { timezone: body.timezone }),
-        ...(body.templateKey && { templateKey: body.templateKey }),
+        ...(body.templateKey && { templateKey: normalizeTemplateKey(body.templateKey) }),
         ...(body.recipients && { recipients: body.recipients }),
         ...(body.fromEmail && { fromEmail: body.fromEmail }),
         ...(body.fromName && { fromName: body.fromName }),
+        ...(body.weeklyEnabled != null && { weeklyEnabled: body.weeklyEnabled }),
+        ...(body.weeklySendDow != null && { weeklySendDow: body.weeklySendDow }),
         updatedBy: updatedByUuid,
         updatedAt: now,
       })
@@ -143,10 +163,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       isActive: body.isActive ?? true,
       sendHourLocal: body.sendHourLocal ?? 6,
       timezone: body.timezone ?? 'America/Puerto_Rico',
-      templateKey: body.templateKey ?? 'weekly-sentiment-summary',
+      templateKey: normalizeTemplateKey(body.templateKey ?? 'daily-sentiment-summary'),
       recipients: body.recipients ?? [],
       fromEmail: body.fromEmail ?? 'agutierrez@populicom.com',
-      fromName: body.fromName ?? 'Populicom Radar',
+      fromName: body.fromName ?? 'ECO Radar',
+      weeklyEnabled: body.weeklyEnabled ?? true,
+      weeklySendDow: body.weeklySendDow ?? 5,
       updatedBy: updatedByUuid,
       createdAt: now,
       updatedAt: now,
@@ -165,10 +187,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       isActive: fresh.isActive,
       sendHourLocal: fresh.sendHourLocal,
       timezone: fresh.timezone,
-      templateKey: fresh.templateKey,
+      templateKey: normalizeTemplateKey(fresh.templateKey),
       recipients: fresh.recipients ?? [],
       fromEmail: fresh.fromEmail,
       fromName: fresh.fromName,
+      weeklyEnabled: fresh.weeklyEnabled,
+      weeklySendDow: fresh.weeklySendDow,
       updatedAt: fresh.updatedAt,
     },
   });
