@@ -7,25 +7,41 @@
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light only">
   <title>Alerta · DDEC · 18 may</title>
+  <!--[if mso]>
+  <style type="text/css">
+    table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
+  </style>
+  <![endif]-->
   <style>
     :root { color-scheme: light only; supported-color-schemes: light only; }
     body { margin: 0; padding: 0; background: #F5F6F8; }
     a { text-decoration: none; }
     img { -ms-interpolation-mode: bicubic; }
+    /* iOS / Apple Mail: evita auto-detección coloreada de fechas y direcciones */
     .appleLinks a { color: inherit !important; text-decoration: none !important; }
+    /* Outlook.com / Office 365 dark mode override — fuerza colores claros */
     [data-ogsc] .force-bg-page { background-color: #F5F6F8 !important; }
     [data-ogsc] .force-bg-white { background-color: #FFFFFF !important; }
     [data-ogsc] .force-text-dark { color: #0E1E2C !important; }
     [data-ogsc] .force-text-mute { color: #4A5563 !important; }
     [data-ogsc] .force-text-soft { color: #8A93A0 !important; }
     [data-ogsc] .force-border { border-color: #E6E8EC !important; }
+    /* Gmail iOS: no invertir backgrounds claros */
     u + .body .gmail-dark-fix { background: #F5F6F8 !important; }
+    @media (prefers-color-scheme: dark) {
+      .container, .container td, .container div, .container p, .container h1, .container h2, .container h3, .container span, .container strong {
+        color-scheme: light only !important;
+      }
+    }
     @media (max-width: 620px) {
       .container { width: 100% !important; border-radius: 0 !important; }
       .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
       .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding: 0 0 8px 0 !important; }
+      .stack-pad { padding: 0 0 10px 0 !important; }
+      .kpi-value { font-size: 30px !important; }
+      h1.title { font-size: 22px !important; }
       h1.headline { font-size: 22px !important; line-height: 1.25 !important; }
+      h2.section-title { font-size: 16px !important; }
     }
   </style>
 </head>
@@ -36,12 +52,12 @@
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:#F5F6F8;">
     <tr>
-      <td align="center" style="padding:24px 16px;">
+      <td align="center" style="padding:28px 16px;">
         <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="width:600px;max-width:600px;background:#FFFFFF;background-color:#FFFFFF;border-radius:10px;overflow:hidden;border:1px solid #E6E8EC;">
 
-          <!-- BAND BAR -->
+          <!-- BARRA DE TIPO -->
           <tr>
-            <td style="background:#C8462F;background-color:#C8462F;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>
+            <td style="background:#C8462F;background-color:#C8462F;height:5px;line-height:5px;font-size:0;padding:0;">&nbsp;</td>
           </tr>
 
           <!-- HEADER -->
@@ -60,6 +76,7 @@
             </td>
           </tr>
 
+          
           <!-- HERO -->
           <tr>
             <td class="px-32" style="padding:24px 32px 18px 32px;">
@@ -94,43 +111,43 @@
             <td class="px-32" style="padding:6px 32px 12px 32px;">
               <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#C8462F;margin-bottom:10px;">01 · Indicadores</div>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
-                <tr><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;">
+                <tr><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;height:100%;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;height:100%;">
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Crisis Score</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;">0.56</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">hace 24h: 0.24</div>
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;min-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Crisis Score</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">56%</div>
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;min-height:31px;">hace 24h: 24%</div>
         </td>
       </tr>
     </table>
-  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;">
+  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;height:100%;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;height:100%;">
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Severidad</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;">0.65</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">concentración negativa</div>
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;min-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Severidad</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#C8462F;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">65%</div>
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;min-height:31px;">concentración negativa</div>
         </td>
       </tr>
     </table>
-  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;">
+  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;height:100%;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;height:100%;">
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Velocidad</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#D97706;margin-top:8px;letter-spacing:-0.02em;">0.51</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">volumen +1.5σ</div>
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;min-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Velocidad</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#D97706;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">51%</div>
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;min-height:31px;">volumen sobre lo usual</div>
         </td>
       </tr>
     </table>
-  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;">
+  </td><td class="stack stack-pad" valign="top" width="25%" style="padding:0 4px;height:100%;">
+    <table role="presentation" class="force-bg-white force-border" width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border-radius:8px;border:1px solid #E6E8EC;height:100%;">
       <tr>
         <td valign="top" style="padding:14px 14px 12px 14px;">
-          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;">Relevancia</div>
-          <div class="force-text-dark" style="font-size:26px;line-height:1.1;font-weight:700;color:#0A7EA4;margin-top:8px;letter-spacing:-0.02em;">0.38</div>
-          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;">pertinencia alta</div>
+          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:#8A93A0;letter-spacing:0.1em;text-transform:uppercase;min-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Relevancia</div>
+          <div class="force-text-dark" style="font-size:24px;line-height:1.1;font-weight:700;color:#0A7EA4;margin-top:8px;letter-spacing:-0.02em;white-space:nowrap;">38%</div>
+          <div class="force-text-soft" style="margin-top:6px;font-size:11px;color:#8A93A0;line-height:1.4;min-height:31px;">pertinencia alta</div>
         </td>
       </tr>
     </table>
@@ -146,7 +163,7 @@
           <tr>
             <td class="px-32" style="padding:18px 32px 4px 32px;">
               <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#C8462F;margin-bottom:8px;">02 · Qué está pasando</div>
-              <p class="force-text-dark" style="margin:0 0 12px 0;font-size:14.5px;line-height:1.65;color:#0E1E2C;font-weight:500;">El 18 de mayo el flujo de menciones triplicó al día previo (<strong>131 vs 43</strong>), con un Crisis Score que pasó de <strong>0.24 a 0.557</strong>. La banda actual es <strong>ALERTA</strong>, impulsada por una severidad de 0.65 y un z-score de volumen de +1.5σ contra el baseline de 30 días.</p><p class="force-text-dark" style="margin:0 0 12px 0;font-size:14px;line-height:1.65;color:#0E1E2C;font-weight:400;">La conversación se concentra en <strong>Críticas / Controversias</strong>, donde el 100% de las 16 menciones del tópico son negativas. La queja predominante es la <strong>demora en los permisos</strong>: empresarios y ciudadanos describen esperas de meses, llamadas sin respuesta y reclamos sobre la reforma anunciada por el Secretario.</p><p class="force-text-dark" style="margin:0 0 12px 0;font-size:14px;line-height:1.65;color:#0E1E2C;font-weight:400;">La concentración geográfica es total en <strong>San Juan</strong> (7/7 menciones negativas, 100%). Medios tradicionales como ElNuevoDia.com y PrimeraHora.com replicaron las críticas, lo que amplificó el volumen en redes en las horas posteriores. El día previo el indicador estaba en banda NORMAL.</p>
+              <p class="force-text-dark" style="margin:0 0 12px 0;font-size:14.5px;line-height:1.65;color:#0E1E2C;font-weight:500;">El 18 de mayo el flujo de menciones triplicó al día previo (<strong>131 vs 43</strong>), con un Crisis Score que pasó de <strong>24% a 56%</strong>. La banda actual es <strong>ALERTA</strong>, impulsada por una concentración negativa de 65% y un volumen muy por encima de lo usual de los últimos 30 días.</p><p class="force-text-dark" style="margin:0 0 12px 0;font-size:14px;line-height:1.65;color:#0E1E2C;font-weight:400;">La conversación se concentra en <strong>Críticas / Controversias</strong>, donde el 100% de las 16 menciones del tópico son negativas. La queja predominante es la <strong>demora en los permisos</strong>: empresarios y ciudadanos describen esperas de meses, llamadas sin respuesta y reclamos sobre la reforma anunciada por el Secretario.</p><p class="force-text-dark" style="margin:0 0 12px 0;font-size:14px;line-height:1.65;color:#0E1E2C;font-weight:400;">La concentración geográfica es total en <strong>San Juan</strong> (7/7 menciones negativas, 100%). Medios tradicionales como ElNuevoDia.com y PrimeraHora.com replicaron las críticas, lo que amplificó el volumen en redes en las horas posteriores. El día previo el indicador estaba en banda NORMAL.</p>
             </td>
           </tr>
 
@@ -217,7 +234,7 @@
         <td class="px-32" style="padding:6px 32px 16px 32px;">
           <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#8A93A0;margin-bottom:8px;">Evolución del Crisis Score · últimos 14 días</div>
           <div style="background:#FFFFFF;border:1px solid #E6E8EC;border-radius:8px;padding:14px;">
-            <img src="https://quickchart.io/chart?v=4&amp;w=540&amp;h=200&amp;bkg=white&amp;devicePixelRatio=2&amp;c=%7B%22type%22%3A%22line%22%2C%22data%22%3A%7B%22labels%22%3A%5B%225%20may%22%2C%226%20may%22%2C%227%20may%22%2C%228%20may%22%2C%229%20may%22%2C%2210%20may%22%2C%2211%20may%22%2C%2212%20may%22%2C%2213%20may%22%2C%2214%20may%22%2C%2215%20may%22%2C%2216%20may%22%2C%2217%20may%22%2C%2218%20may%22%5D%2C%22datasets%22%3A%5B%7B%22label%22%3A%22Crisis%20Score%22%2C%22data%22%3A%5B0.29%2C0.28%2C0.28%2C0.18%2C0.12%2C0.17%2C0.18%2C0.24%2C0.24%2C0.19%2C0.2%2C0.33%2C0.24%2C0.557%5D%2C%22borderColor%22%3A%22%23C8462F%22%2C%22backgroundColor%22%3A%22rgba(200%2C70%2C47%2C0.10)%22%2C%22borderWidth%22%3A2.5%2C%22pointRadius%22%3A3%2C%22pointBackgroundColor%22%3A%22%23FFFFFF%22%2C%22pointBorderColor%22%3A%22%23C8462F%22%2C%22pointBorderWidth%22%3A1.5%2C%22tension%22%3A0.3%2C%22fill%22%3Atrue%7D%2C%7B%22label%22%3A%22Umbral%200.40%22%2C%22data%22%3A%5B0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%2C0.4%5D%2C%22borderColor%22%3A%22%238A93A0%22%2C%22borderWidth%22%3A1%2C%22borderDash%22%3A%5B4%2C4%5D%2C%22pointRadius%22%3A0%2C%22fill%22%3Afalse%7D%5D%7D%2C%22options%22%3A%7B%22layout%22%3A%7B%22padding%22%3A%7B%22top%22%3A8%2C%22right%22%3A12%2C%22bottom%22%3A4%2C%22left%22%3A4%7D%7D%2C%22plugins%22%3A%7B%22legend%22%3A%7B%22display%22%3Afalse%7D%2C%22title%22%3A%7B%22display%22%3Afalse%7D%7D%2C%22scales%22%3A%7B%22y%22%3A%7B%22beginAtZero%22%3Atrue%2C%22max%22%3A1%2C%22grid%22%3A%7B%22color%22%3A%22%23EEF0F4%22%2C%22drawBorder%22%3Afalse%7D%2C%22ticks%22%3A%7B%22font%22%3A%7B%22size%22%3A10%7D%2C%22color%22%3A%22%238A93A0%22%2C%22padding%22%3A6%2C%22maxTicksLimit%22%3A5%7D%7D%2C%22x%22%3A%7B%22grid%22%3A%7B%22display%22%3Afalse%2C%22drawBorder%22%3Afalse%7D%2C%22ticks%22%3A%7B%22font%22%3A%7B%22size%22%3A11%7D%2C%22color%22%3A%22%234A5563%22%2C%22padding%22%3A6%7D%7D%7D%7D%7D" alt="Evolución del Crisis Score" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;">
+            <img src="https://quickchart.io/chart?v=4&amp;w=540&amp;h=200&amp;bkg=white&amp;devicePixelRatio=2&amp;c=%7B%22type%22%3A%22line%22%2C%22data%22%3A%7B%22labels%22%3A%5B%225%20may%22%2C%226%20may%22%2C%227%20may%22%2C%228%20may%22%2C%229%20may%22%2C%2210%20may%22%2C%2211%20may%22%2C%2212%20may%22%2C%2213%20may%22%2C%2214%20may%22%2C%2215%20may%22%2C%2216%20may%22%2C%2217%20may%22%2C%2218%20may%22%5D%2C%22datasets%22%3A%5B%7B%22label%22%3A%22Crisis%20Score%22%2C%22data%22%3A%5B29%2C28%2C28%2C18%2C12%2C17%2C18%2C24%2C24%2C19%2C20%2C33%2C24%2C56%5D%2C%22borderColor%22%3A%22%23C8462F%22%2C%22backgroundColor%22%3A%22rgba(200%2C70%2C47%2C0.10)%22%2C%22borderWidth%22%3A2.5%2C%22pointRadius%22%3A3%2C%22pointBackgroundColor%22%3A%22%23FFFFFF%22%2C%22pointBorderColor%22%3A%22%23C8462F%22%2C%22pointBorderWidth%22%3A1.5%2C%22tension%22%3A0.3%2C%22fill%22%3Atrue%7D%2C%7B%22label%22%3A%22Umbral%2040%25%22%2C%22data%22%3A%5B40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%2C40%5D%2C%22borderColor%22%3A%22%238A93A0%22%2C%22borderWidth%22%3A1%2C%22borderDash%22%3A%5B4%2C4%5D%2C%22pointRadius%22%3A0%2C%22fill%22%3Afalse%7D%5D%7D%2C%22options%22%3A%7B%22layout%22%3A%7B%22padding%22%3A%7B%22top%22%3A8%2C%22right%22%3A12%2C%22bottom%22%3A4%2C%22left%22%3A4%7D%7D%2C%22plugins%22%3A%7B%22legend%22%3A%7B%22display%22%3Afalse%7D%2C%22title%22%3A%7B%22display%22%3Afalse%7D%7D%2C%22scales%22%3A%7B%22y%22%3A%7B%22beginAtZero%22%3Atrue%2C%22max%22%3A100%2C%22grid%22%3A%7B%22color%22%3A%22%23EEF0F4%22%2C%22drawBorder%22%3Afalse%7D%2C%22ticks%22%3A%7B%22font%22%3A%7B%22size%22%3A10%7D%2C%22color%22%3A%22%238A93A0%22%2C%22padding%22%3A6%2C%22maxTicksLimit%22%3A5%7D%7D%2C%22x%22%3A%7B%22grid%22%3A%7B%22display%22%3Afalse%2C%22drawBorder%22%3Afalse%7D%2C%22ticks%22%3A%7B%22font%22%3A%7B%22size%22%3A11%7D%2C%22color%22%3A%22%234A5563%22%2C%22padding%22%3A6%7D%7D%7D%7D%7D" alt="Evolución del Crisis Score" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;">
           </div>
         </td>
       </tr>
@@ -262,7 +279,7 @@
           </td>
           <td valign="top">
             <div class="force-text-dark" style="font-size:13.5px;font-weight:700;color:#0E1E2C;line-height:1.35;letter-spacing:-0.005em;">Salto de volumen</div>
-            <div class="force-text-soft" style="font-size:12.5px;line-height:1.6;color:#4A5563;margin-top:4px;">El volumen pasó de 43 a 131 menciones en 24 horas (+205%), con z-score de +1.5σ.</div>
+            <div class="force-text-soft" style="font-size:12.5px;line-height:1.6;color:#4A5563;margin-top:4px;">El volumen pasó de 43 a 131 menciones en 24 horas (+205%), muy por encima de lo usual del mes.</div>
           </td>
         </tr>
       </table>
@@ -508,14 +525,16 @@
             </td>
           </tr>
 
+
+
           <!-- FOOTER -->
           <tr>
-            <td class="px-32" style="padding:18px 32px 22px 32px;border-top:1px solid #EEF0F4;" align="center">
+            <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid #EEF0F4;" align="center">
               <div class="force-text-soft" style="color:#8A93A0;font-size:11.5px;line-height:1.6;">
-                ECO Radar &nbsp;·&nbsp; IDEA
+                ECO Radar &nbsp;·&nbsp; IDEA &nbsp;·&nbsp; Alerta de crisis
               </div>
               <div class="force-text-soft" style="margin-top:6px;color:#8A93A0;font-size:11px;line-height:1.5;">
-                Recibes este correo porque eres administrador del Radar de tu agencia.
+                Recibes esta alerta automática porque estás en la lista de notificación de crisis de tu agencia.
               </div>
             </td>
           </tr>

@@ -120,6 +120,8 @@ REGLAS INNEGOCIABLES:
 7. **Salida HTML restringida**: SOLO \`<strong>\` para resaltar nombres, números o tópicos críticos. Ninguna otra etiqueta. Sin links, sin listas, sin headers.
 
 8. **Drivers describen, no prescriben.** "Concentración negativa en Servicios básicos (46% neg)" sí; "Atender la queja de servicios básicos" no.
+
+9. **Números SIEMPRE en escala pública, sin jerga estadística.** El Crisis Score y sus componentes se expresan en % tal como vienen en el contexto ("subió de 24% a 56%", "severidad de 65%") — NUNCA en la escala interna 0–1 ("0.557") ni con tres decimales. PROHIBIDOS los términos: "z-score", "sigma", "σ", "desviación estándar", "percentil", "cuartil", "baseline" (di "el promedio de los últimos 30 días"). El volumen inusual se describe en lenguaje llano: "casi el triple del día previo", "muy por encima de lo usual de los últimos 30 días". Escribe para un lector NO técnico.
 `.trim();
 
 /**
@@ -128,13 +130,16 @@ REGLAS INNEGOCIABLES:
  * lambda) — aquí solo se da el contexto.
  */
 export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
-  const fmt3 = (n: number | null) => n == null ? 'n/d' : Math.round(n * 1000) / 1000;
+  // Todo se entrega en escala pública (%) para que el modelo NUNCA vea el
+  // 0–1 interno — si lo viera, lo citaría ("0.557") y el correo mezclaría
+  // escalas con las tarjetas, que muestran %.
   const fmtPct = (n: number) => `${Math.round(n * 100)}%`;
+  const fmtPctN = (n: number | null) => n == null ? 'n/d' : fmtPct(n);
 
   const score24h = inp.crisisRiskScore24hAgo;
   const scoreDelta = score24h == null
-    ? '(sin baseline 24h previo)'
-    : `(hace 24h: ${fmt3(score24h)}, Δ ${(inp.crisisRiskScore - score24h).toFixed(2)})`;
+    ? '(sin registro de hace 24h)'
+    : `(hace 24h: ${fmtPct(score24h)}; ${deltaPts(inp.crisisRiskScore, score24h)})`;
 
   const prevDayBlock = inp.prevDayTotal == null
     ? '- (sin datos del día previo)'
@@ -174,12 +179,12 @@ AGENCIA: ${inp.agencyName} (abreviada: ${inp.agencyShortName})
 GENERADO: ${inp.generatedAtLabel}
 BANDA ACTUAL: ${inp.band}
 
-INDICADORES DE CRISIS (escala 0–1):
-- Crisis Risk Score: ${fmt3(inp.crisisRiskScore)} ${scoreDelta}
-- Severidad (concentración negativa): ${fmt3(inp.crisisSeverity)}
-- Velocidad (anomalía de volumen vs 30d): ${fmt3(inp.crisisVelocity)}
-- Relevancia (pertinencia alta del flujo): ${fmt3(inp.crisisRelevance)}
-- Volume anomaly z-score: ${fmt3(inp.volumeAnomalyZscore)}
+INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas):
+- Crisis Score: ${fmtPct(inp.crisisRiskScore)} ${scoreDelta}
+- Severidad (concentración negativa): ${fmtPctN(inp.crisisSeverity)}
+- Velocidad (ritmo del volumen): ${fmtPctN(inp.crisisVelocity)}
+- Relevancia (pertinencia alta del flujo): ${fmtPctN(inp.crisisRelevance)}
+- Volumen vs lo usual de los últimos 30 días: ${volumePlain(inp.volumeAnomalyZscore)}
 
 VOLUMEN DEL DÍA DETONANTE:
 - Total: ${inp.totalMentions} menciones
@@ -208,4 +213,23 @@ Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 - \`drivers\`: 3 objetos \`{label, description}\`. \`label\` ≤ 5 palabras (ej. "Concentración negativa", "Salto de volumen", "Pertinencia alta"). \`description\` 1 oración respaldada por un número.
 - \`closing\`: 1 oración (≤ 30 palabras) que contextualice el momento sin recomendar acciones.
 `.trim();
+}
+
+
+/** "subió 32 puntos" / "bajó 8 puntos" / "sin cambio" — para el contexto del prompt. */
+function deltaPts(cur: number, prev: number): string {
+  const pts = Math.round((cur - prev) * 100);
+  if (pts > 0) return `subió ${pts} puntos`;
+  if (pts < 0) return `bajó ${Math.abs(pts)} puntos`;
+  return 'sin cambio';
+}
+
+/** Traducción llana de la anomalía de volumen (el z-score NO se le muestra al modelo). */
+function volumePlain(z: number | null): string {
+  if (z == null) return 'sin referencia suficiente';
+  if (z >= 3) return 'MUY por encima de lo usual (pico fuerte)';
+  if (z >= 2) return 'muy por encima de lo usual';
+  if (z >= 1) return 'por encima de lo usual';
+  if (z > -1) return 'dentro de lo usual';
+  return 'por debajo de lo usual';
 }

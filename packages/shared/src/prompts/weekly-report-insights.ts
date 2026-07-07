@@ -107,6 +107,8 @@ REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
 10. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
 
+11. **Lenguaje llano, sin jerga estadística, y métricas en escala pública.** Escribes para un lector NO técnico. PROHIBIDOS: "z-score", "sigma", "σ", "desviación estándar", "percentil", "cuartil", "mediana", "baseline" (di "el promedio de los últimos 30 días"). Las métricas compuestas se citan SIEMPRE en la escala pública en que vienen en el contexto ("36%", "6.3 / 10") — nunca en escala interna 0–1 ("0.36") ni con tres decimales.
+
 EJEMPLOS DE INSIGHTS ACEPTABLES (referenciales — adapta al dominio):
 - "La negatividad en Permisos / Reforma (PS 1183) muestra arquitectura institucional: Junta de Planificación objeta formalmente, NotiCel y Centro de Periodismo Investigativo le dan cobertura, y organizaciones comunitarias usan el lenguaje técnico de la ley — no es opinión espontánea, es resistencia organizada con vocación de duración."
 - "El balance positivo de la semana depende de un solo evento (anuncio Amgen, 102 menciones, 78 el 4 de mayo); sin ese pico el sentimiento neto sería neutral-negativo — la 'salud reputacional' está sostenida por inversión extranjera amplificada por canales institucionales (PR Newswire, cuenta @desarrollopr), no por movilización orgánica."
@@ -277,9 +279,9 @@ ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muest
 TAREA:
 Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. Debe:
 1. Indicar el volumen total de menciones del día y qué sentimiento dominó (con % explícito).
-2. Señalar en qué **1–3 tópicos de conversación concretos** se concentró el día, citando el número de menciones por tópico. **NO menciones municipios** salvo que el texto de UNA mención los nombre literalmente en relación al evento; el campo \`muni=\` de las muestras es etiqueta NLP automática (puede confundir ubicación del medio con ubicación del evento) y no es ground truth.
+2. Decir DE QUÉ se habló, no solo en qué categoría cayó: identifica los **1–3 temas concretos del día** — el anuncio, la queja, la historia o el evento específico que aparece en las MUESTRAS ("reclamos porque el portal de trámites rechaza documentos de renovación", "cobertura del anuncio de inversión en la zona oeste") — y usa el nombre del tópico solo como apoyo con su conteo. **PROHIBIDO** que el "tema" sea únicamente la etiqueta del tópico con un número ("Permisos / Reforma (37 menciones)" sin contar qué pasó). **NO menciones municipios** salvo que el texto de UNA mención los nombre literalmente en relación al evento; el campo \`muni=\` de las muestras es etiqueta NLP automática (puede confundir ubicación del medio con ubicación del evento) y no es ground truth.
 3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. el día anterior.
-4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
+4. OBLIGATORIO: al menos un hecho específico tomado literalmente de las muestras del día (qué se dijo/pasó, en qué fuente/medio) — con número asociado. Si las muestras no alcanzan para precisar el contenido, di menos pero nunca rellenes con etiquetas de categoría.
 5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
 
 PROHIBIDO:

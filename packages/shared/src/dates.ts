@@ -44,6 +44,22 @@ export function hourInTimeZone(utc: Date, timeZone: string): number {
   return h === 24 ? 0 : h;
 }
 
+const DOW_INDEX: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+};
+
+/**
+ * Día de la semana (0=domingo … 6=sábado, convención de JS `getDay`) del
+ * instante dado en la timezone IANA dada. Usado por el gate del reporte
+ * semanal (se envía solo cuando el día local coincide con
+ * `report_configs.weekly_send_dow`, default 5 = viernes).
+ */
+export function dowInTimeZone(utc: Date, timeZone: string): number {
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' })
+    .format(utc);
+  return DOW_INDEX[wd] ?? -1;
+}
+
 export interface ClosedWindow {
   /** Inicio inclusive de la ventana actual (YYYY-MM-DD en TZ). */
   startYmd: string;
