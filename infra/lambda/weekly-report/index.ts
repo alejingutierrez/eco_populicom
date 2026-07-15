@@ -1095,9 +1095,9 @@ async function generateInsights(
         input_schema: {
           type: 'object',
           properties: {
-            negative: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque negativo.' },
-            neutral:  { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque neutral.' },
-            positive: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque positivo.' },
+            negative: { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque negativo.' },
+            neutral:  { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque neutral.' },
+            positive: { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque positivo.' },
           },
           required: ['negative', 'neutral', 'positive'],
           additionalProperties: false,
@@ -1137,7 +1137,7 @@ async function generateDailySummary(
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 3–5 oraciones.' },
+            summary: { type: 'string', description: 'Párrafo único de 2–3 oraciones, directo al grano.' },
           },
           required: ['summary'],
           additionalProperties: false,

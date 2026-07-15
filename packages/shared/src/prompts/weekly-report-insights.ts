@@ -108,7 +108,7 @@ EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
 `.trim();
 
 // ============================================================
-// PROMPT 1 — Insights por sentimiento (3 bloques de 3 insights)
+// PROMPT 1 — Insights por sentimiento (3 bloques de hasta 2 insights)
 // ============================================================
 
 export function buildSentimentInsightsPrompt(
@@ -183,17 +183,17 @@ ${samples.neutral.map((m, i) => formatSample(i + 1, m)).join('\n')}
 ${samples.positive.map((m, i) => formatSample(i + 1, m)).join('\n')}
 
 TAREA — ANÁLISIS, NO ENUMERACIÓN:
-Para cada sentimiento (negative, neutral, positive) genera hasta 3 insights ANALÍTICOS. NO reportes "lo que pasó" (eso ya está en los gráficos). Revela MECANISMO + ACTOR NARRATIVO + ESTRUCTURA del periodo.
+Para cada sentimiento (negative, neutral, positive) genera hasta 2 insights ANALÍTICOS — solo los de MAYOR señal. El lector es ejecutivo y lee el correo en segundos: mejor 1 insight contundente que 2 tibios. NO reportes "lo que pasó" (eso ya está en los gráficos). Revela MECANISMO + ACTOR NARRATIVO + ESTRUCTURA del periodo.
 
-Cada uno de los 3 insights de un sentimiento DEBE cubrir un plano distinto — no escribas 3 versiones del mismo dato:
+Cada insight DEBE cubrir un plano distinto — elige los 2 planos donde los datos tengan más señal:
 
-INSIGHT 1 — MECANISMO Y CAUSA-EFECTO:
+PLANO A — MECANISMO Y CAUSA-EFECTO:
 Identifica el evento/decisión/cobertura concreta que DISPARÓ esta concentración de sentimiento y cuál fue su efecto cuantificable. Conecta acción → reacción. Ejemplo: "El pico de negatividad del 7 de mayo (38 menciones) responde a la defensa del secretario del DDEC ante el Senado por el PS 1183; las reacciones se concentraron en Facebook (cuentas individuales) y se replicaron en NotiCel y CPI durante las 48 horas siguientes".
 
-INSIGHT 2 — ACTOR NARRATIVO:
+PLANO B — ACTOR NARRATIVO:
 Caracteriza QUIÉN está impulsando la conversación y desde qué arquitectura. Distingue prensa profesional (NotiCel, El Vocero) vs cuentas institucionales (desarrollopr, PR Newswire) vs organizaciones formales (Sembrando Sentido, Junta de Planificación) vs activismo ciudadano disperso vs amplificación en redes. Si la negatividad es 100% medios + 0% ciudadanos = controversia mediática, no malestar popular. Si la positividad es 100% PR institucional = comunicación corporativa, no respaldo orgánico. Cuantifica la composición.
 
-INSIGHT 3 — ESTRUCTURAL vs COYUNTURAL (o ASIMETRÍA):
+PLANO C — ESTRUCTURAL vs COYUNTURAL (o ASIMETRÍA):
 Decide qué versión aplica con base en los datos:
   (a) ESTRUCTURAL vs COYUNTURAL: si el sentimiento se distribuye en >50% del periodo + en >3 autores/fuentes distintos + en múltiples sub-tópicos → estructural (patrón con vocación de duración). Si se concentra en 1-2 días + 1-2 fuentes → coyuntural (episodio).
   (b) ASIMETRÍA: contrasta dos tópicos del mismo bloque de sentimiento y explica por qué uno se comporta distinto del otro (ej: "Inversión Extranjera positivo es institucional/anuncio puntual; Desarrollo Empresarial positivo es contenido distribuido — ambos suben pero por mecanismos opuestos").
@@ -205,15 +205,15 @@ PROHIBIDO ABSOLUTAMENTE:
 - Frases como "lidera el volumen", "se observa", "se detecta", "concentra" usadas como ancla principal — eso es narración, no análisis.
 
 REGLAS DE FORMA (sobre cada insight):
-- Una sola oración, 30–60 palabras. La densidad analítica permite frases más largas que la versión narrativa.
+- Una sola oración, 18–40 palabras. Directa: hecho/actor primero, sin muletillas ("se observa", "cabe destacar", "es notable que").
 - Al menos UN número concreto del dato Y al menos UN nombre propio del dato.
-- Si para un sentimiento no hay suficiente señal para 3 insights distintos, entrega menos (mínimo 0). Devuelve cadena vacía en los faltantes. Mejor 1 insight bueno que 3 mediocres.
+- Si para un sentimiento no hay suficiente señal para 2 insights distintos, entrega menos (mínimo 0). Mejor 1 insight bueno que 2 mediocres.
 
 FORMATO DE SALIDA (un único objeto JSON, sin texto adicional, sin markdown fences):
 {
-  "negative": ["insight 1", "insight 2", "insight 3"],
-  "neutral":  ["insight 1", "insight 2", "insight 3"],
-  "positive": ["insight 1", "insight 2", "insight 3"]
+  "negative": ["insight 1", "insight 2"],
+  "neutral":  ["insight 1", "insight 2"],
+  "positive": ["insight 1", "insight 2"]
 }
 `.trim();
 }
@@ -260,18 +260,17 @@ MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement; pre-filtradas a pe
 ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
 TAREA:
-Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. Debe:
-1. Indicar el volumen total de menciones del día y qué sentimiento dominó (con % explícito).
-2. Señalar en qué **1–3 tópicos de conversación concretos** se concentró el día, citando el número de menciones por tópico. Menciona municipios SOLO si un tópico específico se concentra claramente en 1–2 municipios; no fuerces geografía.
-3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. el día anterior.
-4. Mencionar un hecho específico de las muestras del día (un tópico con alza inusual, una mención destacada identificable, una fuente/medio prominente) — con número asociado.
-5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
+Redacta un párrafo ÚNICO de 2 a 3 oraciones (máximo ~70 palabras) resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. El lector es ejecutivo y tiene 20 segundos: ve directo al grano. Arranca por el hecho dominante del día (evento/tópico/actor con su número) — sin aperturas genéricas tipo "La conversación estuvo marcada por" ni "Durante la jornada". Cubre en forma COMPACTA, combinando datos en una misma oración cuando sea natural:
+1. El tópico/evento dominante del día con sus menciones y el hecho concreto más relevante de las muestras (medio, autor o mención identificable, con número).
+2. Volumen total del día, sentimiento dominante con % explícito y variación porcentual vs. el día anterior.
+3. Municipios SOLO si un tópico se concentra claramente en 1–2; no fuerces geografía.
+4. Etiquetas HTML inline muy limitadas: solo <strong> para nombres propios y números clave. Sin otras etiquetas.
 
 PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 {
-  "summary": "<párrafo de 3 a 5 oraciones>"
+  "summary": "<párrafo de 2 a 3 oraciones>"
 }
 `.trim();
 }

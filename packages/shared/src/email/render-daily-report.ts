@@ -178,7 +178,30 @@ function renderInsights(items: string[], color: string): string {
 export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const { totals, deltaVsPrev } = data;
 
-  const topicsList = data.topicsTable.slice(0, 9);
+  // Al grano: top 5 tópicos con nombre; el resto se pliega en "Otros tópicos"
+  // para que la tabla siga cuadrando con el total del periodo.
+  const namedTopics = data.topicsTable.filter((t) => !t.isOther && !t.isUnclassified);
+  const foldedTopics = namedTopics.slice(5);
+  const prevOther = data.topicsTable.find((t) => t.isOther);
+  const otherRow = (foldedTopics.length > 0 || prevOther)
+    ? [{
+        // Si plegamos tópicos aquí, el "(N)" del label upstream quedaría corto;
+        // un label plano nunca miente.
+        topic: foldedTopics.length > 0 ? 'Otros tópicos' : (prevOther?.topic ?? 'Otros tópicos'),
+        subtopics: '',
+        secondaryCount: 0,
+        total: (prevOther?.total ?? 0) + foldedTopics.reduce((s, t) => s + t.total, 0),
+        negative: (prevOther?.negative ?? 0) + foldedTopics.reduce((s, t) => s + t.negative, 0),
+        neutral: (prevOther?.neutral ?? 0) + foldedTopics.reduce((s, t) => s + t.neutral, 0),
+        positive: (prevOther?.positive ?? 0) + foldedTopics.reduce((s, t) => s + t.positive, 0),
+        isOther: true,
+      }]
+    : [];
+  const topicsList = [
+    ...namedTopics.slice(0, 5),
+    ...otherRow,
+    ...data.topicsTable.filter((t) => t.isUnclassified),
+  ];
   const topicsRows = topicsList
     .map((t, idx) => {
       const isLast = idx === topicsList.length - 1;
@@ -228,6 +251,17 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const neuPct = pct(totals.neutral, totals.total);
   const posPct = pct(totals.positive, totals.total);
 
+  // Insights: solo bloques CON contenido — un bloque vacío ("no hay señal")
+  // por sentimiento era ruido; si ninguno trae señal, una sola línea lo dice.
+  const insightSections = [
+    { label: 'Negativo', sub: `${negPct}% del total`, color: COLORS.neg, bg: COLORS.negSoft, items: data.insights.negative },
+    { label: 'Neutral', sub: `${neuPct}% del total`, color: COLORS.neu, bg: COLORS.neuSoft, items: data.insights.neutral },
+    { label: 'Positivo', sub: `${posPct}% del total`, color: COLORS.pos, bg: COLORS.posSoft, items: data.insights.positive },
+  ].filter((b) => b.items.some((s) => s && s.trim().length > 0));
+  const insightsBlocks = insightSections.length > 0
+    ? insightSections.map((b) => insightBlock(b.label, b.sub, b.color, b.bg, renderInsights(b.items, b.color))).join('\n              ')
+    : `<div class="force-text-soft" style="font-size:12.5px;color:${COLORS.inkMute};font-style:italic;">Sin señal suficiente para insights analíticos en este periodo.</div>`;
+
   // Indicadores compuestos numéricos: sólo si el caller adjuntó las métricas
   // ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
   const indicatorsBlock = data.metrics ? renderIndicators(data.metrics) : '';
@@ -268,9 +302,7 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
           <tr>
             <td class="px-32" style="padding:0 32px 8px 32px;">
               ${sectionKicker('02 · Termómetro · últimos 7 días')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 18px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Cómo se sintió la conversación
-              </h2>
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 <tr>
@@ -289,10 +321,8 @@ ${indicatorsBlock}
           <!-- 03 · TENDENCIA -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('03 · Tendencia')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Día a día
-              </h2>
+              ${sectionKicker('03 · Tendencia día a día')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
                 <tr>
@@ -321,13 +351,8 @@ ${indicatorsBlock}
           <!-- 04 · TÓPICO PRINCIPAL -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Tópico principal')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Dónde se concentra la conversación
-              </h2>
-              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Cada mención se cuenta una sola vez bajo su tópico principal. Las menciones aún sin clasificar se agrupan al final.
-              </div>
+              ${sectionKicker('04 · Tópicos principales')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
                 <tr>
@@ -345,14 +370,9 @@ ${indicatorsBlock}
           <!-- 05 · INSIGHTS -->
           <tr>
             <td class="px-32" style="padding:24px 32px 20px 32px;">
-              ${sectionKicker('05 · Insights')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Lo que está diciendo la audiencia
-              </h2>
-
-              ${insightBlock('Negativo', `${negPct}% del total`, COLORS.neg, COLORS.negSoft, renderInsights(data.insights.negative, COLORS.neg))}
-              ${insightBlock('Neutral', `${neuPct}% del total`, COLORS.neu, COLORS.neuSoft, renderInsights(data.insights.neutral, COLORS.neu))}
-              ${insightBlock('Positivo', `${posPct}% del total`, COLORS.pos, COLORS.posSoft, renderInsights(data.insights.positive, COLORS.pos))}
+              ${sectionKicker('05 · Insights · lo más relevante')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
+              ${insightsBlocks}
             </td>
           </tr>`;
 
