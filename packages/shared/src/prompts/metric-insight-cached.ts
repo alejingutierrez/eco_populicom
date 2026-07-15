@@ -13,7 +13,6 @@
  */
 
 import type { MetricKey } from './metric-insight';
-import { bandWord, metricBand, toBhi10, type BandedMetricKey } from '../format/metrics-display';
 
 export interface MetricSnapshotSubcomponents {
   // Para crisis: severity, velocity, relevance, confidence
@@ -47,8 +46,6 @@ export interface CachedMetricInsightInput {
 
 export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = `
 Eres un analista senior de escucha social en Puerto Rico con 10 años de experiencia. Tu función es DESCRIBIR el porqué de una métrica sintética (Crisis Risk, Polarización, NSS, Brand Health o Volumen) para una agencia pública en un periodo dado, basándote ESTRICTAMENTE en los datos agregados que se te entregan.
-
-Abre con la LECTURA cualitativa (la palabra de banda que se te entrega y qué implica para la agencia) y ancla con el número tal cual se muestra al usuario; luego explica qué pasó en la conversación que llevó ahí. La palabra y el número deben coincidir EXACTAMENTE con lo que ve el usuario — no los reformules ni cambies de escala.
 
 REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
@@ -108,29 +105,38 @@ function metricLabel(m: MetricKey): string {
   } as const)[m];
 }
 
-/**
- * Etiqueta cualitativa canónica de la métrica, derivada del módulo único de
- * formato (`metricBand` + `bandWord`) para que NUNCA diverja del vocabulario ni
- * de los umbrales que ve el usuario en la UI. `value` es el valor CRUDO del
- * snapshot (crisis 0–1, bhi 0–1, polarization 0–100, nss −100..100). Volume no
- * tiene banda cualitativa.
- */
 function metricInterpretation(m: MetricKey, value: number | null): string {
   if (value == null) return 'sin valor disponible';
-  if (m === 'volume') return 'volumen del periodo (sin escala fija — interpreta vs. su nivel típico)';
-  const key = m as BandedMetricKey;
-  return bandWord(key, metricBand(key, value));
+  if (m === 'crisis') {
+    if (value >= 0.60) return 'rango CRISIS (≥0.60)';
+    if (value >= 0.40) return 'rango ALERTA (0.40-0.60)';
+    if (value >= 0.25) return 'rango ELEVADO (0.25-0.40)';
+    return 'rango NORMAL (<0.25)';
+  }
+  if (m === 'nss') {
+    if (value >= 20) return 'positivo robusto';
+    if (value >= 5) return 'positivo leve';
+    if (value > -5) return 'neutro / mixto';
+    if (value > -20) return 'negativo leve';
+    return 'negativo robusto';
+  }
+  if (m === 'bhi') {
+    if (value >= 8.2) return 'fuerte (8.2-10)';
+    if (value >= 6.4) return 'sano (6.4-8.2)';
+    if (value >= 4.6) return 'débil (4.6-6.4)';
+    return 'crítico (1.0-4.6)';
+  }
+  if (m === 'polarization') {
+    if (value >= 60) return 'polarización extrema (>60%)';
+    if (value >= 40) return 'polarización moderada (40–60%)';
+    return 'apatía / bajo nivel de opinión';
+  }
+  return '';
 }
 
 export function buildCachedMetricInsightPrompt(input: CachedMetricInsightInput): string {
   const interp = metricInterpretation(input.metric, input.value);
-  // Número legible tal cual aparece en pantalla. bhi se muestra en escala 1–10
-  // aunque el snapshot lo guarde 0–1; crisis con 2 decimales; el resto 1.
-  const valueLabel = input.value == null
-    ? '—'
-    : input.metric === 'bhi'
-      ? toBhi10(input.value).toFixed(1)
-      : input.value.toFixed(input.metric === 'crisis' ? 2 : 1);
+  const valueLabel = input.value == null ? '—' : input.value.toFixed(input.metric === 'crisis' ? 2 : (input.metric === 'bhi' ? 1 : 1));
   const signedDelta = input.totalMentionsDelta > 0 ? `+${input.totalMentionsDelta.toFixed(0)}` : `${input.totalMentionsDelta.toFixed(0)}`;
 
   return `
