@@ -10,6 +10,7 @@ import {
   mentionMunicipalities,
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, inArray } from 'drizzle-orm';
+import { sourceKey, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
@@ -47,15 +48,47 @@ function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo
   return 'neutral';
 }
 
-function sourceKey(pageType: string | null): string {
-  const t = (pageType ?? '').toLowerCase();
-  if (t.includes('facebook')) return 'facebook';
-  if (t.includes('twitter') || t === 'x' || t.includes('xcom')) return 'twitter';
-  if (t.includes('instagram')) return 'instagram';
-  if (t.includes('youtube')) return 'youtube';
-  if (t.includes('blog')) return 'blog';
-  if (t.includes('news') || t.includes('forum')) return 'news';
-  return t || 'otros';
+// sourceKey vive en @eco/shared (compartido con eco-data/eco-geo). El filtro
+// por fuente usa sourceMatchTerms — el reverso de sourceKey — para capturar
+// TODAS las variantes de page_type (instagram + instagram_public, …), no solo
+// el match exacto. Ver packages/shared/src/sources.ts.
+
+/**
+ * Construye la condición SQL "esta mención pertenece a la fuente `source`",
+ * espejo exacto de sourceKey(). LOWER(COALESCE(page_type,'')) para normalizar,
+ * substrings vía LIKE, exactos vía =. Para 'otros' niega el conjunto conocido.
+ */
+function sourceCondition(source: string) {
+  const { negate, terms } = sourceMatchTerms(source);
+  if (terms.length === 0) return null;
+  const col = sql`LOWER(COALESCE(${mentions.pageType}, ''))`;
+  const parts = terms.map((t) =>
+    t.op === 'like' ? sql`${col} LIKE ${t.value}` : sql`${col} = ${t.value}`,
+  );
+  const joined = sql.join(parts, sql` OR `);
+  return negate ? (sql`NOT (${joined})` as any) : (sql`(${joined})` as any);
+}
+
+/**
+ * Sentimiento efectivo (nlp con fallback a bw), como el COALESCE de eco-data.
+ * Se usa tanto para el filtro `sentiment=` como para el desglose pos/neu/neg
+ * del header del modal, de modo que ambos cuadren con la card.
+ */
+const effectiveSentimentSql = sql<string | null>`COALESCE(${mentions.nlpSentiment}, ${mentions.bwSentiment})`;
+
+/** Construye la condición SQL para `sentiment=positivo|neutral|negativo`. */
+function sentimentCondition(sentiment: string) {
+  if (sentiment === 'positivo') {
+    return sql`${effectiveSentimentSql} IN ('positivo','positive')` as any;
+  }
+  if (sentiment === 'negativo') {
+    return sql`${effectiveSentimentSql} IN ('negativo','negative')` as any;
+  }
+  if (sentiment === 'neutral') {
+    // Espejo de pillFromSentiment: TODO lo que no es pos/neg (incl. NULL).
+    return sql`(${effectiveSentimentSql} IS NULL OR ${effectiveSentimentSql} NOT IN ('positivo','positive','negativo','negative'))` as any;
+  }
+  return null;
 }
 
 function relativeTime(d: Date): string {
@@ -143,8 +176,16 @@ export async function GET(request: NextRequest) {
     conditions.push(lt(mentions.publishedAt, customRange.untilExclusiveUtc));
   }
 
+  // Sentimiento EFECTIVO: COALESCE(nlp, bw) + bilingüe (nlp en español,
+  // bw en inglés), idéntico al pillFromSentiment/effectiveSentimentSql de la
+  // card en eco-data. Filtrar solo nlp_sentiment='negativo' (como antes)
+  // devolvía 0 cuando la mención tenía NLP null pero bw='negative' — el mismo
+  // "sale 0" que el bug de fuente, latente en ventanas largas (1A/Max).
   const sentiment = searchParams.get('sentiment');
-  if (sentiment) conditions.push(eq(mentions.nlpSentiment, sentiment));
+  if (sentiment) {
+    const cond = sentimentCondition(sentiment);
+    if (cond) conditions.push(cond);
+  }
 
   // Default: excluye 'baja' pertinencia. Si el caller pasa `pertinence` explícito
   // o `includeLow=1`, no aplica el filtro (compat con drawer y slices de debug).
@@ -169,19 +210,11 @@ export async function GET(request: NextRequest) {
   } else {
     const source = searchParams.get('source');
     if (source) {
-      // Match all page_type values that map to this canonical source.
-      const srcMap: Record<string, string[]> = {
-        facebook: ['facebook'],
-        twitter: ['twitter', 'x', 'xcom'],
-        instagram: ['instagram'],
-        youtube: ['youtube'],
-        blog: ['blog'],
-        news: ['news', 'forum'],
-      };
-      const list = srcMap[source];
-      if (list && list.length > 0) {
-        conditions.push(inArray(mentions.pageType, list));
-      }
+      // Captura TODAS las variantes de page_type que sourceKey() agruparía bajo
+      // esta fuente (instagram + instagram_public, facebook + facebook_public,
+      // bluesky, tumblr, …). Antes usaba match exacto y devolvía 0/undercount.
+      const cond = sourceCondition(source);
+      if (cond) conditions.push(cond);
     }
   }
 
@@ -341,12 +374,13 @@ export async function GET(request: NextRequest) {
     .from(mentions)
     .where(whereClause);
 
-  // Sentiment breakdown for the slice
+  // Sentiment breakdown for the slice — sentimiento efectivo (COALESCE nlp/bw)
+  // para que el desglose del header cuadre con la card y con el filtro.
   const sentAgg = await db
-    .select({ s: mentions.nlpSentiment, c: sql<number>`COUNT(*)`.mapWith(Number) })
+    .select({ s: effectiveSentimentSql, c: sql<number>`COUNT(*)`.mapWith(Number) })
     .from(mentions)
     .where(whereClause)
-    .groupBy(mentions.nlpSentiment);
+    .groupBy(effectiveSentimentSql);
 
   const sentCounts = { pos: 0, neu: 0, neg: 0 };
   for (const r of sentAgg) {
@@ -387,6 +421,7 @@ export async function GET(request: NextRequest) {
       author: mentions.author,
       authorFullname: mentions.authorFullname,
       nlpSentiment: mentions.nlpSentiment,
+      bwSentiment: mentions.bwSentiment,
       nlpPertinence: mentions.nlpPertinence,
       nlpEmotions: mentions.nlpEmotions,
       nlpSummary: mentions.nlpSummary,
@@ -475,7 +510,7 @@ export async function GET(request: NextRequest) {
       domain: m.domain ?? '',
       source: sourceKey(m.pageType),
       author: m.authorFullname ?? m.author ?? '',
-      sentiment: pillFromSentiment(m.nlpSentiment),
+      sentiment: pillFromSentiment(m.nlpSentiment ?? m.bwSentiment),
       pertinence: m.nlpPertinence ?? 'media',
       engagement: Number(m.engagementScore ?? 0),
       likes: Number(m.likes ?? 0),
@@ -605,6 +640,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
       author: mentions.author,
       authorFullname: mentions.authorFullname,
       nlpSentiment: mentions.nlpSentiment,
+      bwSentiment: mentions.bwSentiment,
       nlpPertinence: mentions.nlpPertinence,
       nlpEmotions: mentions.nlpEmotions,
       nlpSummary: mentions.nlpSummary,
@@ -687,7 +723,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
       domain: m.domain ?? '',
       source: sourceKey(m.pageType),
       author: m.authorFullname ?? m.author ?? '',
-      sentiment: pillFromSentiment(m.nlpSentiment),
+      sentiment: pillFromSentiment(m.nlpSentiment ?? m.bwSentiment),
       pertinence: m.nlpPertinence ?? 'media',
       engagement: Number(m.engagementScore ?? 0),
       likes: Number(m.likes ?? 0),
