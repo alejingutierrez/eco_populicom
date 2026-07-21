@@ -16,6 +16,7 @@ import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
 import {
   closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
   formatMetric, formatDelta, formatVelocity,
+  sourceKey, sourceLabel,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -127,29 +128,9 @@ function pillFromSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo
  */
 const effectiveSentimentSql = sql<string | null>`COALESCE(${mentions.nlpSentiment}, ${mentions.bwSentiment})`;
 
-function sourceKey(pageType: string | null): string {
-  const t = (pageType ?? '').toLowerCase();
-  if (t.includes('facebook')) return 'facebook';
-  if (t.includes('twitter') || t === 'x' || t.includes('xcom')) return 'twitter';
-  if (t.includes('instagram')) return 'instagram';
-  if (t.includes('youtube')) return 'youtube';
-  if (t.includes('blog')) return 'blog';
-  if (t.includes('news') || t.includes('forum')) return 'news';
-  return t || 'otros';
-}
-
-function sourceLabel(key: string): string {
-  const map: Record<string, string> = {
-    facebook: 'Facebook',
-    twitter: 'X / Twitter',
-    instagram: 'Instagram',
-    youtube: 'YouTube',
-    blog: 'Blogs',
-    news: 'Noticias',
-    otros: 'Otros',
-  };
-  return map[key] ?? key;
-}
+// sourceKey / sourceLabel viven en @eco/shared (fuente única de verdad
+// compartida con eco-mentions/eco-geo) para que agregación y drilldown nunca
+// diverjan. Ver packages/shared/src/sources.ts.
 
 function relativeTime(d: Date): string {
   const diff = Date.now() - d.getTime();

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { mentions, municipalities, mentionMunicipalities } from '@eco/database';
-import { sql, eq, and, gte, lte, count, inArray } from 'drizzle-orm';
-import { closedWindowYmdInTZ } from '@eco/shared';
+import { sql, eq, and, gte, lte, count } from 'drizzle-orm';
+import { closedWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 
@@ -19,17 +19,24 @@ const PERIOD_DAYS: Record<string, number> = {
 
 const SLUG = /^[a-z0-9][a-z0-9\-]{0,60}$/;
 
-// page_type -> fuente canónica (idéntico a /api/eco-mentions srcMap).
-const SOURCE_PAGE_TYPES: Record<string, string[]> = {
-  facebook: ['facebook'],
-  twitter: ['twitter', 'x', 'xcom'],
-  instagram: ['instagram'],
-  youtube: ['youtube'],
-  blog: ['blog'],
-  news: ['news', 'forum'],
-};
-
 const effectiveSentimentSql = sql<string | null>`COALESCE(${mentions.nlpSentiment}, ${mentions.bwSentiment})`;
+
+/**
+ * Condición SQL "esta mención pertenece a la fuente `source`", espejo de
+ * sourceKey() vía @eco/shared. Captura variantes (instagram + instagram_public,
+ * facebook + facebook_public, bluesky, tumblr…) por substring, no match exacto
+ * — el mismo fix que eco-mentions. Ver packages/shared/src/sources.ts.
+ */
+function sourceCondition(source: string) {
+  const { negate, terms } = sourceMatchTerms(source);
+  if (terms.length === 0) return null;
+  const col = sql`LOWER(COALESCE(${mentions.pageType}, ''))`;
+  const parts = terms.map((t) =>
+    t.op === 'like' ? sql`${col} LIKE ${t.value}` : sql`${col} = ${t.value}`,
+  );
+  const joined = sql.join(parts, sql` OR `);
+  return negate ? sql`NOT (${joined})` : sql`(${joined})`;
+}
 
 function pill(s: string | null): 'positivo' | 'neutral' | 'negativo' {
   if (s === 'positivo' || s === 'positive') return 'positivo';
@@ -94,9 +101,8 @@ export async function GET(req: NextRequest) {
 
   const source = searchParams.get('source');
   if (source && source !== 'all') {
-    const list = SOURCE_PAGE_TYPES[source];
-    if (list && list.length > 0) conds.push(inArray(mentions.pageType, list));
-    // fuente desconocida → no aplica filtro (devuelve universo completo).
+    const cond = sourceCondition(source);
+    if (cond) conds.push(cond);
   }
 
   const topic = searchParams.get('topic');
