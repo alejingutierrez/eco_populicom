@@ -1,0 +1,145 @@
+/* ============================================================
+   ECO — Shell compartido (sidebar + header) para las vistas ejecutivas.
+   Replica el shell real de eco-prototype (shell.js) en tema mando · oscuro.
+   Lo enlazan los mockups que deben verse como "una pantalla más del dashboard".
+   ============================================================ */
+
+.eco-app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; background: var(--bg); }
+.eco-main { display: flex; flex-direction: column; min-width: 0; }
+
+/* ===== Rail / sidebar ===== */
+.eco-rail {
+  background: var(--rail-bg); color: var(--rail-fg);
+  border-right: 1px solid var(--rail-border);
+  display: flex; flex-direction: column;
+  height: 100vh; position: sticky; top: 0; overflow: hidden;
+}
+.eco-rail-logo {
+  padding: 20px 16px 18px; display: flex; align-items: center; gap: 11px;
+  border-bottom: 1px solid var(--rail-border);
+}
+.eco-mark {
+  width: 36px; height: 36px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(145deg, #1A2838 0%, #0B111A 100%);
+  border: 1px solid rgba(255,138,99,0.18);
+  flex-shrink: 0; position: relative;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.3);
+}
+.eco-mark-live {
+  position: absolute; bottom: -1px; right: -1px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--pos); border: 2px solid var(--rail-bg);
+  box-shadow: 0 0 6px rgba(63,212,122,0.6);
+}
+.eco-word { color: #fff; font-size: 16px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; }
+.eco-badge-v {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent-2);
+  padding: 2px 5px; border-radius: 3px;
+  background: rgba(255,106,61,0.12); border: 1px solid rgba(255,106,61,0.2);
+  font-family: var(--ff-numeric);
+}
+.eco-sub {
+  font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.45); margin-top: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.eco-search {
+  margin: 12px; width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px; color: rgba(255,255,255,0.45); font-size: 12px;
+}
+.eco-search .kbd { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); margin-left: auto; }
+.eco-navlabel {
+  padding: 0 12px 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+  color: rgba(255,255,255,0.28); text-transform: uppercase;
+}
+.eco-navlabel.mt { padding-top: 12px; }
+.eco-nav { padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
+.eco-nav-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px 9px 10px; border-radius: 6px;
+  color: var(--rail-fg); font-size: 13px; font-weight: 500;
+  border-left: 2px solid transparent; text-align: left;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.eco-nav-item:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.75); }
+.eco-nav-item.active {
+  background: var(--rail-active-bg); color: var(--rail-fg-active);
+  font-weight: 600; border-left: 2px solid var(--accent-2);
+}
+.eco-nav-item svg { flex-shrink: 0; }
+.eco-nav-item .lbl { flex: 1; }
+.eco-nav-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 10px;
+  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.7);
+  font-family: var(--ff-numeric);
+}
+.eco-nav-badge.urgent { background: var(--neg); color: #fff; }
+.eco-rail-spacer { flex: 1; }
+.eco-rail-status {
+  padding: 10px 14px; border-top: 1px solid var(--rail-border);
+  display: flex; align-items: center; gap: 8px; font-size: 10px; color: rgba(255,255,255,0.5);
+}
+.eco-rail-status .mono { margin-left: auto; }
+.eco-rail-user {
+  padding: 12px 14px; border-top: 1px solid var(--rail-border);
+  display: flex; align-items: center; gap: 10px;
+}
+.eco-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
+}
+.eco-user-name { color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.eco-user-role { color: rgba(255,255,255,0.3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== Header ===== */
+.eco-header {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--canvas); border-bottom: 1px solid var(--hairline);
+  padding: 14px 28px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.eco-header-titles { flex: 1 1 240px; min-width: 0; }
+.eco-eyebrow-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.eco-live { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-3); font-weight: 500; }
+.eco-live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pos); }
+.eco-live .mono { text-transform: uppercase; letter-spacing: 0.08em; }
+.eco-h1 {
+  margin: 2px 0 0; font-size: 22px; font-weight: 700;
+  letter-spacing: var(--letter-display); font-family: var(--ff-display);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.eco-agency {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--canvas-2); border: 1px solid var(--hairline);
+  font-size: 12px; color: var(--text); font-weight: 500;
+}
+.eco-agency .count {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  background: var(--accent-fill); color: var(--accent); font-family: var(--ff-numeric);
+}
+.eco-periodbag {
+  display: flex; background: var(--canvas-2); border-radius: 999px; padding: 3px;
+  border: 1px solid var(--hairline);
+}
+.eco-period {
+  padding: 4px 10px; font-size: 11px; font-weight: 600; border-radius: 999px;
+  color: var(--text-3);
+}
+.eco-period.active { background: var(--canvas); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.eco-icon-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px;
+  border-radius: var(--r); border: 1px solid var(--hairline);
+  background: var(--canvas); color: var(--text-2); font-size: 12px; font-weight: 500;
+}
+[data-theme="mando"] .eco-icon-btn { border-radius: 4px; }
+.eco-disclaimer-chip {
+  font-size: 10px; color: var(--text-3); border: 1px dashed var(--hairline-strong);
+  padding: 4px 9px; border-radius: 999px; white-space: nowrap;
+}
+
+/* ===== Page ===== */
+.eco-page { padding: 20px 28px 40px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.eco-page-foot { margin-top: 6px; font-size: 10px; color: var(--text-3); }
