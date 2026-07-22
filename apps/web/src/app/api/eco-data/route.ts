@@ -362,9 +362,11 @@ export async function GET(request: NextRequest) {
         polarization: formatMetric('polarization', winCur.polarizationIndex),
         engagementRate: formatMetric('engagementRate', winCur.engagementRate),
         amplificationRate: formatMetric('amplificationRate', winCur.amplificationRate),
-        // Velocidad redefinida: cambio % del engagement-por-mención vs el
-        // período anterior de igual duración (resuelve el "0" → "Estable").
-        velocity: formatVelocity(winCur.engagementPerMention, winPrev.engagementPerMention),
+        // Velocidad = ritmo de la conversación: cambio % del VOLUMEN de
+        // menciones vs el período anterior de igual duración. Basada en volumen
+        // (no en engagement social) para que NO colapse a 0 en periodos
+        // noticiosos, donde hay prensa/alcance pero pocos likes/comentarios.
+        velocity: formatVelocity(winCur.totals.total, winPrev.totals.total),
       },
       // Tendencias vs período anterior, con palabra y distinguiendo
       // "estable" (cambio ≈ 0) de "sin base de comparación" (sin período previo).
