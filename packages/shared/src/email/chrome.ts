@@ -153,6 +153,39 @@ export function sectionKicker(text: string, color: string = EMAIL_COLORS.brand):
   return `<div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${color};margin-bottom:6px;">${text}</div>`;
 }
 
+/**
+ * Encabezado de BLOQUE — separador visual grande que agrupa varias secciones.
+ * Usado (jul 2026, minuta de revisión) para dividir los correos en dos bloques:
+ * Bloque 1 = análisis CUANTITATIVO (volumen/tendencias), Bloque 2 = insights y
+ * detalles CUALITATIVOS. Devuelve una fila <tr> lista para insertar entre
+ * secciones. Mismo patrón visual para diario, semanal y crisis.
+ */
+export function blockHeader(
+  num: string,
+  title: string,
+  subtitle: string,
+  color: string = EMAIL_COLORS.brand,
+): string {
+  const C = EMAIL_COLORS;
+  return `
+          <tr>
+            <td class="px-32" style="padding:30px 32px 2px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td valign="middle" style="white-space:nowrap;width:1px;">
+                    <span style="display:inline-block;background:${color};background-color:${color};color:#FFFFFF;font-size:10px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;padding:5px 11px;border-radius:5px;">Bloque ${esc(num)}</span>
+                  </td>
+                  <td valign="middle" style="padding-left:12px;">
+                    <div class="force-text-dark" style="font-size:15px;font-weight:700;color:${C.ink};letter-spacing:-0.01em;line-height:1.3;">${esc(title)}</div>
+                  </td>
+                </tr>
+              </table>
+              <div class="force-text-soft" style="margin-top:8px;font-size:12px;color:${C.inkMute};line-height:1.45;">${esc(subtitle)}</div>
+              <div style="height:2px;background:${color};background-color:${color};margin-top:12px;border-radius:1px;font-size:0;line-height:0;">&nbsp;</div>
+            </td>
+          </tr>`;
+}
+
 // ------------------------------------------------------------
 // Tile de indicador NUMÉRICO — número protagonista, sin palabra cualitativa.
 // El mismo patrón visual para diario, semanal y alertas.

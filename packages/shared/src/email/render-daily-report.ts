@@ -19,6 +19,7 @@ import {
   esc,
   fmtInt,
   sectionKicker,
+  blockHeader,
   renderMetricTiles,
   emailDocument,
   type EmailMetric,
@@ -282,7 +283,8 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
             </td>
           </tr>
 
-          <!-- 01 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
+${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
+          <!-- BLOQUE 1 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
           <tr>
             <td class="px-32" style="padding:0 32px 22px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
@@ -301,7 +303,7 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
           <!-- 02 · TERMÓMETRO -->
           <tr>
             <td class="px-32" style="padding:0 32px 8px 32px;">
-              ${sectionKicker('02 · Termómetro · últimos 7 días')}
+              ${sectionKicker('01 · Termómetro · últimos 7 días')}
               <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
@@ -317,11 +319,11 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
               </div>
             </td>
           </tr>
-${indicatorsBlock}
-          <!-- 03 · TENDENCIA -->
+
+          <!-- BLOQUE 1 · 02 · TENDENCIA -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('03 · Tendencia día a día')}
+              ${sectionKicker('02 · Tendencia día a día')}
               <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
@@ -348,7 +350,18 @@ ${indicatorsBlock}
             </td>
           </tr>
 
-          <!-- 04 · TÓPICO PRINCIPAL -->
+${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
+${indicatorsBlock}
+          <!-- BLOQUE 2 · 03 · INSIGHTS -->
+          <tr>
+            <td class="px-32" style="padding:16px 32px 20px 32px;">
+              ${sectionKicker('03 · Insights · lo más relevante')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
+              ${insightsBlocks}
+            </td>
+          </tr>
+
+          <!-- BLOQUE 2 · 04 · TÓPICOS -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
               ${sectionKicker('04 · Tópicos principales')}
@@ -364,15 +377,6 @@ ${indicatorsBlock}
                 ${topicsEmpty}
                 ${topicsFooter}
               </table>
-            </td>
-          </tr>
-
-          <!-- 05 · INSIGHTS -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 20px 32px;">
-              ${sectionKicker('05 · Insights · lo más relevante')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-              ${insightsBlocks}
             </td>
           </tr>`;
 

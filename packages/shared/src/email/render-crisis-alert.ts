@@ -17,6 +17,7 @@ import {
   esc,
   fmtInt,
   indicatorTileNum,
+  blockHeader,
   emailDocument,
 } from './chrome';
 
@@ -147,49 +148,6 @@ function volumeVsUsual(z: number | null): string {
 }
 
 // ------------------------------------------------------------
-// Concentración: una fila por concepto (tópico o municipio). Layout:
-// kicker | nombre | barra horizontal | conteo y %. Stacked verticalmente
-// para evitar la asimetría visual que producía el grid de 2 columnas
-// cuando las cuentas de cada lado eran desiguales.
-// ------------------------------------------------------------
-
-function concentrationRow(
-  kind: 'TÓPICO' | 'MUNICIPIO',
-  name: string,
-  negative: number,
-  total: number,
-  share: number,
-  isLast: boolean,
-): string {
-  const pct = Math.round(share * 100);
-  // Barra: ancho proporcional al share. Min 4% para que siempre se vea algo.
-  const barWidth = Math.max(4, pct);
-  const border = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-  return `<tr>
-    <td style="padding:14px 16px;${border}">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td valign="top">
-            <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px;">${esc(kind)}</div>
-            <div class="force-text-dark" style="font-size:14px;font-weight:600;color:${COLORS.ink};line-height:1.3;">${esc(name)}</div>
-          </td>
-          <td align="right" valign="top" style="white-space:nowrap;padding-left:12px;">
-            <div class="force-text-dark" style="font-size:18px;font-weight:700;color:${COLORS.alerta};line-height:1;letter-spacing:-0.01em;">${pct}%</div>
-            <div class="force-text-soft" style="margin-top:3px;font-size:11px;color:${COLORS.inkMute};">${fmtInt(negative)} de ${fmtInt(total)} negativas</div>
-          </td>
-        </tr>
-      </table>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;border-collapse:separate;border-radius:3px;overflow:hidden;background:${COLORS.borderSoft};">
-        <tr>
-          <td bgcolor="${COLORS.alerta}" style="background:${COLORS.alerta};background-color:${COLORS.alerta};width:${barWidth}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>
-          <td style="width:${100 - barWidth}%;height:6px;line-height:6px;font-size:0;padding:0;background:${COLORS.borderSoft};">&nbsp;</td>
-        </tr>
-      </table>
-    </td>
-  </tr>`;
-}
-
-// ------------------------------------------------------------
 // Pull-quote: la frase parafraseada del LLM con su atribución
 // ------------------------------------------------------------
 
@@ -316,41 +274,22 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
   // Score como % de riesgo (vía formatMetric, una sola fuente con el scorecard);
   // los subcomponentes 0–1 como % para no mostrar "0.42" crudo al público. La
   // banda ya sale como palabra (bandLabelEs ≡ NORMAL/ELEVADO/ALERTA/CRISIS).
+  // Tres tiles a 33.33% para llenar la fila tras retirar "Relevancia"
+  // (minuta 21-jul-2026: el tile de Relevancia se elimina del bloque numérico).
   const indicators = [
-    indicatorTileNum('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, esc(score24hHint)),
-    indicatorTileNum('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa'),
-    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(volumeVsUsual(m.volumeAnomalyZscore))),
-    indicatorTileNum('Relevancia', fmtPct(m.crisisRelevance), COLORS.brand, 'pertinencia alta'),
+    indicatorTileNum('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, esc(score24hHint), '33.33%'),
+    indicatorTileNum('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa', '33.33%'),
+    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(volumeVsUsual(m.volumeAnomalyZscore)), '33.33%'),
   ].join('');
 
   const volumeDeltaLine = v.prevDayTotal != null
     ? `${fmtInt(v.totalMentions)} menciones &nbsp;·&nbsp; <strong style="color:${COLORS.alerta};">${fmtInt(v.negativeCount)} negativas</strong> (${fmtPct(v.negativeShare)}). Día previo: ${fmtInt(v.prevDayTotal)} / ${fmtInt(v.prevDayNegative ?? 0)} neg.`
     : `${fmtInt(v.totalMentions)} menciones &nbsp;·&nbsp; <strong style="color:${COLORS.alerta};">${fmtInt(v.negativeCount)} negativas</strong> (${fmtPct(v.negativeShare)}).`;
 
-  // Concentración: un solo bloque vertical con tópicos + municipios. Ordenado
-  // por share descendente. Cada tipo se mantiene en un sub-bloque separado
-  // visualmente con su propio kicker para no fragmentar lectura.
-  const topicConcentrationItems = data.topNegativeTopics
-    .slice(0, 3)
-    .map((t, i, arr) => concentrationRow('TÓPICO', t.topic, t.negative, t.total, t.negativeShare, i === arr.length - 1));
-  const muniConcentrationItems = data.topNegativeMunicipalities
-    .slice(0, 3)
-    .map((mu, i, arr) => {
-      const share = mu.total > 0 ? mu.negative / mu.total : 0;
-      return concentrationRow('MUNICIPIO', mu.municipality, mu.negative, mu.total, share, i === arr.length - 1);
-    });
-
-  const topicsBlock = topicConcentrationItems.length > 0
-    ? `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:12px;">
-        ${topicConcentrationItems.join('')}
-      </table>`
-    : `<div class="force-text-soft" style="padding:14px 16px;font-size:12px;color:${COLORS.inkMute};font-style:italic;background:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:12px;">Sin concentración por tópico medible.</div>`;
-
-  const muniBlock = muniConcentrationItems.length > 0
-    ? `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-        ${muniConcentrationItems.join('')}
-      </table>`
-    : '';
+  // NOTA (minuta 21-jul-2026): la sección "Dónde se concentra" (concentración
+  // por tópico y municipio) se eliminó por completo del correo de crisis. Los
+  // campos `topNegativeTopics` / `topNegativeMunicipalities` se conservan en la
+  // interfaz por compatibilidad con el caller, pero ya no se renderizan.
 
   const drivers = data.editorial.drivers
     .slice(0, 3)
@@ -409,23 +348,42 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
 
   const trendBlock = data.scoreTrendImageUrl
     ? `<tr>
-        <td class="px-32" style="padding:6px 32px 16px 32px;">
-          <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.inkMute};margin-bottom:8px;">Evolución del Crisis Score · últimos 14 días</div>
+        <td class="px-32" style="padding:16px 32px 16px 32px;">
+          <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">03 · Evolución del Crisis Score</div>
           <div style="background:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;padding:14px;">
+            <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.05em;margin-bottom:8px;">Últimos 14 días</div>
             <img src="${esc(data.scoreTrendImageUrl)}" alt="Evolución del Crisis Score" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;">
           </div>
         </td>
       </tr>`
     : '';
 
+  // Botón CTA — markup único reutilizado arriba (parte superior) y al cierre
+  // del Bloque 2 (minuta 21-jul-2026: repetir el CTA al final del correo).
+  const ctaButton = `
+          <!-- CTA · Ver detalle en el dashboard -->
+          <tr>
+            <td class="px-32" align="center" style="padding:14px 32px 26px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td bgcolor="${COLORS.ink}" style="background:${COLORS.ink};background-color:${COLORS.ink};border-radius:6px;">
+                    <a href="${esc(data.dashboardUrl)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
+                      Ver detalle en el dashboard →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
+
   const contentRows = `
-          <!-- HERO -->
+          <!-- HERO (parte superior · sin cambios salvo el tamaño del título) -->
           <tr>
             <td class="px-32" style="padding:24px 32px 18px 32px;">
               <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
                 ${esc(data.agencyShortName)} · ${esc(data.agencyName)} · Detección de crisis
               </div>
-              <h1 class="headline force-text-dark" style="margin:0 0 12px 0;color:${COLORS.ink};font-size:24px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">
+              <h1 class="headline force-text-dark" style="margin:0 0 12px 0;color:${COLORS.ink};font-size:28px;line-height:1.22;font-weight:700;letter-spacing:-0.02em;">
                 ${esc(data.editorial.headline)}
               </h1>
               <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
@@ -439,7 +397,11 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
 
           ${heroImageBlock}
 
-          <!-- INDICADORES -->
+          <!-- CTA superior · atajo inmediato al dashboard -->
+          ${ctaButton}
+
+${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias de la conversación', accent)}
+          <!-- BLOQUE 1 · 01 · INDICADORES (Crisis Score · Severidad · Velocidad) -->
           <tr>
             <td class="px-32" style="padding:6px 32px 12px 32px;">
               <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">01 · Indicadores</div>
@@ -452,48 +414,39 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
-          <!-- CUERPO EDITORIAL -->
+${blockHeader('2', 'Detalle de la crisis', 'Qué está pasando, evolución del Crisis Score y fuentes', accent)}
+          <!-- BLOQUE 2 · 02 · ¿QUÉ ESTÁ PASANDO? — cuantitativo (bullets) + cualitativo -->
           <tr>
-            <td class="px-32" style="padding:18px 32px 4px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:8px;">02 · Qué está pasando</div>
+            <td class="px-32" style="padding:6px 32px 4px 32px;">
+              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">02 · ¿Qué está pasando?</div>
+              <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">Qué lo está empujando</div>
+              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
+                ${drivers}
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-32" style="padding:14px 32px 4px 32px;">
               ${bodyParagraphs}
             </td>
           </tr>
 
           ${voicesBlock}
 
+          <!-- BLOQUE 2 · 03 · EVOLUCIÓN DEL CRISIS SCORE -->
           ${trendBlock}
 
-          <!-- DRIVERS -->
-          <tr>
-            <td class="px-32" style="padding:16px 32px 8px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">03 · Qué lo está empujando</div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                ${drivers}
-              </table>
-            </td>
-          </tr>
-
-          <!-- CONCENTRACIÓN — stacked vertical con barras de progreso -->
-          <tr>
-            <td class="px-32" style="padding:18px 32px 6px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">04 · Dónde se concentra</div>
-              ${topicsBlock}
-              ${muniBlock}
-            </td>
-          </tr>
-
-          <!-- ENLACES Y FUENTES — la lista cruda con thumbnails -->
+          <!-- BLOQUE 2 · 04 · ENLACES Y FUENTES — la lista cruda con thumbnails -->
           <tr>
             <td class="px-32" style="padding:14px 32px 8px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">05 · Enlaces y fuentes</div>
+              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${accent};margin-bottom:10px;">04 · Enlaces y fuentes</div>
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
                 ${mentionsRows}
               </table>
             </td>
           </tr>
 
-          <!-- CIERRE -->
+          <!-- BLOQUE 2 · CONTEXTO DEL MOMENTO -->
           <tr>
             <td class="px-32" style="padding:18px 32px 10px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.alertSofter}" style="background:${COLORS.alertSofter};background-color:${COLORS.alertSofter};border:1px solid ${COLORS.alertSoft};border-radius:8px;">
@@ -507,20 +460,8 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
             </td>
           </tr>
 
-          <!-- CTA -->
-          <tr>
-            <td class="px-32" align="center" style="padding:14px 32px 26px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td bgcolor="${COLORS.ink}" style="background:${COLORS.ink};background-color:${COLORS.ink};border-radius:6px;">
-                    <a href="${esc(data.dashboardUrl)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      Ver detalle en el dashboard →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+          <!-- CTA repetido · cierre del Bloque 2 -->
+          ${ctaButton}
 
 `;
 
