@@ -479,9 +479,11 @@ function buildEmailMetrics(cur: WindowMetrics, prev: WindowMetrics): NonNullable
       delta: formatDelta(cur.polarizationIndex, prev.polarizationIndex, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
     },
     velocity: {
-      // Ya es un "cambio % vs período previo" — no lleva delta adicional.
-      display: formatVelocity(cur.engagementPerMention, prev.engagementPerMention),
-      hint: 'engagement por mención vs período previo',
+      // Velocidad = ritmo de la conversación: cambio % del VOLUMEN de menciones
+      // vs período previo (no engagement social) para que no colapse a 0 en
+      // periodos noticiosos. Ya es un "cambio %" — no lleva delta adicional.
+      display: formatVelocity(cur.totals.total, prev.totals.total),
+      hint: 'volumen de menciones vs período previo',
     },
     engagementRate: {
       display: formatMetric('engagementRate', cur.engagementRate),
