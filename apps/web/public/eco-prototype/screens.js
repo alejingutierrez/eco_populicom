@@ -359,7 +359,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, alignItems: 'stretch' }}>
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 24, alignItems: 'stretch' }}>
         <div>
           <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -426,7 +426,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       </div>
 
       {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.3fr 1.3fr 1fr 1fr 1fr', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
         <KpiCard label="Net Sentiment Score" valueWord={m.display.nss.word} valueTone={m.display.nss.tone} value={m.display.nss.value} deltaInfo={m.deltaDisplay.nss} icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
           onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
@@ -510,7 +510,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       </div>
 
       {/* ── Row 3: Topics (emerging) + Sources + Heatmap ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
@@ -572,7 +572,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
           <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(m.totalMentions)}) →</a>
         </div>
-        <div>
+        <div className="scroll-x">
           {D.MENTIONS.slice(0, 7).map((mn, idx) => {
             const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
             const SIcon = Icons[sourceIcon];
@@ -581,7 +581,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', gap: 12,
+                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', minWidth: 560, gap: 12,
                   alignItems: 'center', padding: '10px 16px',
                   borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                   fontSize: 12, cursor: 'pointer',
@@ -945,7 +945,7 @@ function MentionsScreen({ onMentionClick }) {
 
       {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
           período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
         <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} />
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
         <QuickMetric label="Engagement rate" value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate.word) || '—'} />
@@ -1122,8 +1122,8 @@ function HL({ text, terms }) {
 // --- Mentions: List view (dense table-row, sin columnas Engagement ni Pertinencia) ---
 function MentionsList({ mentions, onMentionClick, highlight }) {
   return (
-    <>
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+    <div className="scroll-x">
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
         <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
@@ -1132,7 +1132,7 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
               {(mn.image || mn.avatar) && (
@@ -1152,14 +1152,14 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
           </div>
         );
       })}
-    </>
+    </div>
   );
 }
 
 // --- Mentions: Cards view (rich tiles, sin pill de pertinencia) ---
 function MentionsCards({ mentions, onMentionClick, highlight }) {
   return (
-    <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+    <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
         const SIcon = Icons[sourceIcon];
@@ -1616,7 +1616,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 24, alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
@@ -1674,7 +1674,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       </div>
 
       {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.5fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Sentimiento en el tiempo</div><div className="card-hd-sub">Volumen apilado · click un día para ver menciones</div></div>
@@ -1716,7 +1716,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             ))}
           </div>
         </div>
-        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 18 }}>
+        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 18 }}>
           {groupRows.length === 0 && (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
               Sin datos para esta dimensión en el periodo.
@@ -2048,7 +2048,7 @@ function TopicsScreen({ onMentionClick }) {
 // --- Treemap variant (existing style, with click drill-in) ---
 function TopicTreemap({ topics, onSelect }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gridAutoRows: '76px', gap: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gridAutoRows: '76px', gap: 4 }}>
       {topics.map((t, i) => {
         const color = t.dominantSentiment === 'positivo' ? 'var(--pos)' : t.dominantSentiment === 'negativo' ? 'var(--neg)' : t.dominantSentiment === 'mixed' ? 'var(--warn)' : 'var(--text-3)';
         const bg = t.dominantSentiment === 'positivo' ? 'var(--pos-bg)' : t.dominantSentiment === 'negativo' ? 'var(--neg-bg)' : 'var(--canvas-2)';
@@ -2182,14 +2182,14 @@ function TopicList({ topics, onSelect }) {
   const sorted = [...topics].sort((a, b) => b.count - a.count);
   const max = Math.max(...sorted.map(t => t.count));
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', gap: 12, padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+    <div className="scroll-x">
+      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Δ</span><span />
       </div>
       {sorted.map((t, i) => (
         <button key={t.slug} onClick={() => onSelect(t.slug)} className="row-hover"
           style={{
-            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', gap: 12, alignItems: 'center',
+            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, alignItems: 'center',
             padding: '10px 12px', fontSize: 12, textAlign: 'left', cursor: 'pointer',
             borderTop: i > 0 ? '1px solid var(--hairline)' : '1px solid var(--hairline)',
             width: '100%',
@@ -2292,7 +2292,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       </div>
 
       {/* Hero stats */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 20, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 20, alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópico</div>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
@@ -2345,13 +2345,13 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
         <div className="card-hd">
           <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · cluster del periodo seleccionado</div></div>
         </div>
-        <div>
+        <div className="scroll-x">
           {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados en este periodo</div>}
           {subs.map((s, i) => {
             const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
             return (
               <div key={s.slug || s.name} className="row-hover" style={{
-                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', gap: 12, alignItems: 'center',
+                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', minWidth: 640, gap: 12, alignItems: 'center',
                 padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 13,
               }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
@@ -2509,7 +2509,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
           <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{headerLabel}</span>
         </div>
       </div>
-      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 20 }}>
+      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 200px', '1fr'), gap: 20 }}>
         {/* Grid */}
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
@@ -2792,7 +2792,7 @@ function GeographyScreen({ onMentionClick }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
           <div className="card-bd">
@@ -2892,7 +2892,7 @@ function CrisisAlertsTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* KPIs operativos */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
         <KpiCard
           label="Estado del disparador"
           valueWord={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
@@ -3015,7 +3015,7 @@ function ReportsTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* KPI strip propio del tab */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
         <KpiCard
           label="Estado del envío"
           value={loading ? '…' : (config?.isActive ? 'Activo' : 'Pausado')}
@@ -3114,7 +3114,7 @@ function AlertsScreen({ onMentionClick }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
         <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
         <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--accent)" />
         <KpiCard label="Activaciones · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
@@ -3139,12 +3139,12 @@ function AlertsScreen({ onMentionClick }) {
       </div>
 
       {tab === 'rules' && (
-        <div className="card">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+        <div className="card scroll-x">
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
             <span>Regla</span><span>Prioridad</span><span style={{ textAlign: 'right' }}>Activaciones 30d</span><span>Estado</span><span>Canales</span><span>Último</span><span />
           </div>
           {D.ALERTS.map((a) => (
-            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
+            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
               <span style={{ fontWeight: 500 }}>{a.name}</span>
               <span className={`pill ${a.priority === 'alta' ? 'pill-neg' : a.priority === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{a.priority}</span>
               <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered}</span>
@@ -3289,7 +3289,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Descripción (opcional)</span>
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
               <select className="input" value={metric} onChange={(e) => onMetricChange(e.target.value)}>
@@ -3367,7 +3367,7 @@ function AlertsHistory({ onMentionClick }) {
   const ruleMax = Math.max(1, ...ruleRank.map((x) => x[1]));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 14 }}>
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Mezcla de severidad</div><div className="card-hd-sub">{rows.length} activaciones</div></div></div>
           <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -3414,9 +3414,9 @@ function AlertsHistory({ onMentionClick }) {
       </div>
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
-        <div>
+        <div className="scroll-x">
           {rows.slice(0, 40).map((r, i) => (
-            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
+            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', minWidth: 560, gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
               <span className="mono" style={{ color: 'var(--text-3)' }}>{r.triggeredAt ? new Date(r.triggeredAt).toLocaleString('es-PR', { timeZone: 'America/Puerto_Rico' }) : '—'}</span>
               <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`}>{r.severity || 'media'}</span>
               <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
@@ -3454,8 +3454,8 @@ function SettingsScreen() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('220px 1fr', '1fr'), gap: 20, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         {sections.map((s) => {
           const IconC = Icons[s.icon];
           return (
@@ -3473,7 +3473,7 @@ function SettingsScreen() {
           );
         })}
       </div>
-      <div>{current ? current.render() : null}</div>
+      <div style={{ minWidth: 0 }}>{current ? current.render() : null}</div>
     </div>
   );
 }
@@ -3721,7 +3721,7 @@ function UsersAdmin() {
       {/* Roles at a glance */}
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Roles disponibles</div><div className="card-hd-sub">Permisos configurados a nivel de plataforma</div></div></div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, borderTop: '1px solid var(--hairline)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 0, borderTop: '1px solid var(--hairline)' }}>
           {ROLES.map((r, i) => (
             <div key={r.k} style={{ padding: 16, borderRight: i < ROLES.length - 1 ? '1px solid var(--hairline)' : 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -3742,9 +3742,9 @@ function UsersAdmin() {
       {/* Users table */}
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Usuarios</div><div className="card-hd-sub">{filtered.length} resultados</div></div></div>
-        <div>
+        <div className="scroll-x">
           <div style={{
-            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', gap: 12,
+            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
             padding: '10px 18px', borderTop: '1px solid var(--hairline)',
             fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em',
             background: 'var(--canvas-2)',
@@ -3759,7 +3759,7 @@ function UsersAdmin() {
                 onClick={() => setDrawer({ mode: 'edit', user: u })}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', gap: 12,
+                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
                   padding: '12px 18px', alignItems: 'center', cursor: 'pointer',
                   borderTop: '1px solid var(--hairline)',
                 }}>
@@ -3834,7 +3834,7 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
           {/* Identity */}
           <div>
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Identidad</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
               <Field label="Nombre completo" required>
                 <input value={form.name} onChange={(e) => setField('name', e.target.value)}
                   placeholder="María Santos"
@@ -3927,7 +3927,7 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
               <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las páginas <span style={{ color: 'var(--text-3)' }}>(según su rol)</span></span>
             </label>
             {form.allowedPages != null && (
-              <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 8 }}>
                 {PAGE_OPTIONS.map((p) => {
                   const locked = p.k === 'overview'; // overview siempre visible (landing)
                   const checked = locked || (form.allowedPages || []).includes(p.k);
@@ -4194,7 +4194,7 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
   return (
     <div>
       <div className="section-eyebrow" style={{ marginBottom: 8 }}>01 · Termómetro · vs ventana previa</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
         {cards.map((c) => {
           const pct = totals.total > 0 ? Math.round((c.value / t) * 100) : 0;
           // Negativo: subir es malo (rojo); bajar es bueno (verde).
@@ -4271,7 +4271,7 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
       className="card row-hover"
       style={{
         padding: 16,
-        display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center',
+        display: 'grid', gridTemplateColumns: window.ecoCols('160px 1fr', '1fr'), gap: 16, alignItems: 'center',
         cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
         textAlign: 'left', width: '100%',
       }}
@@ -4392,7 +4392,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
               onClick={clickable ? () => onTopicClick(row) : undefined}
               className={clickable ? 'row-hover' : undefined}
               style={{
-                display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
+                display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
                 padding: '14px 16px', alignItems: 'center',
                 borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                 opacity: muted ? 0.78 : 1,
@@ -4425,7 +4425,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
         })}
         {/* Footer "Total del periodo" — debe cuadrar con el termómetro */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1.4fr 110px 1fr', gap: 16,
+          display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
           padding: '14px 16px', alignItems: 'center',
           borderTop: '1px solid var(--hairline-strong)',
           background: 'var(--canvas-2)',
@@ -4559,7 +4559,7 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
           Sin suficiente señal en el periodo seleccionado para generar insights.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
           {cols.map((col) => (
             <div key={col.key} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${col.accent}` }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{col.title}</div>
@@ -5864,7 +5864,7 @@ function RadarScreen({ period }) {
                   const cb = crisisBandPill(a.crisisBand);
                   const w = Math.max(6, ((a.crisis || 0) / maxCrisis) * 100);
                   return (
-                    <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr auto', gap: 8, alignItems: 'center', padding: '8px 14px' }}>
+                    <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1.2fr auto', '1fr'), gap: 8, alignItems: 'center', padding: '8px 14px' }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
                       <div style={{ height: 6, borderRadius: 3, background: 'color-mix(in oklab, var(--text-3) 16%, transparent)', overflow: 'hidden' }}>
                         <div style={{ width: `${w.toFixed(1)}%`, height: '100%', borderRadius: 3, background: cb.color }} />

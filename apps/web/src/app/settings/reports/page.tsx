@@ -305,7 +305,7 @@ function ConfigForm({
           <Switch checkedChildren="Activo" unCheckedChildren="Inactivo" />
         </Form.Item>
 
-        <Space size={16} style={{ width: '100%', display: 'flex' }}>
+        <Space size={16} className="eco-form-row" style={{ width: '100%', display: 'flex' }}>
           <Form.Item label="Hora local de envío" name="sendHourLocal" style={{ flex: 1 }} rules={[{ required: true, message: 'Selecciona una hora' }]}>
             <Select options={HOUR_OPTIONS} placeholder="16:00" />
           </Form.Item>
@@ -320,7 +320,7 @@ function ConfigForm({
 
         <Divider plain>Correo semanal (comparativo)</Divider>
 
-        <Space size={16} style={{ width: '100%', display: 'flex' }}>
+        <Space size={16} className="eco-form-row" style={{ width: '100%', display: 'flex' }}>
           <Form.Item
             label="Resumen semanal"
             name="weeklyEnabled"
@@ -367,7 +367,7 @@ function ConfigForm({
           />
         </Form.Item>
 
-        <Space size={16} style={{ width: '100%', display: 'flex' }}>
+        <Space size={16} className="eco-form-row" style={{ width: '100%', display: 'flex' }}>
           <Form.Item label="Nombre del remitente" name="fromName" style={{ flex: 1 }}>
             <Input placeholder="Populicom Radar" />
           </Form.Item>
@@ -405,6 +405,7 @@ function HistoryTable({ rows }: { rows: HistoryEntry[] }) {
       rowKey="id"
       size="small"
       pagination={false}
+      scroll={{ x: 'max-content' }}
       locale={{ emptyText: 'Sin envíos registrados' }}
       columns={[
         {

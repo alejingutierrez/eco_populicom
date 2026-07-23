@@ -67,6 +67,32 @@ function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = nul
   return { path: p, points: pts };
 }
 
+// Robust container-width hook for responsive SVG charts. Measures via
+// getBoundingClientRect in a layout effect (works even when ResizeObserver
+// callbacks are throttled) and re-measures on window resize + RO. Charts keep
+// using pixel coordinates equal to the rendered width, so click math and tick
+// spacing stay exact — no viewBox distortion.
+function useChartWidth(fallback) {
+  const ref = React.useRef(null);
+  const [w, setW] = React.useState(fallback);
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      if (!ref.current) return;
+      const cw = ref.current.getBoundingClientRect().width;
+      if (cw > 0) setW(cw);
+    };
+    measure();
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && ref.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(ref.current);
+    }
+    window.addEventListener('resize', measure);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+  return [ref, w];
+}
+
 // Sparkline
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
   // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
@@ -87,14 +113,7 @@ function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', acc
 
 // Big area line chart
 function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', showAxis = true, showGrid = true, yMin = null, yMax = null }) {
-  const ref = React.useRef(null);
-  const [w, setW] = React.useState(600);
-  React.useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
+  const [ref, w] = useChartWidth(600);
   const padding = { t: 10, r: 10, b: 22, l: 32 };
   const innerW = w - padding.l - padding.r;
   const innerH = height - padding.t - padding.b;
@@ -163,15 +182,8 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 //   valueFormat  (main)   — función custom para formatear valores en tooltip;
 //                           si no se pasa, usa el switch por key.
 function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat }) {
-  const ref = React.useRef(null);
-  const [w, setW] = React.useState(600);
+  const [ref, w] = useChartWidth(600);
   const [hover, setHover] = React.useState(null); // index or null
-  React.useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
   // Padding left más amplio para que los Y-axis labels (números) quepan.
   const padding = { t: 28, r: 20, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
@@ -441,15 +453,8 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
 
 // Stacked area (sentiment over time)
 function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels }) {
-  const ref = React.useRef(null);
-  const [w, setW] = React.useState(600);
+  const [ref, w] = useChartWidth(600);
   const [hover, setHover] = React.useState(null); // índice del punto bajo el cursor
-  React.useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
   const padding = { t: 10, r: 10, b: 24, l: 36 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;

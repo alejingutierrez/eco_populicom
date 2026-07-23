@@ -209,6 +209,7 @@ function SignInPageInner() {
         justifyContent: 'center',
         minHeight: '100vh',
         backgroundColor: '#F4F7FA',
+        padding: 'clamp(16px, 5vw, 32px)',
       }}
     >
       <Card
