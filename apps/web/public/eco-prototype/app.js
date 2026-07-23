@@ -1,6 +1,9 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
+// Responsive breakpoint hook (defined in shell.js, loaded earlier). Screens
+// and the shell branch inline layouts on this since @media can't reach them.
+const useBreakpoint = window.ecoUseBreakpoint || (() => 'desktop');
 const ChatDrawer = (window.ECO_CHAT && window.ECO_CHAT.ChatDrawer) || (() => null);
 const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen, TablaScreen, SalaScreen, RadarScreen } = window.ECO_SCREENS;
 
@@ -183,6 +186,16 @@ function App() {
   const [mode, setMode] = useState(() => localStorage.getItem('eco.mode') || TWEAK_DEFAULTS.mode);
   const [density] = useState(TWEAK_DEFAULTS.density);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eco.collapsed') === 'true');
+  const bp = useBreakpoint();
+  // Off-canvas navigation drawer state (only meaningful at <=768px).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // On tablet the rail auto-collapses to an icon column (CSS sets 64px); on
+  // mobile it becomes a full-label off-canvas drawer; on desktop honor the
+  // user's toggle. Keeping the rendered `collapsed` in sync with the CSS grid
+  // width is what prevents labels from clipping inside a 64px column.
+  const effectiveCollapsed = bp === 'tablet' ? true : bp === 'mobile' ? false : collapsed;
+  // Close the drawer whenever we leave mobile (e.g. rotate / resize up).
+  useEffect(() => { if (bp !== 'mobile' && menuOpen) setMenuOpen(false); }, [bp, menuOpen]);
 
   // URL path is the source of truth for the active screen on initial load, so
   // deep links like /mentions or /geography work from a fresh browser.
@@ -344,14 +357,15 @@ function App() {
   }[active];
 
   return (
-    <div className="eco-app" data-collapsed={collapsed} data-density={density} data-chat-open={chatOpen}>
+    <div className="eco-app" data-collapsed={effectiveCollapsed} data-menu-open={menuOpen} data-density={density} data-chat-open={chatOpen}>
       <Sidebar
-        active={active} onNav={setActive}
-        collapsed={collapsed} setCollapsed={setCollapsed}
+        active={active} onNav={(k) => { setActive(k); setMenuOpen(false); }}
+        collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         onOpenCommand={() => setCmdOpen(true)}
         theme={theme} mode={mode}
       />
+      {bp === 'mobile' && menuOpen && <div className="eco-menu-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="eco-main">
         <Header
           title={screenMeta.label} eyebrow={screenMeta.eyebrow}
@@ -359,6 +373,8 @@ function App() {
           agency={agency} setAgency={setAgency}
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
+          onOpenMenu={() => setMenuOpen(true)}
+          bp={bp}
           onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
           onOpenChat={() => setChatOpen(true)}
           mode={mode} setMode={setMode} live={true}
@@ -372,6 +388,7 @@ function App() {
             searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             agency={agency}
             setActive={setActive}
+            bp={bp}
           />
         </main>
       </div>

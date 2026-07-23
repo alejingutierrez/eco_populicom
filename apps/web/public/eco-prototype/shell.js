@@ -3,6 +3,57 @@ const { Icons } = window;
 const { useState, useEffect, useRef } = React;
 
 /**
+ * Responsive breakpoint hook. Inline style objects CANNOT carry @media
+ * queries, so every screen that must restructure its layout branches on the
+ * value returned here instead. Defined in shell.js because it loads before
+ * screens.js and app.js, so both can read `window.ecoUseBreakpoint`.
+ *   'mobile'  <= 768px   'tablet'  769–1024px   'desktop' > 1024px
+ * These stops mirror the CSS breakpoints in index.html.
+ */
+function useBreakpoint() {
+  const get = () => {
+    if (typeof window === 'undefined') return 'desktop';
+    const w = window.innerWidth;
+    return w <= 768 ? 'mobile' : w <= 1024 ? 'tablet' : 'desktop';
+  };
+  const [bp, setBp] = useState(get);
+  useEffect(() => {
+    let raf = null;
+    const onResize = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = null; setBp(get()); });
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+    return () => { window.removeEventListener('resize', onResize); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  return bp;
+}
+window.ecoUseBreakpoint = useBreakpoint;
+
+/**
+ * Render-time breakpoint helpers for screens.js. They read window.innerWidth
+ * at call time (not cached state), so they're always fresh — and because the
+ * App root subscribes to resize via useBreakpoint() and re-renders the whole
+ * screen tree, any descendant that calls ecoCols() re-computes on resize
+ * without needing `bp` threaded through props.
+ */
+window.ecoBp = function () {
+  if (typeof window === 'undefined') return 'desktop';
+  const w = window.innerWidth;
+  return w <= 768 ? 'mobile' : w <= 1024 ? 'tablet' : 'desktop';
+};
+// ecoCols(desktop, mobile, tablet?) → grid-template-columns for the current
+// breakpoint. tablet falls back to desktop when omitted.
+window.ecoCols = function (desktop, mobile, tablet) {
+  const b = window.ecoBp();
+  if (b === 'mobile') return mobile;
+  if (b === 'tablet') return tablet != null ? tablet : desktop;
+  return desktop;
+};
+window.ecoIsMobile = function () { return window.ecoBp() === 'mobile'; };
+
+/**
  * Construye los parámetros de ventana de tiempo para los endpoints de datos.
  * Si el usuario está en rango personalizado (eco.period === 'custom' y
  * eco.from/eco.to válidos en localStorage), retorna `{ period: 'custom',
@@ -129,7 +180,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   };
 
   return (
-    <aside style={{
+    <aside className="eco-sidebar" style={{
       background: 'var(--rail-bg)',
       color: 'var(--rail-fg)',
       borderRight: '1px solid var(--rail-border)',
@@ -313,7 +364,7 @@ function HeaderSearch({ onSearch, onOpenCommand }) {
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true }) {
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
   // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
@@ -349,6 +400,16 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       padding: '14px 28px',
       display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
     }}>
+      {/* Hamburger — opens the off-canvas nav drawer. Mobile only (CSS). */}
+      <button className="show-mobile" onClick={onOpenMenu} aria-label="Abrir menú"
+        style={{
+          alignItems: 'center', justifyContent: 'center',
+          width: 40, height: 40, flex: 'none',
+          borderRadius: 8, border: '1px solid var(--hairline)',
+          background: 'var(--canvas-2)', color: 'var(--text)',
+        }}>
+        <Icons.Menu size={18} />
+      </button>
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
@@ -428,7 +489,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           <>
             <div onClick={() => setCalendarOpen(false)}
               style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
-            <div className="card" style={{
+            <div className="card eco-datepop" style={{
               position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
               padding: 14, minWidth: 280,
               boxShadow: '0 12px 32px rgba(0,0,0,0.16)',

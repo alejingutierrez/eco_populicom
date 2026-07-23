@@ -271,7 +271,12 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow-x: auto;
+    /* No global horizontal scroll: content REFLOWS instead of being force-
+       widened. Genuinely wide widgets (data tables, streamgraph) get their
+       own .scroll-x wrapper. This is the hard stop that keeps the page body
+       from ever scrolling sideways — the old min-width "scroll guards" that
+       forced 900/1120px are gone. */
+    overflow-x: hidden;
   }
 
   .eco-page {
@@ -279,20 +284,72 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 0;
+    max-width: 100%;
   }
-  /* Tablet + desktop scroll guard */
-  @media (min-width: 900px) {
-    .eco-page { min-width: 900px; }
+
+  /* Sidebar identity — lets the mobile media query override the inline
+     position:sticky to turn the rail into an off-canvas drawer. */
+  .eco-sidebar { min-width: 0; }
+
+  /* Off-canvas nav backdrop. Defined OUTSIDE the mobile media query so it is
+     never an in-flow grid item: if the viewport crosses to desktop while the
+     drawer is still open (before React unmounts it), a media-query-scoped rule
+     would drop position:fixed and the div would displace .eco-main for a frame.
+     It only ever renders when menuOpen is true, which only happens on mobile. */
+  .eco-menu-backdrop {
+    position: fixed; inset: 0; z-index: 2040;
+    background: rgba(0,0,0,0.5);
+    animation: fadeIn 0.2s var(--ease);
   }
-  @media (min-width: 1120px) {
-    .eco-page { min-width: 1120px; }
+
+  /* Reusable horizontal-scroll container for genuinely wide widgets. Scroll
+     stays INSIDE the widget, never the page. */
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; min-width: 0; }
+
+  /* Responsive visibility helpers. */
+  .show-mobile { display: none !important; }
+
+  /* Tablet: auto-collapse the rail to an icon column to reclaim width. Paired
+     in JS with collapsed=true so labels don't clip. */
+  @media (max-width: 1024px) {
+    .eco-app { grid-template-columns: 64px 1fr; }
   }
-  /* Mobile: collapse sidebar, tighten paddings */
+
+  /* Mobile: sidebar leaves the grid and becomes an off-canvas drawer; content
+     spans the full viewport width. */
   @media (max-width: 768px) {
-    .eco-app { grid-template-columns: 56px 1fr; }
-    .eco-app[data-collapsed="true"] { grid-template-columns: 56px 1fr; }
+    .eco-app { grid-template-columns: 1fr; }
+    .eco-app[data-collapsed="true"] { grid-template-columns: 1fr; }
+    .eco-sidebar {
+      position: fixed !important;
+      top: 0; left: 0; bottom: 0;
+      width: min(84vw, 288px) !important;
+      height: 100dvh !important;
+      overflow-y: auto !important;
+      z-index: 2050;
+      transform: translateX(-100%);
+      transition: transform 0.26s var(--ease);
+      box-shadow: 0 0 40px rgba(0,0,0,0.45);
+    }
+    .eco-app[data-menu-open="true"] .eco-sidebar { transform: translateX(0); }
     .eco-page { padding: 14px 12px 36px; }
-    .eco-page > .card { padding: 0; }
+    .show-mobile { display: inline-flex !important; }
+    .hide-mobile { display: none !important; }
+    /* Larger tap targets on touch screens. */
+    .btn { min-height: 40px; }
+    .chip { min-height: 34px; }
+    select, input[type="date"], .input { min-height: 40px; }
+    /* Header date-range popover: pin to the viewport so it can't be clipped
+       off-screen when the header controls wrap (the absolute right:0 anchor
+       would otherwise hang past the left edge under overflow-x:hidden). */
+    .eco-datepop {
+      position: fixed !important;
+      left: 12px !important; right: 12px !important;
+      top: 72px !important;
+      width: auto !important; min-width: 0 !important;
+      z-index: 100;
+    }
   }
 
   /* Card primitive */
@@ -302,6 +359,9 @@
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-sm);
     transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+    /* Allow cards to shrink inside grid/flex tracks (min-width:auto default
+       otherwise lets wide inner content force horizontal overflow). */
+    min-width: 0;
   }
   [data-theme="gaceta"] .card { border-radius: 4px; }
   [data-theme="mando"] .card { border-radius: 6px; }
@@ -1335,9 +1395,20 @@
     banner.appendChild(msg);
     banner.appendChild(retry);
     document.body.appendChild(banner);
-    // Nudge the dashboard down so nothing is hidden under the banner.
-    document.documentElement.style.setProperty('--eco-banner-offset', '40px');
-    document.body.style.paddingTop = '40px';
+    // Nudge the dashboard down so nothing is hidden under the banner. On narrow
+    // screens the message wraps to two/three lines, so measure the real height
+    // instead of hard-coding 40px (which left the banner overlapping content).
+    const applyOffset = () => {
+      const h = Math.ceil(banner.getBoundingClientRect().height) || 40;
+      document.documentElement.style.setProperty('--eco-banner-offset', h + 'px');
+      document.body.style.paddingTop = h + 'px';
+    };
+    applyOffset();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(applyOffset).observe(banner);
+    } else {
+      window.addEventListener('resize', applyOffset);
+    }
   }
 
   (async function () {
@@ -1403,7 +1474,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc20';
+        s.src = base + '/' + f + '?v=prodc21';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
