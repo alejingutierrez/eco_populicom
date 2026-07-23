@@ -430,6 +430,8 @@ async function buildDailyReportEmail(
     // Indicadores compuestos NUMÉRICOS — mismos valores y mismos deltas que
     // el dashboard (paridad con /api/eco-data deltaDisplay).
     metrics: buildEmailMetrics(winCur, winPrev),
+    // CTA del Bloque 2: enlaza a la landing de Overview del dashboard.
+    overviewUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
   const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
@@ -479,9 +481,11 @@ function buildEmailMetrics(cur: WindowMetrics, prev: WindowMetrics): NonNullable
       delta: formatDelta(cur.polarizationIndex, prev.polarizationIndex, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
     },
     velocity: {
-      // Ya es un "cambio % vs período previo" — no lleva delta adicional.
-      display: formatVelocity(cur.engagementPerMention, prev.engagementPerMention),
-      hint: 'engagement por mención vs período previo',
+      // Velocidad = ritmo de la conversación: cambio % del VOLUMEN de menciones
+      // vs período previo (no engagement social) para que no colapse a 0 en
+      // periodos noticiosos. Ya es un "cambio %" — no lleva delta adicional.
+      display: formatVelocity(cur.totals.total, prev.totals.total),
+      hint: 'volumen de menciones vs período previo',
     },
     engagementRate: {
       display: formatMetric('engagementRate', cur.engagementRate),
@@ -1095,9 +1099,9 @@ async function generateInsights(
         input_schema: {
           type: 'object',
           properties: {
-            negative: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque negativo.' },
-            neutral:  { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque neutral.' },
-            positive: { type: 'array', items: { type: 'string' }, description: '0–3 insights del bloque positivo.' },
+            negative: { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque negativo.' },
+            neutral:  { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque neutral.' },
+            positive: { type: 'array', items: { type: 'string' }, description: '0–2 insights del bloque positivo.' },
           },
           required: ['negative', 'neutral', 'positive'],
           additionalProperties: false,
@@ -1130,14 +1134,14 @@ async function generateDailySummary(
     const parsed = await invokeClaudeWithTool<{ summary?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      600,
+      1200,
       {
         name: 'submit_daily_summary',
         description: 'Entrega el párrafo resumen del último día del periodo.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 3–5 oraciones.' },
+            summary: { type: 'string', description: 'Párrafo completo de 4 a 6 oraciones (~120–160 palabras) con contexto de la agencia: qué pasó, por qué importa, tópicos/actores clave y números.' },
           },
           required: ['summary'],
           additionalProperties: false,

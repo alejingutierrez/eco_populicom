@@ -22,6 +22,7 @@ import {
   toneHex,
   deltaInline,
   sectionKicker,
+  blockHeader,
   renderMetricTiles,
   emailDocument,
   type EmailMetric,
@@ -229,7 +230,7 @@ function highlightsBlock(items: string[]): string {
   return `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('07 · Qué cambió')}
+              ${sectionKicker('05 · Qué cambió')}
               <h2 class="section-title force-text-dark" style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Los movimientos de la semana
               </h2>
@@ -291,7 +292,7 @@ function topMentionsBlock(data: WeeklySummaryRenderData): string {
   return `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('05 · Lo más resonante')}
+              ${sectionKicker('06 · Lo más resonante')}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Las menciones con mayor engagement
               </h2>
@@ -314,7 +315,7 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
     ? `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('03 · Indicadores de la semana · mismos valores que el dashboard')}
+              ${sectionKicker('04 · Indicadores de la semana · mismos valores que el dashboard')}
               ${renderMetricTiles([
                 { label: 'Riesgo de crisis', metric: data.metrics.crisis },
                 { label: 'Salud de marca', metric: data.metrics.bhi },
@@ -331,7 +332,7 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
     ? `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Ritmo diario')}
+              ${sectionKicker('03 · Ritmo diario')}
               <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Esta semana vs la anterior, día a día
               </h2>
@@ -391,7 +392,8 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
             </td>
           </tr>
 
-          <!-- 01 · LA SEMANA EN UN VISTAZO -->
+${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
+          <!-- BLOQUE 1 · 01 · LA SEMANA EN UN VISTAZO -->
           <tr>
             <td class="px-32" style="padding:0 32px 22px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
@@ -407,7 +409,7 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
             </td>
           </tr>
 
-          <!-- 02 · SEMANA VS SEMANA -->
+          <!-- BLOQUE 1 · 02 · SEMANA VS SEMANA -->
           <tr>
             <td class="px-32" style="padding:0 32px 8px 32px;">
               ${sectionKicker('02 · Semana vs semana')}
@@ -417,13 +419,16 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
               ${weekVsWeekBlock(data)}
             </td>
           </tr>
-${indicatorsBlock}
 ${chartBlock}
+
+${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
+${indicatorsBlock}
+${highlightsBlock(data.highlights)}
 ${topMentionsBlock(data)}
-          <!-- 06 · TÓPICOS QUE SUBIERON / BAJARON -->
+          <!-- BLOQUE 2 · 07 · TÓPICOS QUE SUBIERON / BAJARON -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('06 · Tópicos')}
+              ${sectionKicker('07 · Tópicos')}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Qué subió y qué bajó
               </h2>
@@ -433,8 +438,6 @@ ${topMentionsBlock(data)}
               ${topicsCompareBlock(data)}
             </td>
           </tr>
-
-${highlightsBlock(data.highlights)}
 ${ctaBlock}`;
 
   return emailDocument({
