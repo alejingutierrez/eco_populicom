@@ -104,6 +104,8 @@ export interface DailyReportRenderData {
     velocity?: EmailMetric;
     engagementRate?: EmailMetric;
   };
+  /** URL a la landing de Overview del dashboard para el CTA del Bloque 2. */
+  overviewUrl?: string;
 }
 
 // ------------------------------------------------------------
@@ -151,117 +153,15 @@ function renderChart(data: DailyReportRenderData): string {
 }
 
 // ------------------------------------------------------------
-// Insights list
-// ------------------------------------------------------------
-
-function renderInsights(items: string[], color: string): string {
-  const clean = items.filter((s) => s && s.trim().length > 0);
-  if (clean.length === 0) {
-    return `<li class="force-text-soft" style="padding:10px 0;font-size:13px;line-height:1.6;color:${COLORS.inkMute};font-style:italic;">No hay señal suficiente en los datos del periodo.</li>`;
-  }
-  return clean
-    .map(
-      (s, i) => {
-        const borderTop = i === 0 ? '' : `border-top:1px solid ${COLORS.borderSoft};`;
-        return `<li class="force-text-dark" style="padding:12px 0 12px 28px;${borderTop}font-size:13.5px;line-height:1.6;color:${COLORS.ink};position:relative;">
-          <span style="position:absolute;left:0;top:12px;color:${color};font-weight:700;font-size:13px;">${i + 1}.</span>
-          ${s}
-        </li>`;
-      },
-    )
-    .join('');
-}
-
-// ------------------------------------------------------------
 // Main render
 // ------------------------------------------------------------
 
 export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const { totals, deltaVsPrev } = data;
 
-  // Al grano: top 5 tópicos con nombre; el resto se pliega en "Otros tópicos"
-  // para que la tabla siga cuadrando con el total del periodo.
-  const namedTopics = data.topicsTable.filter((t) => !t.isOther && !t.isUnclassified);
-  const foldedTopics = namedTopics.slice(5);
-  const prevOther = data.topicsTable.find((t) => t.isOther);
-  const otherRow = (foldedTopics.length > 0 || prevOther)
-    ? [{
-        // Si plegamos tópicos aquí, el "(N)" del label upstream quedaría corto;
-        // un label plano nunca miente.
-        topic: foldedTopics.length > 0 ? 'Otros tópicos' : (prevOther?.topic ?? 'Otros tópicos'),
-        subtopics: '',
-        secondaryCount: 0,
-        total: (prevOther?.total ?? 0) + foldedTopics.reduce((s, t) => s + t.total, 0),
-        negative: (prevOther?.negative ?? 0) + foldedTopics.reduce((s, t) => s + t.negative, 0),
-        neutral: (prevOther?.neutral ?? 0) + foldedTopics.reduce((s, t) => s + t.neutral, 0),
-        positive: (prevOther?.positive ?? 0) + foldedTopics.reduce((s, t) => s + t.positive, 0),
-        isOther: true,
-      }]
-    : [];
-  const topicsList = [
-    ...namedTopics.slice(0, 5),
-    ...otherRow,
-    ...data.topicsTable.filter((t) => t.isUnclassified),
-  ];
-  const topicsRows = topicsList
-    .map((t, idx) => {
-      const isLast = idx === topicsList.length - 1;
-      const rowBorder = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-      const isMuted = Boolean(t.isOther || t.isUnclassified);
-      const labelColor = isMuted ? COLORS.inkSoft : COLORS.ink;
-      const totalColor = isMuted ? COLORS.inkSoft : COLORS.ink;
-      const totalWeight = isMuted ? 600 : 700;
-      const totalPct = totals.total > 0 ? Math.round((t.total / totals.total) * 100) : 0;
-      const subs = t.subtopics
-        ? `<div class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};font-weight:400;margin-top:3px;font-style:${t.isUnclassified ? 'italic' : 'normal'};">${esc(t.subtopics)}</div>`
-        : '';
-      return `
-      <tr>
-        <td class="force-text-dark" style="padding:14px 16px;font-size:13.5px;color:${labelColor};font-weight:${isMuted ? 500 : 600};${rowBorder}">
-          ${esc(t.topic)}
-          ${subs}
-        </td>
-        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:13.5px;color:${totalColor};font-weight:${totalWeight};${rowBorder};white-space:nowrap;">
-          ${fmtInt(t.total)}
-          <span class="force-text-soft" style="display:block;font-size:10.5px;color:${COLORS.inkMute};font-weight:500;margin-top:2px;">${totalPct}%</span>
-        </td>
-        <td style="padding:14px 16px 14px 12px;${rowBorder}">
-          ${distributionBar(t.negative, t.neutral, t.positive, t.total, isMuted)}
-        </td>
-      </tr>`;
-    })
-    .join('');
-
-  // Total al pie de la tabla — debe cuadrar con el universo del termómetro.
-  const topicsFooter = data.topicsTable.length > 0
-    ? `
-      <tr>
-        <td style="padding:14px 16px;font-size:11px;color:${COLORS.inkMute};font-weight:700;letter-spacing:0.06em;text-transform:uppercase;border-top:1px solid ${COLORS.border};background:${COLORS.page};">Total del periodo</td>
-        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:14px;color:${COLORS.ink};font-weight:800;border-top:1px solid ${COLORS.border};background:${COLORS.page};white-space:nowrap;">${fmtInt(totals.total)}</td>
-        <td style="padding:14px 16px 14px 12px;border-top:1px solid ${COLORS.border};background:${COLORS.page};">
-          ${distributionBar(totals.negative, totals.neutral, totals.positive, totals.total, false)}
-        </td>
-      </tr>`
-    : '';
-
-  const topicsEmpty = data.topicsTable.length === 0
-    ? `<tr><td colspan="3" style="padding:18px;text-align:center;font-size:13px;color:${COLORS.inkMute};">Sin menciones clasificadas por tópico en este periodo.</td></tr>`
-    : '';
-
   const negPct = pct(totals.negative, totals.total);
   const neuPct = pct(totals.neutral, totals.total);
   const posPct = pct(totals.positive, totals.total);
-
-  // Insights: solo bloques CON contenido — un bloque vacío ("no hay señal")
-  // por sentimiento era ruido; si ninguno trae señal, una sola línea lo dice.
-  const insightSections = [
-    { label: 'Negativo', sub: `${negPct}% del total`, color: COLORS.neg, bg: COLORS.negSoft, items: data.insights.negative },
-    { label: 'Neutral', sub: `${neuPct}% del total`, color: COLORS.neu, bg: COLORS.neuSoft, items: data.insights.neutral },
-    { label: 'Positivo', sub: `${posPct}% del total`, color: COLORS.pos, bg: COLORS.posSoft, items: data.insights.positive },
-  ].filter((b) => b.items.some((s) => s && s.trim().length > 0));
-  const insightsBlocks = insightSections.length > 0
-    ? insightSections.map((b) => insightBlock(b.label, b.sub, b.color, b.bg, renderInsights(b.items, b.color))).join('\n              ')
-    : `<div class="force-text-soft" style="font-size:12.5px;color:${COLORS.inkMute};font-style:italic;">Sin señal suficiente para insights analíticos en este periodo.</div>`;
 
   // Indicadores compuestos numéricos: sólo si el caller adjuntó las métricas
   // ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
@@ -352,30 +252,17 @@ ${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
 
 ${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
 ${indicatorsBlock}
-          <!-- BLOQUE 2 · 03 · INSIGHTS -->
+          <!-- BLOQUE 2 · CTA · Ver insights y detalle en el dashboard (landing de Overview) -->
           <tr>
-            <td class="px-32" style="padding:16px 32px 20px 32px;">
-              ${sectionKicker('03 · Insights · lo más relevante')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-              ${insightsBlocks}
-            </td>
-          </tr>
-
-          <!-- BLOQUE 2 · 04 · TÓPICOS -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Tópicos principales')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
+            <td class="px-32" style="padding:8px 32px 26px 32px;" align="center">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:78px;">Total</th>
-                  <th align="left" style="padding:11px 16px 11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Distribución <span style="font-weight:500;text-transform:none;letter-spacing:0;color:${COLORS.inkMute};">(neg · neu · pos)</span></th>
+                  <td bgcolor="${COLORS.brand}" style="background:${COLORS.brand};background-color:${COLORS.brand};border-radius:6px;">
+                    <a href="${esc(data.overviewUrl || '#')}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
+                      Ver insights y detalle en el dashboard →
+                    </a>
+                  </td>
                 </tr>
-                ${topicsRows}
-                ${topicsEmpty}
-                ${topicsFooter}
               </table>
             </td>
           </tr>`;
@@ -455,61 +342,3 @@ function renderIndicators(metrics: NonNullable<DailyReportRenderData['metrics']>
           </tr>`;
 }
 
-// ------------------------------------------------------------
-// Distribution bar — barra horizontal stacked con los 3 sentimientos +
-// porcentajes inline. Usa <table> con widths en % para máxima compatibilidad
-// con clientes de email (Outlook 2016 no soporta flexbox; sí soporta tables
-// con widths fraccionarios). Si total = 0, renderiza una barra vacía gris.
-// ------------------------------------------------------------
-
-function distributionBar(neg: number, neu: number, pos: number, total: number, isMuted: boolean): string {
-  if (total === 0) {
-    return `<div style="height:6px;background:${COLORS.borderSoft};border-radius:3px;"></div>
-            <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};">—</div>`;
-  }
-  const negPct = Math.round((neg / total) * 100);
-  const neuPct = Math.round((neu / total) * 100);
-  const posPct = Math.max(0, 100 - negPct - neuPct);
-
-  // Colores: cuando isMuted (filas "Otros" o "Sin clasificar"), bajamos
-  // saturación para no llamar la atención.
-  const negC = isMuted ? '#D89B92' : COLORS.neg;
-  const neuC = isMuted ? '#B5BBC4' : COLORS.neu;
-  const posC = isMuted ? '#9DC9AC' : COLORS.pos;
-
-  // Cada segmento es un <td> con width fraccional. Si un sentimiento es 0,
-  // omitimos el <td> para que no genere un pixel residual.
-  const segs: string[] = [];
-  if (neg > 0) segs.push(`<td bgcolor="${negC}" style="background:${negC};background-color:${negC};width:${negPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-  if (neu > 0) segs.push(`<td bgcolor="${neuC}" style="background:${neuC};background-color:${neuC};width:${neuPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-  if (pos > 0) segs.push(`<td bgcolor="${posC}" style="background:${posC};background-color:${posC};width:${posPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-radius:3px;overflow:hidden;background:${COLORS.borderSoft};">
-    <tr>${segs.join('')}</tr>
-  </table>
-  <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};line-height:1.4;">
-    <span style="color:${negC};font-weight:600;">${negPct}%</span>
-    <span style="color:${COLORS.inkMute};">·</span>
-    <span style="color:${neuC};font-weight:600;">${neuPct}%</span>
-    <span style="color:${COLORS.inkMute};">·</span>
-    <span style="color:${posC};font-weight:600;">${posPct}%</span>
-  </div>`;
-}
-
-// ------------------------------------------------------------
-// Insight block — tarjeta suave con etiqueta y lista numerada
-// ------------------------------------------------------------
-
-function insightBlock(label: string, sub: string, color: string, pillBg: string, listHtml: string): string {
-  return `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:10px;">
-    <tr>
-      <td style="padding:14px 18px 6px 18px;">
-        <div style="margin-bottom:4px;">
-          <span style="display:inline-block;background:${pillBg};color:${color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;vertical-align:middle;">${label}</span>
-          <span class="force-text-soft" style="margin-left:8px;font-size:11.5px;color:${COLORS.inkMute};vertical-align:middle;">${sub}</span>
-        </div>
-        <ul style="margin:0;padding:0;list-style:none;">${listHtml}</ul>
-      </td>
-    </tr>
-  </table>`;
-}

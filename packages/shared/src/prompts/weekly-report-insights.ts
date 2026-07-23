@@ -260,17 +260,17 @@ MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement; pre-filtradas a pe
 ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
 TAREA:
-Redacta un párrafo ÚNICO de 2 a 3 oraciones (máximo ~70 palabras) resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. El lector es ejecutivo y tiene 20 segundos: ve directo al grano. Arranca por el hecho dominante del día (evento/tópico/actor con su número) — sin aperturas genéricas tipo "La conversación estuvo marcada por" ni "Durante la jornada". Cubre en forma COMPACTA, combinando datos en una misma oración cuando sea natural:
-1. El tópico/evento dominante del día con sus menciones y el hecho concreto más relevante de las muestras (medio, autor o mención identificable, con número).
-2. Volumen total del día, sentimiento dominante con % explícito y variación porcentual vs. el día anterior.
-3. Municipios SOLO si un tópico se concentra claramente en 1–2; no fuerces geografía.
+Redacta un párrafo ÚNICO y COMPLETO de 4 a 6 oraciones (~120–160 palabras) que resuma el día reportado (${todayDate}) para ${aggregates.agencyName} con suficiente contexto para que el lector entienda qué pasó y qué significa PARA ESTA AGENCIA. Registro institucional, español de Puerto Rico. Arranca por el hecho dominante del día (evento/tópico/actor con su número) — sin aperturas genéricas tipo "La conversación estuvo marcada por" ni "Durante la jornada". El párrafo debe cubrir, con oraciones desarrolladas (no un listado telegráfico):
+1. QUÉ pasó en el día y POR QUÉ importa para ${aggregates.agencyName}: el tópico/evento dominante con sus menciones y el hecho concreto más relevante de las muestras (medio, autor o mención identificable, con número).
+2. CONTEXTO: tópicos dominantes del día, actores/medios que empujan la conversación, municipios si la concentración es clara (1–2; no fuerces geografía), y cómo se compara con lo habitual del periodo de 7 días (¿es un pico, una caída, o dentro de lo usual?).
+3. NÚMEROS CLAVE anclando el relato: volumen total del día, sentimiento neto/dominante con % explícito, y variación porcentual vs. el día anterior y vs. el resto del periodo.
 4. Etiquetas HTML inline muy limitadas: solo <strong> para nombres propios y números clave. Sin otras etiquetas.
 
 PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 {
-  "summary": "<párrafo de 2 a 3 oraciones>"
+  "summary": "<párrafo completo de 4 a 6 oraciones (~120–160 palabras)>"
 }
 `.trim();
 }

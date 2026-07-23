@@ -101,6 +101,7 @@ const data: DailyReportRenderData = {
       delta: formatDelta(2.4, 2.1, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
     },
   },
+  overviewUrl: 'https://citizenecho.com/overview?agency=ddecpr',
 };
 
 function buildMockChartUrl(): string {

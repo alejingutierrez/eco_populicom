@@ -430,6 +430,8 @@ async function buildDailyReportEmail(
     // Indicadores compuestos NUMÉRICOS — mismos valores y mismos deltas que
     // el dashboard (paridad con /api/eco-data deltaDisplay).
     metrics: buildEmailMetrics(winCur, winPrev),
+    // CTA del Bloque 2: enlaza a la landing de Overview del dashboard.
+    overviewUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
   const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
@@ -1132,14 +1134,14 @@ async function generateDailySummary(
     const parsed = await invokeClaudeWithTool<{ summary?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      600,
+      1200,
       {
         name: 'submit_daily_summary',
         description: 'Entrega el párrafo resumen del último día del periodo.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 2–3 oraciones, directo al grano.' },
+            summary: { type: 'string', description: 'Párrafo completo de 4 a 6 oraciones (~120–160 palabras) con contexto de la agencia: qué pasó, por qué importa, tópicos/actores clave y números.' },
           },
           required: ['summary'],
           additionalProperties: false,
