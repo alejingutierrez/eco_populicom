@@ -316,6 +316,10 @@ function App() {
   }, [agency]);
 
   useEffect(() => {
+    // index.html ya pone data-theme/data-mode en <html> para que los tokens
+    // existan desde el primer byte (sin FOUC, y para que un crash de render no
+    // deje al error boundary sin sistema de diseño). Esto sólo los mantiene en
+    // sync cuando el usuario cambia de modo.
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-mode', mode);
     document.documentElement.setAttribute('data-density', density);
