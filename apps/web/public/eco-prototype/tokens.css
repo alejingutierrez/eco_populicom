@@ -1,0 +1,459 @@
+/* =============================================================================
+   ECO · Capa de tokens del sistema de diseño
+   -----------------------------------------------------------------------------
+   FUENTE ÚNICA DE VERDAD para tipografía, espaciado, radios, elevación,
+   movimiento y color semántico. La consumen:
+     - la SPA del dashboard  → eco-prototype/index.html (@import)
+     - el especimen vivo     → /design-system/index.html (@import)
+     - (pendiente) Next.js   → src/app/globals.css + src/theme/eco-theme.ts
+
+   REGLA: ningún valor de color, tamaño de letra, espaciado o radio se escribe
+   a mano en screens.js / shell.js / charts.js. Si falta un token, se añade
+   AQUÍ y se usa por nombre. Cada excepción es deuda.
+
+   Sembrado: 2026-07-28. Ver docs/auditoria-diseno-2026-07.md para el plan de
+   migración y el mapa valor-viejo → token-nuevo.
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · TIPOGRAFÍA
+   Besley (serif de contraste alto, variable) para títulos y cifras.
+   Krub (sans humanista) para todo el texto de interfaz.
+   IBM Plex Mono sólo para lo que es literalmente código/URL/ID.
+   ======================================================================== */
+:root {
+  --ff-display: 'Besley', 'Iowan Old Style', Georgia, serif;
+  --ff-sans: 'Krub', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ff-numeric: 'Besley', Georgia, serif;
+  --ff-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  /* Alias heredado: `--ff-serif` apuntaba a Newsreader. Se mantiene para no
+     romper los ~6 sitios que lo usan hasta que migren a --ff-display. */
+  --ff-serif: var(--ff-display);
+
+  /* --- Escala tipográfica ---------------------------------------------------
+     12 pasos. El piso de texto legible es 12px (--fs-caption) y sólo el
+     overline baja a 11px. Antes había 16 tamaños distintos dominados por
+     9-11px, que es lo que producía los 471 casos de bajo contraste percibido
+     y la sensación de "letra chiquita" en monitores de oficina.
+     Los valores fluidos usan clamp() para que móvil no herede el desktop. */
+  --fs-display-2xl: clamp(30px, 3.6vw, 40px);
+  --lh-display-2xl: 1.08;
+  --fs-display-xl: clamp(24px, 2.6vw, 32px);
+  --lh-display-xl: 1.14;
+  --fs-display-lg: clamp(20px, 2vw, 24px);
+  --lh-display-lg: 1.22;
+  --fs-display-md: 20px;
+  --lh-display-md: 1.3;
+
+  --fs-title-lg: 17px;
+  --lh-title-lg: 1.35;
+  --fs-title-md: 15px;   /* .card-hd-title */
+  --lh-title-md: 1.4;
+
+  --fs-body-lg: 15px;
+  --lh-body-lg: 1.55;
+  --fs-body: 14px;       /* texto por defecto de la interfaz */
+  --lh-body: 1.5;
+  --fs-body-sm: 13px;    /* filas densas, texto secundario */
+  --lh-body-sm: 1.45;
+  --fs-label: 13px;      /* labels de formulario, botones, chips */
+  --lh-label: 1.2;
+  --fs-caption: 12px;    /* PISO: metadatos, marcas de tiempo, ejes */
+  --lh-caption: 1.35;
+  --fs-overline: 11px;   /* ÚNICO permitido bajo 12px: eyebrows en mayúsculas */
+  --lh-overline: 1.3;
+
+  /* Cifras. Besley tiene tabular + lining; se fuerzan por si el subset falla. */
+  --fs-num-2xl: clamp(28px, 3.2vw, 38px);
+  --fs-num-xl: 30px;
+  --fs-num-lg: 24px;
+  --fs-num-md: 18px;
+  --fs-num-sm: 15px;
+
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-display: -0.015em;
+  --tracking-tight: -0.005em;
+  --tracking-normal: 0;
+  --tracking-overline: 0.09em;
+}
+
+/* ===========================================================================
+   2 · ESPACIADO — base 4px
+   Mapa de migración de los 17 valores de `gap` que había inline:
+     0→0 · 1,2,3→--sp-05(2px) o --sp-1(4px) · 4→--sp-1 · 5,6→--sp-15(6px)
+     8→--sp-2 · 10,11,12→--sp-3 · 14,16→--sp-4 · 18,20→--sp-5 · 22,24→--sp-6
+   ======================================================================== */
+:root {
+  --sp-0: 0;
+  --sp-05: 2px;
+  --sp-1: 4px;
+  --sp-15: 6px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Ritmo de página. `--gap-section` es la separación entre bloques numerados
+     del Overview; `--gap-grid` la de las rejillas de cards. */
+  --gap-grid: var(--sp-3);
+  --gap-section: var(--sp-6);
+  --pad-card: var(--sp-4);
+  --pad-card-lg: var(--sp-5);
+  --pad-page: clamp(var(--sp-4), 2vw, var(--sp-8));
+}
+
+/* ===========================================================================
+   3 · RADIOS
+   Mapa: 1,2,3→--r-sm(4px) · 4,5,6→--r-md(6px) · 8,10→--r-lg(10px)
+         12→--r-xl(14px) · 999→--r-pill
+   Se conservan los alias viejos (--r-sm/--r/--r-lg/--r-xl) apuntando a los
+   nuevos para no romper el CSS existente de index.html.
+   ======================================================================== */
+:root {
+  --r-none: 0;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-pill: 999px;
+  --r-circle: 50%;
+  --r: var(--r-md);
+}
+
+/* ===========================================================================
+   4 · MOVIMIENTO
+   ======================================================================== */
+:root {
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur: 220ms;
+  --dur-slow: 340ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+
+/* ===========================================================================
+   5 · COLOR — tema MANDO, modo OSCURO (el único que alcanza el usuario hoy)
+   ---------------------------------------------------------------------------
+   Correcciones respecto de la paleta anterior, todas medidas con WCAG 2.1
+   sobre `--canvas` #0E1620:
+
+     --text-2  #8A94A1 → #A2ACBA   5.92:1 → 7.92:1
+     --text-3  #525B68 → #7C8798   2.65:1 → 5.00:1  (antes FALLABA AA)
+     --neg     #FF6A3D → #FF5470   deja de ser idéntico a --accent
+                                   (Δhue 24°, 5.85:1)
+
+   El par --accent === --neg era la causa raíz de que "VELOCIDAD: Acelerada"
+   se leyera como una alarma y de que un chip activo fuera indistinguible de
+   un indicador negativo. El naranja se queda como identidad de marca
+   (--accent); lo negativo pasa a un rojo-magenta separable.
+
+   --on-*: el color de PRIMER PLANO sobre cada relleno saturado. Blanco sobre
+   estos rellenos falla AA sin excepción (#fff sobre --accent 2.85:1, sobre
+   --pos 1.92:1, sobre --warn 1.63:1). El texto sobre relleno brillante es
+   SIEMPRE oscuro. Esto reemplaza los 12 `#fff` hardcodeados.
+   ======================================================================== */
+[data-theme="mando"][data-mode="dark"] {
+  /* superficies — en oscuro, más elevación = más CLARO */
+  --bg: #060A10;
+  --bg-2: #0A111A;
+  --surface-inset: #070C13;
+  --canvas: #0E1620;
+  --canvas-2: #091018;
+  --surface-raised: #16202C;
+  --surface-overlay: #1B2632;
+  --scrim: rgba(3, 6, 9, 0.72);
+
+  --hairline: rgba(255, 255, 255, 0.06);
+  --hairline-strong: rgba(255, 255, 255, 0.12);
+
+  /* texto — escalera 15.3 / 7.9 / 5.0, los tres pasan AA */
+  --text: #E6ECF3;
+  --text-2: #A2ACBA;
+  --text-3: #7C8798;
+  --text-disabled: #525B68; /* SÓLO para deshabilitado (exento de AA) */
+
+  /* semántico */
+  --accent: #FF6A3D;
+  --accent-2: #FF8A63;
+  --accent-fill: rgba(255, 106, 61, 0.14);
+  --pos: #3FD47A;
+  --pos-bg: rgba(63, 212, 122, 0.10);
+  --neg: #FF5470;
+  --neg-bg: rgba(255, 84, 112, 0.10);
+  --warn: #FFC043;
+  --warn-bg: rgba(255, 192, 67, 0.10);
+  --info: #58A6FF;
+  --info-bg: rgba(88, 166, 255, 0.10);
+  --neu: var(--text-3);
+  --neu-bg: rgba(124, 135, 152, 0.10);
+
+  /* primer plano sobre relleno saturado */
+  --on-accent: #1A0A04;
+  --on-pos: #04140A;
+  --on-neg: #1A0409;
+  --on-warn: #1A1204;
+  --on-info: #04101A;
+  --on-neu: #FFFFFF;
+
+  /* rail de navegación */
+  --rail-bg: #030609;
+  --rail-fg: rgba(255, 255, 255, 0.62);
+  --rail-fg-active: #FFFFFF;
+  --rail-active-bg: rgba(255, 106, 61, 0.18);
+  --rail-border: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 64px -24px rgba(0, 0, 0, 0.8);
+
+  --letter-display: var(--tracking-tight);
+}
+
+/* --- tema MANDO, modo CLARO ---------------------------------------------- */
+[data-theme="mando"][data-mode="light"] {
+  --bg: #F5F6F7;
+  --bg-2: #E8EAED;
+  --surface-inset: #EDEFF2;
+  --canvas: #FFFFFF;
+  --canvas-2: #F5F6F7;
+  --surface-raised: #FFFFFF;
+  --surface-overlay: #FFFFFF;
+  --scrim: rgba(14, 17, 22, 0.45);
+
+  --hairline: #DFE2E6;
+  --hairline-strong: #BFC5CC;
+
+  --text: #0E1116;
+  --text-2: #4A515B;
+  --text-3: #6B7280;
+  --text-disabled: #A0A6AF;
+
+  --accent: #C83A1E;
+  --accent-2: #E85A3E;
+  --accent-fill: rgba(200, 58, 30, 0.08);
+  --pos: #14722F;
+  --pos-bg: rgba(20, 114, 47, 0.10);
+  --neg: #C2183F;
+  --neg-bg: rgba(194, 24, 63, 0.10);
+  --warn: #96600B;
+  --warn-bg: rgba(150, 96, 11, 0.12);
+  --info: #1F4575;
+  --info-bg: rgba(31, 69, 117, 0.10);
+  --neu: var(--text-3);
+  --neu-bg: rgba(107, 114, 128, 0.10);
+
+  --on-accent: #FFFFFF;
+  --on-pos: #FFFFFF;
+  --on-neg: #FFFFFF;
+  --on-warn: #FFFFFF;
+  --on-info: #FFFFFF;
+  --on-neu: #FFFFFF;
+
+  --rail-bg: #0A0F16;
+  --rail-fg: rgba(255, 255, 255, 0.62);
+  --rail-fg-active: #FFFFFF;
+  --rail-active-bg: rgba(200, 58, 30, 0.16);
+  --rail-border: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 0 rgba(14, 17, 22, 0.04);
+  --shadow: 0 1px 0 rgba(14, 17, 22, 0.04), 0 6px 16px -10px rgba(14, 17, 22, 0.1);
+  --shadow-lg: 0 24px 64px -24px rgba(14, 17, 22, 0.22);
+
+  --letter-display: var(--tracking-tight);
+}
+
+/* ===========================================================================
+   6 · PALETAS DE DATOS
+   ---------------------------------------------------------------------------
+   Estas escalas reemplazan los ~103 hex hardcodeados en screens.js/charts.js.
+
+   REGLA CRÍTICA: la paleta categórica NO reutiliza los hues de --pos/--neg/
+   --warn. Hoy "Noticias" se pinta verde en Fuentes Top, y en un dashboard de
+   sentimiento el verde ya significa "positivo" — la categoría se lee como un
+   juicio. Categórico y semántico son espacios de color disjuntos.
+   ======================================================================== */
+[data-theme="mando"][data-mode="dark"] {
+  /* categórica — 8 hues, todos ≥6.6:1 sobre --canvas, sin verde/rojo/ámbar
+     semánticos. Asignar EN ORDEN, nunca al azar ni por hash del nombre. */
+  --cat-1: #5B9DF9;   /* azul     6.61:1 */
+  --cat-2: #A78BFA;   /* violeta  6.69:1 */
+  --cat-3: #2DD4BF;   /* teal     9.77:1 */
+  --cat-4: #F472B6;   /* rosa     6.87:1 */
+  --cat-5: #38BDF8;   /* cian     8.49:1 */
+  --cat-6: #C4B5FD;   /* lavanda            */
+  --cat-7: #7DD3FC;   /* celeste            */
+  --cat-8: #94A3B8;   /* gris (resto/otros) */
+
+  /* emociones — 7 valores del taxonomía NLP. Familias frías para las
+     negativas, cálidas para las positivas, neutro para sorpresa. */
+  --emo-ira: #FF5470;
+  --emo-frustracion: #FF8A63;
+  --emo-miedo: #A78BFA;
+  --emo-tristeza: #5B9DF9;
+  --emo-alegria: #3FD47A;
+  --emo-esperanza: #2DD4BF;
+  --emo-sorpresa: #FFC043;
+
+  /* estados de narrativa — 6 del ciclo de vida + fallback obligatorio para
+     un status desconocido (hoy se renderiza sin color y en inglés crudo). */
+  --narr-emerging: #2DD4BF;
+  --narr-active: #3FD47A;
+  --narr-peaking: #FF6A3D;
+  --narr-declining: #FFC043;
+  --narr-revived: #F472B6;
+  --narr-dormant: #7C8798;
+  --narr-unknown: #525B68;
+
+  /* secuencial (heatmap, mapa de PR). 6 pasos derivados del accent.
+     ⚠️ La leyenda DEBE usar estos mismos tokens: hoy HourActivityCard pinta
+     los swatches con rgba(11,95,128,…) — el azul del tema `costa` — mientras
+     las celdas van en naranja. */
+  --seq-0: rgba(255, 106, 61, 0.08);
+  --seq-1: rgba(255, 106, 61, 0.24);
+  --seq-2: rgba(255, 106, 61, 0.42);
+  --seq-3: rgba(255, 106, 61, 0.60);
+  --seq-4: rgba(255, 106, 61, 0.78);
+  --seq-5: rgba(255, 106, 61, 0.95);
+
+  /* divergente (delta vs periodo anterior: negativo ← neutro → positivo) */
+  --div-neg-2: #FF5470;
+  --div-neg-1: #FF9BAC;
+  --div-mid: #4A515B;
+  --div-pos-1: #8FE5B0;
+  --div-pos-2: #3FD47A;
+
+  /* rejilla y ejes de gráfica */
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: var(--text-3);
+  --chart-crosshair: var(--text-2);
+  --chart-void: rgba(255, 255, 255, 0.03); /* hueco de datos ≠ cero real */
+}
+
+[data-theme="mando"][data-mode="light"] {
+  --cat-1: #1D4ED8;
+  --cat-2: #6D28D9;
+  --cat-3: #0F766E;
+  --cat-4: #BE185D;
+  --cat-5: #0369A1;
+  --cat-6: #7C3AED;
+  --cat-7: #0E7490;
+  --cat-8: #52525B;
+
+  --emo-ira: #C2183F;
+  --emo-frustracion: #B4460F;
+  --emo-miedo: #6D28D9;
+  --emo-tristeza: #1D4ED8;
+  --emo-alegria: #14722F;
+  --emo-esperanza: #0F766E;
+  --emo-sorpresa: #96600B;
+
+  --narr-emerging: #0F766E;
+  --narr-active: #14722F;
+  --narr-peaking: #C83A1E;
+  --narr-declining: #96600B;
+  --narr-revived: #BE185D;
+  --narr-dormant: #6B7280;
+  --narr-unknown: #A0A6AF;
+
+  --seq-0: rgba(200, 58, 30, 0.06);
+  --seq-1: rgba(200, 58, 30, 0.20);
+  --seq-2: rgba(200, 58, 30, 0.38);
+  --seq-3: rgba(200, 58, 30, 0.56);
+  --seq-4: rgba(200, 58, 30, 0.75);
+  --seq-5: rgba(200, 58, 30, 0.92);
+
+  --div-neg-2: #C2183F;
+  --div-neg-1: #E8859A;
+  --div-mid: #A0A6AF;
+  --div-pos-1: #7CBE92;
+  --div-pos-2: #14722F;
+
+  --chart-grid: rgba(14, 17, 22, 0.08);
+  --chart-axis: var(--text-3);
+  --chart-crosshair: var(--text-2);
+  --chart-void: rgba(14, 17, 22, 0.04);
+}
+
+/* ===========================================================================
+   7 · CLASES TIPOGRÁFICAS UTILITARIAS
+   ---------------------------------------------------------------------------
+   La SPA escribe el layout inline (no hay bundler ni Tailwind), así que la vía
+   práctica para retirar los cientos de `fontSize: 11` es aplicar una clase.
+   `window.ECO_T` (definido en tokens.js) expone los mismos valores para los
+   casos donde hace falta el objeto de estilo.
+   ======================================================================== */
+.t-display-2xl { font-family: var(--ff-display); font-size: var(--fs-display-2xl); line-height: var(--lh-display-2xl); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-display); }
+.t-display-xl  { font-family: var(--ff-display); font-size: var(--fs-display-xl);  line-height: var(--lh-display-xl);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-display); }
+.t-display-lg  { font-family: var(--ff-display); font-size: var(--fs-display-lg);  line-height: var(--lh-display-lg);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-display-md  { font-family: var(--ff-display); font-size: var(--fs-display-md);  line-height: var(--lh-display-md);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-title-lg    { font-family: var(--ff-display); font-size: var(--fs-title-lg);    line-height: var(--lh-title-lg);    font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-title-md    { font-family: var(--ff-display); font-size: var(--fs-title-md);    line-height: var(--lh-title-md);    font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-body-lg     { font-family: var(--ff-sans); font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); font-weight: var(--fw-regular); }
+.t-body        { font-family: var(--ff-sans); font-size: var(--fs-body);    line-height: var(--lh-body);    font-weight: var(--fw-regular); }
+.t-body-sm     { font-family: var(--ff-sans); font-size: var(--fs-body-sm); line-height: var(--lh-body-sm); font-weight: var(--fw-regular); }
+.t-label       { font-family: var(--ff-sans); font-size: var(--fs-label);   line-height: var(--lh-label);   font-weight: var(--fw-semibold); }
+.t-caption     { font-family: var(--ff-sans); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: var(--fw-regular); color: var(--text-3); }
+.t-overline    { font-family: var(--ff-sans); font-size: var(--fs-overline); line-height: var(--lh-overline); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-2); }
+
+/* Cifras — tabular SIEMPRE, para que las columnas de números no bailen. */
+.t-num, .num {
+  font-family: var(--ff-numeric);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+  letter-spacing: var(--tracking-tight);
+}
+.t-num-2xl { font-size: var(--fs-num-2xl); line-height: 1; font-weight: var(--fw-semibold); }
+.t-num-xl  { font-size: var(--fs-num-xl);  line-height: 1; font-weight: var(--fw-semibold); }
+.t-num-lg  { font-size: var(--fs-num-lg);  line-height: 1.1; font-weight: var(--fw-semibold); }
+.t-num-md  { font-size: var(--fs-num-md);  line-height: 1.2; font-weight: var(--fw-semibold); }
+.t-num-sm  { font-size: var(--fs-num-sm);  line-height: 1.3; font-weight: var(--fw-medium); }
+
+.mono { font-family: var(--ff-mono); font-size: var(--fs-caption); }
+
+/* ===========================================================================
+   8 · UTILIDADES DE ACCESIBILIDAD
+   ======================================================================== */
+/* Área táctil mínima 44×44 sin alterar el tamaño visual del control. */
+.touch-target { position: relative; }
+.touch-target::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: max(100%, 44px); height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+@media (pointer: coarse) {
+  .touch-target-strict { min-width: 44px; min-height: 44px; }
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}

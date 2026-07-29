@@ -414,7 +414,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return (
               <g key={s.key + '-tag'} transform={`translate(${innerW + 4}, ${y})`}>
                 <rect x={0} y={-8} width={46} height={16} fill={s.color} rx={2} />
-                <text x={23} y={3} fontSize="10" fontWeight="700" fill="#fff" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
+                <text x={23} y={3} fontSize="10" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
               </g>
             );
           })}

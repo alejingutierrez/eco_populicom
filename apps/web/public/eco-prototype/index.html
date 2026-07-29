@@ -7,23 +7,15 @@
 <link rel="icon" type="image/svg+xml" href="/eco-prototype/icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,400..800;1,400..600&family=Krub:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<!-- Capa de tokens del sistema de diseño — fuente única de verdad.
+     Ver /design-system/index.html para el especimen vivo. -->
+<link rel="stylesheet" href="/eco-prototype/tokens.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
-  :root {
-    /* shared */
-    --r-sm: 6px;
-    --r: 10px;
-    --r-lg: 14px;
-    --r-xl: 20px;
-    --ff-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --ff-serif: 'Newsreader', 'Instrument Serif', Georgia, serif;
-    --ff-mono: 'IBM Plex Mono', ui-monospace, monospace;
-    --ff-display: 'Instrument Sans', -apple-system, sans-serif;
-
-    --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  }
+  /* :root — tipografía, espaciado, radios y movimiento viven ahora en
+     tokens.css. No re-declares aquí: si falta un token, añádelo allá. */
 
   /* ============================================== */
   /* THEME: COSTA (default, modern institutional)   */
@@ -154,69 +146,13 @@
   /* ============================================== */
   /* THEME: MANDO (command center)                  */
   /* ============================================== */
-  [data-theme="mando"][data-mode="light"] {
-    --bg: #F5F6F7;
-    --bg-2: #E8EAED;
-    --canvas: #FFFFFF;
-    --canvas-2: #F5F6F7;
-    --hairline: #DFE2E6;
-    --hairline-strong: #BFC5CC;
-    --text: #0E1116;
-    --text-2: #525963;
-    --text-3: #8A909B;
-    --accent: #C83A1E;
-    --accent-2: #E85A3E;
-    --accent-fill: rgba(200,58,30,0.08);
-    --pos: #1D7F3C;
-    --pos-bg: rgba(29,127,60,0.10);
-    --neg: #C83A1E;
-    --neg-bg: rgba(200,58,30,0.10);
-    --warn: #B47410;
-    --warn-bg: rgba(180,116,16,0.12);
-    --info: #1F4575;
-    --rail-bg: #0A0F16;
-    --rail-fg: rgba(255,255,255,0.52);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(200,58,30,0.16);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(14,17,22,0.04);
-    --shadow: 0 1px 0 rgba(14,17,22,0.04), 0 6px 16px -10px rgba(14,17,22,0.1);
-    --ff-display: 'IBM Plex Sans', -apple-system, sans-serif;
-    --ff-numeric: 'IBM Plex Mono', ui-monospace, monospace;
-    --letter-display: -0.01em;
-  }
-  [data-theme="mando"][data-mode="dark"] {
-    --bg: #060A10;
-    --bg-2: #0A111A;
-    --canvas: #0E1620;
-    --canvas-2: #091018;
-    --hairline: rgba(255,255,255,0.06);
-    --hairline-strong: rgba(255,255,255,0.12);
-    --text: #E6ECF3;
-    --text-2: #8A94A1;
-    --text-3: #525B68;
-    --accent: #FF6A3D;
-    --accent-2: #FF8A63;
-    --accent-fill: rgba(255,106,61,0.14);
-    --pos: #3FD47A;
-    --pos-bg: rgba(63,212,122,0.10);
-    --neg: #FF6A3D;
-    --neg-bg: rgba(255,106,61,0.10);
-    --warn: #FFC043;
-    --warn-bg: rgba(255,192,67,0.10);
-    --info: #58A6FF;
-    --rail-bg: #030609;
-    --rail-fg: rgba(255,255,255,0.44);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,106,61,0.18);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.4);
-    --shadow: 0 1px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6);
-    --ff-display: 'IBM Plex Sans', -apple-system, sans-serif;
-    --ff-numeric: 'IBM Plex Mono', ui-monospace, monospace;
-  }
+  /* Tema MANDO (claro + oscuro) — definido en tokens.css, con las correcciones
+   de contraste AA (--text-3 2.65:1 → 5.00:1) y la separación --accent / --neg.
+   Los temas COSTA y GACETA de arriba siguen aquí porque no son alcanzables
+   por el usuario en producción (app.js fija mando/dark); el plan de
+   auditoría recomienda retirarlos. */
 
-  * { box-sizing: border-box; }
+* { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
@@ -227,7 +163,7 @@
     -moz-osx-font-smoothing: grayscale;
     transition: background 0.3s var(--ease), color 0.3s var(--ease);
   }
-  [data-theme="mando"] body { font-family: var(--ff-display); }
+  [data-theme="mando"] body { font-family: var(--ff-sans); }
   [data-theme="gaceta"] body { font-family: 'Instrument Sans', sans-serif; }
 
   button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
@@ -241,7 +177,7 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
   /* utility */
-  .num { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums; letter-spacing: var(--letter-display, -0.01em); }
+  .num { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums lining-nums; font-feature-settings: 'tnum' 1, 'lnum' 1; letter-spacing: var(--letter-display, -0.005em); }
   .mono { font-family: var(--ff-mono); }
   .kbd {
     display: inline-flex; align-items: center; justify-content: center;
@@ -375,7 +311,7 @@
     border-bottom: 1px solid var(--hairline);
   }
   .card-hd > div:first-child { min-width: 0; flex: 1; }
-  .card-hd-title { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; }
+  .card-hd-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: -0.005em; }
   [data-theme="gaceta"] .card-hd-title { font-family: var(--ff-serif); font-style: italic; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); }
   .card-hd-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
   .card-bd { padding: 16px; }
@@ -394,7 +330,7 @@
     white-space: nowrap;
   }
   [data-theme="gaceta"] .pill { border-radius: 3px; font-weight: 500; padding: 4px 8px; }
-  [data-theme="mando"] .pill { border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; padding: 4px 8px; }
+  [data-theme="mando"] .pill { border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; padding: 4px 8px; font-family: var(--ff-sans); }
 
   .pill-pos { background: var(--pos-bg); color: var(--pos); }
   .pill-neg { background: var(--neg-bg); color: var(--neg); }
@@ -434,7 +370,7 @@
   .chip:hover { border-color: var(--hairline-strong); color: var(--text); }
   .chip.active { background: var(--text); color: var(--canvas); border-color: var(--text); }
   [data-theme="gaceta"] .chip.active { background: var(--accent); border-color: var(--accent); color: #F9F5EC; }
-  [data-theme="mando"] .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  [data-theme="mando"] .chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
   /* Button */
   .btn {
@@ -448,9 +384,11 @@
     transition: all 0.15s var(--ease);
   }
   [data-theme="gaceta"] .btn { border-radius: 3px; }
-  [data-theme="mando"] .btn { border-radius: 4px; font-size: 12px; }
+  [data-theme="mando"] .btn { border-radius: 4px; font-size: 13px; font-family: var(--ff-sans); }
   .btn:hover { border-color: var(--hairline-strong); background: var(--canvas-2); }
-  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* Primer plano oscuro sobre relleno saturado: #fff sobre --accent da 2.85:1
+     (falla AA). Ver tokens.css §5 --on-*. */
+  .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
   [data-theme="gaceta"] .btn-primary { color: #F9F5EC; }
 
@@ -471,12 +409,13 @@
 
   /* Section title */
   .section-eyebrow {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text-3);
+    font-family: var(--ff-sans);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin-bottom: 2px;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
   }
   [data-theme="gaceta"] .section-eyebrow { font-family: var(--ff-serif); font-style: italic; font-weight: 400; text-transform: none; letter-spacing: 0.02em; font-size: 13px; }
 
@@ -1474,7 +1413,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc21';
+        s.src = base + '/' + f + '?v=prodc22';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

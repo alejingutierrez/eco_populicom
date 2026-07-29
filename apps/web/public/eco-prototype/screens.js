@@ -494,9 +494,9 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
                   fontSize: 10, fontWeight: 600,
                   border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
                   background: on ? s.color : 'transparent',
-                  color: on ? '#fff' : 'var(--text-3)',
+                  color: on ? 'var(--on-accent)' : 'var(--text-2)',
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? 'currentColor' : s.color }} />
                   {s.label}
                 </button>
               );
@@ -2565,9 +2565,9 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           overflow: 'hidden',
                         }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
+                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? 'var(--on-accent)' : 'var(--text)' }}>{dayNum}</span>
                         </div>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? 'var(--on-accent)' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
                           {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
                         </div>
                         <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
