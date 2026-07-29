@@ -170,7 +170,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
               fontSize: 10, fontWeight: 700,
               padding: '2px 6px', borderRadius: 10,
               background: item.urgent ? 'var(--neg)' : 'rgba(255,255,255,0.10)',
-              color: item.urgent ? '#fff' : 'rgba(255,255,255,0.7)',
+              color: item.urgent ? 'var(--on-neg)' : 'rgba(255,255,255,0.7)',
               fontFamily: 'var(--ff-numeric)',
             }}>{item.urgent ? item.badge : (item.badge > 999 ? (item.badge/1000).toFixed(1)+'K' : item.badge)}</span>
           )}
@@ -310,7 +310,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         <div style={{
           width: 28, height: 28, borderRadius: '50%',
           background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
-          color: '#fff',
+          color: 'var(--on-accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 10, fontWeight: 700,
         }}>{(() => { const s = ecoSession(); const nm = (s && (s.name || s.email)) || 'Usuario'; return nm.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U'; })()}</div>
