@@ -309,7 +309,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
       {header}
       <div className="card-bd" ref={boxRef} style={{ minHeight: 120 }}>
         {state.phase === 'loading' ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
             {[92, 140, 68, 116, 84, 156, 72, 104, 128, 88].map((sw, i) => (
               <div key={i} className="skeleton" style={{ width: sw, height: 30, borderRadius: 'var(--r-sm)' }} />
             ))}
@@ -354,7 +354,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
             })}
           </div>
         ) : (
-          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
             {terms.map((t) => {
               const on = selSet.has(t.term);
               return (
@@ -370,7 +370,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                       boxShadow: on ? 'inset 0 0 0 1.5px var(--accent)' : 'none',
                       cursor: 'pointer', textAlign: 'left',
                     }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', minWidth: 0 }}>
                       <span style={{ fontFamily: 'var(--ff-sans)', fontSize: 'var(--fs-body)', fontWeight: 500,
                                      color: polarityColor(t.polarity), overflow: 'hidden',
                                      textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.term}</span>

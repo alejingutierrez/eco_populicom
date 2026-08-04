@@ -311,7 +311,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   // volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
     return (
-      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Sin datos suficientes para graficar.
       </div>
     );
@@ -382,21 +382,21 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   return (
     <div ref={ref} style={{ width: '100%', position: 'relative' }}>
       {/* Value strip / legend at top — stock-ticker style */}
-      <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', padding: '0 4px 10px', fontSize: 11, flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 9, fontWeight: 700 }}>{dateLabel}</span>
+      <div style={{ display: 'flex', gap: 'var(--sp-5)', alignItems: 'baseline', padding: '0 4px 10px', fontSize: 'var(--fs-overline)', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 'var(--fs-overline)', fontWeight: 700 }}>{dateLabel}</span>
         {normalized.map(s => {
           const v = data[hoverIdx][s.key];
           const first = s.vals.find((x) => !isGap(x));
           const delta = (!isGap(v) && !isGap(first) && first) ? ((v - first) / first) * 100 : null;
           return (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-15)' }}>
               <span style={{ width: 8, height: 2, background: s.color }} />
-              <span style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
-              <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 13 }}>{fmtVal(s.key, v)}</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
+              <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body-sm)' }}>{fmtVal(s.key, v)}</span>
               {delta == null ? (
-                <span className="num" style={{ color: 'var(--text-3)', fontSize: 10, fontWeight: 600 }}>—</span>
+                <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', fontWeight: 600 }}>—</span>
               ) : (
-                <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 10, fontWeight: 600 }}>
+                <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 'var(--fs-overline)', fontWeight: 600 }}>
                   {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
                 </span>
               )}
@@ -614,6 +614,97 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   );
 }
 
+// BandScale — pista de bandas con marcador y etiquetas EN SU UMBRAL (WS-F8/G6).
+//
+// Reemplaza cuatro copias del mismo patrón (gauge de crisis en Overview y en
+// Scorecard, BrandHealthMini, barra de Polarización), cada una con su propia
+// aritmética y sus propias etiquetas.
+//
+// Arregla tres cosas que las cuatro copias tenían mal:
+//
+//  1. LAS ETIQUETAS ESTABAN EN EL SITIO EQUIVOCADO. Usaban
+//     `justify-content: space-between`, que las reparte en cuartos IGUALES. Pero
+//     los umbrales reales de crisis son 0.25 / 0.40 / 0.60, así que la palabra
+//     "ALERTA" quedaba impresa sobre la zona de CRISIS y el marcador al 41%
+//     parecía lejísimos de la alerta mientras el titular decía "Alerta". Aquí
+//     cada etiqueta se ancla al CENTRO de su banda real.
+//  2. SE PISABAN. Al subir la escala tipográfica a 11px, "APÁTICA MODERADA ALTA
+//     EXTREMA" dejaba de caber y se leía "APÁTICAMODERADAALTAEXTREMA". Ahora las
+//     etiquetas que no caben se ocultan (se conserva la primera y la última, que
+//     son las que dan la escala) y siempre quedan legibles.
+//  3. NO DECÍAN SU VALOR. El marcador no llevaba el número, así que había que
+//     inferirlo de la posición.
+function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel }) {
+  const [ref, w] = useChartWidth(240);
+  const ids = useChartIds();
+  const v = isGap(value) ? null : Math.min(max, Math.max(0, value));
+  const pct = (x) => (x / max) * 100;
+
+  // ¿Caben todas las etiquetas? Estimación conservadora de 6.4px por carácter a
+  // 11px en Krub, más 8px de aire a cada lado.
+  const totalChars = bands.reduce((n, b) => n + String(b.label).length, 0);
+  // 6.9px/carácter y 14px de aire por etiqueta: la estimación anterior (6.4/8)
+  // decía que caben y se tocaban («Elevado» pegado a «Alerta»).
+  const fits = w === 0 || totalChars * 6.9 + bands.length * 14 <= w;
+  const visible = fits
+    ? bands.map((_, i) => i)
+    // Si no caben, se conservan sólo los extremos: son los que fijan la escala.
+    : [0, bands.length - 1];
+
+  const activeIdx = v == null ? -1 : bands.findIndex((b, i) => v >= b.from && (v < b.to || i === bands.length - 1));
+
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <div role="img" aria-labelledby={ids.titleId}
+        style={{ height, borderRadius: 'var(--r-sm)', position: 'relative', overflow: 'hidden', display: 'flex' }}>
+        <span id={ids.titleId} className="sr-only">
+          {ariaLabel || 'Escala por bandas'}
+          {v != null && activeIdx >= 0 ? `: ${valueLabel ?? v}, banda ${bands[activeIdx].label}` : ': sin dato'}
+        </span>
+        {bands.map((b, i) => (
+          <span key={i} style={{
+            // El ancho es proporcional al RANGO REAL de la banda, no 1/n.
+            flex: (b.to - b.from),
+            background: b.color,
+            // La banda activa a plena saturación; las demás atenuadas, para que
+            // el ojo vaya al veredicto sin perder la escala de referencia.
+            opacity: activeIdx === -1 ? 0.55 : (i === activeIdx ? 1 : 0.35),
+          }} />
+        ))}
+        {v != null && (
+          <span aria-hidden="true" style={{
+            position: 'absolute', left: `${pct(v)}%`, top: -2, bottom: -2,
+            width: 2, background: 'var(--text)', transform: 'translateX(-50%)',
+            borderRadius: 1,
+          }} />
+        )}
+      </div>
+      <div style={{ position: 'relative', height: 15, marginTop: 'var(--sp-1)' }}>
+        {bands.map((b, i) => {
+          if (!visible.includes(i)) return null;
+          const mid = pct((b.from + b.to) / 2);
+          // Los extremos se alinean al borde para no salirse de la pista.
+          const isFirst = i === 0;
+          const isLast = i === bands.length - 1;
+          return (
+            <span key={i} style={{
+              position: 'absolute',
+              left: isFirst ? 0 : isLast ? undefined : `${mid}%`,
+              right: isLast ? 0 : undefined,
+              transform: (isFirst || isLast) ? 'none' : 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+              fontFamily: 'var(--ff-sans)',
+              fontSize: 'var(--fs-overline)',
+              fontWeight: i === activeIdx ? 700 : 500,
+              color: i === activeIdx ? 'var(--text-2)' : 'var(--text-3)',
+            }}>{b.label}</span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // SeriesPanels — small multiples con dominio Y COMPARTIDO (WS-C2, arreglo de F2).
 //
 // El problema: `MultiLineChart` sin `sharedScale` normaliza cada serie a su
@@ -749,7 +840,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
   const innerH = height - padding.t - padding.b;
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(keys) || keys.length === 0) {
     return (
-      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Sin datos suficientes para graficar.
       </div>
     );
@@ -903,7 +994,7 @@ function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTit
 function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value', trackHeight = 6, onItemClick }) {
   const _max = max ?? Math.max(...items.map(i => i[valueKey]));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
       {items.map((it, i) => {
         const clickable = !!onItemClick;
         const El = clickable ? 'button' : 'div';
@@ -912,10 +1003,10 @@ function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value',
             onClick={clickable ? () => onItemClick(it, i) : undefined}
             aria-label={clickable ? `${it[labelKey]}: ${it[valueKey]}` : undefined}
             style={{
-              display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)',
               background: 'transparent', border: 'none', padding: clickable ? '4px 6px' : 0,
               marginInline: clickable ? -6 : 0,
-              borderRadius: 6, textAlign: 'left', width: '100%',
+              borderRadius: 'var(--r-md)', textAlign: 'left', width: '100%',
               cursor: clickable ? 'pointer' : 'default',
             }}
             className={clickable ? 'row-hover' : undefined}>
@@ -1004,7 +1095,7 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
     Array.from({ length: cols }).map((_, c) => ({ key: `h${c}`, label: hourLabel(c) })));
   return (
     <div role="group" aria-label={a11yTitle || 'Actividad por día y hora'}>
-      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 2, marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 'var(--sp-05)', marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-1)' }}>
         {Array.from({ length: cols }).map((_, c) => (
           <div key={c} style={{ textAlign: 'center', marginLeft: extraGap(c), fontWeight: SHIFT_BREAKS.has(c) ? 700 : 400, color: SHIFT_BREAKS.has(c) ? 'var(--text-2)' : 'var(--text-3)' }}>
             {(bucket === 1 ? hourOf(c) % 2 === 0 : true) ? hourOf(c) : ''}
@@ -1012,9 +1103,9 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
         ))}
       </div>
       {Array.from({ length: days }).map((_, d) => (
-        <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: gap }}>
+        <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-05)', marginBottom: gap }}>
           <div style={{ width: 28, flexShrink: 0, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 2, flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 'var(--sp-05)', flex: 1, minWidth: 0 }}>
             {Array.from({ length: cols }).map((_, c) => {
               const v = valueOf(d, c);
               const clickable = !!onCellClick;
@@ -1033,7 +1124,7 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
                     // WCAG 2.2 AA (SC 2.5.8), y aplica también con ratón.
                     minHeight: 24,
                     background: colorFn(v),
-                    borderRadius: 3,
+                    borderRadius: 'var(--r-sm)',
                     marginLeft: extraGap(c),
                     cursor: clickable ? 'pointer' : 'default',
                     position: 'relative',
@@ -1184,7 +1275,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   // If Leaflet hasn't loaded, show a lightweight placeholder (never the fake SVG).
   if (typeof window !== 'undefined' && !window.L) {
     return (
-      <div style={{ height: 420, borderRadius: 8, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div style={{ height: 420, borderRadius: 'var(--r-lg)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Cargando mapa…
       </div>
     );
@@ -1195,7 +1286,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       ref={containerRef}
       style={{
         height: 420,
-        borderRadius: 8,
+        borderRadius: 'var(--r-lg)',
         overflow: 'hidden',
         border: '1px solid var(--hairline)',
         background: 'var(--canvas-2)',
@@ -1206,6 +1297,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 
 window.ECO_CHARTS = {
   SeriesPanels,
+  BandScale,
   Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart,
   Donut, HBarList, RadialGauge, Heatmap, PRMap
 };

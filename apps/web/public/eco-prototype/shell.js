@@ -149,14 +149,14 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       <button onClick={() => onNav(item.key)}
         title={collapsed ? item.label : undefined}
         style={{
-          display: 'flex', alignItems: 'center', gap: 10,
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
           width: '100%',
           padding: collapsed ? '9px 0' : '9px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
           borderRadius: 'var(--r-md)',
           background: isActive ? 'var(--rail-active-bg)' : 'transparent',
           color: isActive ? 'var(--rail-fg-active)' : 'var(--rail-fg)',
-          fontSize: 13, fontWeight: isActive ? 600 : 500,
+          fontSize: 'var(--fs-body-sm)', fontWeight: isActive ? 600 : 500,
           position: 'relative',
           transition: 'all 0.15s var(--ease)',
           borderLeft: isActive && !collapsed ? `2px solid var(--accent-2)` : '2px solid transparent',
@@ -169,8 +169,8 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
           {item.badge != null && item.badge > 0 && (
             <span style={{
-              fontSize: 10, fontWeight: 700,
-              padding: '2px 6px', borderRadius: 10,
+              fontSize: 'var(--fs-overline)', fontWeight: 700,
+              padding: '2px 6px', borderRadius: 'var(--r-lg)',
               background: item.urgent ? 'var(--neg)' : 'rgba(255,255,255,0.10)',
               color: item.urgent ? 'var(--on-neg)' : 'rgba(255,255,255,0.7)',
               fontFamily: 'var(--ff-numeric)',
@@ -192,7 +192,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       {/* Logo / brand */}
       <div style={{
         padding: collapsed ? '20px 0' : '20px 16px 18px',
-        display: 'flex', alignItems: 'center', gap: 11,
+        display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
         justifyContent: collapsed ? 'center' : 'flex-start',
         borderBottom: '1px solid var(--rail-border)',
       }}>
@@ -227,10 +227,10 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 
         {!collapsed && (
           <div style={{ lineHeight: 1, minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-15)' }}>
               <div style={{
                 color: 'var(--rail-fg-active)',
-                fontSize: 16,
+                fontSize: 'var(--fs-title-md)',
                 fontWeight: 600,
                 letterSpacing: '0.02em',
                 fontFamily: 'var(--ff-display)',
@@ -238,10 +238,10 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
               }}>Eco</div>
               {(
                 <span style={{
-                  fontSize: 9, fontWeight: 600, letterSpacing: '0.04em',
+                  fontSize: 'var(--fs-overline)', fontWeight: 600, letterSpacing: '0.04em',
                   color: 'var(--accent-2)',
                   padding: '2px 5px',
-                  borderRadius: 3,
+                  borderRadius: 'var(--r-sm)',
                   background: 'rgba(125,183,172,0.12)',
                   border: '1px solid rgba(125,183,172,0.2)',
                   fontFamily: 'var(--ff-numeric)',
@@ -249,11 +249,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
               )}
             </div>
             <div style={{
-              fontSize: 10,
+              fontSize: 'var(--fs-overline)',
               fontWeight: 500,
               color: 'rgba(255,255,255,0.45)',
-              marginTop: 5,
-              display: 'flex', alignItems: 'center', gap: 6,
+              marginTop: 'var(--sp-15)',
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-15)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               <span>{'Operations Console'}</span>
@@ -266,20 +266,20 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           vía el listener global de teclado. */}
 
       {!collapsed && (
-        <div style={{ padding: '12px 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
+        <div style={{ padding: '12px 12px 6px', fontSize: 'var(--fs-overline)', fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
           {isExecView ? 'Vista ejecutiva' : 'Análisis'}
         </div>
       )}
-      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
         {analysisNav.filter((n) => isExecView || ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
       {!collapsed && (
-        <div style={{ padding: '12px 12px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
+        <div style={{ padding: '12px 12px 6px', fontSize: 'var(--fs-overline)', fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
           Sistema
         </div>
       )}
-      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
         {SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
       </nav>
 
@@ -287,7 +287,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 
       {/* Status */}
       {!collapsed && (
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'rgba(255,255,255,0.5)' }}>
           <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)' }} />
           <span>Ingesta en vivo</span>
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--ff-mono)' }}>
@@ -305,7 +305,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       <div style={{
         padding: collapsed ? '12px 8px' : '12px 14px',
         borderTop: '1px solid var(--rail-border)',
-        display: 'flex', alignItems: 'center', gap: 10,
+        display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
         justifyContent: collapsed ? 'center' : 'flex-start',
       }}>
         <div style={{
@@ -313,12 +313,12 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
           color: 'var(--on-accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 10, fontWeight: 700,
+          fontSize: 'var(--fs-overline)', fontWeight: 700,
         }}>{(() => { const s = ecoSession(); const nm = (s && (s.name || s.email)) || 'Usuario'; return nm.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U'; })()}</div>
         {!collapsed && (
           <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
-            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
+            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 'var(--fs-caption)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 'var(--fs-overline)', textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
           </div>
         )}
       </div>
@@ -326,8 +326,8 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       <button onClick={() => setCollapsed(!collapsed)} style={{
         padding: collapsed ? '10px 0' : '10px 14px',
         borderTop: '1px solid var(--rail-border)',
-        color: 'rgba(255,255,255,0.4)', fontSize: 11,
-        display: 'flex', alignItems: 'center', gap: 8,
+        color: 'rgba(255,255,255,0.4)', fontSize: 'var(--fs-overline)',
+        display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
         justifyContent: collapsed ? 'center' : 'flex-start',
         width: '100%',
       }}>
@@ -355,7 +355,7 @@ function HeaderSearch({ onSearch, onOpenCommand }) {
         onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && typeof onSearch === 'function') onSearch(q.trim()); }}
         placeholder="Buscar menciones, autor, URL…"
         title="Buscar por texto o URL — Enter. ⌘K abre el comando rápido."
-        style={{ width: '100%', padding: '8px 56px 8px 32px', fontSize: 12 }}
+        style={{ width: '100%', padding: '8px 56px 8px 32px', fontSize: 'var(--fs-caption)' }}
       />
       <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
         style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
@@ -399,26 +399,26 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       background: 'var(--canvas)',
       borderBottom: '1px solid var(--hairline)',
       padding: '14px 28px',
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap',
     }}>
       {/* Hamburger — opens the off-canvas nav drawer. Mobile only (CSS). */}
       <button className="show-mobile" onClick={onOpenMenu} aria-label="Abrir menú"
         style={{
           alignItems: 'center', justifyContent: 'center',
           width: 40, height: 40, flex: 'none',
-          borderRadius: 8, border: '1px solid var(--hairline)',
+          borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)',
           background: 'var(--canvas-2)', color: 'var(--text)',
         }}>
         <Icons.Menu size={18} />
       </button>
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
           {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
           {live && (
             // Los datos del dashboard son una ventana CERRADA (termina ayer en
             // TZ PR, incluso en 1D), así que "En vivo" engañaba. Etiqueta honesta,
             // sin pulso ni verde.
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)' }} />
               <span className="mono" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Datos al cierre de ayer</span>
             </div>
@@ -437,20 +437,20 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
 
       {/* Agency switcher */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '6px 12px', borderRadius: 999,
+        display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+        padding: '6px 12px', borderRadius: 'var(--r-pill)',
         background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
-        fontSize: 12, color: 'var(--text)', fontWeight: 500,
+        fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500,
       }}>
         <Icons.Building size={13} color="var(--accent)" />
         <select value={agency} onChange={(e) => setAgency(e.target.value)}
-          style={{ background: 'none', border: 'none', fontSize: 12, fontWeight: 500, color: 'var(--text)', maxWidth: 140 }}>
+          style={{ background: 'none', border: 'none', fontSize: 'var(--fs-caption)', fontWeight: 500, color: 'var(--text)', maxWidth: 140 }}>
           {agencies.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
         </select>
       </div>
 
       {/* Period — estilo bolsa, único control de periodo de toda la app. */}
-      <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+      <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline)' }}>
         {PERIODS.map((p) => (
           <button key={p} onClick={() => {
             // Si el usuario venía de un rango personalizado, limpiar
@@ -464,7 +464,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           }} className="touch-target" aria-pressed={!isCustom && period === p} style={{
             padding: '6px 11px', fontSize: 'var(--fs-caption)', fontWeight: 600,
             minHeight: 28,
-            borderRadius: 999,
+            borderRadius: 'var(--r-pill)',
             background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
             color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-2)',
             boxShadow: (!isCustom && period === p) ? 'var(--shadow-sm)' : 'none',
@@ -477,8 +477,8 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           onClick={() => setCalendarOpen(v => !v)}
           title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
           style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
+            padding: '5px 10px', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-overline)', fontWeight: 600,
             background: isCustom ? 'var(--accent-fill)' : 'var(--canvas-2)',
             color: isCustom ? 'var(--accent)' : 'var(--text-2)',
             border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline)'),
@@ -493,31 +493,31 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
               style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
             <div className="card eco-datepop" style={{
               position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
-              padding: 14, minWidth: 280,
+              padding: 'var(--sp-4)', minWidth: 280,
               boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
             }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-3)' }}>Rango personalizado</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                <label style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                   <span style={{ minWidth: 44 }}>Desde</span>
                   <input type="date" value={draftFrom}
                     onChange={(e) => setDraftFrom(e.target.value)}
                     max={todayIso}
-                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                    className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
                 </label>
-                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                   <span style={{ minWidth: 44 }}>Hasta</span>
                   <input type="date" value={draftTo}
                     onChange={(e) => setDraftTo(e.target.value)}
                     max={todayIso}
-                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                    className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
                 </label>
               </div>
               {draftFrom && draftTo && draftFrom > draftTo && (
-                <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+                <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--neg)', marginTop: 'var(--sp-2)' }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
               )}
-              <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
-                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
+              <div style={{ display: 'flex', gap: 'var(--sp-15)', marginTop: 'var(--sp-3)', justifyContent: 'flex-end' }}>
+                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 'var(--fs-caption)' }}>Cancelar</button>
                 {isCustom && (
                   <button className="btn" onClick={() => {
                     try {
@@ -525,11 +525,11 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
                       localStorage.removeItem('eco.to');
                     } catch (_) {}
                     setPeriod('7D');
-                  }} style={{ fontSize: 12 }} title="Limpiar rango y volver a 7D">Limpiar</button>
+                  }} style={{ fontSize: 'var(--fs-caption)' }} title="Limpiar rango y volver a 7D">Limpiar</button>
                 )}
                 <button className="btn btn-primary" onClick={applyCustomRange}
                   disabled={!draftFrom || !draftTo || draftFrom > draftTo}
-                  style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
+                  style={{ fontSize: 'var(--fs-caption)', opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
                   Aplicar
                 </button>
               </div>
@@ -542,10 +542,10 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           envuelvan JUNTAS. Antes el toggle de modo era el último hijo directo
           del header (que tiene flex-wrap), así que caía solo a una fila propia
           y se comía ~48px verticales en las 10 pantallas. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none', marginLeft: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 'none', marginLeft: 'auto' }}>
         {onOpenChat && (
           <button className="btn" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
             <Icons.Sparkles size={14} color="var(--accent)" />
             <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Chat</span>
           </button>
@@ -662,17 +662,17 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   return (
     <div className="spotlight-backdrop" onClick={onClose}>
       <div className="spotlight" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--hairline)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: '16px 18px', borderBottom: '1px solid var(--hairline)' }}>
           <Icons.Search size={16} color="var(--text-3)" />
           <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar comandos, ir a…"
-            style={{ flex: 1, border: 'none', outline: 'none', background: 'none', fontSize: 16, color: 'var(--text)' }} />
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'none', fontSize: 'var(--fs-title-md)', color: 'var(--text)' }} />
           <span className="kbd">esc</span>
         </div>
-        <div style={{ maxHeight: 440, overflowY: 'auto', padding: 8 }}>
+        <div style={{ maxHeight: 440, overflowY: 'auto', padding: 'var(--sp-2)' }}>
           {Object.entries(grouped).map(([kind, list]) => (
-            <div key={kind} style={{ marginBottom: 6 }}>
-              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{kind}</div>
+            <div key={kind} style={{ marginBottom: 'var(--sp-15)' }}>
+              <div style={{ padding: '8px 12px 4px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{kind}</div>
               {list.map((it, i) => {
                 flatIdx++;
                 const isSelected = flatIdx === selectedIdx;
@@ -681,7 +681,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
                   <button key={`${kind}-${i}`} onClick={() => { it.action?.(); onClose(); }}
                     onMouseEnter={() => setSelectedIdx(flatIdx)}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13, color: 'var(--text)',
+                      display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', width: '100%', padding: '9px 12px', borderRadius: 'var(--r-lg)', fontSize: 'var(--fs-body-sm)', color: 'var(--text)',
                       background: isSelected ? 'var(--accent-fill)' : 'transparent',
                     }}>
                     <I size={14} color={isSelected ? 'var(--accent)' : 'var(--text-3)'} />
@@ -693,10 +693,10 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
             </div>
           ))}
           {filtered.length === 0 && (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin resultados</div>
+            <div style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Sin resultados</div>
           )}
         </div>
-        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--hairline)', display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)' }}>
+        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--hairline)', display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           <span><span className="kbd">↑↓</span> navegar</span>
           <span><span className="kbd">↵</span> ejecutar</span>
           <span><span className="kbd">esc</span> cerrar</span>
@@ -790,7 +790,7 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
     return (
       <div style={{
         height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
+        color: 'var(--text-3)', fontSize: 'var(--fs-overline)', fontStyle: 'italic',
         background: 'var(--canvas-2)',
       }}>Cargando mapa…</div>
     );
@@ -801,7 +801,7 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       <div style={{
         position: 'absolute', top: 6, left: 8, zIndex: 400,
-        fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase',
+        fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase',
         letterSpacing: '0.1em', fontWeight: 700,
         textShadow: '0 0 4px var(--canvas), 0 0 8px var(--canvas)',
         pointerEvents: 'none',
@@ -849,25 +849,25 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
     <>
       <div className="drawer-backdrop" onClick={onClose} />
       <div className="drawer">
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <div className="section-eyebrow" style={{ margin: 0, flex: 1 }}>Mención · {mention.publishedAt}</div>
           <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
-        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: 'var(--text-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' }}>
               <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
             {mention.image && (
               <img src={mention.image} alt="" loading="lazy"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, margin: '2px 0 12px', background: 'var(--canvas-2)' }} />
+                style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 'var(--r-lg)', margin: '2px 0 12px', background: 'var(--canvas-2)' }} />
             )}
-            <h2 style={{ margin: '4px 0 8px', fontSize: 20, fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
+            <h2 style={{ margin: '4px 0 8px', fontSize: 'var(--fs-display-md)', fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
               {mention.title}
             </h2>
-            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+            <div style={{ color: 'var(--text-2)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.6 }}>
               {mention.author} · {mention.domain} · {mention.publishedAt}
             </div>
           </div>
@@ -887,12 +887,12 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             const cols = Math.min(4, metrics.length);
             return (
               <div>
-                <div className="section-eyebrow" style={{ marginBottom: 10 }}>Métricas</div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>
+                <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Métricas</div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 'var(--sp-3)' }}>
                   {metrics.map((m) => (
-                    <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)' }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
-                      <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v.toLocaleString('es-PR')}</div>
+                    <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)' }}>
+                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
+                      <div className="num" style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 700, marginTop: 'var(--sp-1)' }}>{m.v.toLocaleString('es-PR')}</div>
                     </div>
                   ))}
                 </div>
@@ -902,9 +902,9 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           {mention.summary ? (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
-              <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Resumen IA</div>
+              <div style={{ padding: 'var(--sp-4)', background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.55, color: 'var(--text)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', marginBottom: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   <Icons.Sparkles size={12} /> Generado con IA
                 </div>
                 {mention.summary}
@@ -914,8 +914,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           {mention.snippet && (mention.snippet.trim() !== (mention.title || '').trim()) ? (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Contenido</div>
-              <div style={{ padding: 14, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Contenido</div>
+              <div style={{ padding: 'var(--sp-4)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.55, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
                 {mention.snippet}
               </div>
             </div>
@@ -923,8 +923,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           {mention.emotions?.length > 0 && (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Emociones detectadas</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Emociones detectadas</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
                 {mention.emotions.map((e) => <span key={e} className="pill pill-neu" style={{ textTransform: 'capitalize' }}>{e}</span>)}
               </div>
             </div>
@@ -933,25 +933,25 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
           {/* Tópicos y subtópicos detectados */}
           {mention.topicName && (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Tópicos y subtópicos detectados</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Tópicos y subtópicos detectados</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
                 <div style={{
-                  padding: '10px 12px', border: '1px solid var(--hairline)', borderRadius: 10,
-                  background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)',
+                  background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
                 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 'var(--r-lg)', background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icons.Hash size={13} color="var(--accent)" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Tópico principal</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.topicName}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Tópico principal</div>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--text)' }}>{mention.topicName}</div>
                   </div>
-                  <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>{typeof mention.topicConfidence === 'number' ? `confianza ${Math.round(mention.topicConfidence * 100)}%` : 'confianza —'}</div>
+                  <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{typeof mention.topicConfidence === 'number' ? `confianza ${Math.round(mention.topicConfidence * 100)}%` : 'confianza —'}</div>
                 </div>
                 {mention.subtopics?.length > 0 && (
                   <div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 6 }}>Subtópicos</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>Subtópicos</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
                       {mention.subtopics.map((s) => (
                         <span key={s} className="pill" style={{ background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>
                           <Icons.ChevronRight size={10} /> {s}
@@ -968,9 +968,9 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
               ignoraba las coordenadas exactas del municipio). */}
           {mention.municipality && (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Geografía detectada</div>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Geografía detectada</div>
               <div style={{
-                border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden',
+                border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', overflow: 'hidden',
                 background: 'var(--canvas-2)',
               }}>
                 <MiniMunicipalityMap
@@ -979,18 +979,18 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                   coords={mention.coords}
                   sentiment={mention.sentiment}
                 />
-                <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--hairline)' }}>
+                <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', borderTop: '1px solid var(--hairline)' }}>
                   <Icons.MapPin size={14} color="var(--neg)" />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
-                    <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
+                    <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
                       {Array.isArray(mention.coords) && typeof mention.coords[0] === 'number' && typeof mention.coords[1] === 'number'
                         ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1]).toFixed(4)}°O · Región ${mention.region}`
                         : `Región ${mention.region || 'PR'}`}
                     </div>
                   </div>
                   <button className="btn"
-                    style={{ fontSize: 11 }}
+                    style={{ fontSize: 'var(--fs-overline)' }}
                     onClick={() => {
                       if (onNavigate) {
                         // Persist desired map focus so the geography screen can
@@ -1013,15 +1013,15 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           {/* Relacionadas — mentions from the same topic (or same municipality) */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Relacionadas</div>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Relacionadas</div>
             {related === null && (
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Cargando menciones similares…</div>
+              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Cargando menciones similares…</div>
             )}
             {related && related.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sin menciones similares en el período.</div>
+              <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Sin menciones similares en el período.</div>
             )}
             {related && related.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)' }}>
                 {related.map((r) => {
                   const sc = r.sentiment === 'positivo' ? 'pill-pos' : r.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
                   return (
@@ -1029,17 +1029,17 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                       onClick={() => onMentionClick && onMentionClick(r)}
                       style={{
                         textAlign: 'left', background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
-                        borderRadius: 8, padding: '10px 12px', cursor: 'pointer', display: 'flex',
-                        flexDirection: 'column', gap: 4,
+                        borderRadius: 'var(--r-lg)', padding: '10px 12px', cursor: 'pointer', display: 'flex',
+                        flexDirection: 'column', gap: 'var(--sp-1)',
                       }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span className={`pill ${sc}`} style={{ fontSize: 9 }}>{r.sentiment}</span>
-                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.publishedAt}</span>
+                      <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                        <span className={`pill ${sc}`} style={{ fontSize: 'var(--fs-overline)' }}>{r.sentiment}</span>
+                        <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{r.publishedAt}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.title}
                       </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.domain}</div>
+                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{r.domain}</div>
                     </button>
                   );
                 })}
@@ -1047,7 +1047,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
             <button className="btn btn-primary"
               style={{ flex: 1, justifyContent: 'center' }}
               disabled={!mention.url}
@@ -1073,23 +1073,23 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
   // único tema y app.js no expone setTheme. El panel conserva modo y densidad.
   return (
     <div className="tweaks-panel">
-      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
         <Icons.Palette size={14} color="var(--accent)" />
-        <div style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Tweaks</div>
+        <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, flex: 1 }}>Tweaks</div>
         <button aria-label="Cerrar" onClick={onClose}><Icons.Close size={14} color="var(--text-3)" /></button>
       </div>
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 8 }}>Modo</div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Modo</div>
+          <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {['light', 'dark'].map((m) => (
               <button key={m} onClick={() => setMode(m)}
                 style={{
-                  flex: 1, padding: '8px 12px', borderRadius: 8,
+                  flex: 1, padding: '8px 12px', borderRadius: 'var(--r-lg)',
                   border: `1px solid ${mode === m ? 'var(--accent)' : 'var(--hairline)'}`,
                   background: mode === m ? 'var(--accent-fill)' : 'var(--canvas)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  fontSize: 12, fontWeight: 500, color: mode === m ? 'var(--accent)' : 'var(--text-2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--sp-15)',
+                  fontSize: 'var(--fs-caption)', fontWeight: 500, color: mode === m ? 'var(--accent)' : 'var(--text-2)',
                 }}>
                 {m === 'light' ? <Icons.Sun size={13} /> : <Icons.Moon size={13} />}
                 {m === 'light' ? 'Claro' : 'Oscuro'}
@@ -1098,15 +1098,15 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
           </div>
         </div>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 8 }}>Densidad</div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Densidad</div>
+          <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {['comfy', 'normal', 'compact'].map((d) => (
               <button key={d} onClick={() => setDensity(d)}
                 style={{
-                  flex: 1, padding: '8px 4px', borderRadius: 8,
+                  flex: 1, padding: '8px 4px', borderRadius: 'var(--r-lg)',
                   border: `1px solid ${density === d ? 'var(--accent)' : 'var(--hairline)'}`,
                   background: density === d ? 'var(--accent-fill)' : 'var(--canvas)',
-                  fontSize: 11, fontWeight: 500, color: density === d ? 'var(--accent)' : 'var(--text-2)',
+                  fontSize: 'var(--fs-overline)', fontWeight: 500, color: density === d ? 'var(--accent)' : 'var(--text-2)',
                   textTransform: 'capitalize',
                 }}>
                 {d === 'comfy' ? 'Aireado' : d === 'normal' ? 'Normal' : 'Denso'}
@@ -1196,7 +1196,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 'min(880px, 94vw)', maxHeight: '88vh', overflow: 'auto',
         background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
-        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        borderRadius: 'var(--r-xl)', boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
         zIndex: 2001,
         display: 'flex', flexDirection: 'column',
       }}>
@@ -1204,41 +1204,41 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
           padding: '20px 24px',
           borderBottom: '1px solid var(--hairline)',
           borderTop: `3px solid ${accent}`,
-          display: 'flex', alignItems: 'flex-start', gap: 16,
+          display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-4)',
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {eyebrow && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>
                 <span>{eyebrow}</span>
               </div>
             )}
-            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
+            <div style={{ fontSize: 'var(--fs-display-lg)', fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
               <span>{title}</span>
               {highlight && <> · <span style={{ color: accent }}>{highlight}</span></>}
             </div>
             {volume != null && (
-              <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-2)' }}>
-                <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 14 }}>{volume.toLocaleString('es-PR')}</span> menciones
+              <div style={{ marginTop: 'var(--sp-15)', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+                <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body)' }}>{volume.toLocaleString('es-PR')}</span> menciones
               </div>
             )}
             {(pos || neu || neg) && (
-              <div style={{ marginTop: 8, display: 'flex', gap: 14, fontSize: 11, color: 'var(--text-2)', flexWrap: 'wrap' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)', flexWrap: 'wrap' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                   <span className="dot" style={{ background: 'var(--pos)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{pos.toLocaleString('es-PR')}</span> positivas
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                   <span className="dot" style={{ background: 'var(--text-3)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neu.toLocaleString('es-PR')}</span> neutrales
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                   <span className="dot" style={{ background: 'var(--neg)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neg.toLocaleString('es-PR')}</span> negativas
                 </span>
               </div>
             )}
             {hasTopicFilter && (
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-2)' }}>
+              <div style={{ marginTop: 'var(--sp-3)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>
                 <span style={{ color: 'var(--text-3)' }}>
                   {topicMode === 'primary'
                     ? 'Mostrando solo menciones donde este tópico es el principal'
@@ -1247,7 +1247,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 <button
                   className="chip"
                   onClick={() => setTopicMode((m) => (m === 'primary' ? 'all' : 'primary'))}
-                  style={{ fontSize: 10, padding: '3px 8px' }}
+                  style={{ fontSize: 'var(--fs-overline)', padding: '3px 8px' }}
                 >
                   {topicMode === 'primary' ? '+ Incluir secundarias' : '— Solo principales'}
                 </button>
@@ -1257,29 +1257,29 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
           <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
-        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           {/* Insight LLM (cuando el slice viene de un click en una métrica
               sintética como Crisis, NSS, BHI). Va arriba del histogram +
               mentions; explica el porqué del número para esta agencia. */}
           {(insightText || headlineValue != null) && (
             <div className="card" style={{
-              padding: 16, background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
-              display: 'flex', flexDirection: 'column', gap: 10,
+              padding: 'var(--sp-4)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+              display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
             }}>
               {headlineValue != null && (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                  <div className="num" style={{ fontSize: 30, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-3)' }}>
+                  <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                     {headlineValue}
                   </div>
                   {slice.headlineLabel && (
-                    <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                       {slice.headlineLabel}
                     </div>
                   )}
                 </div>
               )}
               {insightText && insightText !== '__loading__' && (
-                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}
+                <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)', lineHeight: 1.55 }}
                   dangerouslySetInnerHTML={{ __html: insightText }} />
               )}
               {insightText === '__loading__' && (
@@ -1290,14 +1290,14 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 </>
               )}
               {Array.isArray(subcomponents) && subcomponents.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-                  <div className="section-eyebrow" style={{ marginBottom: 4 }}>Componentes</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', marginTop: 'var(--sp-1)' }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-1)' }}>Componentes</div>
                   {subcomponents.map((sc, i) => {
                     const pct = Math.max(0, Math.min(100, Number(sc.value) || 0));
                     return (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 60px', gap: 10, alignItems: 'center', fontSize: 11 }}>
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 60px', gap: 'var(--sp-3)', alignItems: 'center', fontSize: 'var(--fs-overline)' }}>
                         <span style={{ color: 'var(--text-2)' }}>{sc.label}</span>
-                        <div style={{ height: 6, borderRadius: 3, background: 'var(--canvas)', overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                        <div style={{ height: 6, borderRadius: 'var(--r-sm)', background: 'var(--canvas)', overflow: 'hidden', border: '1px solid var(--hairline)' }}>
                           <div style={{ height: '100%', width: `${pct}%`, background: sc.color || accent }} />
                         </div>
                         <span className="num" style={{ textAlign: 'right', color: 'var(--text)', fontWeight: 600 }}>
@@ -1315,16 +1315,16 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             const xLabels = histogram.xLabels || [];
             return (
               <div>
-                <div className="section-eyebrow" style={{ marginBottom: 8 }}>{histogram.label || 'Distribución'}</div>
+                <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>{histogram.label || 'Distribución'}</div>
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: `repeat(${histogram.values.length}, 1fr)`,
-                  gap: 2,
+                  gap: 'var(--sp-05)',
                   height: 80, alignItems: 'end',
                   padding: '8px 10px',
                   background: 'var(--canvas-2)',
                   border: '1px solid var(--hairline)',
-                  borderRadius: 6,
+                  borderRadius: 'var(--r-md)',
                 }}>
                   {histogram.values.map((v, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }} title={`${xLabels[i] ?? i} — ${v}`}>
@@ -1333,7 +1333,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   ))}
                 </div>
                 {xLabels.length > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 9, color: 'var(--text-3)', fontFamily: 'var(--ff-numeric)', padding: '0 2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--sp-1)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontFamily: 'var(--ff-numeric)', padding: '0 2px' }}>
                     {[0, Math.floor(xLabels.length/4), Math.floor(xLabels.length/2), Math.floor(3*xLabels.length/4), xLabels.length-1].map((idx, i) => (
                       <span key={i}>{xLabels[idx]}</span>
                     ))}
@@ -1344,13 +1344,13 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
           })()}
 
           <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
               <div className="section-eyebrow" style={{ margin: 0 }}>Menciones destacadas</div>
-              <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--ff-numeric)' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontFamily: 'var(--ff-numeric)' }}>
                 {loading ? 'Cargando…' : `mostrando ${mentions.length}${volume ? ` de ${volume.toLocaleString('es-PR')}` : ''}`}
               </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)' }}>
               {mentions.map(mn => {
                 const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
                 const SIcon = Icons[sourceIcon];
@@ -1360,26 +1360,26 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                     onClick={() => onMentionClick && onMentionClick(mn)}
                     style={{
                       display: 'grid', gridTemplateColumns: '20px 1fr 90px 120px 120px',
-                      gap: 12, alignItems: 'center',
+                      gap: 'var(--sp-3)', alignItems: 'center',
                       padding: '10px 12px',
                       border: '1px solid var(--hairline)',
-                      borderRadius: 6,
-                      fontSize: 12,
+                      borderRadius: 'var(--r-md)',
+                      fontSize: 'var(--fs-caption)',
                       cursor: 'pointer',
                     }}>
                     <SIcon size={14} color="var(--text-3)" />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
-                      <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain} · {mn.publishedAt}</div>
+                      <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain} · {mn.publishedAt}</div>
                     </div>
                     <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
                     {/* Tópico (columna nueva — reemplazó engagement). Truncado a una línea. */}
-                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
+                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-overline)' }}>
                       {mn.topicName || '—'}
                     </span>
                     {/* Subtópico (columna nueva — reemplazó pertinencia). Muestra el
                         primer subtopic + indicador "+N" si hay más. */}
-                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
+                    <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-overline)' }}>
                       {(mn.subtopics && mn.subtopics.length > 0) ? (
                         <>
                           {mn.subtopics[0]}
@@ -1395,7 +1395,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
             {ctaLabel && onCta && (() => {
               const CtaIcon = ctaIcon ? Icons[ctaIcon] : null;
               return (
@@ -1603,7 +1603,7 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto',
         background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
-        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        borderRadius: 'var(--r-xl)', boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
         zIndex: 2001,
         display: 'flex', flexDirection: 'column',
       }}>
@@ -1611,43 +1611,43 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
           padding: '20px 24px',
           borderBottom: '1px solid var(--hairline)',
           borderTop: `3px solid ${accent}`,
-          display: 'flex', alignItems: 'flex-start', gap: 16,
+          display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-4)',
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>
               <span>Métrica · {period || '—'}</span>
               {data && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 'var(--r-sm)' }}>
                   <Icons.Sparkles size={9} /> IA
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
+            <div style={{ fontSize: 'var(--fs-display-lg)', fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
               {label}
             </div>
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <div className="num" style={{ fontSize: 30, fontWeight: 600, color: vd ? vd.color : 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            <div style={{ marginTop: 'var(--sp-3)', display: 'flex', alignItems: 'baseline', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+              <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: vd ? vd.color : 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                 {vd ? vd.word : formatValue(displayValue)}
               </div>
               {vd && vd.value && (
-                <div className="num" style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>{vd.value}</div>
+                <div className="num" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{vd.value}</div>
               )}
               {!vd && displayBand && (
-                <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
+                <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
                   {displayBand}
                 </div>
               )}
               {dd ? (
                 dd.hasBaseline ? (
-                  <div style={{ fontSize: 11, fontWeight: 600, color: dd.direction === 'flat' ? 'var(--text-3)' : (dd.tone === 'pos' ? 'var(--pos)' : dd.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
+                  <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: dd.direction === 'flat' ? 'var(--text-3)' : (dd.tone === 'pos' ? 'var(--pos)' : dd.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
                     {dd.direction === 'flat' ? `· ${dd.word}` : `${dd.arrow} ${dd.value}`}
                     <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> vs período anterior</span>
                   </div>
                 ) : (
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
+                  <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
                 )
               ) : (data && data.deltaVsPrev != null && (
-                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+                <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>
                   {data.deltaVsPrev > 0 ? '▲ +' : data.deltaVsPrev < 0 ? '▼ ' : '· '}
                   {Math.abs(data.deltaVsPrev)} vs ventana anterior
                 </div>
@@ -1657,14 +1657,14 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
           <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
-        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           {/* Banda visual — patrón Overview crisis card. */}
           {cfg && displayValue != null && (
             <div>
-              <div style={{ height: 8, borderRadius: 4, background: cfg.gradient, position: 'relative' }}>
+              <div style={{ height: 8, borderRadius: 'var(--r-sm)', background: cfg.gradient, position: 'relative' }}>
                 <div style={{ position: 'absolute', left: `${cfg.pct(displayValue)}%`, top: -4, width: 14, height: 14, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor(displayBand)}`, transform: 'translateX(-50%)' }} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-15)', fontFamily: 'var(--ff-mono)' }}>
                 {cfg.labels.map((l) => <span key={l}>{l}</span>)}
               </div>
             </div>
@@ -1673,8 +1673,8 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
           {/* Interpretación AI coloquial (issue #4). */}
           <div style={{
             padding: '14px 16px', background: 'var(--canvas-2)',
-            border: '1px solid var(--hairline)', borderRadius: 8,
-            fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
+            border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)',
+            fontSize: 'var(--fs-body-sm)', lineHeight: 1.5, color: 'var(--text)',
           }}>
             {!data && !error && (
               <span style={{ color: 'var(--text-3)' }}>Generando interpretación…</span>
@@ -1689,9 +1689,9 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
 
           {/* Serie temporal de la métrica para la ventana del period. */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Evolución diaria</div>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Evolución diaria</div>
             {series.length === 0 && (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, background: 'var(--canvas-2)', borderRadius: 6 }}>
+              <div style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)', background: 'var(--canvas-2)', borderRadius: 'var(--r-md)' }}>
                 Sin datos suficientes para graficar la serie.
               </div>
             )}
@@ -1720,13 +1720,13 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
           {/* Tópicos contribuyentes (opcional). */}
           {data && data.topContributingTopics && data.topContributingTopics.length > 0 && (
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópicos contribuyentes</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Tópicos contribuyentes</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)' }}>
                 {data.topContributingTopics.map((t) => (
-                  <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                  <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)' }}>
                     <span style={{ flex: 1, color: 'var(--text)' }}>{t.name}</span>
-                    <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{Math.round(t.share * 100)}%</span>
-                    <div style={{ width: 80, height: 4, background: 'var(--canvas-2)', borderRadius: 2, overflow: 'hidden' }}>
+                    <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{Math.round(t.share * 100)}%</span>
+                    <div style={{ width: 80, height: 4, background: 'var(--canvas-2)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
                       <div style={{ width: `${Math.min(t.share * 100, 100)}%`, height: '100%', background: accent }} />
                     </div>
                   </div>
@@ -1737,7 +1737,7 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
 
           {/* Contexto histórico — P25/P75 90d. */}
           {data && data.historicalP25 != null && data.historicalP75 != null && (
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
+            <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontStyle: 'italic' }}>
               Rango típico de los últimos 90 días: <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP25)}</strong> a <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP75)}</strong>.
             </div>
           )}
