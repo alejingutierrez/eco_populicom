@@ -29,12 +29,10 @@ import { getDb } from '@eco/database';
 import { eq } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
-import { createLogger } from '@/lib/logger';
+import { log } from '@/lib/log';
 import { stopSurfacesFor, STOP_STEMS } from '@/lib/wordcloud/stopwords';
 
 export const dynamic = 'force-dynamic';
-
-const log = createLogger('eco-terms');
 
 const PERIOD_DAYS: Record<string, number> = {
   '1D': 1, '5D': 5, '7D': 7, '30D': 30, '1M': 30, '3M': 90, '6M': 180, '1A': 365, Max: 3650,
