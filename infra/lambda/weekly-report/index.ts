@@ -572,27 +572,46 @@ async function buildWeeklySummaryEmail(
 
   // Comparación de tópicos: unión de ambas semanas, orden por volumen actual.
   const prevTopicMap = new Map(prevTopics.map((t) => [t.topic, t]));
+  const curTopicMap = new Map(curTopics.map((t) => [t.topic, t]));
   const curTopicNames = new Set(curTopics.map((t) => t.topic));
   const compare = [
     ...curTopics.map((t) => ({ topic: t.topic, cur: t.total, prev: prevTopicMap.get(t.topic)?.total ?? 0 })),
     ...prevTopics.filter((t) => !curTopicNames.has(t.topic)).map((t) => ({ topic: t.topic, cur: 0, prev: t.total })),
   ].sort((a, b) => b.cur - a.cur || b.prev - a.prev);
-  const topicsCompare = compare.slice(0, 8).map((t) => ({
-    ...t,
-    delta: formatDelta(t.cur, t.prev, { kind: 'percent', decimals: 0 }),
-  }));
+  const topicsCompare = compare.slice(0, 8).map((t) => {
+    const negatives = curTopicMap.get(t.topic)?.negative ?? 0;
+    return {
+      ...t,
+      delta: formatDelta(t.cur, t.prev, { kind: 'percent', decimals: 0 }),
+      // Concentración negativa del tópico esta semana (columna "% neg.").
+      negShare: t.cur > 0 ? Math.round((negatives / t.cur) * 100) : null,
+    };
+  });
+
+  // Tópicos que salieron de la conversación: tenían volumen la semana anterior
+  // y esta semana no registran. Se excluyen los que ya aparecen en la tabla
+  // (con cur=0) para no decir lo mismo dos veces.
+  const renderedTopics = new Set(topicsCompare.map((t) => t.topic));
+  const goneTopics = prevTopics
+    .filter((t) => t.total > 0 && !curTopicNames.has(t.topic) && !renderedTopics.has(t.topic))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 4)
+    .map((t) => ({ topic: t.topic, prev: t.total }));
 
   // Contexto LLM de la semana actual (mismas queries que el diario).
   const aggregates = await buildAggregates(client, agency, startYmd, endYmd, curReport);
   const samples = await loadSamples(client, agency.id, startYmd, endYmd);
 
   const metrics = buildEmailMetrics(winCur, winPrev);
+  // Exactamente los 4 indicadores que el lector VE en el correo (tiles del
+  // Bloque 2) — así el LLM no comenta indicadores invisibles ni ignora los
+  // visibles. Tasa de interacción y Velocidad quedaron fuera de los tiles
+  // (ago 2026): la Velocidad duplica el delta de "Semana vs semana".
   const indicatorLines = [
     { label: 'Riesgo de crisis', cur: metrics.crisis.display.value ?? '—', prev: formatMetric('crisis', winPrev.crisisRiskScore).value ?? '—' },
-    { label: 'Salud de marca', cur: metrics.bhi.display.value ?? '—', prev: formatMetric('bhi', winPrev.brandHealthIndex).value ?? '—' },
     { label: 'Sentimiento neto', cur: metrics.nss.display.value ?? '—', prev: formatMetric('nss', winPrev.nss).value ?? '—' },
+    { label: 'Salud de marca', cur: metrics.bhi.display.value ?? '—', prev: formatMetric('bhi', winPrev.brandHealthIndex).value ?? '—' },
     { label: 'Polarización', cur: metrics.polarization?.display.value ?? '—', prev: formatMetric('polarization', winPrev.polarizationIndex).value ?? '—' },
-    { label: 'Tasa de interacción', cur: metrics.engagementRate?.display.value ?? '—', prev: formatMetric('engagementRate', winPrev.engagementRate).value ?? '—' },
   ];
 
   const weekLabel = formatPeriodLabel(startYmd, endYmd);
@@ -645,8 +664,10 @@ async function buildWeeklySummaryEmail(
     weeklySummary: ai.summary,
     highlights: ai.highlights,
     topicsCompare,
+    goneTopics,
     topMentions,
-    dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
+    // Misma URL que los CTAs del diario (paridad ago 2026): Overview de la agencia.
+    dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
   const subject = buildSubject('Semanal', agencyShortName(agency.slug), `semana ${weekLabel}`);
@@ -1172,14 +1193,14 @@ async function generateWeeklyComparison(
     const parsed = await invokeClaudeWithTool<{ summary?: unknown; highlights?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      1200,
+      1600,
       {
         name: 'submit_weekly_comparison',
         description: 'Entrega el resumen ejecutivo semanal y los highlights de qué cambió vs la semana anterior.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 3–5 oraciones, comparativo semana vs semana.' },
+            summary: { type: 'string', description: 'Párrafo único de 4–6 oraciones (~120–160 palabras), comparativo semana vs semana.' },
             highlights: {
               type: 'array',
               items: { type: 'string' },

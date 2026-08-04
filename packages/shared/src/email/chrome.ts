@@ -186,6 +186,33 @@ export function blockHeader(
           </tr>`;
 }
 
+/**
+ * Botón CTA al dashboard — fila <tr> con botón sólido centrado. Único markup
+ * para los 3 correos (antes cada template tenía el suyo con estilo distinto);
+ * `color` deja que crisis lo tiña de tinta para no competir con el accent de
+ * banda, el resto usa el azul de marca.
+ */
+export function ctaButton(
+  url: string,
+  label = 'Ver detalle en el dashboard →',
+  color: string = EMAIL_COLORS.brand,
+): string {
+  return `
+          <tr>
+            <td class="px-32" align="center" style="padding:18px 32px 22px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td bgcolor="${color}" style="background:${color};background-color:${color};border-radius:8px;">
+                    <a href="${esc(url)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
+                      ${esc(label)}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
+}
+
 // ------------------------------------------------------------
 // Tile de indicador NUMÉRICO — número protagonista, sin palabra cualitativa.
 // El mismo patrón visual para diario, semanal y alertas.

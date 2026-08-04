@@ -20,6 +20,7 @@ import {
   fmtInt,
   sectionKicker,
   blockHeader,
+  ctaButton,
   renderMetricTiles,
   emailDocument,
   type EmailMetric,
@@ -150,28 +151,6 @@ function renderChart(data: DailyReportRenderData): string {
       .join('; ');
 
   return `<img src="${esc(data.chartImageUrl)}" alt="${esc(altText)}" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">`;
-}
-
-// ------------------------------------------------------------
-// Botón CTA reutilizable — fila <tr> con botón sólido centrado (fondo marca,
-// texto blanco). Se usa 3× en el cuerpo del diario para llevar al dashboard.
-// ------------------------------------------------------------
-
-function ctaButton(url: string, label: string): string {
-  return `
-          <tr>
-            <td class="px-32" align="center" style="padding:18px 32px 22px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td bgcolor="${COLORS.brand}" style="background:${COLORS.brand};background-color:${COLORS.brand};border-radius:8px;">
-                    <a href="${esc(url)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      ${esc(label)}
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`;
 }
 
 // ------------------------------------------------------------

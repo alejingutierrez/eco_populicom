@@ -18,6 +18,7 @@ import {
   fmtInt,
   indicatorTileNum,
   blockHeader,
+  ctaButton,
   emailDocument,
 } from './chrome';
 
@@ -31,14 +32,19 @@ export interface CrisisAlertRenderData {
 
   band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS';
 
-  /** Indicadores 0–1. Se renderizan como tarjetas. */
+  /** Indicadores del bloque numérico. Se renderizan como tarjetas. */
   metrics: {
     crisisRiskScore: number;
     crisisRiskScore24hAgo: number | null;
     crisisSeverity: number;
-    crisisVelocity: number;
-    crisisRelevance: number;
-    volumeAnomalyZscore: number | null;
+    /**
+     * Display del tile "Velocidad": cambio % del volumen de HOY (día parcial
+     * en curso) vs el promedio de los 7 días previos AL MISMO CORTE HORARIO
+     * (decisión ago 2026 — la crisisVelocity interna, clamp del z-score, se
+     * leía como "0%" en crisis sin pico de volumen; la fórmula del score NO
+     * cambió, solo lo que se muestra). null cuando no hay historial suficiente.
+     */
+    volumeVsAvg7Pct: number | null;
   };
 
   /** Conteo del día detonante + comparación. */
@@ -104,12 +110,12 @@ export interface CrisisAlertRenderData {
     closing: string;
   };
 
-  /** URL al dashboard (deeplink al overview de crisis de la agencia). */
+  /** URL al Overview de la agencia en el dashboard (misma que diario/semanal). */
   dashboardUrl: string;
 }
 
 // ------------------------------------------------------------
-// Paleta — alineada con render-weekly-report.ts para coherencia de marca
+// Paleta — chrome compartido para coherencia de marca entre correos
 // ------------------------------------------------------------
 
 // Paleta = chrome compartido + alias local para la banda NORMAL (azul marca).
@@ -138,15 +144,6 @@ function fmtPct(n: number | null | undefined): string {
   return `${Math.round(n * 100)}%`;
 }
 
-/** Describe la anomalía de volumen en lenguaje llano (sin z-scores ni σ). */
-function volumeVsUsual(z: number | null): string {
-  if (z == null) return 'sin referencia de volumen';
-  if (z >= 2) return 'volumen muy sobre lo usual';
-  if (z >= 1) return 'volumen sobre lo usual';
-  if (z > -1) return 'volumen dentro de lo usual';
-  return 'volumen bajo lo usual';
-}
-
 // ------------------------------------------------------------
 // Pull-quote: la frase parafraseada del LLM con su atribución
 // ------------------------------------------------------------
@@ -158,7 +155,7 @@ function pullQuote(
   isLast: boolean,
 ): string {
   const toneColor = tone === 'negative' ? COLORS.alerta
-                  : tone === 'positive' ? '#1F8A47'
+                  : tone === 'positive' ? COLORS.pos
                   : COLORS.inkSoft;
   const border = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
   return `<tr>
@@ -276,10 +273,18 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
   // banda ya sale como palabra (bandLabelEs ≡ NORMAL/ELEVADO/ALERTA/CRISIS).
   // Tres tiles a 33.33% para llenar la fila tras retirar "Relevancia"
   // (minuta 21-jul-2026: el tile de Relevancia se elimina del bloque numérico).
+  // "Velocidad" muestra el cambio % de volumen vs promedio 7 días (ago 2026)
+  // en vez de la crisisVelocity interna, que se leía como "0%" sin pico.
+  const velocityValue = m.volumeVsAvg7Pct == null
+    ? '—'
+    : `${m.volumeVsAvg7Pct > 0 ? '+' : ''}${m.volumeVsAvg7Pct}%`;
+  const velocityHint = m.volumeVsAvg7Pct == null
+    ? 'sin historial suficiente'
+    : 'volumen a esta hora vs promedio 7 días';
   const indicators = [
     indicatorTileNum('Crisis Score', formatMetric('crisis', m.crisisRiskScore).value || '—', accent, esc(score24hHint), '33.33%'),
     indicatorTileNum('Severidad', fmtPct(m.crisisSeverity), COLORS.alerta, 'concentración negativa', '33.33%'),
-    indicatorTileNum('Velocidad', fmtPct(m.crisisVelocity), COLORS.elevado, esc(volumeVsUsual(m.volumeAnomalyZscore)), '33.33%'),
+    indicatorTileNum('Velocidad', velocityValue, COLORS.elevado, esc(velocityHint), '33.33%'),
   ].join('');
 
   const volumeDeltaLine = v.prevDayTotal != null
@@ -358,23 +363,10 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
       </tr>`
     : '';
 
-  // Botón CTA — markup único reutilizado arriba (parte superior) y al cierre
-  // del Bloque 2 (minuta 21-jul-2026: repetir el CTA al final del correo).
-  const ctaButton = `
-          <!-- CTA · Ver detalle en el dashboard -->
-          <tr>
-            <td class="px-32" align="center" style="padding:14px 32px 26px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td bgcolor="${COLORS.ink}" style="background:${COLORS.ink};background-color:${COLORS.ink};border-radius:6px;">
-                    <a href="${esc(data.dashboardUrl)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      Ver detalle en el dashboard →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`;
+  // Botón CTA — helper compartido del chrome, teñido de tinta para no
+  // competir con el accent de banda. Se repite arriba y al cierre del
+  // Bloque 2 (minuta 21-jul-2026: repetir el CTA al final del correo).
+  const cta = ctaButton(data.dashboardUrl, 'Ver detalle en el dashboard →', COLORS.ink);
 
   const contentRows = `
           <!-- HERO (parte superior · sin cambios salvo el tamaño del título) -->
@@ -398,7 +390,7 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
           ${heroImageBlock}
 
           <!-- CTA superior · atajo inmediato al dashboard -->
-          ${ctaButton}
+          ${cta}
 
 ${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias de la conversación', accent)}
           <!-- BLOQUE 1 · 01 · INDICADORES (Crisis Score · Severidad · Velocidad) -->
@@ -461,7 +453,7 @@ ${blockHeader('2', 'Detalle de la crisis', 'Qué está pasando, evolución del C
           </tr>
 
           <!-- CTA repetido · cierre del Bloque 2 -->
-          ${ctaButton}
+          ${cta}
 
 `;
 
