@@ -802,6 +802,19 @@ function MentionsScreen({ onMentionClick }) {
   const [filters, setFilters] = useState({
     q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent',
   });
+  // Términos seleccionados en la nube. Se envían a /api/eco-mentions dentro de
+  // `q` porque el API ya hace AND entre tokens con tope de 8
+  // (eco-mentions/route.ts:226-236) — no se inventa un parámetro nuevo ni un
+  // conmutador AND/OR que el backend no soporta.
+  const [terms, setTerms] = useState([]);
+  const toggleTerm = React.useCallback((t) => {
+    setTerms((prev) => {
+      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      if (prev.length >= 8) return prev; // el API topa en 8
+      return [...prev, t];
+    });
+    setPage(1);
+  }, []);
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ mentions: [], total: 0 });
   const [loading, setLoading] = useState(false);
@@ -841,12 +854,15 @@ function MentionsScreen({ onMentionClick }) {
       offset: String((page - 1) * PAGE_SIZE),
     });
     if (agency) params.set('agency', agency);
-    if (filters.q) params.set('q', filters.q);
+    // La q efectiva combina el buscador y los términos de la nube: un solo
+    // parámetro, un solo predicado, así la lista y la nube nunca discrepan.
+    const qEff = [filters.q, ...terms].filter(Boolean).join(' ').trim();
+    if (qEff) params.set('q', qEff);
     if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
     if (filters.source !== 'all') params.set('source', filters.source);
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
-    const sort = resolveSort(filters.sortBy, !!filters.q);
+    const sort = resolveSort(filters.sortBy, !!qEff);
     if (sort !== 'recent') params.set('sortBy', sort);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
@@ -857,7 +873,7 @@ function MentionsScreen({ onMentionClick }) {
       })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [filters, page, reloadKey]);
+  }, [filters, terms, page, reloadKey]);
 
   // Conteo de "Virales": una consulta separada con limit=1 (solo nos
   // interesa `total`). Se recalcula cuando cambia el período/agency, pero
@@ -882,7 +898,7 @@ function MentionsScreen({ onMentionClick }) {
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
 
   const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
-  const searchTerms = filters.q ? filters.q.trim().split(/\s+/).filter((t) => t.length >= 2) : [];
+  const searchTerms = [...(filters.q ? filters.q.trim().split(/\s+/) : []), ...terms].filter((t) => t.length >= 2);
 
   function openViralSlice() {
     setSlice({
@@ -975,6 +991,22 @@ function MentionsScreen({ onMentionClick }) {
           onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
         />
       </div>
+
+      {/* Nube de palabras: va entre el resumen y la lista porque su función es
+          ORIENTAR antes de leer ("¿de qué se habla?") y su click filtra la lista
+          que está justo debajo. */}
+      {window.ECO_TERMS && (
+        <window.ECO_TERMS.TermsCloud
+          filters={{
+            sentiment: filters.sentiment, source: filters.source,
+            topic: filters.topic, q: filters.q,
+          }}
+          period={localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD}
+          agency={localStorage.getItem('eco.agency') || ''}
+          selected={terms}
+          onToggleTerm={toggleTerm}
+        />
+      )}
 
       {/* Mentions table */}
       <div className="card">

@@ -369,6 +369,16 @@
   --chart-axis: var(--text-3);
   --chart-crosshair: var(--text-2);
   --chart-void: rgba(255, 255, 255, 0.03); /* hueco de datos ≠ cero real */
+
+  /* Nube de palabras: polaridad del término como TEXTO. No se reutiliza la
+     escala --div-* porque está diseñada para rellenos: --div-mid #4A515B da
+     2.27:1 sobre --canvas y sería ilegible. Aquí la extremidad se codifica en
+     saturación, no en luminosidad, así que los cinco pasos pasan AA. */
+  --wc-neg-2: #FF5470;
+  --wc-neg-1: #FF9BAC;
+  --wc-neu:   #A2ACBA;
+  --wc-pos-1: #8FE5B0;
+  --wc-pos-2: #3FD47A;
 }
 
 :root[data-mode="light"] {
@@ -417,6 +427,12 @@
   --chart-axis: var(--text-3);
   --chart-crosshair: var(--text-2);
   --chart-void: rgba(14, 17, 22, 0.04);
+
+  --wc-neg-2: #C2183F;
+  --wc-neg-1: #A05A6A;
+  --wc-neu:   #4A515B;
+  --wc-pos-1: #4F7A5E;
+  --wc-pos-2: #14722F;
 }
 
 /* ===========================================================================
