@@ -8,6 +8,17 @@
 
 ## 0 · Cómo leer este documento
 
+Este informe es el documento principal. El detalle vive en cinco apéndices:
+
+| Apéndice | Qué contiene |
+|---|---|
+| [`…-catalogo.md`](auditoria-diseno-2026-07-catalogo.md) | Los 337 hallazgos de las 13 unidades, con ubicación, evidencia y arreglo |
+| [`…-fundaciones.md`](auditoria-diseno-2026-07-fundaciones.md) | Color, tipografía (Besley/Krub) y espaciado/primitivas |
+| [`…-graficas.md`](auditoria-diseno-2026-07-graficas.md) | Doctrina de codificación visual + rediseño de `charts.js` |
+| [`…-menciones.md`](auditoria-diseno-2026-07-menciones.md) | Rediseño de Menciones + nube de palabras (backend y render) |
+| [`…-narrativas.md`](auditoria-diseno-2026-07-narrativas.md) | Detección, señales de novedad y experiencia de Narrativas |
+
+
 Esta auditoría **no repite** las dos anteriores:
 
 | Auditoría | Fecha | Tema | Estado |
@@ -169,26 +180,129 @@ Estos no estaban en mi lista y son, en conjunto, más graves que los 16 de arrib
 
 ---
 
-## 5 · Narrativas: la detección está congelada
+## 5 · Narrativas: **no está congelada — está degradada 40× y llega tarde**
 
-El cliente pidió «mejorar la detección de nuevos elementos dentro las narrativas». El punto de partida es que **no hay elementos nuevos que detectar**: cero narrativas nuevas desde el ~6 de julio de 2026. La crisis de Domenech no generó ninguna.
+> **Corrección.** Las secciones anteriores de este informe (y la nota de proyecto
+> que las alimentó) afirmaban que la detección de narrativas estaba congelada
+> desde el ~6 de julio y que la crisis de Domenech no había generado ninguna.
+> **Las dos cosas son falsas.** Dos de las unidades de esta auditoría consultaron
+> la base de datos de producción y midieron lo siguiente el 3 de agosto:
+>
+> - Hay **1,291 narrativas**; la última se creó el **2026-08-03 a las 07:15**.
+> - La crisis de Domenech **sí parió narrativa**: «Salida de Domenech e Itza
+>   García», 62 menciones, `born_at` 2026-07-21, `created_at` 2026-07-23.
+>
+> Lo que colapsó no es la existencia, es el **ritmo** y la **frescura**:
+> gobernadora pasó de ~457 narrativas por semana a ~10, y muchas nacen con
+> `born_at` de 2025 y el mismo run que las crea las marca `dormant`.
 
-Ocho causas raíz, todas confirmadas leyendo `infra/lambda/narrative-cluster/index.ts` en `origin/main`:
+### 5.1 · La causa dominante no es `eps`: es la ventana del pool
 
-1. **Contradicción entre `eps` y el dedup.** `NARRATIVE_DBSCAN_EPS` (0.22 en código, **0.19 en el env real de producción** por un cambio manual del 30 jun) exige similitud de casi-duplicado, pero el pool filtra `m.is_duplicate = false` (líneas 200 y 351) y el dedup por `text_hash` ya borró justo esos pares. Se le pide densidad a un corpus del que se quitó la densidad. Medido en jul con pgvector sobre las 229 menciones de la crisis: **0 core points a eps 0.19, 1 a 0.22, 14 a 0.30**.
-2. **Pool envenenado con ventana oldest-first.** El pool se lee `ORDER BY nc.created_at ASC LIMIT 12000` (líneas 356-357). Con 56k candidatos acumulados, los frescos **nunca entran** a la ventana del DBSCAN.
-3. **Bucle poda ↔ re-encolado.** La poda borra sólo si `nc.created_at < NOW()-7d` **Y** `m.published_at < NOW()-30d` (336-345), pero el query de no-asignadas **no tiene filtro de fecha** (194-206) y las re-encola con `created_at` fresco. El pool no converge nunca.
-4. **La asignación excluye `dormant`** (`WHERE status != 'dormant'`, línea 218). Con ~98% de narrativas dormant, casi nada se puede asignar y todo cae al pool.
-5. **`revived` es estructuralmente inalcanzable.** Requiere `prevStatus === 'dormant' && velocity24h > 0`, pero una dormant es invisible al matching, así que nunca recibe menciones y su velocidad nunca sube.
-6. **`emerging` no es una señal de novedad**, es un proxy de tamaño y edad: `mentionCount < 50 && ageDays < 7` (`narratives-math.ts:250`).
-7. **`drift_score` es la única señal real de «cambió el tema»** (coseno entre `centroid` y `centroid_at_naming`) y se calcula **semanalmente**, se usa **sólo para renombrar** sobre 0.25, y **nunca se le muestra al usuario**.
-8. **Los edges no son genealogía.** `narrative_edges.edge_type` sólo tiene `co_occurrence`, `author_overlap` y similitud de centroide. No hay `split` / `merge` / `spawn`, así que la interfaz no puede contar que «Ventanilla digital de OGPe» se desprendió de «Demoras del permiso único».
+El DBSCAN de gobernadora recibe **siempre exactamente 12,000 candidatos**
+ordenados por `created_at ASC` (`narrative-cluster/index.ts:356-357`). De esos:
 
-Además hay **drift de configuración**: producción corre `eps=0.19 / minPts=7`, git dice `0.22 / 10` (`infra/lib/workers-stack.ts:389-390`).
+| | |
+|---|---:|
+| publicaciones de **2025** | **9,801 (81.7%)** |
+| publicaciones de los **últimos 7 días** | **68 (0.57%)** |
 
-La especificación del arreglo (barrido diagnóstico antes de tocar producción, arreglos estructurales con SQL, taxonomía de novedad, y máquina de estados nueva) está en §8.
+Las menciones de hoy **nunca entran al muestreo**. La prueba directa, medida
+sobre el pool real:
 
----
+| Muestreo | Core points |
+|---|---:|
+| Ventana de 72 h del pool actual, eps=0.19 / minPts=7 | **29** |
+| La misma ventana a eps=0.30 | **47** |
+| El pool oldest-first completo, 96 corridas de las últimas 48 h | **0 clusters** |
+
+Es decir: **con un muestreo coherente el `eps` que ya corre en producción pare
+narrativas**. Subirlo sin arreglar la ventana no habría resuelto nada.
+
+Y `created_at` no es utilizable como eje temporal: es fecha de encolado, y un
+backfill la pone «hoy» para menciones viejas — **53,225 candidatos de
+gobernadora se crearon el 29–30 de julio con `published_at` de 2025**. La
+re-encolada la resetea, así que no es monótona. El filtro tiene que ir sobre
+`published_at`, con **el mismo predicado en la poda y en la admisión**.
+
+### 5.2 · La contradicción `eps` ↔ dedup queda refutada
+
+Sostenía que el dedup borraba justo los pares que darían densidad. Medido: los
+duplicados son **0.9%–4.4%** de las menciones de 30 días y **no se borran** —
+`processor/index.ts:266` los persiste con `is_duplicate = true`. Añadirlos como
+puntos no mueve la densidad.
+
+### 5.3 · No hay rodilla en la curva k-distancia
+
+El barrido k-NN sobre la ventana de Domenech (685 puntos) da pendientes
+p05→p10 = 0.86, p10→p25 = 0.90, p25→p50 = 0.456: la curva **se aplana sin
+formar codo**. Sin brecha de densidad, **cualquier `eps` global es política, no
+descubrimiento**. El p25 de la 6-NN es 0.300; el 0.19 que corre en producción
+está en el **p12**. De ahí la recomendación de fijar `eps` por percentil de la
+k-distancia **de la ventana** con clamp `[0.22, 0.34]`, en vez de una constante
+mágica — y de pasar a **HDBSCAN** como respuesta de fondo (elimina el `eps`
+global, tolera densidad variable entre agencias, y su árbol condensado da la
+jerarquía padre/hijo que hace falta para `split`/`merge`). Su MST es O(n²), así
+que sólo es viable **con la ventana ya puesta**: la ventana no es la alternativa
+a HDBSCAN, es su prerrequisito.
+
+### 5.4 · La asignación está muerta por otra razón
+
+`assigned = 0` en **todas** las corridas. Dos causas medidas:
+
+- La **máxima similitud** promedio de una mención contra cualquier centroide es
+  **0.44–0.51**, y el umbral es **0.78**: vive en la cola de la distribución.
+- **1,273 de 1,291 narrativas (98.6%)** están `dormant`, y la asignación las
+  excluye (`index.ts:218`).
+
+Incluir dormant recientes sube de **1 a 19** los matches de 642 menciones de
+gobernadora en 7 días, y es la única forma de hacer `revived` alcanzable — hoy
+tiene **0 filas**.
+
+### 5.5 · Tres causas que no estaban en el diagnóstico
+
+- **`born_at` es la mención más VIEJA del cluster** (`index.ts:418-421`, `480`,
+  usa `first.published_at`). Con el pool oldest-first, las narrativas nacen con
+  `ageDays` grande: **nacen ya `declining` o `dormant` y jamás pasan por
+  `emerging`**.
+- **La velocidad se mide con `m.published_at`, no con `nm.assigned_at`**
+  (`index.ts:540`, `545`). Una narrativa detectada hoy sobre menciones de hace
+  cinco días tiene `velocity24h = 0`: **el sistema no tiene noción de "acabo de
+  verlo"**. Eso explica la píldora que dice «Pico» junto a «VEL. 24H 0.0».
+- **`drift_score` se calcula sólo para `status != 'dormant'`**
+  (`narrative-drift/index.ts:112`), se sobrescribe sin guardar historia, y
+  aparece en **cero** archivos de `apps/web`. La única señal real de «cambió el
+  tema» no llega nunca al usuario.
+
+### 5.6 · Lo que cuesta hoy
+
+**700 s de cómputo × 48 corridas al día (~$34/mes) para producir cero
+clusters**, con riesgo de timeout en cuanto `aaa` y `sgpr` lleguen al cap de
+12,000. Y no había forma de validar un cambio antes de aplicarlo: `dryRun` no
+sirve para probar clustering porque los pasos 3–5 están detrás de
+`if (!event.dryRun)` (`index.ts:299`, `311`, `316`). Así se llegó al cambio
+manual del 30 de junio que nadie pudo verificar.
+
+### 5.7 · El drift de configuración tampoco existía
+
+Sostenía que producción corría `eps=0.19 / minPts=7` contra un git que decía
+`0.22 / 10`. Falso: **`workers-stack.ts:425-426` ya dice `'0.19'` y `'7'`**. El
+drift está en los **comentarios** y en los **defaults del código**
+(`narrative-cluster/index.ts:55-56`, comentario en `workers-stack.ts:387-388`),
+que siguen diciendo 0.22/10. Es deuda de documentación, no de infraestructura.
+
+### 5.8 · Y la pantalla afirma lo que no puede sostener
+
+Narrativas es **el único enclave del producto**: la única pantalla sin `.card`,
+sin `ecoCols`, con breakpoint propio (980px) y con paleta importada de Ant
+Design. Sobre esa base comete el error más caro: la píldora dice «Pico» junto a
+«VEL. 24H 0.0», el resumen dice «Volumen estable» a 40px de «Sin datos
+temporales todavía», y **tres de ocho narrativas —las dos más grandes del
+cliente— se renderizan en inglés crudo, sin punto de color y sin que ningún chip
+las cuente**.
+
+Hay además dos implementaciones rivales y dos APIs rivales. La de Next.js está
+**huérfana** (nadie la enlaza), es de tema claro dentro de un producto oscuro y
+**no compila en runtime** (`<Link><a>` con Next 15).
 
 ## 6 · Catálogo por pantalla
 
@@ -498,16 +612,439 @@ ECO no tiene una doctrina de gráficas: tiene nueve primitivas con nueve APIs di
 
 ## 8 · Menciones: nube de palabras y funciones nuevas
 
-<!-- SLOT:MENCIONES -->
+Tres especificaciones completas en [`auditoria-diseno-2026-07-menciones.md`](auditoria-diseno-2026-07-menciones.md): el rediseño de la pantalla, el backend de la nube de palabras y su render.
+
+### Menciones
+
+Menciones no es una pantalla mal maquetada: es un explorador de consultas disfrazado de tabla de metadatos. La consulta del usuario está repartida en cinco superficies que no se hablan (header con período, dos buscadores, chips, popover, ⌘K), el resultado no lleva su propio resumen (los 5 KPI vienen de otro endpoint y no reaccionan a ningún filtro: screens.js:948-963 vs 818-847) y la fila entrega los campos que menos sirven mientras el API ya manda `summary` (100% poblado en DDEC), `image` (61.7%) y esconde `impact`/`potentialAudience` (83.6%/81.5%). Medí el caso que lo resume todo: el 21 de julio DDEC tuvo 26 menciones visibles, 22 negativas — y **15 de esas 26 filas son la MISMA nota de cable de AP** replicada en 14 medios (16 filas, 12 `text_hash` distintos porque el hash incluye el snippet y cada medio pone su propio lede; engagement 0 en todas, audiencia potencial 21.3M). El feed convirtió un hecho en quince, y el 68% de la negatividad de ese día es una sola nota. A escala: 27.8% de las menciones de DDEC en 30 días tienen un casi-gemelo a distancia coseno <0.10 y el 100% tiene embedding, o sea que la materia prima para arreglarlo ya está en la tabla. La decisión de fondo: convertir /mentions en una **consulta de primera clase** — un solo campo de búsqueda, filtros con una gramática, un resumen que se recalcula con el mismo WHERE que la lista, una fila que agrupa historias en vez de repetirlas, y la consulta guardable, exportable, permalinkeable y convertible en alerta. /search deja de existir como pantalla (es /mentions con `q`) y los tres modos de vista bajan a dos. Todo cabe en el contrato actual de `/api/eco-mentions` más un parámetro `facets=` y una columna `story_id`.
+
+**Decisiones**
+
+- **/search se elimina como pantalla: es el estado «con q» de /mentions** — Comparten fetch (screens.js:1339 vs 838), facetas, tres vistas, paginación y estados; divergen en doce detalles cosméticos. MentionsScreen ya recibe searchQuery/setSearchQuery/mentionsFilter/setActive (app.js:389-396): sólo hay que consumirlos. Borra ~240 líneas (screens.js:1265-1507) y elimina el segundo buscador (MEN-16).
+- **Los tres modos de vista bajan a dos: Compacta y Lectura, con persistencia por breakpoint** — Lista y Tabla comparten propósito y defectos (una línea, titular con nowrap+ellipsis, screens.js:1144 y 1219); Tabla sólo añade cuatro columnas y usa overflow:auto en vez de .scroll-x. Dos necesidades reales: escanear y leer. Guardar la preferencia por breakpoint (eco.viewMode.mobile default reading) evita entregar en móvil la vista que allí no funciona.
+- **La banda de métricas se queda, baja a 4 cifras y sólo admite cantidades aditivas sobre el subconjunto** — Total, Interacciones, Audiencia potencial y Virales se calculan con un solo agregado sobre el mismo whereClause que la lista, así que reaccionan a los filtros y no pueden contradecir el total (cierra MEN-01 y MEN-02). Rejilla 4/2/2 limpia (MEN-22).
+- **Engagement rate y Velocidad salen de la banda y bajan a una línea de contexto rotulada «Período completo, sin filtros»** — Velocidad es literalmente el delta de Total (eco-data/route.ts:366-369), o sea dos tarjetas para un hecho en dos idiomas (MEN-10), y su color sólo codifica la subida (MEN-09). Engagement rate no se puede recalcular por subconjunto con paridad de fórmula.
+- **La nube de palabras va como pestaña del panel «Resumen del resultado» (Zona B), alimentada por el subconjunto filtrado, y su clic añade el término a q** — Es un resumen del resultado, no una pantalla: puesta al final de 7,000px de página nadie la ve, y calculada sobre el período completo contradiría la lista igual que hoy la contradicen los KPI. Como pestaña comparte el fetch y el WHERE.
+- **Agrupar casi-idénticas con story_id persistido (coseno <0.10, ventana ±72h), con una etapa interim que agrupa por text_hash + coseno dentro de la página** — Medido en producción: el 21-jul DDEC tuvo 26 menciones visibles y 15 de ellas son la misma nota de AP en 14 medios (16 filas, 12 text_hash distintos porque el hash incluye el snippet). 27.8% de las menciones de DDEC tienen un casi-gemelo a <0.10 y el 100% tiene embedding. Sin persistir el grupo, la paginación no puede colapsar antes del LIMIT y los conteos son aproximados.
+- **Agrupar por text_hash, nunca por duplicate_of_id** — processor/index.ts:177 selecciona el duplicado con LIMIT 1 sin ORDER BY y sin AND is_duplicate=false: el puntero apunta a una fila arbitraria y admite cadenas, así que agrupar por duplicate_of_id fragmenta el grupo. text_hash es determinista y ya está indexado (idx_mentions_text_hash).
+- **La miniatura se condiciona a resolved_image_url, nunca a has_image** — Medido en DDEC 30 días: 417 filas tienen resolved_image_url y sólo 66 tienen has_image=true. El flag está desincronizado; usarlo dejaría fuera el 84% de las imágenes disponibles.
+
+### Backend de la nube de palabras de Menciones
+
+La nube de palabras no tiene ninguna base de datos donde apoyarse: no hay columna de términos, no hay índice de texto, y `unaccent`/`pg_trgm` NO están instaladas (solo `plpgsql` y `vector 0.8.0` en PG 16.13, db.t4g.medium, 2 vCPU burstable, `work_mem=4MB`). Medí en prod que extraer términos en caliente es inviable: el pipeline completo (tokenizar + stem + bigramas) tarda 34 s para 2,290 menciones y 12.9 s para 41,445; pero medí también que el 90% de ese costo es PARSEAR el texto, no agregar: con el tsvector ya calculado, el `unnest + GROUP BY` sobre 1.26 M lexemas cuesta menos de 1 s. Eso decide la arquitectura: un índice invertido por mención (`mention_terms.tsv`, 13 MB por año-agencia, cabe inline sin TOAST) mantenido incrementalmente en SQL, y la agregación viva en la request usando EXACTAMENTE el mismo `WHERE` que la lista. Ese último punto no es cosmético: es el único diseño que evita repetir F9 (dos fuentes rivales para el mismo número), así que especifico extraer `buildMentionScope()` de `eco-mentions/route.ts` a un módulo compartido que ambas rutas importan. La frecuencia cruda no sirve: medida en gobernadora 365d, los seis términos más frecuentes son los propios términos del query de Brandwatch (gonzález 36,649 · jenniffer 34,819 · gobernadora 33,803 · colón · puerto · rico) seguidos de basura de plataforma (https, com, www, photos, from, post). Con log-odds ratio y prior de Dirichlet informativo (a0=500) sobre los mismos datos, los 7 días contra los 90 anteriores devuelven en 2.06 s: sequía, emergencia, agua, embalse, Guardia Nacional, orden ejecutiva, Carraízo, severa, lluvia — la noticia real de la semana. Por eso "más distintivo" es el modo por defecto y "más frecuente" el conmutador secundario. El stemmer español de Postgres resuelve acentos y plurales gratis (educación→educ, Loíza→loiz, permisos/permiso→permis) pero colisiona (parte/partido→part, pública/publicación→public, autoridad→autor) e es inconsistente (anuncia→anunci vs anunció→anunc), lo que obliga a definir las stopwords como superficies expandidas por `ts_lexize` más una lista de tallos crudos, y a mantener la lista corta y quirúrgica en vez de agresiva.
+
+**Decisiones**
+
+- **Índice invertido precalculado por mención (mention_terms.tsv) + agregación viva en la request, sin tabla de caché de respuesta** — Medido en prod: el parseo del texto cuesta 4.23 s para 41,445 docs, pero el unnest + GROUP BY sobre los 1,260,629 lexemas resultantes cuesta ~0 s (3.89 s la query completa vs 4.23 s solo el parseo). Precalcular el tsvector convierte la query en <1 s y ocupa 13 MB por año-agencia (~40 MB total sobre 17.5 GB libres), inline sin TOAST (330 bytes/fila).
+- **Modo por defecto = 'distinctive' con log-odds ratio y prior de Dirichlet informativo (a0=500), no frecuencia cruda** — Medido en gobernadora 365d, los seis términos más frecuentes son los propios términos del boolean de Brandwatch (gonzález 36,649 · jenniffer 34,819 · gobernadora 33,803 · colón 22,841 · puerto · rico) seguidos de https/com/www/photos/from/post. La misma agencia con log-odds 7D vs 90D previos devuelve en 2.06 s: sequía, emergencia, agua, embalse, Guardia Nacional, orden ejecutiva, Carraízo, severa, lluvia — la noticia
+- **No instalar unaccent ni pg_trgm** — Verificado que el stemmer Snowball español de Postgres ya remueve los acentos agudos como último paso: educación→educ, Loíza→loiz, Sequía→sequ, González→gonzalez, y conserva la ñ (niños→niñ, mañana→mañan). Ninguna parte del diseño hace fuzzy match.
+- **La métrica base es DF (document frequency), no TF** — Medido: en instagram_public y varias filas de facebook_public el snippet es literalmente idéntico al title, y los snippets de noticias empiezan con '...' repitiendo la frase del título. Con TF cada término de esas menciones cuenta doble. Con DF la duplicación intra-documento es inocua. La prominencia se recupera con los pesos A/B/C/D del tsvector (verificado que sobreviven a || y a unnest).
+- **Stopwords declaradas como SUPERFICIES expandidas por ts_lexize en la query, más un array de tallos crudos; lista quirúrgica y no agresiva** — Verificado que el stemmer es inconsistente entre inflexiones (anuncia→anunci pero anunció→anunc; declaró→declar pero declara→decl), así que una lista escrita a mano en tallos deja agujeros — en la corrida de prueba se colaron 'decl' y 'anunc'. Y verificado que colisiona (parte/partido→part, pública/publicación→public, autoridad→autor), así que una lista agresiva mataría 'partido', término legítimo en un dashboard de 
+- **Frases mediante diccionario minado en batch (PMI≥3.0 + adhesión≥0.30 + df≥max(5, 0.15%N)) inyectado en el tsvector con peso D; el colapso bigrama/unigrama se resuelve en TS con umbral 0.35 de vida propia** — La expansión de bigramas mide 3.0 ms/doc (34.2 s para 2,290 docs, 6.8 s solo el generate_subscripts de 139,694 pares): imposible en caliente, trivial en batch. Los umbrales, probados sobre 30D de gobernadora, conservan 'francisco domenech', 'itza garcía', 'órdenes ejecutivas', 'director ejecutivo', 'guardia nacional', 'rivera schatz' y descartan 'photos from', 'from jenniffer', 'post photos', 'noticioso puerto'. Como
+- **Extraer buildMentionScope() de eco-mentions/route.ts a apps/web/src/lib/mention-scope.ts y que ambas rutas lo importen** — El endpoint de la nube debe aceptar los mismos 19 parámetros que la lista y resolverlos con el MISMO código, no con una copia. F9 está medido en prod (47 vs 54, ≈13%) y su causa es precisamente dos implementaciones del mismo universo. Además scope.total se calcula vivo en la misma request con el mismo whereClause, así que el único número compartido con la lista nunca puede divergir ni por caché.
+- **Sentimiento por término = promedio sin ponderar de s∈{-1,0,+1}, con umbral df≥8 y sentCi≤0.50 para que el color sea confiable; por debajo el término se pinta con --text-2 pero NO se oculta** — Con df<8 un solo cambio de clasificación mueve el promedio ≥0.25, más que el ancho de cualquier banda de color útil. El tamaño del término (df o z) sigue siendo válido aunque su color no lo sea, así que ocultarlo perdería información real. Reutiliza literalmente effectiveSentimentSql (eco-mentions/route.ts:77) y pillFromSentiment (45-49) vía el módulo compartido, si no la nube clasificaría negativo lo que la lista mu
+
+### Nube de palabras de Menciones
+
+La nube tipo Wordle es la peor forma conocida de comparar magnitudes: el área no es perceptualmente lineal, la rotación y el empaque azaroso introducen dos variables visuales sin significado, y no admite orden ni comparación entre términos no adyacentes. El cliente la pidió, así que la entrego — pero "bien hecha" solo tiene una definición defendible: un componente `TermsCloud` de **dos vistas hermanas** (Nube y Ranking) que comparten datos, selección y estado, donde la nube gasta sus canales libres en lo que las nubes desperdician (sentimiento en color de texto, novedad en un punto, Δ en el tooltip) y el Ranking es a la vez la vista precisa y la alternativa accesible. Rechazo d3-cloud por CDN: usa `Math.random()` interno, así que el layout salta en cada render y el usuario pierde la orientación espacial — el defecto más caro de la forma. Recomiendo un layout **determinista sin RNG** escrito a mano (~120 líneas): empaque por filas centradas con orden serpentina (el mayor al centro), medición por `canvas.measureText`, cero rotación, y HTML posicionado en absoluto en vez de SVG — lo que da botones nativos, `aria-pressed`, área táctil de 44px vía `.touch-target` y evita añadir un décimo SVG sin `<title>`. Medí los colores: la escala `--div-*` de `tokens.css` NO sirve para texto (`--div-mid` #4A515B = 2.27:1 sobre `--canvas`; en claro `--div-pos-1` = 2.18:1), así que especifico cinco tokens `--wc-*` nuevos con contraste verificado donde la extremidad del sentimiento se codifica en **saturación, no en luminosidad**. También medí que atenuar los términos no seleccionados es inviable: incluso a 0.70 de opacidad `--wc-neg-2` cae a 3.39:1, así que la selección se expresa solo sumando (relleno + anillo inset), nunca restando. La interacción se ancla al contrato real de `/api/eco-mentions` (route.ts:226-236: tokens ≥2 chars, tope 8, AND): click hace toggle y filtra la lista de la misma pantalla vía un `filters.terms` nuevo — no abre `MentionsSliceModal`, porque la lista ya está 200px más abajo. Va entre la rejilla de `QuickMetric` (screens.js:964) y la card "Menciones" (screens.js:967), colapsable, y en móvil arranca en Ranking.
+
+**Decisiones**
+
+- **Componente de dos vistas hermanas (`cloud` + `rank`) con datos, selección y tooltip compartidos, en vez de nube pura** — La nube da reconocimiento de patrón en 300 ms pero no permite ordenar ni comparar magnitudes; el Ranking da la magnitud exacta y, gratis, resuelve la accesibilidad (§4.4) y el móvil (§3.7). El cliente recibe su nube y el producto no pierde la capacidad de responder la pregunta real.
+- **Layout determinista de filas centradas con orden serpentina, escrito a mano (~120 líneas), sin RNG** — El determinismo es la propiedad más valiosa: la memoria espacial es lo único que una nube regala, y un layout que salta la destruye. El reparto greedy en orden de rango + filas centradas + `centerOut` dentro de cada fila da la silueta de nube sin azar, es O(n) y hace el FLIP trivial porque cada término tiene una celda con x/y estable.
+- **HTML posicionado en absoluto (`<button role="option">`) en vez de SVG `<text>`** — Botones nativos (foco, aria-pressed, Enter/Space), `.touch-target` de tokens.css aplicable para los 44px táctiles, texto copiable, transiciones CSS sin transform sobre `<text>`, y no añade un décimo SVG sin `<title>` a un producto que ya tiene 9.
+- **Click hace toggle de selección y filtra la lista de menciones de la misma pantalla; NO abre MentionsSliceModal** — MentionsSliceModal (shell.js:1156) existe para agregados sin lista al lado — heatmap, mapa, termómetro, virales. La nube vive dentro de MentionsScreen, a ~200px de una lista paginada con tres modos de vista; un modal con las mismas menciones sería peor. Alt+click sigue abriendo el modal con `_filter:{q:term}` para el caso 'verlo aparte'.
+- **Cinco tokens `--wc-*` nuevos para el sentimiento del término, en vez de reutilizar `--div-*`** — Medido con WCAG 2.1: `--div-mid` #4A515B da 2.27:1 sobre `--canvas` en oscuro, y en claro `--div-neg-1` #E8859A da 2.54:1 y `--div-pos-1` #7CBE92 da 2.18:1. La escala divergente está diseñada para rellenos, no para texto. Los tokens nuevos codifican la extremidad en saturación (el paso neutro es acromático), no en luminosidad, y verifican ≥4.5:1 en los dos modos.
+- **La selección se expresa sumando (relleno `--accent-fill` + anillo inset), nunca atenuando los no seleccionados** — Medido: `--wc-neg-2` #FF5470 compuesto sobre `--canvas` cae a 2.52:1 a opacidad 0.55 y sigue en 3.39:1 a 0.70 — por debajo de AA para todo lo que no llegue a 18.66px, que es la mayoría de la nube. El anillo inset además se distingue geométricamente del anillo de foco exterior de tokens.css:455.
+- **Términos en Krub (`--ff-sans`), cifras en Besley (`--ff-numeric` / `.num`)** — Besley tiene contraste 1.675 y se rompe por halación a 14-18px sobre --canvas #0E1620, justo donde vive la mitad de la nube; su x-height es 0.520 em contra 0.550 de Krub, y mide +19-24% más ancho en mayúsculas (menos términos por fila, más descartes). Krub no tiene `tnum`, lo que es irrelevante para palabras y decisivo para números — de ahí el reparto.
+- **No hay conmutador AND/OR para la multi-selección; se declara AND y se topa en 8 términos** — `/api/eco-mentions` route.ts:226-236 hace `split(/\s+/).filter(t=>t.length>=2).slice(0,8)` con AND entre tokens y no tiene `qMode`. Un conmutador OR sería el sexto comando fantasma después de los cinco de S-04. El tope de 8 se hace visible con `aria-disabled` y motivo, en vez de descartar el 9.º en silencio.
+
+**34 workstreams** (detalle y archivos en el apéndice)
+
+| id | fase | tam | Qué |
+|---|---|---|---|
+| `WS-W1` | P0 | M | Contrato API: facets, fecha ISO y campos ignorados |
+| `WS-W2` | P0 | L | MentionRow único + anatomía nueva (Compacta/Lectura) |
+| `WS-W3` | P0 | L | Zona A: cabecera de consulta, chips removibles, permalink, reset |
+| `WS-W4` | P0 | M | Fusión de /search en /mentions |
+| `WS-W5` | P0 | M | Banda reactiva de 4 cifras + línea de contexto |
+| `WS-W6` | P0 | M | Histograma temporal con brushing |
+| `WS-W7` | P0 | M | Agrupar historias — interim group=story |
+| `WS-W8` | P0 | S | Triage por teclado y estados de carga |
+| `WS-W9` | P1 | L | story_id persistido, backfill e índice vectorial |
+| `WS-W10` | P1 | M | Exportar respetando filtros (CSV servidor) |
+| `WS-W11` | P1 | L | Vistas guardadas, vista→alerta y estado de lectura |
+| `WS-W12` | P1 | M | Semántica de primer nivel, impacto/audiencia y densidad |
+| `WS-WC-1` | P0 | M | Extraer buildMentionScope() a módulo compartido (fix estructural de F9) |
+| `WS-WC-2` | P0 | S | Schema + DDL de mention_terms, wordcloud_forms y wordcloud_phrases |
+| `WS-WC-3` | P0 | S | Módulo de stopwords y normalización compartido |
+| `WS-WC-4` | P0 | M | Builder incremental del índice invertido dentro de eco-metrics-calculator |
+| `WS-WC-5` | P0 | S | Backfill del índice (115,425 menciones) |
+| `WS-WC-6` | P1 | L | Minería del diccionario de frases + refresco de formas |
+| `WS-WC-7` | P0 | L | Endpoint GET /api/eco-wordcloud |
+| `WS-WC-8` | P0 | M | Puntuación y colapso en TS con unit tests sin DB |
+| `WS-WC-9` | P0 | S | Test de paridad nube↔lista |
+| `WS-WC-10` | P1 | S | Observabilidad: lag del índice y alarma |
+| `WS-WC-11` | P2 | M | P2: emoji, trigramas y conmutador de ponderación |
+| `WS-WC-1` | P0 | XS | tokens.css §6.5 — tokens `--wc-*` y escala de tamaño |
+| `WS-WC-2` | P0 | M | cloud.js — layout determinista + medición |
+| `WS-WC-3` | P0 | M | cloud.js — render de la nube, hover/focus y tooltip |
+| `WS-WC-4` | P0 | S | cloud.js — vista Ranking (tabla real) y toggle |
+| `WS-WC-5` | P0 | S | Integración en MentionsScreen: `filters.terms` y barra de criterios |
+| `WS-WC-6` | P0 | S | Accesibilidad: roving tabindex, aria-live y contrato ARIA |
+| `WS-WC-7` | P1 | S | Animación de entrada y FLIP con tokens exactos |
+| `WS-WC-8` | P0 | XS | Registro sin bundler + cache-bust + especimen |
+| `WS-WC-9` | P1 | S | Estados vacío / insuficiente / error / sin baseline |
+| `WS-WC-10` | P1 | S | Comportamiento móvil (≤768px) y táctil |
+| `WS-WC-11` | P2 | S | Verificación: script de contraste + pruebas de determinismo y desborde |
 
 ---
 
 ## 9 · Narrativas: detección, novedad y experiencia
 
-<!-- SLOT:NARRATIVAS -->
+Tres especificaciones completas en [`auditoria-diseno-2026-07-narrativas.md`](auditoria-diseno-2026-07-narrativas.md). Las dos primeras midieron contra la base de datos de producción; el diagnóstico corregido está en §5.
+
+### Pipeline de detección de narrativas (eco-narrative-cluster)
+
+La detección no está congelada: está degradada ~40× y detecta con 1–7 días de retraso. Medido hoy (3-ago) contra prod: 1,291 narrativas, la última creada el 2026-08-03 07:15; la crisis de Domenech SÍ parió narrativa ("Salida de Domenech e Itza García", 62 menciones, born 2026-07-21, created 2026-07-23). Lo que colapsó es el ritmo (gobernadora pasó de 457 narrativas/semana a ~10) y la frescura: muchas nacen con born_at de 2025 y el mismo run las marca dormant. La causa dominante no es eps: es la ventana del pool. El DBSCAN de gobernadora recibe siempre exactamente 12,000 candidatos ordenados por created_at ASC, de los cuales 9,801 (81.7%) son publicaciones de 2025 y sólo 68 (0.57%) de los últimos 7 días — las menciones de hoy nunca entran al muestreo. Prueba directa: sobre una ventana de 72h del pool actual, gobernadora tiene 29 core points a eps=0.19/minPts=7 (47 a 0.30); sobre el pool oldest-first, 0 clusters en las 96 corridas de las últimas 48h. El dedup no explica nada: los duplicados son 0.9–4.4% de las menciones de 30 días y no se borran, sólo se marcan. La fase de asignación está muerta por otra razón: assigned=0 en todas las corridas porque el umbral 0.78 vive muy por encima de la similitud real (máx-sim promedio 0.44–0.51) y porque 1,273 de 1,291 narrativas (98.6%) son dormant e invisibles. El precio de todo esto es 700 s de cómputo × 48 corridas/día (~$34/mes) para producir cero clusters, con riesgo de timeout en cuanto aaa y sgpr lleguen al cap. El arreglo P0 es ventana temporal por published_at (mismo predicado en poda y en pool), eps por percentil de la k-distancia en vez de constante mágica, y purga one-shot de 77,897 candidatos.
+
+**Decisiones**
+
+- **El arreglo de primer orden es particionar el pool por ventana temporal sobre published_at, no subir eps** — El DBSCAN de gobernadora recibe 12,000 candidatos de los cuales 9,801 (81.7%) son publicaciones de 2025 y sólo 68 (0.57%) de los últimos 7 días. Sobre una ventana de 72h del mismo pool hay 29 core points a eps=0.19/minPts=7 (47 a 0.30): con muestreo coherente el eps actual ya pare narrativas en la agencia de alto volumen. Además baja n de 12,000 a 200-900, lo que reduce el O(n²) ~180x y elimina el riesgo de timeout.
+- **eps se fija por percentil de la k-distancia de la ventana (p25, clamp [0.22,0.34]), no como constante** — El barrido k-NN sobre la ventana Domenech (685 puntos) muestra que NO hay rodilla: pendientes p05→p10=0.86, p10→p25=0.90, p25→p50=0.456 (la curva se aplana). Sin brecha de densidad, cualquier eps global es política, no descubrimiento. p25 de la 6-NN = 0.300 (el 0.19 de prod está en el p12).
+- **El filtro temporal va sobre published_at y el mismo predicado se usa en la poda y en la admisión** — created_at es fecha de encolado: un backfill la pone 'hoy' para menciones de 2025 (53,225 candidatos de gobernadora creados el 29-30 jul con published_at de 2025) y la re-encolada la resetea, así que no es monótona. Usando published_at en ambos lados el invariante 'está en el pool ⟺ published_at ≥ NOW()−W' hace la poda irreversible y mata el bucle poda↔reencolado.
+- **Rechazar 'dejar entrar duplicados con peso' como fuente de densidad; usarlos sólo como amplificación** — Los duplicados son 0.9%-4.4% de las menciones de 30 días y no se borran (processor/index.ts:266 los persiste con is_duplicate=true). Añadirlos como puntos no mueve la densidad y donde sí abundan (comunicados sindicados) produce el detector de sindicación que ya tenemos: el único nacimiento diario observado es aaa 07:15 con 7-8 comunicados de sequía.
+- **HDBSCAN es la respuesta de fondo (P2), pero la ventana es su prerrequisito, no su alternativa** — HDBSCAN elimina el eps global (que el barrido demuestra indefendible), tolera densidad variable entre agencias (aaa 64 vs gobernadora 900 puntos por ventana) y su árbol condensado da la jerarquía padre/hijo que falta para split/merge (causa 8). Su MST es O(n²), viable sólo con n≤~900, es decir con la ventana ya implantada. Implementarlo en packages/shared (~350-500 líneas) para mantenerlo unit-testable.
+- **Reactivar la asignación bajando THRESHOLD 0.78→0.70 y añadiendo una segunda etapa de revival de dormant con umbral 0.82** — assigned=0 en todas las corridas. La máx-similitud promedio de una mención contra cualquier centroide es 0.44-0.51, así que 0.78 vive en la cola. Incluir dormant recientes sube de 1 a 19 los matches de 642 menciones de gobernadora (7 días) y es la única forma de hacer alcanzable 'revived' (0 filas jamás).
+- **Añadir un modo clusterOnly al lambda y prohibir tocar el env sin barrido previo** — dryRun no sirve para validar clustering: los pasos 3-5 están tras if (!event.dryRun) (index.ts:299,311,316). Hoy no existe forma de probar eps/minPts sin escribir en prod, y así se llegó al cambio manual del 30 jun (eps 0.22→0.19) que nadie pudo validar.
+- **La purga de 72,768 candidatos va DESPUÉS del deploy del filtro de ventana, y por agencia** — exec-write acepta una sola sentencia; cuatro llamadas acotan el blast radius y dan rowCount verificable por agencia (gobernadora 55,910 / ddecpr 11,367 / sgpr 2,860 / aaa 2,631). Si se purga antes del deploy, el query de no-asignadas sin filtro de fecha reencola todo a 5,000 por corrida en ~5,5 horas.
+
+### Señales de NOVEDAD dentro de las narrativas (sub-temas, actores, migración, genealogía, estados y alertas)
+
+Verifiqué las ocho causas raíz leyendo el código: siete se confirman literalmente; la octava (drift env 0.22/10 vs prod 0.19/7) NO existe — `workers-stack.ts:425-426` ya dice `NARRATIVE_MIN_MENTIONS_BIRTH: '7'` y `NARRATIVE_DBSCAN_EPS: '0.19'`; el drift es de comentarios y defaults del código (`narrative-cluster/index.ts:55-56`, comentario `workers-stack.ts:387-388`). Encontré además tres causas nuevas: (N1) `born_at` se fija con `first.published_at` (index.ts:418-421, 480), la mención MÁS VIEJA del cluster, y como el pool es oldest-first las narrativas nacen con `ageDays` grande — nacen ya `declining`/`dormant` y jamás pasan por `emerging`; (N2) toda la velocidad se mide con `m.published_at` (index.ts:540,545), no con `nm.assigned_at`, así que una narrativa detectada hoy sobre menciones de hace 5 días tiene velocity24h=0 — el sistema no tiene noción de "acabo de verlo"; (N3) `drift_score` existe pero se calcula solo para `status != 'dormant'` (narrative-drift/index.ts:112), se sobrescribe sin historia y aparece en CERO archivos de `apps/web` (grep vacío). El diagnóstico de fondo: el sistema tiene UNA dimensión ("status") que mezcla volumen, edad y recencia, y CERO representación de "qué hay dentro de la narrativa". La propuesta separa tres ejes ortogonales (actividad / tendencia / novedad como array de flags), introduce la tabla `narrative_facets` con un detector de sub-temas calibrado POR narrativa (umbral de outlier derivado del IQR de la propia narrativa, no global), añade genealogía real (`spawn`/`split`/`merge_candidate` con evidencia de menciones), y emite las alertas reusando `alert_rules`/`alert_history`/`renderSimpleAlertHtml` exactamente con el patrón de `metrics-calculator/index.ts:553-645` en vez de inventar otro mecanismo. Todo mantiene la columna `status` como vista derivada para no romper la SPA sin bundler.
+
+**Decisiones**
+
+- **El umbral de "outlier" para detectar sub-temas se calibra POR narrativa (q75 + 1.5·IQR de las distancias del pre-ventana, con piso absoluto 0.30), no con una constante global** — La dispersión intrínseca varía por naturaleza de la fuente: una narrativa de prensa tiene IQR≈0.04 y una de X ≈0.15. Un umbral global produce 100% ruido en la segunda y 0% detección en la primera. El piso 0.30 está anclado en la medición del brief (14 core points a eps 0.30 en la crisis Domenech, 0 a 0.19)
+- **Sub-clustering con DBSCAN local (eps 0.28, minPts 4) sobre el conjunto de outliers, reusando dbscan() de @eco/shared** — Declara ruido explícitamente — el 70-80% de los outliers son menciones sueltas sin relación; no exige elegir k; reusa código ya testeado (narratives-math.ts:122-176); |O| son decenas, el O(n²) es irrelevante
+- **La distancia se mide contra un centroide de referencia recalculado del pre-ventana (menciones anteriores a 72h), no contra narratives.centroid** — El centroide EWMA (alpha=0.05) ya absorbió parcialmente el sub-tema que queremos detectar, y centroid_at_naming puede tener meses de antigüedad. El pre-ventana es literalmente "el tema antes de que esto pasara"
+- **La máquina de estados se parte en tres ejes ortogonales (activity / trend / novelty[]) y se conserva `status` como columna DERIVADA** — La SPA no tiene bundler y colorea por NARRATIVE_STATUS_COLORS (screens.js:4903) mientras /api/narrative filtra por status; derivar status permite añadir los ejes sin romper nada y migrar la UI después
+- **`emerging` se elimina como estado y se sustituye por el flag new_born medido con una columna nueva `detected_at` (NOW() al insertar); `revived` deja de ser estado y pasa a `revived_at`** — emerging hoy es proxy de tamaño/edad (narratives-math.ts:250) y además inalcanzable porque born_at toma la mención más VIEJA del cluster (index.ts:418-421,480 — hallazgo N1). revived es estructuralmente inalcanzable porque la asignación excluye dormant (index.ts:218)
+- **La velocidad se mide con GREATEST(m.published_at, nm.assigned_at) en vez de solo m.published_at** — Hallazgo N2: con backfill BW de 12h y cursores atrasados, una narrativa detectada ahora sobre menciones de hace 5 días tiene velocity24h = 0. El analista percibe como novedad lo que el sistema acaba de ver, no solo lo recién publicado
+- **Genealogía en una tabla nueva narrative_lineage (dirigida, con evidencia y contador de confirmaciones), no en narrative_edges** — narrative_edges es undirected por diseño (PK (source,target,edge_type) + convención source<target, narrative-edges/index.ts:96) — no puede expresar padre→hijo ni sostener el ciclo candidato→confirmado→aplicado
+- **Las alertas de narrativa se emiten desde el lambda de facets reusando alert_rules/alert_history/renderSimpleAlertHtml (patrón metrics-calculator:553-645), con cooldown por (regla, narrativa, evento) vía details->>'narrativeId', y digest diario para facet_new/narrative_born** — eco-alerts es SQS por mención y no sirve para eventos batch; el patrón de metrics-calculator ya resuelve cooldown, SES por destinatario y auditoría. El cooldown por regla silenciaría todas las narrativas tras la primera alerta
+
+### Rediseño de la experiencia de Narrativas (SPA)
+
+Narrativas es un enclave: es la única pantalla sin `.card`, sin `ecoCols`, con breakpoint propio (980px) y con paleta importada de Ant Design. Sobre esa base comete el error más caro para un cliente de gobierno: afirma cosas que no puede sostener — la píldora dice "Pico" junto a "VEL. 24H 0.0", el resumen dice "Volumen estable" a 40 px de "Sin datos temporales todavía", y tres de ocho narrativas (las dos más grandes del cliente) se renderizan en inglés crudo, sin punto de color y sin que ningún chip las cuente. Todo eso sale de una grieta: el vocabulario de estados no tiene dueño y los estados que se muestran están congelados desde el 6 de julio. Hay además dos implementaciones rivales de la misma pantalla y dos APIs rivales; la de Next.js está huérfana (nadie la enlaza), es de tema claro dentro de un producto oscuro y **no compila en runtime** (`<Link><a>` con Next 15). Decisión: la SPA sobrevive, la de Next.js se borra completa junto a `react-force-graph-2d` y al trío `/api/narratives/*`; se migran de ella tres cosas concretas (contrato de nulos `fmtNum`, copia del vacío, enum a módulo compartido). El rediseño reordena la pantalla alrededor de tres preguntas en secuencia — ¿qué hay nuevo? ¿qué está creciendo? ¿de qué va y de dónde viene? — con un riel de novedades de máximo 5 tarjetas y presupuesto de señal, una lista maestra agrupada y ordenada por aceleración, y un detalle con eje Y desde cero más cinta de hitos numerados. El streamgraph se retira (centro móvil, sin eje, con suavizado que inventa días); el force-graph se retira en las dos implementaciones (posición sin significado, layout dependiente del orden del array) y se reemplaza por un diagrama de arcos sobre eje de tiempo más un árbol de genealogía de 3 niveles en el detalle. Se fecha el estado ("En pico · al 6 jul") para que la pantalla no vuelva a mentir cuando la detección se congele.
+
+**Decisiones**
+
+- **Sobrevive la SPA (`screens.js:4597-5468`); se borran los 5 archivos Next.js de Narrativas, el trío `/api/narratives/*` y la dependencia `react-force-graph-2d`** — La página Next.js está huérfana (nadie la enlaza: `shell.js:93` y `app.js:93/109/357` solo conocen el SPA; los únicos iframes son settings/reports), es de tema claro dentro de un producto oscuro, y no renderiza: `page.tsx:170` usa `<Link href="/overview"><a>` con `next ^15.3.0`, patrón eliminado en Next 13. La SPA además tiene más features (streamgraph, drawer por día, lista maestra) y `/api/narrative/*` es superconj
+- **Migrar exactamente 3 cosas desde Next.js: el contrato de nulos `fmtNum/fmtDate` (`NarrativeDetail.tsx:52-55`), la copia del empty state (`page.tsx:211`, corrigiendo 'cada hora'→'cada 30 minutos') y el enum de estados a `packages/shared/src/narratives-status.ts`** — `if (n == null) return '—'` es la única implementación correcta del contrato de nulos en toda la feature y es la cura de F8 y de los `Number(x || 0)` de `screens.js:5063/5067/5178`. El enum está triplicado (SPA, badge, prompts del lambda) y de esa grieta sale F7 completo
+- **Fechar el estado: la API añade `statusAt` (= `narratives.updated_at`); la píldora renderiza 'En pico · al 12 ago' sobre 48 h y degrada a 'Sin actualizar' sobre 7 días** — Cura de raíz la contradicción 'PICO / VEL. 24H 0.0' sin esperar el arreglo de la detección. `computeLifecycleState` exige `velocity24h >= 5` para `peaking` (`narratives-math.ts:236`), así que la píldora actual es una etiqueta de hace 5 semanas presentada como presente
+- **Retirar el streamgraph y reemplazarlo por columnas apiladas desde cero con eje Y, huecos explícitos en `--chart-void` y cinta de hitos numerados con lista textual** — El streamgraph no tiene eje Y y su línea base se mueve (`baseline = -total/2`, `screens.js:5262`); el suavizado Catmull-Rom (`4644-4660`) inventa volumen en días de silencio; y el SQL solo emite días con filas (`api/narrative/[id]/route.ts:66-79`) así que un hueco de 3 meses se interpola como cinta recta. La doctrina prohíbe normalizar sin eje
+- **Retirar el force-graph en ambas implementaciones; reemplazar por diagrama de arcos sobre eje de tiempo (x = born_at, y = rango por menciones, una faceta por tipo de arista, tope 40 nodos declarado) y árbol de genealogía de 3 niveles en el detalle** — La semilla del layout es circular por índice de array (`screens.js:4697-4700`) y el array viene de `ORDER BY mention_count DESC` (`api/narrative/route.ts:104`): una mención nueva reordena el mapa entero. Además el conjunto de nodos se rellena con nodos sin conexiones (`4686-4692`) sin distinguirlos, y los edges no son genealogía (solo co_occurrence/author_overlap/semantic, `schema/narratives.ts:96-99`)
+- **Presupuesto de señal: máximo 5 tarjetas en el riel, máximo 2 del mismo tipo, una sola marca de señal por fila de lista, colapso a una tarjeta si disparan >12 señales en 24 h, y máximo 3 matices saturados simultáneos con la selección expresada como borde+superficie (no como matiz)** — Hay 6 señales de novedad y 6 estados; sin presupuesto la pantalla se convierte en un árbol de navidad la primera vez que la detección funcione. Hoy el problema es el inverso pero el mismo: el naranja `#FF6A3D` significa marca, acento, pico, fila seleccionada, pico del gráfico y día seleccionado a la vez
+- **Sustituir los 7 chips de estado por secciones agrupadas en la lista maestra, con orden por defecto = aceleración (Δ7d) y selector de orden visible** — `screens.js:4867-4872` re-ordena por `RANK[status] ?? 9`, deshaciendo el orden por volumen que la API ya calculó y enterrando las dos narrativas más grandes del cliente (214 y 168 menciones) en las posiciones 6 y 7. Los chips son 10.5px/21px de alto (`index.html:702-720`), envuelven en 4 filas a 390px y 4 de 7 suelen estar deshabilitados
+- **Renombrar el vocabulario: Naciente / En curso / En pico / Enfriándose / Dormida / Reactivada, cada uno con tooltip cuantitativo, más 'Sin clasificar' con la clave cruda visible; `narrStatus()` como único acceso** — 'Pico/Activa/Emergente' se leen como categorías inconexas cuando en realidad son un eje de intensidad; 'Emergente' sugiere importancia mientras la regla real es tamaño+edad (`narratives-math.ts:250`). El fallback obligatorio elimina de un golpe los 4 síntomas de F7 (punto sin color, inglés crudo, conteo que no suma, estado no filtrable)
+
+**35 workstreams** (detalle y archivos en el apéndice)
+
+| id | fase | tam | Qué |
+|---|---|---|---|
+| `WS-N1` | P0 | S | Ventana temporal por published_at (admisión, poda, pool) |
+| `WS-N2` | P0 | M | eps auto-calibrado + matriz de distancias precomputada |
+| `WS-N3` | P0 | S | Modo diagnóstico clusterOnly + barrido SQL reproducible |
+| `WS-N4` | P0 | XS | Purga one-shot del pool (72,768 filas) vía exec-write |
+| `WS-N5` | P1 | M | Reactivar la asignación: THRESHOLD 0.70 + revival de dormant en 2 etapas |
+| `WS-N6` | P1 | M | revived alcanzable y sticky + lifecycle en un solo statement |
+| `WS-N7` | P1 | M | Observabilidad EMF + alarmas CloudWatch |
+| `WS-N8` | P1 | S | Sanear drift de configuración y documentación |
+| `WS-N9` | P2 | M | Índices vectoriales: HNSW en candidates y mentions, decidir sobre narratives.centroid |
+| `WS-N10` | P2 | L | Experimento: embeddings sobre nlp_summary + topics |
+| `WS-N11` | P2 | XL | HDBSCAN + jerarquía para genealogía de narrativas |
+| `WS-N-0` | P0 | S | Instrumentación: detected_at, assigned_at en velocidad y 3 buckets |
+| `WS-N-1` | P0 | M | computeNarrativeState: tres ejes + status derivado + tests |
+| `WS-N-2` | P0 | S | Desbloquear revived: quitar el filtro de dormant con umbral doble 0.78/0.86 |
+| `WS-N-3` | P0 | M | narratives-facets.ts: detectFacets() + quantile() puros con tests |
+| `WS-N-4` | P0 | S | DDL narrative_facets / narrative_facet_mentions / narrative_lineage + ALTER narratives (self-heal idempotente) |
+| `WS-N-5` | P1 | L | Lambda eco-narrative-facets: escaneo, naming Bedrock, persistencia |
+| `WS-N-6` | P1 | M | Backtest y calibración del grid de umbrales (27 configuraciones, 60 días) |
+| `WS-N-7` | P1 | M | Señales agregadas baratas: new_actors, platform_shift, geo_shift, tone_shift |
+| `WS-N-8` | P1 | L | Genealogía: spawn/split desde facets promovibles + merge_candidate diario |
+| `WS-N-9` | P2 | L | Alertas narrative_novelty reusando alert_rules/alert_history + digest en el correo Diario |
+| `WS-N-10` | P2 | S | Drift diario con historia (prev_drift_score/prev_keywords) y flag reframed |
+| `WS-N-11` | P2 | L | Exponer los ejes, facets y lineage en la API y la SPA (bloque 'Nuevo dentro de esta narrativa') |
+| `WS-N-A` | P0 | M | Vocabulario de estados como contrato compartido |
+| `WS-N-B` | P0 | S | Contrato de nulos y limpieza de formateo |
+| `WS-N-C` | P0 | S | Píldora de estado fechada y cabecera de detalle reordenada |
+| `WS-N-D` | P0 | L | Lista maestra: secciones, orden por aceleración, sparkline con escala compartida |
+| `WS-N-E` | P0 | M | Serie temporal densa en la API (huecos y no clasificados) |
+| `WS-N-F` | P1 | XL | NarrativeTrajectory: columnas apiladas desde cero + cinta de hitos |
+| `WS-N-G` | P1 | L | Riel de novedades con presupuesto de señal |
+| `WS-N-H` | P1 | XL | Retirar el force-graph y construir Línea de vida + Procedencia |
+| `WS-N-I` | P1 | M | Colapso de vacíos y unificación de copia |
+| `WS-N-J` | P1 | L | Móvil: detalle como ruta propia y drawer como hoja inferior |
+| `WS-N-K` | P2 | S | Borrar la implementación Next.js y las rutas duplicadas |
+| `WS-N-L` | P2 | M | Empty states de 0, 3 y 180 narrativas |
 
 ---
 
 ## 10 · Plan
 
-<!-- SLOT:PLAN -->
+El plan tiene una regla de orden por encima de todo lo demás: **primero se deja
+de mentir, después se hace bonito.** Un cliente de gobierno perdona una tabla
+apretada; no perdona descubrir que el histograma que le enseñaste a su
+secretario es una función seno.
+
+Cada workstream lleva id, fase, tamaño (XS–XL) y de qué depende. Los ids
+`WS-D*` vienen de la doctrina de gráficas, `WS-C*` del rediseño de `charts.js`,
+`WS-F*` de fundaciones, `WS-M*` de Menciones, `WS-N*` de Narrativas y `WS-A*`
+de accesibilidad.
+
+### Fase 0 — Dejar de mentir (lo que se hace esta semana)
+
+Nueve workstreams, todos S o M, todos independientes entre sí. Ninguno necesita
+que el sistema de diseño esté terminado. Si sólo se hace esta fase, el producto
+ya deja de tener los defectos que cuestan un contrato.
+
+| id | Tam | Qué | Por qué primero |
+|---|---|---|---|
+| `WS-P0.1` | S | **Borrar los tres histogramas sintéticos.** `screens.js:1574-1577`, `2003-2007`, `268-286`: quitar el `Math.sin(...)` y el `jitter`, y no renderizar el bloque cuando no hay dato por hora real. Si se quiere conservar la función, alimentarla del `HOUR_HEATMAP` que ya viene en `/api/eco-data`, filtrado al día del click. | Es dato inventado presentado como medido, rotulado «Volumen por hora», en tres pantallas. La auditoría del 16 jul ya lo señaló y sigue vivo. |
+| `WS-P0.2` | XS | **Borrar el log de auditoría falso.** `screens.js:3954-3960`: eliminar el bloque «Actividad reciente» con las IPs inventadas. Volver a poner sólo cuando exista una tabla real de auditoría. | Un producto de gobierno que muestra un rastro de auditoría ficticio con IPs plausibles es un problema de confianza, no de diseño. |
+| `WS-P0.3` | XS | **Borrar `SEED_USERS`** (`screens.js:3531-3538`): seis empleados de gobierno inventados con correos `@dtop.pr.gov`/`@daco.pr.gov`/`@salud.pr.gov`. Es código muerto —la única referencia es la declaración— pero se despacha al navegador. | Peso muerto y riesgo de que alguien lo vuelva a conectar. |
+| `WS-P0.4` | S | **Alinear el periodo del boot con el chip.** `index.html:1356` pide `period=1M` cuando `localStorage.eco.period` está vacío; `app.js:242` arranca el estado en `'7D'`. Unificar en una constante compartida y hacer que el boot lea el mismo default. | La barra dice 7D y los datos son de 30 días **en cada inicio de sesión tras cerrar sesión**, porque `ecoSignOut` hace `localStorage.clear()`. |
+| `WS-P0.5` | M | **Un solo total de menciones.** Decidir la fuente canónica (recomendado: el recuento vivo sobre `mentions`, que es el que el drill-down puede reproducir) y hacer que el KPI, el badge del rail, el enlace «Ver todas» y el modal lean de ahí. Unificar además el filtro de pertinencia y la ventana entre `/api/eco-data` y `/api/eco-mentions`. | Medido en producción: 47 vs 54 (≈13%). El usuario hace click en una tarjeta y el drill-down la contradice. |
+| `WS-P0.6` | S | **`padding.r ≥ 52` en `MultiLineChart`** (`charts.js:187`) para que la etiqueta de 46px quepa. | 30 de sus 46px se recortan. Arreglo de una línea que la auditoría responsive ya había pedido. |
+| `WS-P0.7` | S | **Guarda de nulos en `fmtVal` y en la cadena de escala** (`charts.js:348-356`). Un `null` deja de tumbar la pantalla y pasa a dibujarse como **hueco**, no como cero. | `/api/eco-data` emite `polarizationIndex: null`; hoy eso es un `TypeError` que revienta el Scorecard y paths `M 2,NaN`. |
+| `WS-P0.8` | S | **Robustez de estados de narrativa**: un `status` desconocido cae a `--narr-unknown` con etiqueta «Sin clasificar», y los chips de filtro cuentan **todo** lo que la lista muestra. Arreglar el `nan%` de «Narrativas relacionadas». | Hoy tres narrativas son visibles en la lista pero invisibles al filtro, y se muestran en inglés crudo. |
+| `WS-P0.9` | XS | **Quitar el «78 municipios monitoreados» hardcodeado** (`screens.js:2755`) y derivarlo de los datos. | Es una cifra que el producto no puede respaldar. |
+
+### Fase 1 — Terminar el sistema de diseño
+
+El §2 ya sembró la capa de tokens y midió −90% en fallos de contraste. Lo que
+queda es **retirar los 132 literales** que la esquivan, porque mientras existan
+el sistema no es la fuente de verdad, es una sugerencia.
+
+| id | Tam | Qué | Depende de |
+|---|---|---|---|
+| `WS-F1` | M | **Retirar los 103 hex del JS.** Sustituir por `--cat-1..8`, `--emo-*`, `--narr-*`, `--seq-*`, `--on-*`. Los cuatro puntos calientes: la paleta categórica de 8 **copiada 4 veces** (`screens.js:311`, `1998`, `2448`, `4143`) pasa a un solo array de tokens; `SENT_HEX` (`screens.js:2454`) deja de usar la paleta del tema **costa**; `emotionColor()` (`screens.js:1772-1785`) pasa a `--emo-*`; `NARRATIVE_STATUS_COLORS` (`screens.js:4602`) a `--narr-*`. **Cierra los 184 fallos de contraste que quedan** (160 de ellos son sólo el calendario de tópicos). | — |
+| `WS-F2` | S | **Reconciliar los nombres de token** entre `tokens.css` (`--narr-*`, `--cat-1..8`) y `docs/…-fundaciones.md` (`--nar-*`, `--cat-1..5` + `--cat-other`). Elegir uno y actualizar el otro documento; hoy divergen y eso reintroduce el problema que el sistema viene a resolver. | — |
+| `WS-F3` | M | **Decidir el conflicto `--accent`.** Dos soluciones válidas a la colisión `--accent === --neg`: (a) la que ya está sembrada — mover `--neg` a `#FF5470` y conservar el naranja como identidad; (b) la que propone la unidad de color — mover `--accent` al azul `#58A6FF` (ΔE 116, y realinea con el favicon cian que ya existe). **Es una decisión de marca, no técnica.** Sea cual sea, hay que arreglar además las consecuencias semánticas: la banda FUERTE de Brand Health se pinta con el mismo rojo que CRÍTICO, el gauge de NSS pinta MUY POS igual que MUY NEG, y `BAND_TONE` manda FUERTE/MUY POS/ACELERADA al tono `accent`. | decisión del cliente |
+| `WS-F4` | S | **Un solo contrato de dirección de delta.** Hoy el delta de volumen es verde-si-sube en el Scorecard y rojo-si-sube en Tópicos — el mismo dato, colores opuestos. Y `SentimentBar` pinta *toda* subida de volumen como mala, también la de Turismo. Definir por métrica si «más es mejor», «más es peor» o «neutro», y que el color lo derive de ahí. | `WS-F1` |
+| `WS-F5` | M | **Retirar `costa` y `gaceta`.** ≈118 líneas de CSS, 13 overrides `[data-theme=]`, 14 ramas `theme === 'gaceta'` en JS y 6 literales del selector de temas. Al quedar un solo tema, los tokens pasan a `:root` incondicional con `:root[data-mode="light"]` como único override. | `WS-F1` |
+| `WS-F6` | M | **Arreglar `mando` light**, que **sí es alcanzable** (el botón del sol persiste en `localStorage`) y está roto en 6 sitios: los marcadores y el tooltip de Leaflet llevan hex de dark (`charts.js:810-826`, `shell.js:761-763`), `SENT_HEX` usa costa, y `--warn` (3.86:1) y `--text-3` (3.21:1) fallan AA sobre blanco. Causa estructural: **Leaflet recibe los colores como strings en opciones JS**, no como CSS, así que necesita un puente que lea los tokens con `getComputedStyle` y se re-ejecute al cambiar de modo. | `WS-F1` |
+| `WS-F7` | M | **Migrar los `fontSize`/`gap`/`padding`/`borderRadius` inline** a las clases y tokens de `tokens.css`, con el mapa valor-viejo→token que ya está en fundaciones. Prioridad por pantalla, empezando por Menciones (107 casos) y Tópicos. Ojo con la regresión ya observada: Besley/Krub son más anchos y la columna de tópico empezó a truncar «Desarrollo económi…» donde antes cabía. | `WS-F1` |
+| `WS-F8` | L | **Las primitivas que faltan** y que el código reinventa cada vez: `Overlay` (no existe, y hoy `Escape` colapsa capas), `DataTable`, `EmptyState` (24 bloques copiados a mano en 3 tamaños), `Tooltip`, `MetricValue`, `DeltaBadge`. Especificadas en fundaciones §5. | `WS-F7` |
+| `WS-F9` | M | **Unificar el segundo sistema de diseño.** Las páginas Next.js corren Ant Design con `ecoTheme` (`src/theme/eco-theme.ts`): primario `#0A7EA4` turquesa contra el `#FF6A3D` de la SPA, fondos `#FFFFFF` fijos **sin `darkAlgorithm`**, radios 8/14/6 contra 3/4px, `controlHeight: 36` (bajo el mínimo táctil), y `fontFamily` de fuentes del sistema con el comentario «no external loading» — así que **no recibirá Besley/Krub**. Estas páginas se embeben por iframe en la SPA (`screens.js:2938`, `3060`) y aparecen como una isla clara de otra marca. Derivar `ecoTheme` de los tokens y cargar las fuentes en `layout.tsx` (hoy `globals.css` tiene **cero** declaraciones de `font-family`). | `WS-F1` |
+| `WS-F10` | S | **Recuperar el ritmo vertical de la cabecera.** ~190px antes del primer dato, con **una fila entera para un único botón de tema**. Fusionar eyebrow + título + «datos al cierre de ayer» en una línea y meter el toggle en la barra de filtros. | — |
+
+### Fase 2 — Los sistemas, lo que no puede esperar
+
+Estos son los workstreams que las tres especificaciones de sistema marcaron P0. Se pueden empezar en paralelo a la Fase 1: sólo los de gráficas dependen del núcleo (`WS-C1`).
+
+*48 workstreams*
+
+| id | Unidad | Tam | Qué | Depende de |
+|---|---|---|---|---|
+| `WS-D1` | Gráficas · doctrina | M | Núcleo de escala + contrato de nulos en charts.js | — |
+| `WS-D2` | Gráficas · doctrina | L | SeriesPanels (small multiples) + reemplazo de OverviewTendencia | WS-G1 |
+| `WS-D3` | Gráficas · doctrina | L | Eje obligatorio y cero obligatorio en MultiLineChart | WS-G1 |
+| `WS-D4` | Gráficas · doctrina | M | Un solo contrato de delta en la tira-leyenda del chart | — |
+| `WS-D5` | Gráficas · doctrina | M | Sparkline responsive, sin fill en series con signo, con huecos | WS-G1 |
+| `WS-C1` | Gráficas · charts.js | L | charts-core.js: canon de nulos, escalas, ticks, LTTB, paths + registro en el pipeline | — |
+| `WS-C2` | Gráficas · charts.js | S | METRIC_SPECS en /api/eco-data + window.ECO_METRICS en el núcleo | WS-G1 |
+| `WS-C3` | Gráficas · charts.js | M | ChartFrame + los 5 estados canónicos + tabla oculta a11y | WS-G1 |
+| `WS-C4` | Gráficas · charts.js | M | ChartTooltip en portal HTML + Pointer Events + teclado + crosshair compartido | WS-G3 |
+| `WS-C5` | Gráficas · charts.js | L | LineChart — fusiona MultiLineChart y AreaLineChart; arregla F1, F2, F3, F4, C-06, C-15, C-20 | WS-G4 |
+| `WS-C6` | Gráficas · charts.js | S | Legend como primitiva + arreglo estructural de F6 | WS-G3 |
+| `WS-M1` | Menciones · pantalla | M | Contrato API: facets, fecha ISO y campos ignorados | — |
+| `WS-M2` | Menciones · pantalla | L | MentionRow único + anatomía nueva (Compacta/Lectura) | W1 |
+| `WS-M3` | Menciones · pantalla | L | Zona A: cabecera de consulta, chips removibles, permalink, reset | W1 |
+| `WS-M4` | Menciones · pantalla | M | Fusión de /search en /mentions | W3 |
+| `WS-M5` | Menciones · pantalla | M | Banda reactiva de 4 cifras + línea de contexto | W1 |
+| `WS-M6` | Menciones · pantalla | M | Histograma temporal con brushing | W1 |
+| `WS-M7` | Menciones · pantalla | M | Agrupar historias — interim group=story | W2 |
+| `WS-M8` | Menciones · pantalla | S | Triage por teclado y estados de carga | — |
+| `WS-W1` | Nube · backend | M | Extraer buildMentionScope() a módulo compartido (fix estructural de F9) | — |
+| `WS-W2` | Nube · backend | S | Schema + DDL de mention_terms, wordcloud_forms y wordcloud_phrases | — |
+| `WS-W3` | Nube · backend | S | Módulo de stopwords y normalización compartido | — |
+| `WS-W4` | Nube · backend | M | Builder incremental del índice invertido dentro de eco-metrics-calculator | WC-2, WC-3 |
+| `WS-W5` | Nube · backend | S | Backfill del índice (115,425 menciones) | WC-4 |
+| `WS-W7` | Nube · backend | L | Endpoint GET /api/eco-wordcloud | WC-1, WC-3, WC-4 |
+| `WS-W8` | Nube · backend | M | Puntuación y colapso en TS con unit tests sin DB | WC-3 |
+| `WS-W9` | Nube · backend | S | Test de paridad nube↔lista | WC-7 |
+| `WS-R1` | Nube · render | XS | tokens.css §6.5 — tokens `--wc-*` y escala de tamaño | — |
+| `WS-R2` | Nube · render | M | cloud.js — layout determinista + medición | — |
+| `WS-R3` | Nube · render | M | cloud.js — render de la nube, hover/focus y tooltip | WC-1, WC-2 |
+| `WS-R4` | Nube · render | S | cloud.js — vista Ranking (tabla real) y toggle | WC-2 |
+| `WS-R5` | Nube · render | S | Integración en MentionsScreen: `filters.terms` y barra de criterios | WC-3, WC-4 |
+| `WS-R6` | Nube · render | S | Accesibilidad: roving tabindex, aria-live y contrato ARIA | WC-3 |
+| `WS-R8` | Nube · render | XS | Registro sin bundler + cache-bust + especimen | WC-2 |
+| `WS-ND1` | Narrativas · detección | S | Ventana temporal por published_at (admisión, poda, pool) | — |
+| `WS-ND2` | Narrativas · detección | M | eps auto-calibrado + matriz de distancias precomputada | N1 |
+| `WS-ND3` | Narrativas · detección | S | Modo diagnóstico clusterOnly + barrido SQL reproducible | N2 |
+| `WS-ND4` | Narrativas · detección | XS | Purga one-shot del pool (72,768 filas) vía exec-write | N1 |
+| `WS-NV1` | Narrativas · novedad | S | Instrumentación: detected_at, assigned_at en velocidad y 3 buckets | — |
+| `WS-NV2` | Narrativas · novedad | M | computeNarrativeState: tres ejes + status derivado + tests | N-0 |
+| `WS-NV3` | Narrativas · novedad | S | Desbloquear revived: quitar el filtro de dormant con umbral doble 0.78/0.86 | N-1 |
+| `WS-NV4` | Narrativas · novedad | M | narratives-facets.ts: detectFacets() + quantile() puros con tests | — |
+| `WS-NV5` | Narrativas · novedad | S | DDL narrative_facets / narrative_facet_mentions / narrative_lineage + ALTER narratives (self-heal idempotente) | N-3 |
+| `WS-NX1` | Narrativas · experiencia | M | Vocabulario de estados como contrato compartido | — |
+| `WS-NX2` | Narrativas · experiencia | S | Contrato de nulos y limpieza de formateo | — |
+| `WS-NX3` | Narrativas · experiencia | S | Píldora de estado fechada y cabecera de detalle reordenada | N-A, N-B |
+| `WS-NX4` | Narrativas · experiencia | L | Lista maestra: secciones, orden por aceleración, sparkline con escala compartida | N-A |
+| `WS-NX5` | Narrativas · experiencia | M | Serie temporal densa en la API (huecos y no clasificados) | — |
+
+### Fase 3 — Accesibilidad
+
+Objetivo **WCAG 2.1 AA**. El contraste ya está casi cerrado por la siembra de
+tokens; lo que queda es lo estructural.
+
+| id | Tam | Qué |
+|---|---|---|
+| `WS-A1` | L | **Contrato de accesibilidad de gráficas.** Hoy los 9 SVG de `charts.js` tienen **cero** `<title>`, `role` o `aria-*`, y **cero** foco por teclado: para un lector de pantalla ninguna gráfica de ECO existe, y para quien no usa ratón el tooltip —la única superficie con las cifras exactas— es inalcanzable. Ver `WS-G8` en el rediseño de charts. |
+| `WS-A2` | M | **369 áreas táctiles bajo 44px en móvil.** Barrido con `.touch-target` (ya está en `tokens.css`) sobre chips, toggles, botones de icono, botones de paginación, celdas de heatmap y filas de `HBarList`. |
+| `WS-A3` | M | **18 atributos ARIA en ~7,000 líneas.** Nombres accesibles en los controles de icono, `aria-current` en la navegación, `aria-live` en los toasts y en los estados de carga, `aria-expanded` en los popovers, y roles correctos en los drawers y modales. |
+| `WS-A4` | S | **Interacción sólo-hover.** 18 sitios usan `onMouseEnter`/`:hover` como único camino a la información; en táctil son inalcanzables. Duplicar en `focus` y en tap. |
+| `WS-A5` | S | **La pantalla de error.** El `EcoErrorBoundary` muestra un stack trace crudo. Ya hereda el tema (§2.4); ahora necesita un mensaje humano, el stack detrás de un `<details>`, y una acción de recuperación que no sea `location.href`. |
+
+### Fase 4 — Los sistemas, el cuerpo del trabajo
+
+La mayor parte del valor visible para el analista. Cada unidad es independiente de las otras.
+
+*36 workstreams*
+
+| id | Unidad | Tam | Qué | Depende de |
+|---|---|---|---|---|
+| `WS-D6` | Gráficas · doctrina | L | BandScale: una primitiva para crisis, BHI, polarización y NSS con rótulos en el umbral | — |
+| `WS-D7` | Gráficas · doctrina | L | Color de dato: --cat-* para categorías, --seq-* para magnitud, leyendas generadas del mismo colorFn | — |
+| `WS-D8` | Gráficas · doctrina | XL | Contrato de accesibilidad de gráficas (ChartFigure + ChartDataTable + teclado) | WS-G1 |
+| `WS-D9` | Gráficas · doctrina | M | StackedAreaChart: contestar la pregunta correcta (mezcla vs volumen) | WS-G1 |
+| `WS-D10` | Gráficas · doctrina | M | PRMap: área proporcional, leyenda de tamaño y puente de tokens | — |
+| `WS-D11` | Gráficas · doctrina | M | Retirar los tres histogramas sintéticos del drill-down | — |
+| `WS-D12` | Gráficas · doctrina | M | Área real en la vista de tópicos (o renombrar la vista) | — |
+| `WS-C7` | Gráficas · charts.js | M | BulletChart + retiro de las 5 barras de banda ad-hoc | WS-G2 |
+| `WS-C8` | Gráficas · charts.js | M | Sparkline, BarList, SplitBar, Donut sobre el contrato nuevo | WS-G3 |
+| `WS-C9` | Gráficas · charts.js | M | AreaStackChart con modos zero/center/expand — absorbe StackedAreaChart y el streamgraph | WS-G5 |
+| `WS-C10` | Gráficas · charts.js | M | MatrixHeatmap + CalendarHeatmap | WS-G6 |
+| `WS-C11` | Gráficas · charts.js | S | GeoMap: tokens en el tooltip de Leaflet y contrato series+scale | WS-G4 |
+| `WS-C12` | Gráficas · charts.js | L | Migrar los 11 sitios de llamada + borrar el andamio legacy | WS-G5, WS-G7, WS-G8, WS-G9, WS-G10, WS-G11 |
+| `WS-C13` | Gráficas · charts.js | M | SmallMultiples + SlopeChart | WS-G12 |
+| `WS-M9` | Menciones · pantalla | L | story_id persistido, backfill e índice vectorial | W7 |
+| `WS-M10` | Menciones · pantalla | M | Exportar respetando filtros (CSV servidor) | W1 |
+| `WS-M11` | Menciones · pantalla | L | Vistas guardadas, vista→alerta y estado de lectura | W3 |
+| `WS-M12` | Menciones · pantalla | M | Semántica de primer nivel, impacto/audiencia y densidad | W2 |
+| `WS-W6` | Nube · backend | L | Minería del diccionario de frases + refresco de formas | WC-4 |
+| `WS-W10` | Nube · backend | S | Observabilidad: lag del índice y alarma | WC-4, WC-7 |
+| `WS-R7` | Nube · render | S | Animación de entrada y FLIP con tokens exactos | WC-3 |
+| `WS-R9` | Nube · render | S | Estados vacío / insuficiente / error / sin baseline | WC-4 |
+| `WS-R10` | Nube · render | S | Comportamiento móvil (≤768px) y táctil | WC-4 |
+| `WS-ND5` | Narrativas · detección | M | Reactivar la asignación: THRESHOLD 0.70 + revival de dormant en 2 etapas | N1 |
+| `WS-ND6` | Narrativas · detección | M | revived alcanzable y sticky + lifecycle en un solo statement | N5 |
+| `WS-ND7` | Narrativas · detección | M | Observabilidad EMF + alarmas CloudWatch | N2 |
+| `WS-ND8` | Narrativas · detección | S | Sanear drift de configuración y documentación | — |
+| `WS-NV6` | Narrativas · novedad | L | Lambda eco-narrative-facets: escaneo, naming Bedrock, persistencia | N-4 |
+| `WS-NV7` | Narrativas · novedad | M | Backtest y calibración del grid de umbrales (27 configuraciones, 60 días) | N-5 |
+| `WS-NV8` | Narrativas · novedad | M | Señales agregadas baratas: new_actors, platform_shift, geo_shift, tone_shift | N-1 |
+| `WS-NV9` | Narrativas · novedad | L | Genealogía: spawn/split desde facets promovibles + merge_candidate diario | N-5 |
+| `WS-NX6` | Narrativas · experiencia | XL | NarrativeTrajectory: columnas apiladas desde cero + cinta de hitos | N-E |
+| `WS-NX7` | Narrativas · experiencia | L | Riel de novedades con presupuesto de señal | N-A, N-D |
+| `WS-NX8` | Narrativas · experiencia | XL | Retirar el force-graph y construir Línea de vida + Procedencia | N-A |
+| `WS-NX9` | Narrativas · experiencia | M | Colapso de vacíos y unificación de copia | — |
+| `WS-NX10` | Narrativas · experiencia | L | Móvil: detalle como ruta propia y drawer como hoja inferior | N-D |
+
+### Fase 5 — Pulido y lo que queda bloqueado
+
+Incluye lo que depende de que otra cosa exista primero — por ejemplo la nube de palabras del lado de `charts.js` está bloqueada por el endpoint `/api/eco-terms`.
+
+*13 workstreams*
+
+| id | Unidad | Tam | Qué | Depende de |
+|---|---|---|---|---|
+| `WS-D13` | Gráficas · doctrina | S | Alertas: eje temporal completo en 'Activaciones por día' | — |
+| `WS-D14` | Gráficas · doctrina | M | Limpieza: un solo suavizado, un solo estado vacío, ids de SVG por instancia | WS-G1 |
+| `WS-C14` | Gráficas · charts.js | L | TermsChart + WordCloud (nubes de palabras) — bloqueadas por /api/eco-terms | WS-G12 |
+| `WS-W11` | Nube · backend | M | P2: emoji, trigramas y conmutador de ponderación | WC-6, WC-7 |
+| `WS-R11` | Nube · render | S | Verificación: script de contraste + pruebas de determinismo y desborde | WC-1, WC-2 |
+| `WS-ND9` | Narrativas · detección | M | Índices vectoriales: HNSW en candidates y mentions, decidir sobre narratives.centroid | N4 |
+| `WS-ND10` | Narrativas · detección | L | Experimento: embeddings sobre nlp_summary + topics | N2 |
+| `WS-ND11` | Narrativas · detección | XL | HDBSCAN + jerarquía para genealogía de narrativas | N2 |
+| `WS-NV10` | Narrativas · novedad | L | Alertas narrative_novelty reusando alert_rules/alert_history + digest en el correo Diario | N-6 |
+| `WS-NV11` | Narrativas · novedad | S | Drift diario con historia (prev_drift_score/prev_keywords) y flag reframed | N-1 |
+| `WS-NV12` | Narrativas · novedad | L | Exponer los ejes, facets y lineage en la API y la SPA (bloque 'Nuevo dentro de esta narrativa') | N-9 |
+| `WS-NX11` | Narrativas · experiencia | S | Borrar la implementación Next.js y las rutas duplicadas | N-A, N-B, N-L |
+| `WS-NX12` | Narrativas · experiencia | M | Empty states de 0, 3 y 180 narrativas | N-D |
+
+### Secuencia recomendada
+
+```
+Semana 1   Fase 0 completa (9 WS, todos S/M, independientes)
+           └─ el producto deja de mostrar datos inventados
+Semana 1-2 WS-ND1..ND4 (ventana del pool + purga + eps por percentil)
+           └─ narrativas vuelve a detectar en horas, no en días
+           WS-F1 + WS-F2 (retirar los 103 hex, reconciliar tokens)
+           └─ cierra los 184 fallos de contraste restantes
+Semana 2-3 WS-C1 (núcleo de charts: nulos, escalas, ticks)
+           └─ desbloquea todo lo demás de gráficas
+           WS-W1..W3 (mention_terms + /api/eco-terms)
+           └─ desbloquea la nube de palabras
+Semana 3-5 Fase 2 en paralelo: gráficas P0 · Menciones P0 · Narrativas P0
+Semana 5+  Fase 1 restante (sistema) + Fase 4 (sistemas P1) + Fase 3 (a11y)
+Después    Fase 5
+```
+
+**El orden importa en tres puntos y sólo en tres:**
+
+1. **La purga de candidatos va DESPUÉS del deploy del filtro de ventana.**
+   `exec-write` acepta una sola sentencia, así que son cuatro llamadas (una por
+   agencia: gobernadora 55,910 · ddecpr 11,367 · sgpr 2,860 · aaa 2,631) con
+   `rowCount` verificable. Si se purga antes, el query de no-asignadas sin
+   filtro de fecha lo reencola todo a 5,000 por corrida en ~5.5 horas.
+2. **`WS-C1` antes que cualquier otro workstream de gráficas.** Es el núcleo que
+   define el contrato de nulos y escalas; sin él, cada arreglo de gráfica
+   reinventa el suyo.
+3. **`WS-W1` (la tabla `mention_terms`) antes que la nube.** Medido: extraer
+   términos en caliente tarda 34 s para 2,290 menciones porque el 90% del coste
+   es parsear el texto. Con el `tsvector` ya calculado, la agregación sobre
+   1.26 M lexemas baja de 1 s.
+
+### Cómo verificar que funcionó
+
+El harness de esta auditoría es reproducible y es la forma de no discutir de
+opiniones:
+
+- **Contraste y áreas táctiles**: las sondas WCAG sobre las 40 capturas
+  (10 rutas × 1440/1280/768/390). Criterio: **0** instancias bajo AA (hoy 184) y
+  **0** áreas táctiles bajo 44px en móvil (hoy 369).
+- **Honestidad de gráficas**: de los 34 sitios de llamada inventariados, los 11
+  que hoy codifican mal la magnitud tienen que pasar a **0**.
+- **Un solo número**: el total de menciones del KPI, del badge, del enlace y del
+  modal tiene que coincidir al dígito. Hoy difiere 13% en producción (47 vs 54).
+- **Narrativas**: `created_at` de la narrativa más nueva a menos de **24 h** de
+  `MAX(published_at)` de su cluster (hoy el retraso es de 1 a 7 días), y
+  `assigned > 0` en las corridas (hoy es 0 en todas).
+- **Nube de palabras**: los 10 términos del top no pueden ser los términos del
+  propio boolean de Brandwatch. Hoy, para gobernadora a 365 días, los seis
+  primeros por frecuencia cruda son exactamente eso (`gonzález` 36,649 ·
+  `jenniffer` 34,819 · `gobernadora` 33,803 · `colón` · `puerto` · `rico`) más
+  basura de plataforma (`https`, `com`, `www`, `photos`). Con log-odds y prior
+  de Dirichlet la misma consulta devuelve en 2.06 s *sequía, emergencia, agua,
+  embalse, Guardia Nacional, orden ejecutiva, Carraízo* — la noticia real de la
+  semana.
+
+### Lo que decide el cliente, no el equipo
+
+Tres decisiones están fuera del alcance técnico y las dejo abiertas a propósito:
+
+1. **El color de marca.** La colisión `--accent === --neg` tiene dos soluciones
+   válidas: la sembrada (mover `--neg` a `#FF5470` y conservar el naranja como
+   identidad) o la que propone la unidad de color (mover `--accent` al azul
+   `#58A6FF`, ΔE 116, realineando con el favicon cian que ya existe).
+2. **Retirar `costa` y `gaceta`.** Se ganan ≈118 líneas de CSS, 13 overrides y
+   14 ramas de JS, y los tokens pasan a `:root` incondicional. Se pierde la demo
+   de tres temas, que puede tener valor comercial.
+3. **La curva de la tendencia.** La doctrina recomienda *small multiples* con eje
+   compartido en lugar de las tres líneas superpuestas. Conserva el suavizado
+   que pediste, pero cambia la forma de la card más visible del producto.
