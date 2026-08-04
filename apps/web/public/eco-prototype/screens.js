@@ -3293,7 +3293,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             <div className="section-eyebrow">Nueva regla</div>
             <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', marginTop: 4 }}>Configurar condiciones y notificación</div>
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
         <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3837,7 +3837,7 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
               {isCreate ? 'Nuevo miembro del equipo' : form.name}
             </div>
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>

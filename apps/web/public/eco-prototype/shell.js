@@ -206,7 +206,8 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.3)',
         }}>
           {(
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              {/* Decorativo: el nombre del producto ("Eco") está en texto al lado. */}
               {/* Echo arcs radiating from a point */}
               <path d="M 7 19 A 7 7 0 0 1 7 5" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.35" />
               <path d="M 10 17 A 5 5 0 0 1 10 7" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.6" />
@@ -845,7 +846,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
       <div className="drawer">
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="section-eyebrow" style={{ margin: 0, flex: 1 }}>Mención · {mention.publishedAt}</div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div>
@@ -1070,7 +1071,7 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 10 }}>
         <Icons.Palette size={14} color="var(--accent)" />
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Tweaks</div>
-        <button onClick={onClose}><Icons.Close size={14} color="var(--text-3)" /></button>
+        <button aria-label="Cerrar" onClick={onClose}><Icons.Close size={14} color="var(--text-3)" /></button>
       </div>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
@@ -1248,7 +1249,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
               </div>
             )}
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1648,7 +1649,7 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
               ))}
             </div>
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>

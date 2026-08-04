@@ -17,6 +17,67 @@
  *    cp2 = P2 - (P3 - P1) * tension / 6
  *  Donde P0 y P3 son los puntos previo y siguiente (o reflexión en bordes).
  */
+// Contrato de accesibilidad de las gráficas (WS-A1).
+//
+// Ninguno de los 9 SVG del producto tenía `<title>`, `role` ni foco por
+// teclado: para un lector de pantalla ninguna gráfica de ECO existía, y para
+// quien no usa ratón el tooltip —la única superficie con las cifras exactas—
+// era inalcanzable.
+//
+// `chartA11y()` devuelve los props del <svg> (role img + aria-labelledby) y los
+// nodos <title>/<desc>. `ChartTable` emite la tabla equivalente, visualmente
+// oculta con .sr-only, que es la que de verdad permite leer los datos: un
+// `<title>` resume, una tabla se navega.
+let _chartUid = 0;
+function useChartIds() {
+  const ref = React.useRef(null);
+  if (ref.current == null) { _chartUid += 1; ref.current = `eco-c${_chartUid}`; }
+  return { titleId: `${ref.current}-t`, descId: `${ref.current}-d`, tableId: `${ref.current}-tb` };
+}
+
+function ChartTitle({ ids, title, desc }) {
+  return (
+    <>
+      <title id={ids.titleId}>{title}</title>
+      {desc ? <desc id={ids.descId}>{desc}</desc> : null}
+    </>
+  );
+}
+
+// Tabla equivalente. `columns` = [{key, label, format?}], `rows` = objetos.
+function ChartTable({ ids, caption, columns, rows }) {
+  if (!rows || rows.length === 0) return null;
+  // El .sr-only va en un <div> envolvente, NO en la <table>: `width:1px` sobre
+  // un elemento `display:table` es un MÍNIMO, no un máximo — la tabla crece
+  // hasta su ancho intrínseco (medido: 1,153px) y desbordaba la página 838px.
+  // Y no se puede arreglar con `display:block` en la tabla porque eso le quita
+  // la semántica de tabla a los lectores de pantalla, que es justo lo que
+  // queremos conservar.
+  return (
+    <div className="sr-only">
+    <table id={ids.tableId}>
+      <caption>{caption}</caption>
+      <thead>
+        <tr>{columns.map((c) => <th key={c.key} scope="col">{c.label}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {columns.map((c, ci) => {
+              const v = c.format ? c.format(r[c.key], r) : r[c.key];
+              const txt = (v == null || v === '') ? 'sin dato' : String(v);
+              return ci === 0
+                ? <th key={c.key} scope="row">{txt}</th>
+                : <td key={c.key}>{txt}</td>;
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    </div>
+  );
+}
+
 // Contrato de nulos de las gráficas (WS-P0.7).
 //
 // `/api/eco-data` emite valores nulos legítimos —p.ej. TIMELINE[].polarizationIndex
@@ -137,22 +198,24 @@ function useChartWidth(fallback) {
 
 // Sparkline
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
+  // Decorativo a propósito: un sparkline siempre acompaña al número que resume
+  // la serie, así que anunciarlo duplicaría la información sin añadir nada.
   // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
   // y la destructuración `{ path, points } = ''` daba `points = undefined`,
   // que reventaba al leer `points[points.length - 1]`.
   if (!Array.isArray(data) || data.length === 0) {
-    return <svg width={width} height={height} style={{ display: 'block' }} />;
+    return <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false" />;
   }
   const res = smoothLinePath(data, width, height, accessor, 2);
   // Serie sin ningún valor finito: se devuelve un SVG vacío en vez de un path
   // con NaN. El caller ve un hueco, no una línea plana en cero.
   if (!res || !res.points || res.points.length === 0) {
-    return <svg width={width} height={height} style={{ display: 'block' }} />;
+    return <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false" />;
   }
   const { path, points } = res;
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}>
+    <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false">
       {fill && <path d={area} fill={color} opacity="0.12" />}
       <path d={path} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" />
     </svg>
@@ -160,8 +223,9 @@ function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', acc
 }
 
 // Big area line chart
-function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', showAxis = true, showGrid = true, yMin = null, yMax = null }) {
+function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', showAxis = true, showGrid = true, yMin = null, yMax = null, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const padding = { t: 10, r: 10, b: 22, l: 32 };
   const innerW = w - padding.l - padding.r;
   const innerH = height - padding.t - padding.b;
@@ -188,7 +252,8 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 
   return (
     <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={height}>
+      <svg width={w} height={height} role="img" aria-labelledby={ids.titleId}>
+        <ChartTitle ids={ids} title={a11yTitle || 'Serie temporal'} />
         <defs>
           <linearGradient id="area-grad-ac" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.25" />
@@ -229,8 +294,9 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 //                           prioridad sobre sharedScale.
 //   valueFormat  (main)   — función custom para formatear valores en tooltip;
 //                           si no se pasa, usa el switch por key.
-function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat }) {
+function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const [hover, setHover] = React.useState(null); // index or null
   // Padding left más amplio para que los Y-axis labels (números) quepan.
   // r=52: la etiqueta de último valor mide 46px y se dibuja en
@@ -339,9 +405,17 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
         })}
       </div>
 
-      <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+      <svg width={w} height={height} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}
         onClick={(e) => { if (!onPointClick) return; const rect = e.currentTarget.getBoundingClientRect(); const x = e.clientX - rect.left - padding.l; const idx = Math.round(x / step); if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx); }}
         style={{ display: 'block', cursor: onPointClick ? 'pointer' : 'crosshair' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || `Evolución de ${series.map((x) => x.label).join(', ')}`}
+          desc={`${data.length} puntos, de ${data[0]?.date || ''} a ${data[data.length - 1]?.date || ''}. ` +
+            (Array.isArray(yDomain) || sharedScale
+              ? 'Todas las series comparten la escala vertical.'
+              : 'Cada serie usa su propia escala vertical, así que las alturas no son comparables entre series.') +
+            ' Los datos exactos están en la tabla que sigue.'} />
         <defs>
           {normalized.map(s => (
             <linearGradient key={s.key} id={`mlg-${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -530,13 +604,20 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           ))}
         </g>
       </svg>
+      <ChartTable ids={ids}
+        caption={a11yTitle || `Datos de ${series.map((x) => x.label).join(', ')}`}
+        columns={[{ key: 'date', label: 'Fecha' }].concat(series.map((x) => ({
+          key: x.key, label: x.label, format: (v) => (isGap(v) ? 'sin dato' : fmtVal(x.key, v)),
+        })))}
+        rows={data} />
     </div>
   );
 }
 
 // Stacked area (sentiment over time)
-function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels }) {
+function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const [hover, setHover] = React.useState(null); // índice del punto bajo el cursor
   const padding = { t: 10, r: 10, b: 24, l: 36 };
   const innerW = Math.max(50, w - padding.l - padding.r);
@@ -576,11 +657,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
 
   return (
     <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={height}
+      <svg width={w} height={height} role="img" aria-labelledby={ids.titleId}
         onClick={onSvgClick}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         style={{ cursor: onPointClick ? 'pointer' : 'crosshair', display: 'block' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || 'Volumen por sentimiento en el tiempo'}
+          desc={`${(data || []).length} días. Área apilada: la altura total de cada columna es el volumen del día.`} />
         <g transform={`translate(${padding.l},${padding.t})`}>
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
             <line key={i} x1={0} y1={innerH * p} x2={innerW} y2={innerH * p} stroke="var(--hairline)" />
@@ -659,13 +743,17 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
 }
 
 // Donut chart
-function Donut({ data, size = 120, thickness = 16, colors, total = null }) {
+function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTitle }) {
+  const ids = useChartIds();
   const sum = total ?? data.reduce((s, d) => s + d.value, 0);
   const r = (size - thickness) / 2;
   const cx = size / 2, cy = size / 2;
   let angle = -Math.PI / 2;
   return (
-    <svg width={size} height={size}>
+    <svg width={size} height={size} role="img" aria-labelledby={ids.titleId}>
+      <ChartTitle ids={ids}
+        title={a11yTitle || 'Distribución'}
+        desc={(data || []).map((d) => `${d.label || d.name}: ${d.value}`).join('; ')} />
       {data.map((d, i) => {
         const frac = d.value / sum;
         const a0 = angle;
@@ -697,6 +785,7 @@ function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value',
         return (
           <El key={i}
             onClick={clickable ? () => onItemClick(it, i) : undefined}
+            aria-label={clickable ? `${it[labelKey]}: ${it[valueKey]}` : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
               background: 'transparent', border: 'none', padding: clickable ? '4px 6px' : 0,
@@ -755,7 +844,8 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 // Mejoras issue #8: etiquetas de horas cada 2h en vez de cada 4h, separadores
 // visuales en transiciones de turno (madrugada→mañana→tarde→noche), hover más
 // pronunciado con z-index para que destaque sobre las celdas vecinas.
-function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick }) {
+function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a11yTitle }) {
+  const ids = useChartIds();
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
   const bp = (window.ecoUseBreakpoint ? window.ecoUseBreakpoint() : 'desktop');
   // En táctil, 24 columnas dan celdas de 10x14px: 168 objetivos imposibles de
@@ -777,8 +867,18 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick }) 
     : `${String(hourOf(c)).padStart(2, '0')}:00–${String(hourOf(c) + bucket - 1).padStart(2, '0')}:59`;
   // Celdas fluidas: ocupan el ancho disponible en vez de un cellSize fijo.
   const gridCols = `repeat(${cols}, minmax(0, 1fr))`;
+  // Tabla equivalente: una rejilla de 7x12 (o 7x24) de celdas de color es
+  // ilegible con lector de pantalla. Las celdas siguen siendo focoables una a
+  // una (tabIndex + aria-label), y la tabla da la lectura completa.
+  const tableRows = Array.from({ length: days }).map((_, d) => {
+    const row = { dia: labels[d] };
+    for (let c = 0; c < cols; c++) row[`h${c}`] = valueOf(d, c);
+    return row;
+  });
+  const tableCols = [{ key: 'dia', label: 'Día' }].concat(
+    Array.from({ length: cols }).map((_, c) => ({ key: `h${c}`, label: hourLabel(c) })));
   return (
-    <div>
+    <div role="group" aria-label={a11yTitle || 'Actividad por día y hora'}>
       <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 2, marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 4 }}>
         {Array.from({ length: cols }).map((_, c) => (
           <div key={c} style={{ textAlign: 'center', marginLeft: extraGap(c), fontWeight: SHIFT_BREAKS.has(c) ? 700 : 400, color: SHIFT_BREAKS.has(c) ? 'var(--text-2)' : 'var(--text-3)' }}>
@@ -819,6 +919,9 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick }) 
           </div>
         </div>
       ))}
+      <ChartTable ids={ids}
+        caption={a11yTitle || 'Menciones por día de la semana y franja horaria'}
+        columns={tableCols} rows={tableRows} />
     </div>
   );
 }

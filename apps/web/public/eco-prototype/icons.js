@@ -1,6 +1,22 @@
-// Lucide-style icons as inline SVG React components
-const mkIcon = (paths, viewBox = "0 0 24 24") => ({ size = 16, color = 'currentColor', strokeWidth = 1.75, style }) =>
-  <svg width={size} height={size} viewBox={viewBox} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" style={style}>{paths}</svg>;
+// Lucide-style icons as inline SVG React components.
+//
+// Accesibilidad (WS-A1/A3): por defecto un icono es DECORATIVO —
+// `aria-hidden="true"` + `focusable="false"` — porque en casi todos los ~90
+// sitios de uso va acompañado de texto, y anunciarlo duplica la etiqueta o
+// introduce ruido ("gráfico" antes de cada palabra). Antes ninguno lo declaraba.
+//
+// Cuando el icono es el ÚNICO contenido de un control y no hay texto que lo
+// nombre, se pasa `title`: entonces deja de ser decorativo y expone
+// `role="img"` con un `<title>` que el lector de pantalla sí anuncia.
+// (Lo preferible sigue siendo `aria-label` en el botón; `title` es la salida
+// para los iconos que no viven dentro de un control.)
+const mkIcon = (paths, viewBox = "0 0 24 24") => ({ size = 16, color = 'currentColor', strokeWidth = 1.75, style, title }) =>
+  <svg width={size} height={size} viewBox={viewBox} fill="none" stroke={color} strokeWidth={strokeWidth}
+       strokeLinecap="round" strokeLinejoin="round" style={style}
+       role={title ? 'img' : undefined} aria-hidden={title ? undefined : 'true'} focusable="false">
+    {title ? <title>{title}</title> : null}
+    {paths}
+  </svg>;
 
 window.Icons = {
   Dashboard: mkIcon(<><rect x="3" y="3" width="7" height="9" /><rect x="14" y="3" width="7" height="5" /><rect x="14" y="12" width="7" height="9" /><rect x="3" y="16" width="7" height="5" /></>),
