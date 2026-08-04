@@ -63,7 +63,7 @@ window.ecoIsMobile = function () { return window.ecoBp() === 'mobile'; };
  */
 function getPeriodParams() {
   try {
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (period === 'custom') {
       const from = localStorage.getItem('eco.from') || '';
       const to = localStorage.getItem('eco.to') || '';
@@ -79,10 +79,12 @@ window.ecoGetPeriodParams = getPeriodParams;
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
   const D = window.ECO_DATA || {};
-  // CURRENT_METRICS.totalMentions is today's snapshot; for the sidebar badge
-  // we want the period total (matches the dashboard "Volumen · período" KPI).
-  const periodTotal = (D.TIMELINE && D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0)) || 0;
-  const totalMentions = periodTotal || (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
+  // Total del período desde la fuente única (data.js). Antes esto sumaba
+  // TIMELINE mientras el enlace "Ver todas" usaba CURRENT_METRICS: dos números
+  // distintos para lo mismo, a un click de distancia.
+  const totalMentions = (typeof window.ecoPeriodMentionTotal === 'function')
+    ? window.ecoPeriodMentionTotal()
+    : ((D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || 0);
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
     { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },

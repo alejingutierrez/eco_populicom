@@ -836,14 +836,22 @@
     gap: 10px;
     margin-bottom: 6px;
   }
+  /* Píldora TINTADA, no rellena. Antes era `color: white` sobre el color del
+     estado (2.38:1 con el naranja de "Pico"): el mismo defecto de blanco sobre
+     relleno saturado que tokens.css resuelve con --on-*. Tintada usa el color
+     del estado como TEXTO —los seis pasan AA sobre --canvas— y como fondo una
+     versión translúcida, igual que .pill-pos / .pill-neg. */
   .narrative-status-pill {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: var(--r-sm);
+    font-family: var(--ff-sans);
+    font-size: var(--fs-overline);
     font-weight: 600;
-    color: white;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    color: var(--narr-tone, var(--text-2));
+    background: color-mix(in oklab, var(--narr-tone, var(--text-2)) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--narr-tone, var(--text-2)) 32%, transparent);
   }
   .narrative-title {
     margin: 0;
@@ -1303,6 +1311,9 @@
 <script>
   // React hooks exposed as globals because each pre-compiled prototype file
   // destructures them at top level (`const { useState } = React`).
+  // Período por defecto del dashboard. Fuente única: la lee el boot de esta
+  // página y el estado inicial de `period` en app.js.
+  window.ECO_DEFAULT_PERIOD = '7D';
   window.useState = React.useState;
   window.useEffect = React.useEffect;
   window.useCallback = React.useCallback;
@@ -1353,7 +1364,12 @@
   (async function () {
     const params = new URLSearchParams(location.search);
     const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
-    const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
+    // ECO_DEFAULT_PERIOD: mismo default que usa el estado de la barra en
+    // app.js. Antes el boot pedía '1M' y el chip arrancaba en '7D', así que
+    // en cada sesión limpia —y `ecoSignOut` hace localStorage.clear(), o sea
+    // en cada login tras cerrar sesión— la barra decía 7D mientras los datos
+    // eran de 30 días.
+    const period = params.get('period') || localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD;
     // Rango personalizado: cuando period === 'custom', el OverviewFilterBar
     // habrá guardado eco.from y eco.to en localStorage. Se envían como query
     // params para que /api/eco-data sobrescriba la ventana derivada de period.
@@ -1413,7 +1429,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc22';
+        s.src = base + '/' + f + '?v=prodc23';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

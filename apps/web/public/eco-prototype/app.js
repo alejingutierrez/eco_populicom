@@ -239,7 +239,9 @@ function App() {
     if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
     return (list[0] && list[0].key) || 'aaa';
   });
-  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '7D');
+  // Mismo default que pide el boot de index.html (window.ECO_DEFAULT_PERIOD),
+  // para que el chip iluminado y la ventana consultada nunca discrepen.
+  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D');
   const [cmdOpen, setCmdOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);

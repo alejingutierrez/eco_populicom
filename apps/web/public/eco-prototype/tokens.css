@@ -322,7 +322,7 @@
   --narr-declining: #FFC043;
   --narr-revived: #F472B6;
   --narr-dormant: #7C8798;
-  --narr-unknown: #525B68;
+  --narr-unknown: #94A3B8;   /* 7.10:1 — legible como texto */
 
   /* secuencial (heatmap, mapa de PR). 6 pasos derivados del accent.
      ⚠️ La leyenda DEBE usar estos mismos tokens: hoy HourActivityCard pinta
@@ -373,7 +373,7 @@
   --narr-declining: #96600B;
   --narr-revived: #BE185D;
   --narr-dormant: #6B7280;
-  --narr-unknown: #A0A6AF;
+  --narr-unknown: #64748B;   /* 4.76:1 sobre blanco */
 
   --seq-0: rgba(200, 58, 30, 0.06);
   --seq-1: rgba(200, 58, 30, 0.20);

@@ -269,17 +269,18 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     const total = Math.round((d.totalMentions || d.positivo + d.neutral + d.negativo) || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    // Sin histograma por hora: no existe la serie. El bloque que estaba aquí
+    // sintetizaba 24 barras con Math.sin() y las rotulaba "Volumen por hora"
+    // como si fueran medidas. HOUR_HEATMAP no sirve para rellenarlo porque
+    // agrega por día-de-semana sobre todo el período, no por fecha; y el modal
+    // sólo trae 20 menciones, así que derivarlo de la muestra sería otro
+    // invento. Requiere una serie real por hora en el backend (WS-C/M).
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     setSlice({
       eyebrow: d.date,
       title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
       _filter: { day: dayIso },
     });
@@ -449,7 +450,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} deltaInfo={m.deltaDisplay.totalMentions} sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+        <KpiCard label="Volumen · período" value={fmt(window.ecoPeriodMentionTotal())} deltaInfo={m.deltaDisplay.totalMentions} sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
           onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
@@ -460,7 +461,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex)}
           onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
 
           <div style={{ marginTop: -2 }}>
@@ -570,7 +571,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       <div className="card">
         <div className="card-hd">
           <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
-          <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(m.totalMentions)}) →</a>
+          <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(window.ecoPeriodMentionTotal())}) →</a>
         </div>
         <div className="scroll-x">
           {D.MENTIONS.slice(0, 7).map((mn, idx) => {
@@ -665,7 +666,7 @@ function HourActivityCard({ onCellClick }) {
       <div className="card-hd">
         <div>
           <div className="card-hd-title">Actividad por hora</div>
-          <div className="card-hd-sub">Mapa de calor · {fmt(total)} menciones · click una franja</div>
+          <div className="card-hd-sub">Distribución por día y hora (TZ Puerto Rico) · click una franja</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)' }}>
           <span>menos</span>
@@ -1571,17 +1572,14 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     const total = (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--text-3)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    // Ver la nota de openTimelineDaySlice del Scorecard: no hay serie real por
+    // hora, así que no se dibuja histograma en vez de sintetizarlo.
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     setSlice({
       eyebrow: d.date,
       title: bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro',
       accent,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
       _filter: { day: dayIso },
     });
@@ -1999,13 +1997,9 @@ function TopicsScreen({ onMentionClick }) {
         const slugIdx = {};
         D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
         const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
-        const senti = splitSentiment(dayModal.volume, dayModal.sentiment);
-        const hours = Array.from({ length: 24 }, (_, h) => {
-          const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-          const jitter = ((h * 37) % 11) / 11 * 0.4;
-          return Math.round((base + jitter) * (dayModal.volume / 24) * 1.6);
-        });
-        const xLabels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2,'0')}:00`);
+        // Sin histograma sintético (aquí incluso llevaba `jitter` para romper la
+        // simetría del seno y que no se notara) y sin splitSentiment: el modal
+        // rellena el desglose real desde /api/eco-mentions con `_filter`.
         const dateStr = dayModal.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         const dayIso = dayModal.dt.toISOString().slice(0, 10);
         return (
@@ -2014,7 +2008,6 @@ function TopicsScreen({ onMentionClick }) {
               eyebrow: dateStr,
               title: dayModal.topicName,
               accent,
-              histogram: { label: 'Volumen por hora', values: hours, xLabels },
               mentions: [],
               _filter: { topic: dayModal.topicSlug, day: dayIso },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
@@ -2239,7 +2232,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
     let cancelled = false;
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     const customFrom = localStorage.getItem('eco.from');
     const customTo = localStorage.getItem('eco.to');
     if (agency) params.set('agency', agency);
@@ -2637,7 +2630,7 @@ function buildSliceMentions(predicate, max = 8) {
 function fetchSliceMentions(filter) {
   const params = new URLSearchParams();
   const agency = localStorage.getItem('eco.agency');
-  const period = localStorage.getItem('eco.period') || '1M';
+  const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
   if (agency) params.set('agency', agency);
   params.set('period', period);
   params.set('limit', '20');
@@ -2650,18 +2643,6 @@ function fetchSliceMentions(filter) {
     .catch(() => ({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }));
 }
 
-function splitSentiment(total, bias = 'neutral') {
-  const biases = {
-    positivo: [0.55, 0.25, 0.20],
-    negativo: [0.22, 0.28, 0.50],
-    neutral:  [0.38, 0.40, 0.22],
-  };
-  const [p, n, ng] = biases[bias] || biases.neutral;
-  const pos = Math.round(total * p);
-  const neg = Math.round(total * ng);
-  const neu = Math.max(0, total - pos - neg);
-  return { pos, neu, neg };
-}
 
 // =============== GEOGRAPHY ===============
 function GeographyScreen({ onMentionClick }) {
@@ -2689,7 +2670,7 @@ function GeographyScreen({ onMentionClick }) {
     let cancelled = false;
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (agency) params.set('agency', agency);
     if (period === 'custom') {
       const from = localStorage.getItem('eco.from');
@@ -2710,14 +2691,16 @@ function GeographyScreen({ onMentionClick }) {
   }, [contentFilter]);
 
   function openMuniSlice(m) {
-    const senti = splitSentiment(m.count, m.nss > 2 ? 'positivo' : m.nss < -2 ? 'negativo' : 'neutral');
     const accent = m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)';
+    // Desglose REAL: /api/eco-geo ya manda positivo/neutral/negativo por
+    // municipio (route.ts:172). Antes esto llamaba a splitSentiment(), que
+    // inventaba el reparto a partir del total con ratios fijos.
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
       title: `NSS ${m.nss > 0 ? '+' : ''}${m.nss.toFixed(1)}`,
       accent,
       volume: m.count,
-      sentiment: senti,
+      sentiment: { pos: m.positivo ?? 0, neu: m.neutral ?? 0, neg: m.negativo ?? 0 },
       mentions: [],
       _filter: { municipality: m.slug, ...contentFilter },
     });
@@ -2752,7 +2735,7 @@ function GeographyScreen({ onMentionClick }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">78 municipios monitoreados · click un municipio para ver menciones</div></div>
+          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período` : 'Sin menciones georreferenciadas en el período'} · click un municipio para ver menciones</div></div>
           <div style={{ display: 'flex', gap: 6 }}>
             {[{ k: 'count', l: 'Volumen' }, { k: 'nss', l: 'Sentimiento' }].map((o) => (
               <button key={o.k} onClick={() => setMetric(o.k)} className={`chip ${metric === o.k ? 'active' : ''}`}>{o.l}</button>
@@ -3336,7 +3319,7 @@ function AlertsHistory({ onMentionClick }) {
   const [rows, setRows] = React.useState(null); // null = loading
   React.useEffect(() => {
     const agency = localStorage.getItem('eco.agency') || '';
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     fetch('/api/alerts/history?' + new URLSearchParams({ agency, period }).toString(), { credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { history: [] })
       .then((j) => setRows(j.history || []))
@@ -3528,14 +3511,6 @@ function TemplatesAdmin() {
 }
 
 // --- Users admin module ---
-const SEED_USERS = [
-  { id: 'u1', name: 'María Santos', email: 'maria.santos@dtop.pr.gov', role: 'admin',   agency: 'DTOP', status: 'activo',   lastSeen: 'hace 5 min',  avatar: '#E1767B' },
-  { id: 'u2', name: 'Carlos Vega',  email: 'carlos.vega@dtop.pr.gov',  role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 1 h',    avatar: '#4A7FB5' },
-  { id: 'u3', name: 'Lucía Rivera', email: 'lucia.rivera@daco.pr.gov', role: 'analista', agency: 'DACo', status: 'activo',   lastSeen: 'hace 3 h',    avatar: '#6B9E7F' },
-  { id: 'u4', name: 'Pedro Morales',email: 'pedro.morales@salud.pr.gov',role: 'viewer',  agency: 'Salud',status: 'invitado', lastSeen: '—',           avatar: '#C08457' },
-  { id: 'u5', name: 'Ana Figueroa', email: 'ana.f@ama.pr.gov',          role: 'editor',  agency: 'AMA',  status: 'suspendido',lastSeen: 'hace 12 d',  avatar: '#8B6BB0' },
-  { id: 'u6', name: 'Rafael Ortiz', email: 'rafael.ortiz@dtop.pr.gov', role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 30 min', avatar: '#4A7FB5' },
-];
 
 // Las claves coinciden con el enum del backend (admin/editor/analyst/viewer)
 // para que la etiqueta de la tabla, el filtro y los radios del drawer cuadren.
@@ -3948,26 +3923,10 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla qué páginas ve este usuario en el menú. "Todas" = sin restricción (su rol decide). Overview siempre visible. Las páginas de Configuración además requieren el permiso del rol.</div>
           </div>
 
-          {/* Activity — only on edit */}
-          {!isCreate && (
-            <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Actividad reciente</div>
-              <div style={{ border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden' }}>
-                {[
-                  { ts: 'hace 5 min',  a: 'Inició sesión',             ip: '10.24.1.18' },
-                  { ts: 'hace 1 h',    a: 'Exportó reporte semanal',   ip: '10.24.1.18' },
-                  { ts: 'hace 4 h',    a: 'Editó regla de alerta #R-12', ip: '10.24.1.18' },
-                  { ts: 'hace 1 d',    a: 'Cambió rol a analista',     ip: '—' },
-                ].map((a, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 120px', gap: 8, padding: '10px 12px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12 }}>
-                    <div className="mono" style={{ color: 'var(--text-3)' }}>{a.ts}</div>
-                    <div style={{ color: 'var(--text)' }}>{a.a}</div>
-                    <div className="mono" style={{ color: 'var(--text-3)', textAlign: 'right' }}>{a.ip}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Sin "Actividad reciente": el bloque que estaba aquí mostraba un
+              registro de auditoría INVENTADO (cuatro entradas fijas con la IP
+              10.24.1.18), idéntico para todos los usuarios. No existe tabla de
+              auditoría; cuando exista, se reconstruye leyéndola. */}
 
           {/* Actions */}
           <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
@@ -4598,13 +4557,15 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
 // NarrativeScreen — análisis de UNA narrativa en timeline (streamgraph)
 // ============================================================
 const NARRATIVE_STATUS_ORDER = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
+// Colores desde tokens.css (--narr-*). Antes eran hex de Ant Design incrustados
+// aquí; `peaking` (#FA8C16) con texto blanco daba 2.38:1 y fallaba AA.
 const NARRATIVE_STATUS_COLORS = {
-  peaking: '#FA8C16',
-  active: '#52C41A',
-  emerging: '#13C2C2',
-  revived: '#EB2F96',
-  declining: '#FAAD14',
-  dormant: '#8C8C8C',
+  peaking: 'var(--narr-peaking)',
+  active: 'var(--narr-active)',
+  emerging: 'var(--narr-emerging)',
+  revived: 'var(--narr-revived)',
+  declining: 'var(--narr-declining)',
+  dormant: 'var(--narr-dormant)',
 };
 const NARRATIVE_STATUS_LABELS = {
   peaking: 'Pico',
@@ -4614,6 +4575,27 @@ const NARRATIVE_STATUS_LABELS = {
   declining: 'Decae',
   dormant: 'Dormida',
 };
+// La columna `status` de la DB puede traer valores fuera de este enum (el
+// lambda evoluciona más rápido que la SPA). Antes eso se renderizaba en INGLÉS
+// CRUDO, sin punto de color, y ningún chip lo contaba: se veía "Todas (8)" con
+// chips que sumaban 5 y tres narrativas invisibles al filtrado.
+// La fuerza de la arista puede llegar nula desde /api/narrative/edges. Antes
+// `(r.strength * 100).toFixed(0)` producía la cadena "NaN" y la UI mostraba
+// literalmente "· nan%" al usuario.
+function strengthPct(v) {
+  if (v == null || !Number.isFinite(Number(v))) return null;
+  return `${(Number(v) * 100).toFixed(0)}%`;
+}
+const NARRATIVE_STATUS_UNKNOWN = 'unknown';
+function narrativeStatusKey(status) {
+  return NARRATIVE_STATUS_ORDER.includes(status) ? status : NARRATIVE_STATUS_UNKNOWN;
+}
+function narrativeStatusLabel(status) {
+  return NARRATIVE_STATUS_LABELS[status] || 'Sin clasificar';
+}
+function narrativeStatusColor(status) {
+  return NARRATIVE_STATUS_COLORS[status] || 'var(--narr-unknown)';
+}
 
 // Etiquetas amigables para claves crudas de plataforma / tipo de arista
 // (antes se mostraban "facebook_public", "co_occurrence", etc. al usuario).
@@ -4782,7 +4764,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
               onMouseEnter={() => setHovered(n.id)}
               onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}>
               <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es-PR')} menc · ${n.status}`}</title>
-              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'}
+              <circle cx={p.x} cy={p.y} r={r} fill={narrativeStatusColor(n.status)}
                 fillOpacity={dim ? 0.18 : 0.9}
                 stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
               {showLabel && (
@@ -4847,14 +4829,19 @@ function NarrativeScreen({ agency }) {
   }, [agency]);
 
   const statusCounts = React.useMemo(() => {
+    // Se cuenta por la clave NORMALIZADA, así que todo status fuera del enum cae
+    // en 'unknown' y la suma de los chips cuadra con "Todas".
     const c = { all: narratives.length };
-    for (const n of narratives) c[n.status] = (c[n.status] || 0) + 1;
+    for (const n of narratives) {
+      const k = narrativeStatusKey(n.status);
+      c[k] = (c[k] || 0) + 1;
+    }
     return c;
   }, [narratives]);
 
   const filteredNarratives = React.useMemo(() => {
     const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
-    let list = narratives.filter((n) => statusFilter === 'all' || n.status === statusFilter);
+    let list = narratives.filter((n) => statusFilter === 'all' || narrativeStatusKey(n.status) === statusFilter);
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -4890,7 +4877,11 @@ function NarrativeScreen({ agency }) {
           >
             Todas ({statusCounts.all || 0})
           </button>
-          {NARRATIVE_STATUS_ORDER.map((s) => {
+          {/* Se incluye el bucket 'unknown' cuando tiene elementos, para que la
+              suma de los chips SIEMPRE cuadre con "Todas". */}
+          {NARRATIVE_STATUS_ORDER.concat(
+            (statusCounts[NARRATIVE_STATUS_UNKNOWN] || 0) > 0 ? [NARRATIVE_STATUS_UNKNOWN] : []
+          ).map((s) => {
             const count = statusCounts[s] || 0;
             return (
               <button
@@ -4898,10 +4889,10 @@ function NarrativeScreen({ agency }) {
                 className={`btn-chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
                 onClick={() => count > 0 && setStatusFilter(s)}
                 disabled={count === 0}
-                title={`${NARRATIVE_STATUS_LABELS[s]} (${count})`}
+                title={`${narrativeStatusLabel(s)} (${count})`}
               >
-                <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
-                {NARRATIVE_STATUS_LABELS[s]} ({count})
+                <span className="narrative-dot" style={{ background: narrativeStatusColor(s) }} />
+                {narrativeStatusLabel(s)} ({count})
               </button>
             );
           })}
@@ -4916,17 +4907,17 @@ function NarrativeScreen({ agency }) {
               className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
               onClick={() => { setFocusedId(n.id); setSelectedDay(null); }}
             >
-              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[n.status] }} />
+              <span className="narrative-dot" style={{ background: narrativeStatusColor(n.status) }} />
               <div className="narrative-item-body">
                 <div className="narrative-item-name">{n.name}</div>
                 <div className="narrative-item-meta">
-                  <span>{n.mentionCount.toLocaleString('es-PR')} menc</span>
+                  <span>{(n.mentionCount || 0).toLocaleString('es-PR')} menc</span>
                   <span>·</span>
-                  <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
+                  <span>{narrativeStatusLabel(n.status)}</span>
                 </div>
               </div>
               {n.sparkline && (
-                <NarrativeSparkline data={n.sparkline} color={NARRATIVE_STATUS_COLORS[n.status]} />
+                <NarrativeSparkline data={n.sparkline} color={narrativeStatusColor(n.status)} />
               )}
             </li>
           ))}
@@ -5039,7 +5030,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
       <div className="narrative-header">
         <div className="narrative-header-main">
           <div className="narrative-header-row">
-            <span className="narrative-status-pill" style={{ background: NARRATIVE_STATUS_COLORS[narrative.status] }}>
+            <span className="narrative-status-pill" style={{ '--narr-tone': narrativeStatusColor(narrative.status) }}>
               {NARRATIVE_STATUS_LABELS[narrative.status] || narrative.status}
             </span>
             <h2 className="narrative-title">{narrative.name}</h2>
@@ -5219,11 +5210,11 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                   type="button"
                   className="narrative-related-btn"
                   onClick={() => onSelectNarrative(r.id)}
-                  title={`${edgeTypeLabel(r.edgeType)} (${(r.strength * 100).toFixed(0)}%)`}
+                  title={`${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` (${strengthPct(r.strength)})` : ''}`}
                 >
-                  <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[r.status] }} />
+                  <span className="narrative-dot" style={{ background: narrativeStatusColor(r.status) }} />
                   <span className="narrative-related-name">{r.name}</span>
-                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)} · {(r.strength * 100).toFixed(0)}%</span>
+                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)}{strengthPct(r.strength) ? ` · ${strengthPct(r.strength)}` : ''}</span>
                 </button>
               </li>
             ))}

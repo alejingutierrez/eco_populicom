@@ -17,6 +17,34 @@
  *    cp2 = P2 - (P3 - P1) * tension / 6
  *  Donde P0 y P3 son los puntos previo y siguiente (o reflexión en bordes).
  */
+// Contrato de nulos de las gráficas (WS-P0.7).
+//
+// `/api/eco-data` emite valores nulos legítimos —p.ej. TIMELINE[].polarizationIndex
+// cuando el snapshot de ese día no la trae— y antes eso (a) tumbaba la pantalla
+// completa porque fmtVal hacía v.toFixed() sin guarda, y (b) cuando no tumbaba,
+// el `?? 0` de los sitios de llamada dibujaba el hueco como si fuera un CERO
+// MEDIDO: el sparkline de Polarización mostraba dos caídas al suelo que se leen
+// como "la polarización se desplomó" cuando el dato simplemente no existe.
+//
+// Regla: un hueco NO es un cero. `isGap()` lo detecta, la escala lo ignora al
+// calcular min/max, y las líneas se parten en ese punto en vez de bajar a cero.
+function isGap(v) {
+  return v == null || (typeof v === 'number' && !Number.isFinite(v));
+}
+
+// Parte una lista de puntos en tramos contiguos sin huecos, para que la línea
+// se interrumpa donde falta el dato en vez de interpolarlo.
+function splitSegments(pts) {
+  const out = [];
+  let cur = [];
+  for (const p of pts) {
+    if (p == null) { if (cur.length) { out.push(cur); cur = []; } }
+    else cur.push(p);
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 function catmullRomPath(pts, tension = 1) {
   if (pts.length === 0) return '';
   if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
@@ -52,11 +80,25 @@ function linePath(data, w, h, accessor = (d) => d, padding = 4, minY = null, max
 function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = null, maxY = null) {
   if (!data.length) return '';
   const vals = data.map(accessor);
-  const min = minY !== null ? minY : Math.min(...vals);
-  const max = maxY !== null ? maxY : Math.max(...vals);
+  // Huecos fuera del dominio: con `Math.min(...vals)` y un null dentro, min/max
+  // salían NaN y el path entero se emitía como "M 2,NaN …" — el navegador lo
+  // descartaba y el sparkline aparecía vacío, con 4 errores de consola por
+  // render en el Scorecard.
+  const finite = vals.filter((v) => v != null && Number.isFinite(v));
+  if (finite.length === 0) return '';
+  const min = minY !== null ? minY : Math.min(...finite);
+  const max = maxY !== null ? maxY : Math.max(...finite);
   const range = max - min || 1;
   const step = (w - padding * 2) / Math.max(1, data.length - 1);
-  const pts = data.map((d, i) => [padding + i * step, h - padding - ((accessor(d) - min) / range) * (h - padding * 2)]);
+  // Los puntos sin dato se omiten; el tramo se une entre los que sí lo tienen.
+  // (En un sparkline de 80px partir la línea sería ruido; lo importante es no
+  // dibujar un cero que nadie midió.)
+  const pts = data.map((d, i) => {
+    const v = accessor(d);
+    if (v == null || !Number.isFinite(v)) return null;
+    return [padding + i * step, h - padding - ((v - min) / range) * (h - padding * 2)];
+  }).filter(Boolean);
+  if (pts.length === 0) return '';
   let p = `M ${pts[0][0]},${pts[0][1]}`;
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1];
@@ -101,7 +143,13 @@ function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', acc
   if (!Array.isArray(data) || data.length === 0) {
     return <svg width={width} height={height} style={{ display: 'block' }} />;
   }
-  const { path, points } = smoothLinePath(data, width, height, accessor, 2);
+  const res = smoothLinePath(data, width, height, accessor, 2);
+  // Serie sin ningún valor finito: se devuelve un SVG vacío en vez de un path
+  // con NaN. El caller ve un hueco, no una línea plana en cero.
+  if (!res || !res.points || res.points.length === 0) {
+    return <svg width={width} height={height} style={{ display: 'block' }} />;
+  }
+  const { path, points } = res;
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
@@ -185,7 +233,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   const [ref, w] = useChartWidth(600);
   const [hover, setHover] = React.useState(null); // index or null
   // Padding left más amplio para que los Y-axis labels (números) quepan.
-  const padding = { t: 28, r: 20, b: 34, l: 44 };
+  // r=52: la etiqueta de último valor mide 46px y se dibuja en
+  // translate(innerW + 4), así que necesita 4 + 46 = 50px. Con r=20 se
+  // recortaban 30 de sus 46px y el chart cerraba mostrando un solo dígito.
+  const padding = { t: 28, r: 52, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
@@ -210,18 +261,23 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
       vals: data.map((d) => d[s.key]),
     }));
   } else if (sharedScale) {
-    const allVals = series.flatMap((s) => data.map((d) => d[s.key] || 0));
+    // Los huecos se excluyen del dominio (antes `|| 0` los metía como ceros y
+    // hundía el mínimo compartido).
+    const allVals = series.flatMap((s) => data.map((d) => d[s.key])).filter((v) => !isGap(v));
     const sharedMin = 0;
     const sharedMax = Math.max(1, ...allVals);
     normalized = series.map((s) => ({
       ...s, min: sharedMin, max: sharedMax, range: sharedMax - sharedMin || 1,
-      vals: data.map((d) => d[s.key] || 0),
+      vals: data.map((d) => d[s.key]),
     }));
   } else {
     normalized = series.map((s) => {
       const vals = data.map((d) => d[s.key]);
-      const min = Math.min(...vals);
-      const max = Math.max(...vals);
+      const finite = vals.filter((v) => !isGap(v));
+      // Serie completamente vacía: dominio degenerado pero estable (nada que
+      // dibujar, y ningún NaN propagándose al path).
+      const min = finite.length ? Math.min(...finite) : 0;
+      const max = finite.length ? Math.max(...finite) : 1;
       return { ...s, min, max, range: max - min || 1, vals };
     });
   }
@@ -241,6 +297,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   //   crisis → % de riesgo · BHI → escala 1–10 · polarización → %.
   // Antes crisis/BHI salían como "0.59" crudo en el hover.
   function fmtVal(key, v) {
+    // Guarda de nulos: sin esto, un null en cualquier serie lanzaba
+    // "Cannot read properties of undefined (reading 'toFixed')" y el
+    // EcoErrorBoundary se comía la pantalla entera.
+    if (isGap(v)) return 's/d';
     if (typeof valueFormat === 'function') return valueFormat(v);
     if (key === 'totalMentions') return v >= 1000 ? (v/1000).toFixed(1) + 'K' : v.toFixed(0);
     if (key === 'nss') return (v > 0 ? '+' : '') + v.toFixed(1);
@@ -260,16 +320,20 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
         <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 9, fontWeight: 700 }}>{dateLabel}</span>
         {normalized.map(s => {
           const v = data[hoverIdx][s.key];
-          const first = s.vals[0];
-          const delta = first ? ((v - first) / first) * 100 : 0;
+          const first = s.vals.find((x) => !isGap(x));
+          const delta = (!isGap(v) && !isGap(first) && first) ? ((v - first) / first) * 100 : null;
           return (
             <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <span style={{ width: 8, height: 2, background: s.color }} />
               <span style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
               <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 13 }}>{fmtVal(s.key, v)}</span>
-              <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 10, fontWeight: 600 }}>
-                {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
-              </span>
+              {delta == null ? (
+                <span className="num" style={{ color: 'var(--text-3)', fontSize: 10, fontWeight: 600 }}>—</span>
+              ) : (
+                <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 10, fontWeight: 600 }}>
+                  {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
+                </span>
+              )}
             </div>
           );
         })}
@@ -321,7 +385,8 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               el fill confundía visualmente. */}
           {!sharedScale && normalized[0] && (() => {
             const s = normalized[0];
-            const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
+            const pts = data.map((d, i) => isGap(d[s.key]) ? null : [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]).filter(Boolean);
+            if (pts.length < 2) return null;
             // Reemplazo el M inicial del path Catmull-Rom por L para anexarlo al
             // move-to bottom-left que abre el área.
             const lineFromL = catmullRomPath(pts).replace(/^M /, 'L ');
@@ -332,14 +397,26 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           {/* Lines — Catmull-Rom cuando smooth=true (pasa por cada punto sin
               overshoot ni mesetas) o straight L cuando smooth=false. */}
           {normalized.map((s) => {
-            const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
-            const useSmooth = smooth || (!sharedScale && pts.length > 2);
-            const p = useSmooth ? catmullRomPath(pts) : (() => {
-              let str = `M ${pts[0][0]},${pts[0][1]}`;
-              for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
-              return str;
-            })();
-            return <path key={s.key} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            // Un hueco parte la línea: no se interpola por encima de un día sin
+            // dato ni se baja a cero. Cada tramo contiguo es su propio <path>.
+            const raw = data.map((d, i) => isGap(d[s.key]) ? null : [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
+            const segments = splitSegments(raw);
+            return (
+              <g key={s.key}>
+                {segments.map((pts, si) => {
+                  if (pts.length === 1) {
+                    return <circle key={si} cx={pts[0][0]} cy={pts[0][1]} r="2.5" fill={s.color} />;
+                  }
+                  const useSmooth = smooth || (!sharedScale && pts.length > 2);
+                  const p = useSmooth ? catmullRomPath(pts) : (() => {
+                    let str = `M ${pts[0][0]},${pts[0][1]}`;
+                    for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
+                    return str;
+                  })();
+                  return <path key={si} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+                })}
+              </g>
+            );
           })}
 
           {/* Dots SIEMPRE visibles en cada día — el usuario puede verificar
@@ -349,6 +426,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           {normalized.map((s) => (
             <g key={`${s.key}-dots`}>
               {data.map((d, i) => {
+                if (isGap(d[s.key])) return null;
                 const y = innerH - ((d[s.key] - s.min) / s.range) * innerH;
                 const isHover = hover === i;
                 return (
@@ -377,6 +455,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               <g>
                 <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {normalized.map(s => {
+                  if (isGap(dotData[s.key])) return null;
                   const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
                   return (
                     <g key={s.key}>
@@ -408,7 +487,11 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
 
           {/* Last-point value tags on the right edge */}
           {normalized.map(s => {
-            const lastIdx = data.length - 1;
+            // Ancla al último punto CON dato: si la serie termina en hueco, la
+            // etiqueta marcaba una posición inventada (o NaN).
+            let lastIdx = -1;
+            for (let i = data.length - 1; i >= 0; i--) { if (!isGap(data[i][s.key])) { lastIdx = i; break; } }
+            if (lastIdx === -1) return null;
             const y = innerH - ((data[lastIdx][s.key] - s.min) / s.range) * innerH;
             const v = data[lastIdx][s.key];
             return (

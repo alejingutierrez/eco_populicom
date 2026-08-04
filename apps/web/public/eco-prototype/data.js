@@ -91,3 +91,26 @@ window.ECO_DATA = Object.assign({}, _mocks, Object.fromEntries(
 ));
 if (_remote.AGENCIES_FULL) window.ECO_DATA.AGENCIES_FULL = _remote.AGENCIES_FULL;
 if (_remote.USER_AGENCY_SLUG) window.ECO_DATA.USER_AGENCY_SLUG = _remote.USER_AGENCY_SLUG;
+
+// ---------------------------------------------------------------------------
+// Total de menciones del período — FUENTE ÚNICA (WS-P0.5).
+//
+// Antes cada widget resolvía su propio total y no cuadraban: el KPI "Volumen ·
+// período" y el badge del rail sumaban `TIMELINE[].totalMentions` (agregado de
+// daily_metric_snapshots) mientras el enlace "Ver todas" y el modal que abre la
+// propia tarjeta usaban `CURRENT_METRICS.totalMentions` (recuento vivo sobre la
+// tabla `mentions`). Medido en producción: 47 vs 54, ~13% de diferencia — el
+// usuario hacía click en una tarjeta y el drill-down la contradecía.
+//
+// Canónico = el recuento vivo, porque es el único que el drill-down puede
+// reproducir: /api/eco-mentions cuenta sobre `mentions` con los mismos filtros.
+// La suma de snapshots queda como respaldo para cuando CURRENT_METRICS no trae
+// el campo (payload viejo o período sin snapshots).
+window.ecoPeriodMentionTotal = function ecoPeriodMentionTotal() {
+  const D = window.ECO_DATA || {};
+  const live = D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions;
+  if (typeof live === 'number' && live > 0) return live;
+  const fromSnapshots = (D.TIMELINE || []).reduce((s, t) => s + (t.totalMentions || 0), 0);
+  if (fromSnapshots > 0) return fromSnapshots;
+  return (D.MENTIONS && D.MENTIONS.length) || 0;
+};
