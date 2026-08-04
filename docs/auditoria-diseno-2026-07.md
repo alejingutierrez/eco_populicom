@@ -855,14 +855,15 @@ ya deja de tener los defectos que cuestan un contrato.
 | `WS-P0.8` | S | **Robustez de estados de narrativa**: un `status` desconocido cae a `--narr-unknown` con etiqueta «Sin clasificar», y los chips de filtro cuentan **todo** lo que la lista muestra. Arreglar el `nan%` de «Narrativas relacionadas». | Hoy tres narrativas son visibles en la lista pero invisibles al filtro, y se muestran en inglés crudo. |
 | `WS-P0.9` | XS | **Quitar el «78 municipios monitoreados» hardcodeado** (`screens.js:2755`) y derivarlo de los datos. | Es una cifra que el producto no puede respaldar. |
 
-### Estado de implementación (al 3 de agosto)
+### Estado de implementación (al 4 de agosto)
 
 | Fase / workstream | Estado |
 |---|---|
 | **Fase 0** — los 9 workstreams + `splitSentiment` | ✅ `c16e181` |
-| `WS-F1` retirar los literales de color | ✅ `3ce9f84` |
+| `WS-F1` retirar los 132 literales de color | ✅ `3ce9f84` |
 | `WS-F4` un solo contrato de dirección de delta | ✅ `3ce9f84` |
 | `WS-F5` retirar `costa` y `gaceta`, tokens a `:root` | ✅ `3ce9f84` |
+| `WS-F9` unificar Ant Design con los tokens | ✅ `7f03154` |
 | `WS-F10` ritmo de la cabecera | ✅ `3920942` |
 | `WS-A1` contrato de a11y de gráficas | ✅ `e20362a` |
 | `WS-A2` objetivos táctiles | ✅ `7d2fc90` |
@@ -871,34 +872,53 @@ ya deja de tener los defectos que cuestan un contrato.
 | `WS-A5` pantalla de error | ✅ `3920942` |
 | `WS-C2` gráfica de tendencia honesta (`SeriesPanels`) | ✅ `3920942` |
 | `F6` leyenda del heatmap con color de otro tema | ✅ `7d2fc90` |
-| `WS-F2` reconciliar nombres de token con el apéndice | ⬜ |
+| **Nube de palabras** (`/api/eco-terms` + `TermsCloud`) | ✅ `c86a55a` |
+| `WS-N1` ventana temporal del pool | ✅ `cf23685` · sin desplegar |
+| `WS-N2` eps auto-calibrado (`autoEps`) | ✅ `cf23685` · sin desplegar |
+| `WS-N3` barrido diagnóstico (solo lectura) | ✅ `cf23685` |
+| `WS-N5` reactivar la asignación | ✅ `cf23685` · sin desplegar |
+| `WS-N6` máquina de estados + `revived` alcanzable | ✅ `cf23685` · sin desplegar |
+| `WS-N8` sanear el drift de documentación | ✅ `cf23685` |
+| `WS-N7` observabilidad | 🟡 log estructurado sí; alarmas CloudWatch no |
+| `WS-N4` purga del pool (~72,768 filas) | ⬜ **requiere autorización** |
 | `WS-F3` decidir el color de marca | ⬜ **decisión del cliente** |
-| `WS-F6` arreglar `mando` light | 🟡 parcial (Leaflet ya usa el puente de tokens) |
+| `WS-F2` reconciliar nombres de token con el apéndice | ⬜ |
+| `WS-F6` arreglar `mando` light | 🟡 Leaflet y CSS sí; falta barrido completo |
 | `WS-F7` migrar los `fontSize`/`gap` inline | ⬜ |
 | `WS-F8` primitivas que faltan | ⬜ |
-| `WS-F9` unificar el segundo sistema (Ant Design) | ⬜ |
-| Resto de gráficas, Menciones, Narrativas | ⬜ |
+| Resto de gráficas · funciones de Menciones · UX de Narrativas | ⬜ |
 
-**Medición actual** (20 capturas: 10 rutas × {1440, 390}, sondas sobre los
+**Medición final** (20 capturas: 10 rutas × {1440, 390}, sondas sobre los
 colores resueltos en el DOM):
 
 | | Al inicio | Ahora |
 |---|---:|---:|
 | Texto bajo el mínimo de contraste AA | 1,884 | **0** |
-| Objetivos táctiles bajo 24×24 (AA, SC 2.5.8) | 131 | **0** |
-| Objetivos bajo 44×44 (AAA, SC 2.5.5) | 365 | 249 |
+| Objetivos táctiles bajo 24×24 (AA, WCAG 2.2 SC 2.5.8) | 131 | **0** |
+| Objetivos bajo 44×44 (AAA, WCAG 2.1 SC 2.5.5) | 365 | 249 |
 | Paths SVG con `NaN` | 4 | **0** |
 | Errores de consola | 4 | **0** |
 | Desbordes horizontales | 0 | **0** |
-| Atributos ARIA (en la página) | 18 (en el fuente) | **229** |
+| Atributos ARIA (en la página) | 18 (fuente) | **229** |
 | SVG con nombre o marcados decorativos | 0 de 40 | **39 de 40** |
 | Tablas equivalentes de gráficas | 0 | **2** |
 | Histogramas sintéticos rotulados como medidos | 3 | **0** |
-| Literales de color fuera del sistema | 132 | **2** (ambos justificados) |
+| Registros de auditoría inventados | 1 | **0** |
+| Literales de color fuera del sistema | 132 | **2** (justificados) |
+| Temas × modos declarados vs alcanzables | 6 vs 2 | **1 × 2** |
+| Sistemas de diseño en el producto | 2 | **1** |
+| Tests de la máquina de estados de narrativas | 0 | **12** |
 
 > Los 249 que siguen bajo 44×44 son celdas de heatmap a 24px y filas de lista a
 > 28px: densidad legítima que **cumple AA**. Subirlas a 44 es una decisión de
 > producto (menos datos por pantalla), no una corrección pendiente.
+
+> **Nota de método.** Dos mediciones que reporté antes estaban mal y quedan
+> corregidas aquí: (1) los «369 objetivos bajo 44px» se contaban como fallo AA
+> cuando 44×44 es **AAA**; (2) los «33 errores de TypeScript preexistentes» eran
+> un artefacto del worktree — `@eco/*` resuelve al monorepo principal, que está
+> sucio. Con los paths apuntando al worktree quedan **2**, ambos ajenos a este
+> trabajo.
 
 ### Fase 1 — Terminar el sistema de diseño
 
