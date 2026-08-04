@@ -31,11 +31,11 @@ function ecoBounceToSignIn() {
 // Fuente ÚNICA de la banda de Riesgo de Crisis (escala 0–1) para que el
 // veredicto NO difiera entre Overview y Scorecard. Cortes: NORMAL <0.25,
 // ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60 (mismos del backend/termómetro).
-const CRISIS_GRADIENT = 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, #E0662E 40%, #E0662E 60%, var(--neg) 60%, var(--neg) 100%)';
+const CRISIS_GRADIENT = 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--accent) 40%, var(--accent) 60%, var(--neg) 60%, var(--neg) 100%)';
 function crisisBand(score) {
   const s = score == null ? 0 : score;
   if (s >= 0.60) return { label: 'CRISIS', tone: 'neg', color: 'var(--neg)' };
-  if (s >= 0.40) return { label: 'ALERTA', tone: 'neg', color: '#E0662E' };
+  if (s >= 0.40) return { label: 'ALERTA', tone: 'neg', color: 'var(--accent)' };
   if (s >= 0.25) return { label: 'ELEVADO', tone: 'warn', color: 'var(--warn)' };
   return { label: 'NORMAL', tone: 'pos', color: 'var(--pos)' };
 }
@@ -261,7 +261,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     { key: 'brandHealthIndex', label: 'Brand Health', color: 'var(--pos)' },
     { key: 'totalMentions', label: 'Menciones', color: 'var(--text-2)' },
     { key: 'crisisRiskScore', label: 'Crisis', color: 'var(--neg)' },
-    { key: 'polarizationIndex', label: 'Polarización', color: '#8B5CF6' },
+    { key: 'polarizationIndex', label: 'Polarización', color: window.ECO_METRIC_COLOR.polarizationIndex },
     { key: 'engagementRate', label: 'Engagement', color: 'var(--warn)' },
   ];
 
@@ -288,7 +288,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
 
   function openSourceSlice(src) {
     const key = src.key;
-    const colors = { facebook: '#0A7EA4', twitter: 'var(--accent)', news: 'var(--pos)', instagram: '#8B5CF6', youtube: 'var(--neg)', blog: 'var(--warn)' };
+    // Paleta categórica, no semántica: antes "Noticias" era var(--pos) —verde—
+    // a 300px de barras donde el verde significa "positivo", así que la
+    // categoría se leía como un juicio.
+    const colors = window.ECO_SOURCE_COLOR;
     setSlice({
       eyebrow: 'Fuente',
       title: src.label,
@@ -309,7 +312,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   }
 
   function openTopicSlice(t) {
-    const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+    const palette = window.ECO_CAT;
     const slugIdx = {};
     D.TOPICS.forEach((tp, i) => { slugIdx[tp.slug] = i; });
     const accent = palette[slugIdx[t.slug] % palette.length] || 'var(--accent)';
@@ -461,12 +464,12 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex)}
-          onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)" trendData={D.TIMELINE.map(t => t.polarizationIndex)}
+          onClick={() => openMetric('polarization', 'Polarización', 'var(--metric-polarization)')}>
 
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
+            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, var(--metric-polarization) 60%, var(--metric-polarization) 100%)', position: 'relative' }}>
+              <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid var(--metric-polarization)', transform: 'translateX(-50%)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
               <span>APÁTICA</span><span>MODERADA</span><span>ALTA</span><span>EXTREMA</span>
@@ -542,7 +545,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           <div className="card-bd">
             <HBarList
               items={D.TOP_SOURCES.map(s => ({ label: s.source, value: s.count, key: s.key }))}
-              colorFn={(it) => ({ facebook: '#0A7EA4', twitter: 'var(--accent)', news: 'var(--pos)', instagram: '#8B5CF6', youtube: 'var(--neg)', blog: 'var(--warn)' })[it.key] || 'var(--accent)'}
+              colorFn={(it) => window.ecoSourceColor(it.key)}
               onItemClick={openSourceSlice}
             />
           </div>
@@ -1761,26 +1764,13 @@ function SentimentScreen({ onMentionClick, period, agency }) {
 // indiferencia" a `color: 'neu'`, pero `--neu` no existe como CSS var, así
 // que `background: var(--neu)` resolvía vacío y la barra quedaba invisible.
 //
-// Fix: paleta auto-contenida en frontend, mapeada por NOMBRE de emoción (no
-// confía en `e.color` del backend). Cada emoción del set definido por el
-// prompt del processor tiene un color distinto y semántico:
-//   - enojo / frustración  → rojo (var(--neg))
-//   - preocupación         → ámbar (var(--warn))
-//   - sarcasmo             → púrpura (#8C5BA8)
-//   - indiferencia         → gris cálido (#7B8794)
-//   - gratitud / esperanza / alegría / aprobación → verde (var(--pos))
-//   - alivio               → teal (#5FA98A)
-//   - confusión            → gris (#7B8794)
-//   - fallback             → gris (#7B8794)
+// Fix: mapeo por NOMBRE de emoción (no confía en `e.color` del backend),
+// resuelto contra los tokens --emo-* de tokens.css.
 function emotionColor(emotion) {
-  const e = (emotion || '').toLowerCase();
-  if (e === 'enojo' || e === 'frustración' || e === 'frustracion') return 'var(--neg)';
-  if (e === 'preocupación' || e === 'preocupacion') return 'var(--warn)';
-  if (e === 'sarcasmo') return '#8C5BA8';
-  if (e === 'indiferencia' || e === 'confusión' || e === 'confusion') return '#7B8794';
-  if (e === 'gratitud' || e === 'esperanza' || e === 'alegría' || e === 'alegria' || e === 'aprobación' || e === 'aprobacion') return 'var(--pos)';
-  if (e === 'alivio') return '#5FA98A';
-  return '#7B8794';
+  // Delegado a window.ecoEmotionColor (data.js), que mapea a los tokens
+  // --emo-*. Antes esta función tenía 7 hex escritos a mano y un gris de
+  // fallback (#7B8794) que no pertenecía a ninguna paleta del sistema.
+  return window.ecoEmotionColor(emotion);
 }
 
 function EmotionsCard({ emotions, onEmotionClick }) {
@@ -1993,7 +1983,7 @@ function TopicsScreen({ onMentionClick }) {
       <TopicCalendar data={calendarData} onSelect={openTopic} onDayClick={setDayModal} />
 
       {dayModal && (() => {
-        const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+        const palette = window.ECO_CAT;
         const slugIdx = {};
         D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
         const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
@@ -2086,10 +2076,11 @@ function TopicTreemap({ topics, onSelect }) {
 function SentimentBar({ t }) {
   const deltaStr = t.delta == null
     ? '—'
-    : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`;
-  const deltaColor = t.delta == null
-    ? 'var(--text-3)'
-    : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
+    : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`;
+  // El volumen de un tópico es NEUTRO: que "Turismo y promoción" suba no es
+  // malo. Antes esto pintaba toda subida en --neg y toda bajada en --pos, y el
+  // Scorecard hacía justo lo contrario con el mismo dato.
+  const deltaColor = window.ecoDeltaColor('volume', t.delta);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
       <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)', minWidth: 40 }}>
@@ -2438,13 +2429,21 @@ function StatBox({ label, value, tone }) {
 // --- Calendar of "main topic of the day" ---
 function TopicCalendar({ data, onSelect, onDayClick }) {
   // Color per topic slug — consistent hues
-  const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+  const palette = window.ECO_CAT;
   const slugIdx = {};
   D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
   const colorFor = (slug) => palette[slugIdx[slug] % palette.length];
   // Semáforo de sentimiento: el color del día = su sentimiento dominante
   // (verde positivo / rojo negativo / gris neutral). La opacidad = volumen.
-  const SENT_HEX = { positivo: '#2E8B6A', negativo: '#C2412F', neutral: '#7C8698' };
+  // Antes: { positivo:'#2E8B6A', negativo:'#C2412F', neutral:'#7C8698' } — el
+  // verde y el rojo del tema `costa` dentro de `mando`, lo que producía 40 de
+  // los 44 fallos de contraste que quedaban (texto de --mando sobre celdas de
+  // --costa, 1.82:1 en el peor caso).
+  const SENT_HEX = {
+    positivo: window.ecoSentimentColor('positivo'),
+    negativo: window.ecoSentimentColor('negativo'),
+    neutral: window.ecoSentimentColor('neutral'),
+  };
   const sentColor = (s) => SENT_HEX[s] || SENT_HEX.neutral;
   const sentLabel = (s) => (s === 'positivo' ? 'Positivo' : s === 'negativo' ? 'Negativo' : 'Neutral');
 
@@ -2549,7 +2548,12 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           aspectRatio: '1 / 1', minHeight: 62,
                           padding: 6,
                           borderRadius: 6,
-                          background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
+                          // Tinte por intensidad con color-mix, no concatenando una
+                          // opacidad hex al color: con tokens (`var(--pos)e6`) eso era CSS
+                          // inválido y la celda quedaba transparente.
+                          // Tope 50%: por encima de eso `--text` deja de pasar AA sobre el
+                          // verde (3.71:1 al 60%).
+                          background: `color-mix(in oklab, ${color} ${Math.round(Math.min(intensity, 1) * 50)}%, var(--canvas))`,
                           // Borde más marcado en el primer día del mes para
                           // reforzar el cambio cuando ocurre mid-week.
                           border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
@@ -2558,12 +2562,12 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           overflow: 'hidden',
                         }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? 'var(--on-accent)' : 'var(--text)' }}>{dayNum}</span>
+                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: 'var(--text)' }}>{dayNum}</span>
                         </div>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? 'var(--on-accent)' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
                           {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
                         </div>
-                        <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
+                        <div className="num" style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)' }}>{fmt(c.volume)}</div>
                       </button>
                     );
                   })}
@@ -2580,7 +2584,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: 'var(--text-2)' }}>
               {[['positivo', 'Positivo'], ['negativo', 'Negativo'], ['neutral', 'Neutral']].map(([k, l]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: SENT_HEX[k] }} />
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: `color-mix(in oklab, ${SENT_HEX[k]} 50%, var(--canvas))`, border: `1px solid ${SENT_HEX[k]}` }} />
                   <span>{l}</span>
                 </div>
               ))}
@@ -2600,9 +2604,9 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
           <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 10, color: 'var(--text-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ display: 'flex', gap: 2 }}>
-                <span style={{ width: 8, height: 8, background: '#7C86984D' }} />
-                <span style={{ width: 8, height: 8, background: '#7C869999' }} />
-                <span style={{ width: 8, height: 8, background: '#7C8698FF' }} />
+                <span style={{ width: 8, height: 8, background: 'color-mix(in oklab, var(--text-3) 30%, transparent)' }} />
+                <span style={{ width: 8, height: 8, background: 'color-mix(in oklab, var(--text-3) 60%, transparent)' }} />
+                <span style={{ width: 8, height: 8, background: 'var(--text-3)' }} />
               </span>
               Opacidad = volumen del día
             </div>
@@ -3135,7 +3139,7 @@ function AlertsScreen({ onMentionClick }) {
                 onClick={() => setRuleActive((s) => ({ ...s, [a.id]: !s[a.id] }))}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
                 <div style={{ width: 28, height: 16, borderRadius: 10, background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
-                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'all 0.2s' }} />
+                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
                 </div>
                 <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
               </label>
@@ -3503,7 +3507,7 @@ function TemplatesAdmin() {
         {err && <div style={{ fontSize: 12, color: 'var(--neg)' }}>No se pudo generar la vista previa: {err}</div>}
         {html != null && (
           <iframe title="Vista previa del correo" srcDoc={html}
-            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 10, background: '#fff' }} />
+            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 10, background: '#fff' /* el correo ES un documento blanco: no es un token que falte */ }} />
         )}
       </div>
     </div>
@@ -3566,7 +3570,10 @@ function UsersAdmin() {
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
     lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
-    avatar: '#4A7FB5',
+    // Color estable derivado del correo, de la paleta categórica. Antes era un
+    // azul fijo (#4A7FB5) para TODOS los usuarios, y con texto blanco daba
+    // 4.20:1 — bajo el mínimo AA.
+    avatar: window.ecoCat(String(u.email || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0)),
   });
 
   // Las claves de ROLES ya coinciden con el enum del backend; solo validamos.
@@ -3739,7 +3746,7 @@ function UsersAdmin() {
                   borderTop: '1px solid var(--hairline)',
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: u.avatar, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: u.avatar, color: 'var(--on-cat)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
                     {u.name.split(' ').map(p => p[0]).slice(0,2).join('')}
                   </div>
                   <div style={{ minWidth: 0 }}>
@@ -4099,7 +4106,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
           // (matchea correo) que solo expone el name; resolvemos el slug aquí.
           const topic = (D.TOPICS || []).find((t) => t.name === row.topic);
           if (!topic) return;
-          const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+          const palette = window.ECO_CAT;
           const slugIdx = {};
           (D.TOPICS || []).forEach((tp, i) => { slugIdx[tp.slug] = i; });
           const accent = palette[(slugIdx[topic.slug] || 0) % palette.length] || 'var(--accent)';

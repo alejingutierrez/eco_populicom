@@ -136,7 +136,7 @@ function ecoCanSeePage(key) {
 }
 if (typeof window !== 'undefined') { window.ecoCanSeePage = ecoCanSeePage; window.ecoHasCap = ecoHasCap; }
 
-function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, theme, mode }) {
+function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, mode }) {
   const I = Icons;
   // Con '__all__' seleccionada, la nav de análisis muestra las 3 pantallas
   // ejecutivas (Tabla / Sala / Radar); con una agencia real, la nav normal.
@@ -153,7 +153,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           width: '100%',
           padding: collapsed ? '9px 0' : '9px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
-          borderRadius: theme === 'gaceta' ? 3 : 6,
+          borderRadius: 'var(--r-md)',
           background: isActive ? 'var(--rail-active-bg)' : 'transparent',
           color: isActive ? 'var(--rail-fg-active)' : 'var(--rail-fg)',
           fontSize: 13, fontWeight: isActive ? 600 : 500,
@@ -198,16 +198,14 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       }}>
         {/* Mark — echo/signal wordmark */}
         <div style={{
-          width: 36, height: 36, borderRadius: theme === 'gaceta' ? 4 : 8,
+          width: 36, height: 36, borderRadius: 'var(--r-lg)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: theme === 'gaceta' ? 'var(--accent)' : 'linear-gradient(145deg, #1A2838 0%, #0B111A 100%)',
-          border: theme === 'gaceta' ? 'none' : '1px solid rgba(125,183,172,0.18)',
-          color: '#fff', flexShrink: 0, position: 'relative',
-          boxShadow: theme === 'gaceta' ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.3)',
+          background: 'linear-gradient(145deg, var(--logo-from) 0%, var(--logo-to) 100%)',
+          border: '1px solid var(--logo-border)',
+          color: 'var(--rail-fg-active)', flexShrink: 0, position: 'relative',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.3)',
         }}>
-          {theme === 'gaceta' ? (
-            <span style={{ fontFamily: 'var(--ff-serif)', fontStyle: 'italic', fontSize: 20, fontWeight: 600, lineHeight: 1 }}>e</span>
-          ) : (
+          {(
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
               {/* Echo arcs radiating from a point */}
               <path d="M 7 19 A 7 7 0 0 1 7 5" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.35" />
@@ -230,14 +228,14 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           <div style={{ lineHeight: 1, minWidth: 0, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <div style={{
-                color: '#fff',
-                fontSize: theme === 'gaceta' ? 20 : 16,
-                fontWeight: theme === 'gaceta' ? 500 : 600,
-                letterSpacing: theme === 'gaceta' ? 0 : '0.02em',
-                fontFamily: theme === 'gaceta' ? 'var(--ff-serif)' : 'inherit',
-                fontStyle: theme === 'gaceta' ? 'italic' : 'normal',
-              }}>{theme === 'gaceta' ? 'La Gaceta' : 'Eco'}</div>
-              {theme !== 'gaceta' && (
+                color: 'var(--rail-fg-active)',
+                fontSize: 16,
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'normal',
+              }}>Eco</div>
+              {(
                 <span style={{
                   fontSize: 9, fontWeight: 600, letterSpacing: '0.04em',
                   color: 'var(--accent-2)',
@@ -257,7 +255,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
               display: 'flex', alignItems: 'center', gap: 6,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              <span>{theme === 'mando' ? 'Operations Console' : theme === 'gaceta' ? 'Monitoreo oficial' : 'Social Intelligence'}</span>
+              <span>{'Operations Console'}</span>
             </div>
           </div>
         )}
@@ -760,10 +758,13 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
     });
 
     if (hasCoords) {
-      const color = sentiment === 'positivo' ? '#3FD47A' : sentiment === 'negativo' ? '#FF6A3D' : '#8A94A1';
+      // Ver la nota de PRMap en charts.js: Leaflet no resuelve custom properties,
+      // así que el color se resuelve con ecoTokenValue() para que el modo claro
+      // no herede los hex de oscuro.
+      const T = (t) => window.ecoTokenValue(t);
       L.circleMarker(center, {
-        radius: 9, color: '#0E1620', weight: 1.5,
-        fillColor: color, fillOpacity: 0.85,
+        radius: 9, color: T('var(--canvas)'), weight: 1.5,
+        fillColor: T(window.ecoSentimentColor(sentiment)), fillOpacity: 0.85,
       }).addTo(mapRef.current);
     }
   }, [coords, sentiment]);
@@ -1053,7 +1054,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   );
 }
 
-function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onClose }) {
+function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   React.useEffect(() => {
@@ -1061,11 +1062,8 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const themes = [
-    { key: 'costa', label: 'Costa', desc: 'Moderno institucional' },
-    { key: 'gaceta', label: 'Gaceta', desc: 'Formal, impreso' },
-    { key: 'mando', label: 'Mando', desc: 'Centro de operaciones' },
-  ];
+  // El selector de temas se retiró con costa y gaceta (WS-F5): `mando` es el
+  // único tema y app.js no expone setTheme. El panel conserva modo y densidad.
   return (
     <div className="tweaks-panel">
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1074,28 +1072,6 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
         <button onClick={onClose}><Icons.Close size={14} color="var(--text-3)" /></button>
       </div>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 8 }}>Dirección visual</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {themes.map((t) => (
-              <button key={t.key} onClick={() => setTheme(t.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: 10, borderRadius: 8,
-                  border: `1px solid ${theme === t.key ? 'var(--accent)' : 'var(--hairline)'}`,
-                  background: theme === t.key ? 'var(--accent-fill)' : 'var(--canvas)',
-                  textAlign: 'left',
-                }}>
-                <div style={{ width: 32, height: 32, borderRadius: 6, background: t.key === 'costa' ? 'linear-gradient(135deg, #0B5F80, #3FB5D8)' : t.key === 'gaceta' ? 'linear-gradient(135deg, #0F2949, #C8A961)' : 'linear-gradient(135deg, #0A0F16, #C83A1E)' }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{t.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.desc}</div>
-                </div>
-                {theme === t.key && <Icons.Check size={14} color="var(--accent)" />}
-              </button>
-            ))}
-          </div>
-        </div>
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 8 }}>Modo</div>
           <div style={{ display: 'flex', gap: 6 }}>

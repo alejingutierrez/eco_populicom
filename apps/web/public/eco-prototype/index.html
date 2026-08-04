@@ -17,132 +17,8 @@
   /* :root — tipografía, espaciado, radios y movimiento viven ahora en
      tokens.css. No re-declares aquí: si falta un token, añádelo allá. */
 
-  /* ============================================== */
-  /* THEME: COSTA (default, modern institutional)   */
-  /* ============================================== */
-  [data-theme="costa"][data-mode="light"] {
-    --bg: #F3F5F8;
-    --bg-2: #E9EDF2;
-    --canvas: #FFFFFF;
-    --canvas-2: #FAFBFD;
-    --hairline: #E6EAF0;
-    --hairline-strong: #D4DAE3;
-    --text: #0B1A26;
-    --text-2: #5B6B7B;
-    --text-3: #94A0AC;
-    --accent: #0B5F80;
-    --accent-2: #2A92B5;
-    --accent-fill: rgba(11,95,128,0.08);
-    --pos: #2E8B6A;
-    --pos-bg: #E8F5EE;
-    --neg: #C2412F;
-    --neg-bg: #FBECE8;
-    --warn: #B47410;
-    --warn-bg: #FBF2DC;
-    --info: #0B5F80;
-    --rail-bg: #0E1E2C;
-    --rail-fg: rgba(255,255,255,0.58);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,255,255,0.08);
-    --rail-border: rgba(255,255,255,0.06);
-    --shadow-sm: 0 1px 0 rgba(11,26,38,0.04), 0 1px 3px rgba(11,26,38,0.03);
-    --shadow: 0 1px 0 rgba(11,26,38,0.04), 0 6px 20px -8px rgba(11,26,38,0.08);
-    --ff-display: 'Instrument Sans', -apple-system, sans-serif;
-    --ff-numeric: 'Instrument Sans', -apple-system, sans-serif;
-    --letter-display: -0.02em;
-  }
-  [data-theme="costa"][data-mode="dark"] {
-    --bg: #0A1620;
-    --bg-2: #0F1E2B;
-    --canvas: #132332;
-    --canvas-2: #0F1E2B;
-    --hairline: rgba(255,255,255,0.07);
-    --hairline-strong: rgba(255,255,255,0.12);
-    --text: #E7EDF4;
-    --text-2: #8A9AAB;
-    --text-3: #5B6B7B;
-    --accent: #3FB5D8;
-    --accent-2: #68D5F2;
-    --accent-fill: rgba(63,181,216,0.14);
-    --pos: #53C189;
-    --pos-bg: rgba(83,193,137,0.12);
-    --neg: #EF6F5A;
-    --neg-bg: rgba(239,111,90,0.12);
-    --warn: #E9B15C;
-    --warn-bg: rgba(233,177,92,0.12);
-    --info: #3FB5D8;
-    --rail-bg: #081320;
-    --rail-fg: rgba(255,255,255,0.5);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(63,181,216,0.16);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.3);
-    --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
-  }
-
-  /* ============================================== */
-  /* THEME: GACETA (formal, print, government)      */
-  /* ============================================== */
-  [data-theme="gaceta"][data-mode="light"] {
-    --bg: #EFEAE0;
-    --bg-2: #E4DDCE;
-    --canvas: #F9F5EC;
-    --canvas-2: #F3EDDF;
-    --hairline: #D9D2BF;
-    --hairline-strong: #B9AF96;
-    --text: #1A1A1A;
-    --text-2: #5C554A;
-    --text-3: #8A8373;
-    --accent: #0F2949;
-    --accent-2: #1F4575;
-    --accent-fill: rgba(15,41,73,0.08);
-    --pos: #2C6B3C;
-    --pos-bg: rgba(44,107,60,0.10);
-    --neg: #8B1F1F;
-    --neg-bg: rgba(139,31,31,0.10);
-    --warn: #875A0D;
-    --warn-bg: rgba(135,90,13,0.12);
-    --info: #0F2949;
-    --rail-bg: #0F2949;
-    --rail-fg: rgba(255,255,255,0.58);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,255,255,0.10);
-    --rail-border: rgba(255,255,255,0.06);
-    --shadow-sm: 0 1px 0 rgba(26,26,26,0.05);
-    --shadow: 0 1px 0 rgba(26,26,26,0.05);
-    --ff-display: 'Newsreader', 'Instrument Serif', Georgia, serif;
-    --ff-numeric: 'Newsreader', Georgia, serif;
-    --letter-display: -0.01em;
-  }
-  [data-theme="gaceta"][data-mode="dark"] {
-    --bg: #14120D;
-    --bg-2: #1D1A13;
-    --canvas: #1F1C14;
-    --canvas-2: #161410;
-    --hairline: rgba(217,210,191,0.10);
-    --hairline-strong: rgba(217,210,191,0.22);
-    --text: #EFEAE0;
-    --text-2: #A59D88;
-    --text-3: #6F6959;
-    --accent: #C8A961;
-    --accent-2: #E2C283;
-    --accent-fill: rgba(200,169,97,0.12);
-    --pos: #6BB37A;
-    --pos-bg: rgba(107,179,122,0.10);
-    --neg: #D27266;
-    --neg-bg: rgba(210,114,102,0.12);
-    --warn: #E2B06A;
-    --warn-bg: rgba(226,176,106,0.12);
-    --info: #C8A961;
-    --rail-bg: #100E0A;
-    --rail-fg: rgba(239,234,224,0.45);
-    --rail-fg-active: #F2E4BD;
-    --rail-active-bg: rgba(200,169,97,0.10);
-    --rail-border: rgba(239,234,224,0.06);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.4);
-    --shadow: 0 1px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.7);
-  }
-
+    
+    
   /* ============================================== */
   /* THEME: MANDO (command center)                  */
   /* ============================================== */
@@ -163,8 +39,7 @@
     -moz-osx-font-smoothing: grayscale;
     transition: background 0.3s var(--ease), color 0.3s var(--ease);
   }
-  [data-theme="mando"] body { font-family: var(--ff-sans); }
-  [data-theme="gaceta"] body { font-family: 'Instrument Sans', sans-serif; }
+  body { font-family: var(--ff-sans); }
 
   button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
   input, select { font-family: inherit; color: inherit; }
@@ -290,6 +165,7 @@
 
   /* Card primitive */
   .card {
+    border-radius: 6px;
     background: var(--canvas);
     border: 1px solid var(--hairline);
     border-radius: var(--r-lg);
@@ -299,8 +175,6 @@
        otherwise lets wide inner content force horizontal overflow). */
     min-width: 0;
   }
-  [data-theme="gaceta"] .card { border-radius: 4px; }
-  [data-theme="mando"] .card { border-radius: 6px; }
 
   .card-hd {
     padding: 14px 16px 10px;
@@ -312,13 +186,18 @@
   }
   .card-hd > div:first-child { min-width: 0; flex: 1; }
   .card-hd-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: -0.005em; }
-  [data-theme="gaceta"] .card-hd-title { font-family: var(--ff-serif); font-style: italic; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); }
   .card-hd-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
   .card-bd { padding: 16px; }
   .card-bd-flush { padding: 0; }
 
   /* Pill */
   .pill {
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+    padding: 4px 8px;
+    font-family: var(--ff-sans);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -329,8 +208,6 @@
     line-height: 1;
     white-space: nowrap;
   }
-  [data-theme="gaceta"] .pill { border-radius: 3px; font-weight: 500; padding: 4px 8px; }
-  [data-theme="mando"] .pill { border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; padding: 4px 8px; font-family: var(--ff-sans); }
 
   .pill-pos { background: var(--pos-bg); color: var(--pos); }
   .pill-neg { background: var(--neg-bg); color: var(--neg); }
@@ -358,6 +235,7 @@
 
   /* Chip button */
   .chip {
+    border-radius: 3px;
     display: inline-flex; align-items: center; gap: 6px;
     padding: 5px 10px; border-radius: 999px;
     font-size: 11px; font-weight: 500;
@@ -365,15 +243,14 @@
     color: var(--text-2);
     transition: all 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .chip { border-radius: 3px; }
-  [data-theme="mando"] .chip { border-radius: 3px; }
   .chip:hover { border-color: var(--hairline-strong); color: var(--text); }
-  .chip.active { background: var(--text); color: var(--canvas); border-color: var(--text); }
-  [data-theme="gaceta"] .chip.active { background: var(--accent); border-color: var(--accent); color: #F9F5EC; }
-  [data-theme="mando"] .chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
   /* Button */
   .btn {
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: var(--ff-sans);
     display: inline-flex; align-items: center; gap: 8px;
     padding: 7px 14px;
     border-radius: var(--r);
@@ -383,14 +260,11 @@
     color: var(--text);
     transition: all 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .btn { border-radius: 3px; }
-  [data-theme="mando"] .btn { border-radius: 4px; font-size: 13px; font-family: var(--ff-sans); }
   .btn:hover { border-color: var(--hairline-strong); background: var(--canvas-2); }
   /* Primer plano oscuro sobre relleno saturado: #fff sobre --accent da 2.85:1
      (falla AA). Ver tokens.css §5 --on-*. */
   .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
-  [data-theme="gaceta"] .btn-primary { color: #F9F5EC; }
 
   /* Input */
   .input {
@@ -403,7 +277,6 @@
     font-size: 13px;
     transition: border-color 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .input { border-radius: 3px; }
   .input:hover { border-color: var(--hairline-strong); }
   .input:focus { outline: none; border-color: var(--accent); }
 
@@ -417,7 +290,6 @@
     letter-spacing: 0.1em;
     margin-bottom: 4px;
   }
-  [data-theme="gaceta"] .section-eyebrow { font-family: var(--ff-serif); font-style: italic; font-weight: 400; text-transform: none; letter-spacing: 0.02em; font-size: 13px; }
 
   /* Loading shimmer */
   @keyframes shimmer {
@@ -478,8 +350,7 @@
     animation: slideUp 0.22s var(--ease);
     overflow: hidden;
   }
-  [data-theme="gaceta"] .spotlight { border-radius: 4px; }
-  [data-theme="mando"] .spotlight { border-radius: 6px; }
+  .spotlight { border-radius: 6px; }
 
   /* Drawer — z-index above Leaflet which goes up to 1000 */
   .drawer-backdrop {
@@ -600,8 +471,7 @@
 
   /* Bar chart rows */
   .bar-track { background: var(--canvas-2); border-radius: 999px; overflow: hidden; }
-  [data-theme="gaceta"] .bar-track { border-radius: 1px; }
-  [data-theme="mando"] .bar-track { border-radius: 1px; }
+  .bar-track { border-radius: 1px; }
 
   /* Status dot */
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
@@ -626,38 +496,42 @@
     animation: ringPulse 1.6s ease-out infinite;
   }
 
-  /* Leaflet theme overrides — match the Mando dark theme */
+  /* Leaflet: los estilos del contenedor y los controles SÍ pueden ser CSS, así
+     que van por token (los que Leaflet recibe como opciones JS van por
+     window.ecoTokenValue — ver la nota en charts.js PRMap). Antes esto tenía
+     los hex de modo oscuro escritos a mano, así que en modo claro el mapa
+     quedaba con tooltip oscuro y controles oscuros sobre un mapa claro. */
   .leaflet-container {
-    background: #0E1620;
+    background: var(--canvas);
     font-family: var(--ff-sans);
   }
   .leaflet-tooltip.eco-map-tooltip {
-    background: rgba(14, 22, 32, 0.95);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #E6ECF3;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-    padding: 6px 10px;
-    border-radius: 6px;
+    background: color-mix(in oklab, var(--surface-overlay) 95%, transparent);
+    border: 1px solid var(--hairline-strong);
+    color: var(--text);
+    box-shadow: var(--shadow-lg);
+    padding: var(--sp-15) var(--sp-3);
+    border-radius: var(--r-md);
+    font-size: var(--fs-caption);
   }
   .leaflet-tooltip.eco-map-tooltip::before { display: none; }
   .leaflet-control-zoom a,
   .leaflet-control-layers-toggle,
   .leaflet-control-layers-expanded {
-    background: rgba(14, 22, 32, 0.95) !important;
-    color: #E6ECF3 !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
+    background: color-mix(in oklab, var(--surface-overlay) 95%, transparent) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--hairline-strong) !important;
   }
   .leaflet-control-zoom a:hover,
-  .leaflet-control-layers-toggle:hover { background: rgba(255, 106, 61, 0.25) !important; }
+  .leaflet-control-layers-toggle:hover { background: var(--accent-fill) !important; }
   .leaflet-control-attribution {
-    background: rgba(14, 22, 32, 0.7) !important;
-    color: rgba(230, 236, 243, 0.55) !important;
-    font-size: 9px !important;
+    background: color-mix(in oklab, var(--canvas) 70%, transparent) !important;
+    color: var(--text-3) !important;
+    font-size: var(--fs-overline) !important;
   }
-  .leaflet-control-attribution a { color: rgba(63, 181, 216, 0.85) !important; }
-  .eco-map-marker { transition: stroke-width 0.15s var(--ease); cursor: pointer; }
+  .leaflet-control-attribution a { color: var(--info) !important; }
+  .eco-map-marker { transition: stroke-width var(--dur-fast) var(--ease); cursor: pointer; }
   .eco-map-marker:hover { stroke-width: 3 !important; }
-  [data-mode="light"] .leaflet-container { background: #F5F6F7; }
 
   /* ============================================== */
   /* Narrativas — análisis con streamgraph + menu    */
@@ -1330,17 +1204,17 @@
     banner.id = 'eco-api-banner';
     banner.style.cssText = [
       'position:fixed','top:0','left:0','right:0','z-index:3000',
-      'padding:10px 20px','font-family:-apple-system,sans-serif','font-size:12px','font-weight:600',
+      'padding:10px 20px','font-family:var(--ff-sans)','font-size:var(--fs-caption)','font-weight:600',
       'display:flex','gap:12px','align-items:center','justify-content:center',
-      'background:' + (kind === 'error' ? '#3a1411' : '#3a2e11'),
-      'color:' + (kind === 'error' ? '#ff8a63' : '#ffc043'),
-      'border-bottom:1px solid rgba(255,255,255,0.1)',
+      'background:' + (kind === 'error' ? 'var(--neg-bg)' : 'var(--warn-bg)'),
+      'color:' + (kind === 'error' ? 'var(--neg)' : 'var(--warn)'),
+      'border-bottom:1px solid var(--hairline-strong)',
     ].join(';');
     const msg = document.createElement('span');
     msg.textContent = message;
     const retry = document.createElement('button');
     retry.textContent = 'Reintentar';
-    retry.style.cssText = 'background:rgba(255,255,255,0.12);color:#E6ECF3;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
+    retry.style.cssText = 'background:var(--hairline-strong);color:var(--text);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
     retry.onclick = () => location.reload();
     banner.appendChild(msg);
     banner.appendChild(retry);
@@ -1429,7 +1303,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc23';
+        s.src = base + '/' + f + '?v=prodc25';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
@@ -1439,7 +1313,7 @@
         document.body.appendChild(s);
       }).catch((e) => {
         const err = document.createElement('pre');
-        err.style.cssText = 'color:#ff6a3d;padding:24px;font-family:monospace;white-space:pre-wrap;';
+        err.style.cssText = 'color:var(--neg);padding:24px;font-family:var(--ff-mono);white-space:pre-wrap;';
         err.textContent = 'ECO boot error: ' + e.message;
         document.body.appendChild(err);
       });

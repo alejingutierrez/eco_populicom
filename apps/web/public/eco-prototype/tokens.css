@@ -152,7 +152,13 @@
 }
 
 /* ===========================================================================
-   5 · COLOR — tema MANDO, modo OSCURO (el único que alcanza el usuario hoy)
+   5 · COLOR — modo oscuro por defecto (`:root`), claro como override
+   ---------------------------------------------------------------------------
+   Van en `:root` INCONDICIONAL, no tras `[data-theme=...]`. Eso importa: antes
+   los tokens sólo existían si un useEffect de App había puesto el atributo en
+   <html>, así que un crash en el primer render dejaba al error boundary sin
+   NINGUNA custom property — blanco sobre blanco. Con `:root` la paleta existe
+   aunque React nunca monte.
    ---------------------------------------------------------------------------
    Correcciones respecto de la paleta anterior, todas medidas con WCAG 2.1
    sobre `--canvas` #0E1620:
@@ -172,7 +178,7 @@
    --pos 1.92:1, sobre --warn 1.63:1). El texto sobre relleno brillante es
    SIEMPRE oscuro. Esto reemplaza los 12 `#fff` hardcodeados.
    ======================================================================== */
-[data-theme="mando"][data-mode="dark"] {
+:root {
   /* superficies — en oscuro, más elevación = más CLARO */
   --bg: #060A10;
   --bg-2: #0A111A;
@@ -230,7 +236,7 @@
 }
 
 /* --- tema MANDO, modo CLARO ---------------------------------------------- */
-[data-theme="mando"][data-mode="light"] {
+:root[data-mode="light"] {
   --bg: #F5F6F7;
   --bg-2: #E8EAED;
   --surface-inset: #EDEFF2;
@@ -292,7 +298,7 @@
    sentimiento el verde ya significa "positivo" — la categoría se lee como un
    juicio. Categórico y semántico son espacios de color disjuntos.
    ======================================================================== */
-[data-theme="mando"][data-mode="dark"] {
+:root {
   /* categórica — 8 hues, todos ≥6.6:1 sobre --canvas, sin verde/rojo/ámbar
      semánticos. Asignar EN ORDEN, nunca al azar ni por hash del nombre. */
   --cat-1: #5B9DF9;   /* azul     6.61:1 */
@@ -303,6 +309,22 @@
   --cat-6: #C4B5FD;   /* lavanda            */
   --cat-7: #7DD3FC;   /* celeste            */
   --cat-8: #94A3B8;   /* gris (resto/otros) */
+
+  /* Métricas compuestas con color propio en las series de gráfica.
+     Antes la polarización era `#8B5CF6` escrito a mano en 10 sitios. */
+  --metric-polarization: #A78BFA;
+
+  /* Primer plano sobre cualquier --cat-*. En oscuro la paleta categórica es
+     clara, así que el texto va oscuro (6.6:1 el peor caso). */
+  --on-cat: #0E1620;
+  /* Piezas de control que son "físicas" y no texto (la perilla de un switch). */
+  --knob: #FFFFFF;
+
+  /* Marca: el gradiente del mosaico del logotipo. Antes eran dos hex escritos
+     a mano en shell.js (#1A2838 / #0B111A). */
+  --logo-from: #1A2838;
+  --logo-to: #0B111A;
+  --logo-border: rgba(125, 183, 172, 0.18);
 
   /* emociones — 7 valores del taxonomía NLP. Familias frías para las
      negativas, cálidas para las positivas, neutro para sorpresa. */
@@ -349,7 +371,7 @@
   --chart-void: rgba(255, 255, 255, 0.03); /* hueco de datos ≠ cero real */
 }
 
-[data-theme="mando"][data-mode="light"] {
+:root[data-mode="light"] {
   --cat-1: #1D4ED8;
   --cat-2: #6D28D9;
   --cat-3: #0F766E;
@@ -358,6 +380,9 @@
   --cat-6: #7C3AED;
   --cat-7: #0E7490;
   --cat-8: #52525B;
+  --metric-polarization: #6D28D9;
+  --on-cat: #FFFFFF;   /* en claro la paleta es oscura: 5.4:1 el peor caso */
+  --knob: #FFFFFF;
 
   --emo-ira: #C2183F;
   --emo-frustracion: #B4460F;

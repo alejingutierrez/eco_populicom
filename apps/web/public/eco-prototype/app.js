@@ -147,6 +147,9 @@ class EcoErrorBoundary extends React.Component {
   }
 }
 
+// `mando` es el único tema desde WS-F5 (costa y gaceta retirados). El atributo
+// data-theme se conserva en <html> por compatibilidad, pero tokens.css ya no
+// depende de él: los tokens viven en :root incondicional.
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
@@ -369,7 +372,7 @@ function App() {
         collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         onOpenCommand={() => setCmdOpen(true)}
-        theme={theme} mode={mode}
+        mode={mode}
       />
       {bp === 'mobile' && menuOpen && <div className="eco-menu-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="eco-main">

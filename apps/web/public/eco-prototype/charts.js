@@ -887,26 +887,32 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const r = 8 + (v / max) * 22;
       const color = colorFn(m);
       const clickable = !!onMunicipalityClick;
+      // Leaflet recibe los colores como STRINGS en opciones JS, no como CSS, así
+      // que no puede resolver `var(--pos)`. Por eso van por ecoTokenValue(), que
+      // los resuelve con getComputedStyle en cada render — y por eso el modo
+      // CLARO estaba roto aquí: los marcadores y el tooltip llevaban hex de modo
+      // oscuro (#0E1620, #3FD47A, #FF6A3D, #8A94A1, #E6ECF3) escritos a mano.
+      const T = (t) => window.ecoTokenValue(t);
       const marker = L.circleMarker([m.lat, m.lon], {
         radius: r,
-        fillColor: color,
-        color: '#0E1620',
+        fillColor: color.startsWith('var(') ? T(color) : color,
+        color: T('var(--canvas)'),
         weight: 1.5,
         fillOpacity: 0.78,
         className: 'eco-map-marker',
       });
       const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
-      const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
+      const nssColor = T(window.ecoSentimentColor(m.nss > 0 ? 'positivo' : m.nss < 0 ? 'negativo' : 'neutral'));
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       // El tooltip siempre muestra el conteo real de menciones (m.count). En
       // modo "Sentimiento" el accessor devuelve |NSS|, que NO es un conteo, así
       // que nunca debe etiquetarse como "menciones".
       const cnt = (m.count ?? 0).toLocaleString('es-PR');
       marker.bindTooltip(
-        `<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;line-height:1.3;">
-          <div style="font-weight:700;color:#E6ECF3;margin-bottom:2px;">${label}</div>
-          <div style="color:#8A94A1;">${m.region}</div>
-          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${cnt}</span> menciones</div>
+        `<div style="font-family:${T('var(--ff-sans)')};font-size:12px;line-height:1.35;">
+          <div style="font-weight:700;color:${T('var(--text)')};margin-bottom:2px;">${label}</div>
+          <div style="color:${T('var(--text-2)')};">${m.region}</div>
+          <div style="margin-top:4px;"><span style="color:${T('var(--text)')};font-weight:600;">${cnt}</span> menciones</div>
           <div style="color:${nssColor};font-weight:600;">NSS ${nssStr}</div>
         </div>`,
         { direction: 'top', offset: [0, -4], opacity: 0.95, className: 'eco-map-tooltip' },
