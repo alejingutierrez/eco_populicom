@@ -41,7 +41,16 @@
   }
   body { font-family: var(--ff-sans); }
 
-  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+  /* `font-size: inherit` cierra un hueco real: un <button> sin tamaño propio caía
+   * al default del navegador (13.333px en Chrome), un valor que no está en la
+   * escala y que nadie eligió. Heredar lo mete en la escala por defecto. */
+  button { font-family: inherit; font-size: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+
+  /* Cifras tabulares en TODA tabla. Sin esto los dígitos de Krub/Besley tienen
+   * anchos distintos (el 1 es más angosto que el 8), así que al cambiar de
+   * período las columnas de números se corren de fila en fila. Aquí es donde
+   * pertenecen las cifras de ancho fijo: 183 celdas numéricas no las tenían. */
+  table { font-variant-numeric: tabular-nums lining-nums; }
   input, select { font-family: inherit; color: inherit; }
   a { color: inherit; text-decoration: none; }
 
@@ -111,7 +120,7 @@
   .kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 18px; height: 18px; padding: 0 5px;
-    font-family: var(--ff-mono); font-size: 10px; font-weight: 500;
+    font-family: var(--ff-mono); font-size: var(--fs-overline); font-weight: 500;
     background: var(--canvas-2); border: 1px solid var(--hairline);
     border-radius: 4px; color: var(--text-2);
   }
@@ -404,7 +413,6 @@
     animation: slideUp 0.22s var(--ease);
     overflow: hidden;
   }
-  .spotlight { border-radius: 6px; }
 
   /* Drawer — z-index above Leaflet which goes up to 1000 */
   .drawer-backdrop {
@@ -479,7 +487,7 @@
   .chat-suggest {
     text-align: left; padding: 10px 12px; border-radius: 10px;
     border: 1px solid var(--hairline); background: var(--canvas-2);
-    color: var(--text-2); font-size: 12.5px; cursor: pointer; line-height: 1.4;
+    color: var(--text-2); font-size: var(--fs-body-sm); cursor: pointer; line-height: 1.4;
   }
   .chat-suggest:hover { background: var(--accent-fill); color: var(--text); border-color: var(--accent); }
   .chat-composer {
@@ -525,7 +533,6 @@
 
   /* Bar chart rows */
   .bar-track { background: var(--canvas-2); border-radius: 999px; overflow: hidden; }
-  .bar-track { border-radius: 1px; }
 
   /* Status dot */
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
@@ -637,7 +644,7 @@
     background: var(--canvas-2);
     color: var(--text-2);
     font-family: var(--ff-sans);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     cursor: pointer;
     transition: all 0.12s var(--ease);
   }
@@ -660,7 +667,7 @@
     display: inline-block;
   }
   .narrative-menu-count {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -694,7 +701,7 @@
   .narrative-item .narrative-dot { margin-top: 4px; align-self: flex-start; }
   .narrative-item-body { flex: 1; min-width: 0; }
   .narrative-item-name {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 600;
     color: var(--text);
     line-height: 1.3;
@@ -705,10 +712,10 @@
     -webkit-box-orient: vertical;
   }
   .narrative-item-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
-    gap: 5px;
+    gap: var(--sp-15);
     margin-top: 2px;
   }
   .narrative-sparkline {
@@ -800,7 +807,7 @@
   .narrative-keywords {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
+    gap: var(--sp-15);
     margin-top: 4px;
   }
   .narrative-tag {
@@ -808,7 +815,7 @@
     border-radius: 999px;
     background: var(--canvas-2);
     border: 1px solid var(--hairline-strong);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
   }
   .narrative-tag-mini {
@@ -816,7 +823,7 @@
     border-radius: 4px;
     background: var(--accent-fill);
     color: var(--accent);
-    font-size: 9.5px;
+    font-size: var(--fs-caption);
     margin-left: 4px;
   }
   .narrative-header-metrics {
@@ -828,16 +835,19 @@
     text-align: right;
   }
   .narrative-metric-label {
-    font-size: 9.5px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
   .narrative-metric-value {
-    font-size: 18px;
+    font-size: var(--fs-num-md);
     font-weight: 600;
     color: var(--text);
     font-family: var(--ff-numeric);
+    /* Besley proporcional: sin esto el 1 es más angosto que el 8 y la columna
+       de métricas de la narrativa se corre al cambiar de período. */
+    font-variant-numeric: tabular-nums lining-nums;
     line-height: 1.2;
     margin-top: 2px;
   }
@@ -861,19 +871,20 @@
   .narrative-stream-key {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--sp-15);
   }
   .narrative-stream-key i {
     display: inline-block;
     width: 10px;
     height: 10px;
-    border-radius: 2px;
+    /* --r-sm: la misma curvatura que las demás muestras cuadradas de leyenda. */
+    border-radius: var(--r-sm);
   }
   .narrative-stream-hint {
     margin-left: auto;
     color: var(--text-3);
     font-style: italic;
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
   }
   .narrative-stream-svg {
     width: 100%;
@@ -905,7 +916,7 @@
   .narrative-grid-3 .narrative-panel,
   .narrative-grid-2 .narrative-panel { margin-bottom: 0; }
   .narrative-panel-label {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -930,7 +941,7 @@
   .narrative-sentiment-row > span {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--sp-15);
   }
   .narrative-sentiment-row i {
     display: inline-block;
@@ -957,7 +968,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: var(--fs-caption);
     color: var(--text);
   }
   .narrative-bar-name {
@@ -1029,13 +1040,13 @@
     border-radius: var(--r-sm);
   }
   .narrative-mention-title {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 500;
     color: var(--text);
     line-height: 1.35;
   }
   .narrative-mention-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
     flex-wrap: wrap;
@@ -1047,7 +1058,7 @@
   .narrative-sentiment-mini {
     padding: 1px 6px;
     border-radius: 4px;
-    font-size: 9.5px;
+    font-size: var(--fs-caption);
     text-transform: capitalize;
     background: var(--canvas-2);
   }
@@ -1085,14 +1096,14 @@
   }
   .narrative-related-name {
     flex: 1;
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .narrative-related-meta {
     color: var(--text-3);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     text-transform: lowercase;
   }
 
@@ -1137,7 +1148,7 @@
     border-bottom: 1px solid var(--hairline);
   }
   .narrative-day-eyebrow {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -1188,7 +1199,7 @@
   .narrative-day-cluster-label em {
     font-style: normal;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: var(--fs-caption);
   }
   .narrative-day-mention {
     padding: 10px 12px;
@@ -1198,13 +1209,13 @@
     margin-bottom: 6px;
   }
   .narrative-day-mention-title {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 500;
     color: var(--text);
     line-height: 1.4;
   }
   .narrative-day-mention-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
     flex-wrap: wrap;
@@ -1214,7 +1225,7 @@
   }
   .narrative-day-mention-meta strong { color: var(--text-2); font-weight: 600; }
   .narrative-day-mention-snippet {
-    font-size: 11.5px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
     margin-top: 6px;
     line-height: 1.45;
@@ -1357,7 +1368,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc34';
+        s.src = base + '/' + f + '?v=prodc43';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

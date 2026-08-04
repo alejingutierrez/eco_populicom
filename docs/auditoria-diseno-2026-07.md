@@ -884,8 +884,10 @@ ya deja de tener los defectos que cuestan un contrato.
 | `WS-F3` decidir el color de marca | ⬜ **decisión del cliente** |
 | `WS-F2` reconciliar nombres de token con el apéndice | ⬜ |
 | `WS-F6` arreglar `mando` light | 🟡 Leaflet y CSS sí; falta barrido completo |
-| `WS-F7` migrar los `fontSize`/`gap` inline | ⬜ |
-| `WS-F8` primitivas que faltan | ⬜ |
+| `WS-F7` migrar los `fontSize`/`gap` inline | ✅ `7507448` + barrido de ejes |
+| `WS-F8` primitiva `EmptyState` (22 vacíos a mano → 1 primitiva, 14 sitios) | ✅ |
+| `WS-F8` primitivas `BandScale` y `DeltaBadge` generalizado | ✅ `7507448` |
+| `WS-F8` primitivas restantes (`Overlay`, `DataTable`, `Tooltip`, `Skeleton`) | ⬜ |
 | Resto de gráficas · funciones de Menciones · UX de Narrativas | ⬜ |
 
 **Medición final** (20 capturas: 10 rutas × {1440, 390}, sondas sobre los
@@ -912,6 +914,62 @@ colores resueltos en el DOM):
 > Los 249 que siguen bajo 44×44 son celdas de heatmap a 24px y filas de lista a
 > 28px: densidad legítima que **cumple AA**. Subirlas a 44 es una decisión de
 > producto (menos datos por pantalla), no una corrección pendiente.
+
+### Barrido de escalas, alineaciones, estandarización y color
+
+Sonda dedicada (`axes.mjs`, 16 combinaciones ruta × viewport) que mide cada eje
+contra los tokens **leídos del CSS**, no contra una lista escrita a mano — así la
+vara no puede desviarse del sistema.
+
+| Eje · qué se mide | Antes | Ahora |
+|---|---:|---:|
+| **Escala** · tamaños de letra fuera de la escala | 194 | **0** |
+| **Escala** · radios fuera de la escala | 148 | **0** |
+| **Escala** · `gap` fuera de la rejilla de 4px | 36 | **0** |
+| **Alineación** · cifras sin ancho fijo en columnas | 187 | **0** |
+| **Alineación** · bordes casi-iguales entre hermanos | 0 real | **0** |
+| **Estandarización** · familias tipográficas | 3 | **3** (las tres del sistema) |
+| **Estandarización** · pesos | 4 | **4** (los cuatro del sistema) |
+| **Estandarización** · selectores que se pisan | 2 | **0** |
+| **Color** · valores fuera de la paleta declarada | — | **0 de ~1.000 por página** |
+| **Truncado** · cortes sin señal visual | 0 | **0** |
+
+Lo que encontró y no era obvio:
+
+1. **Los ticks de eje estaban a 9px.** Veinte etiquetas numéricas de gráfica por
+   debajo del piso de legibilidad — números ilegibles en el gráfico que sostiene
+   la decisión. Suben a `--fs-overline` (11px), el único paso permitido bajo 12.
+2. **El panel de Narrativas tenía su propia escala en medios píxeles** — 9.5 /
+   10 / 10.5 / 11.5 / 12.5 px en 22 reglas. Se escribió antes de que existieran
+   los tokens. Cada una sube por su papel: mayúsculas → overline, metadatos →
+   caption, títulos → body-sm.
+3. **`.bar-track` estaba declarado dos veces** y el segundo `border-radius: 1px`
+   anulaba el `999px` del primero: 96 barras que debían ser píldoras se
+   renderizaban casi cuadradas. Igual `.spotlight`, que le daba al buscador ⌘K
+   una curvatura distinta de la de todos los demás overlays.
+4. **Los `<button>` sin `font-size` caían al default del navegador** (13.333px en
+   Chrome) — un valor que no está en ninguna escala y que nadie eligió. Se cierra
+   con `font-size: inherit` en la base.
+5. **183 celdas numéricas de tabla sin cifras tabulares.** Besley y Krub son
+   proporcionales: el 1 es más angosto que el 8, así que al cambiar de período
+   las columnas de números se corrían de fila en fila.
+
+Cuatro métricas que sonaban a defecto y **no lo eran** — quedan documentadas
+para que nadie las "arregle":
+
+- Los 34 tamaños fuera de escala de `.wc-term` son la nube de palabras, donde el
+  tamaño **es** el dato (frecuencia). Medirlos contra la escala tipográfica es
+  una categoría equivocada.
+- Los 242 `span.mono` sin `tabular-nums` usan IBM Plex Mono: una familia
+  monoespaciada ya tiene dígitos de ancho fijo por construcción.
+- Los 15 "bordes desalineados" eran hijos internos de `<svg>` — bounding boxes
+  de `<path>`, no alineación de maquetación.
+- Los 60/180 textos "truncados" de Menciones son **todos** con puntos
+  suspensivos: la convención, no un corte silencioso. Cortes sin señal visual: 0.
+
+Y una que era un límite de la propia sonda: los tokens fluidos (`clamp()`) se
+contaban como fuera de escala porque el set de tokens sólo leía valores `px`
+literales. Ahora se resuelven en el viewport real antes de comparar.
 
 > **Nota de método.** Dos mediciones que reporté antes estaban mal y quedan
 > corregidas aquí: (1) los «369 objetivos bajo 44px» se contaban como fallo AA

@@ -1138,6 +1138,67 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
 //     onCta:     () => void
 //   }
 // =========================================================
+// EmptyState — la primitiva de "aquí no hay nada" (WS-F8).
+//
+// Había 22 bloques escritos a mano con tres tamaños de letra, cuatro colores y
+// vocabulario incompatible: "Sin datos", "Sin resultados", "Sin datos para esta
+// dimensión en el periodo.", "Aún sin datos (requiere ≥24h)", "No hay menciones
+// de este tópico...". El panel de Narrativas llegaba a mostrar SEIS cajas que
+// decían "Sin datos" a la vez.
+//
+// El problema no era la repetición: era que un vacío no dice lo mismo según POR
+// QUÉ está vacío, y esas 22 copias no distinguían los casos. Esta primitiva
+// obliga a elegir:
+//
+//   · `reason="empty"`   — la consulta corrió y no hay nada. Es un HECHO.
+//   · `reason="filtered"` — hay datos, pero los filtros los excluyen. Es
+//     accionable: se ofrece la salida.
+//   · `reason="pending"`  — todavía no se puede saber (una ventana que necesita
+//     24h, un cómputo que no ha corrido). NO es un cero.
+//   · `reason="error"`    — falló la consulta. Nunca se debe pintar como vacío,
+//     que es lo que hacía UsersAdmin ("no hay usuarios · ajusta los filtros"
+//     cuando la API devolvía 500).
+function EmptyState({ reason = 'empty', title, detail, action, actionLabel, compact }) {
+  const R = {
+    empty:    { icon: 'Circle',        tone: 'var(--text-3)' },
+    filtered: { icon: 'Filter',        tone: 'var(--text-2)' },
+    pending:  { icon: 'Calendar',      tone: 'var(--text-3)' },
+    error:    { icon: 'AlertTriangle', tone: 'var(--neg)' },
+  }[reason] || { icon: 'Inbox', tone: 'var(--text-3)' };
+  const IC = Icons[R.icon] || Icons.Info;
+  const defaults = {
+    empty: 'Sin datos en este período',
+    filtered: 'Nada coincide con estos filtros',
+    pending: 'Todavía no hay suficiente historia',
+    error: 'No se pudo cargar',
+  };
+  return (
+    <div role={reason === 'error' ? 'alert' : undefined}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', textAlign: 'center', gap: 'var(--sp-2)',
+        padding: compact ? 'var(--sp-4)' : 'var(--sp-8) var(--sp-4)',
+        minHeight: compact ? 0 : 120,
+      }}>
+      {IC && <IC size={compact ? 16 : 20} color={R.tone} />}
+      <div style={{
+        fontFamily: 'var(--ff-sans)',
+        fontSize: compact ? 'var(--fs-body-sm)' : 'var(--fs-body)',
+        fontWeight: 500,
+        color: reason === 'error' ? 'var(--neg)' : 'var(--text-2)',
+      }}>{title || defaults[reason]}</div>
+      {detail && (
+        <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', maxWidth: '42ch', lineHeight: 1.5 }}>
+          {detail}
+        </div>
+      )}
+      {action && actionLabel && (
+        <button className="btn" style={{ marginTop: 'var(--sp-1)' }} onClick={action}>{actionLabel}</button>
+      )}
+    </div>
+  );
+}
+
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
@@ -1747,4 +1808,4 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
   );
 }
 
-window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };
+window.ECO_SHELL = { EmptyState, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };

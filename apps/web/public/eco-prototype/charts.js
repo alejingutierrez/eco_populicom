@@ -269,10 +269,10 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
           <path d={linePath} stroke={color} strokeWidth="2" fill="none" />
           {showAxis && ticks.map((t, i) => {
             const y = innerH - ((t - min) / range) * innerH;
-            return <text key={i} x={-6} y={y + 3} fontSize="10" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(t * 10) / 10}</text>;
+            return <text key={i} x={-6} y={y + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(t * 10) / 10}</text>;
           })}
           {showAxis && xIdxs.filter((idx) => data[idx] && data[idx].date).map((idx) => (
-            <text key={idx} x={idx * step} y={innerH + 14} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+            <text key={idx} x={idx * step} y={innerH + 14} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
           ))}
         </g>
       </svg>
@@ -432,7 +432,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             <g key={i}>
               <line x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
               {sharedScale && normalized[0] && (
-                <text x={-6} y={p * innerH + 3} fontSize="9" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                <text x={-6} y={p * innerH + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
                   {Math.round(normalized[0].max - (p * normalized[0].range))}
                 </text>
               )}
@@ -446,7 +446,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return [0, 0.5, 1].map((p) => {
               const val = s.max - p * s.range;
               return (
-                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="9" textAnchor="end"
+                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="var(--fs-overline)" textAnchor="end"
                       fill="var(--text-3)" fontFamily="var(--ff-numeric)">
                   {fmtVal(s.key, val)}
                 </text>
@@ -548,7 +548,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
                   {normalized.map((s, i) => (
                     <g key={s.key}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={s.color} rx={2} />
-                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{s.label}</text>
+                      <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{s.label}</text>
                       <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {fmtVal(s.key, dotData[s.key])}
                       </text>
@@ -571,7 +571,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return (
               <g key={s.key + '-tag'} transform={`translate(${innerW + 4}, ${y})`}>
                 <rect x={0} y={-8} width={46} height={16} fill={s.color} rx={2} />
-                <text x={23} y={3} fontSize="10" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
+                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
               </g>
             );
           })}
@@ -595,7 +595,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return unique
               .filter((idx) => data[idx] && data[idx].date)
               .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="9" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
               ));
           })()}
           {/* Tick marks bajo cada día (útil cuando hay >14 días y no caben labels) */}
@@ -675,7 +675,7 @@ function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel })
           <span aria-hidden="true" style={{
             position: 'absolute', left: `${pct(v)}%`, top: -2, bottom: -2,
             width: 2, background: 'var(--text)', transform: 'translateX(-50%)',
-            borderRadius: 1,
+            borderRadius: 'var(--r-pill)',
           }} />
         )}
       </div>
@@ -780,8 +780,8 @@ function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueForma
               {/* techo = máximo compartido, rotulado UNA vez por panel para que la
                   escala sea visible y no haya que confiar en la memoria */}
               <line x1={padding.l} y1={top} x2={padding.l + innerW} y2={top} stroke="var(--chart-grid)" strokeDasharray="2 3" />
-              <text x={padding.l - 6} y={top + 4} fontSize="9" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{Math.round(dMax)}</text>
-              <text x={padding.l - 6} y={top + h + 3} fontSize="9" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">0</text>
+              <text x={padding.l - 6} y={top + 4} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{Math.round(dMax)}</text>
+              <text x={padding.l - 6} y={top + h + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">0</text>
               {/* relleno + curva suave, que es lo que se quería conservar */}
               {segs.map((pts, i) => {
                 if (pts.length < 2) return pts.length === 1 ? <circle key={i} cx={pts[0][0]} cy={pts[0][1]} r="2" fill={sr.color} /> : null;
@@ -795,7 +795,7 @@ function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueForma
                 );
               })}
               {/* etiqueta de la serie DENTRO del panel */}
-              <text x={padding.l + 4} y={top + 10} fontSize="10" fontWeight="600" fill={sr.color} fontFamily="var(--ff-sans)">{sr.label}</text>
+              <text x={padding.l + 4} y={top + 10} fontSize="var(--fs-overline)" fontWeight="600" fill={sr.color} fontFamily="var(--ff-sans)">{sr.label}</text>
               {/* valor en el punto bajo el cursor */}
               {!isGap(hv) && (
                 <>
@@ -818,7 +818,7 @@ function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueForma
           const denom = Math.max(1, n - 1);
           const idxs = [...new Set(Array.from({ length: n }, (_, i) => Math.round((i * (data.length - 1)) / denom)))];
           return idxs.filter((i) => data[i]?.date).map((i) => (
-            <text key={i} x={padding.l + i * step} y={totalH - 6} fontSize="9" textAnchor="middle" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{data[i].date}</text>
+            <text key={i} x={padding.l + i * step} y={totalH - 6} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{data[i].date}</text>
           ));
         })()}
       </svg>
@@ -894,7 +894,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
           })}
           {[0, 0.5, 1].map((p, i) => {
             const v = max * (1 - p);
-            return <text key={i} x={-6} y={innerH * p + 3} fontSize="10" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(v)}</text>;
+            return <text key={i} x={-6} y={innerH * p + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(v)}</text>;
           })}
           {(() => {
             const xTickCount = Math.min(7, data.length);
@@ -903,7 +903,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             return xIdxs
               .filter((idx) => data[idx] && data[idx].date)
               .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
               ));
           })()}
 
@@ -936,14 +936,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
                   {keys.map((k, i) => (
                     <g key={k}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={colors[i]} rx={2} />
-                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{seriesLabel(k)}</text>
+                      <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{seriesLabel(k)}</text>
                       <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {Math.round(d[k] || 0)}
                       </text>
                     </g>
                   ))}
                   <g>
-                    <text x={10} y={22 + keys.length * 18 + 11} fontSize="10" fill="var(--text-3)" fontWeight="700">Total</text>
+                    <text x={10} y={22 + keys.length * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-3)" fontWeight="700">Total</text>
                     <text x={tooltipW - 10} y={22 + keys.length * 18 + 11} fontSize="11" fontWeight="700" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                       {Math.round(total)}
                     </text>

@@ -58,9 +58,15 @@
   --lh-body-sm: 1.45;
   --fs-label: 13px;      /* labels de formulario, botones, chips */
   --lh-label: 1.2;
-  --fs-caption: 12px;    /* PISO: metadatos, marcas de tiempo, ejes */
+  --fs-caption: 12px;    /* PISO del texto corrido: metadatos, marcas de tiempo */
   --lh-caption: 1.35;
-  --fs-overline: 11px;   /* ÚNICO permitido bajo 12px: eyebrows en mayúsculas */
+  /* Bajo 12px sólo dos casos, ambos porque el glifo NO se lee como prosa:
+   *   1. eyebrows en mayúsculas (etiqueta de sección, no contenido);
+   *   2. ticks de eje en gráficas densas, donde 12px hace chocar las etiquetas.
+   * Nada más. Antes había una escala paralela en medios píxeles (9.5 / 10 / 10.5
+   * / 11.5 / 12.5) en el panel de narrativas y ticks de eje a 9px — es decir,
+   * números de eje ilegibles en el gráfico que sostiene la decisión. */
+  --fs-overline: 11px;
   --lh-overline: 1.3;
 
   /* Cifras. Besley tiene tabular + lining; se fuerzan por si el subset falla. */
@@ -456,7 +462,11 @@
 .t-caption     { font-family: var(--ff-sans); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: var(--fw-regular); color: var(--text-3); }
 .t-overline    { font-family: var(--ff-sans); font-size: var(--fs-overline); line-height: var(--lh-overline); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-2); }
 
-/* Cifras — tabular SIEMPRE, para que las columnas de números no bailen. */
+/* Cifras — tabular SIEMPRE, para que las columnas de números no bailen.
+ * Incluye el texto de las gráficas: la etiqueta de último valor y los ticks del
+ * eje cambian de número al mover el período, y con dígitos de ancho variable
+ * saltaban de sitio en cada actualización. */
+svg text { font-variant-numeric: tabular-nums lining-nums; }
 .t-num, .num {
   font-family: var(--ff-numeric);
   font-variant-numeric: tabular-nums lining-nums;

@@ -1,6 +1,6 @@
 // Dashboard + screens
 const { Sparkline, AreaLineChart, MultiLineChart, SeriesPanels, BandScale, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
-const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
+const { EmptyState, MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
@@ -67,7 +67,27 @@ function crisisBand(score) {
 // Badge de tendencia legible: usa el objeto DeltaDisplay del API
 // (@eco/shared/format). Distingue "estable" (cambio ≈ 0) de "sin base"
 // (falta período de comparación) — antes ambos salían como "0".
-function DeltaBadge({ info }) {
+// DeltaBadge — la única forma de pintar un delta (WS-F8).
+//
+// Acepta dos entradas:
+//   · `info`  — el objeto DeltaDisplay que ya calcula @eco/shared/format.
+//   · `value` + `metricKey` — para los sitios que sólo tienen el número. La
+//     dirección la resuelve `window.ecoDeltaColor`, que es la MISMA regla que
+//     usa el resto del producto (WS-F4): el volumen es neutro, la crisis es
+//     up-bad, el NSS es up-good. Antes había cuatro sitios dibujando ▲/▼ con su
+//     propio criterio de color, y uno de ellos pintaba toda subida de volumen
+//     como mala.
+function DeltaBadge({ info, value, metricKey = 'volume', suffix = '%', decimals = 0 }) {
+  if (!info && value != null && Number.isFinite(Number(value))) {
+    const v = Number(value);
+    const color = window.ecoDeltaColor(metricKey, v);
+    const arrow = window.ecoDeltaArrow(v);
+    return (
+      <span style={{ fontSize: 'var(--fs-overline)', color, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
+        {arrow} {Math.abs(v).toFixed(decimals)}{suffix}
+      </span>
+    );
+  }
   if (!info) return null;
   const toneC = { pos: 'var(--pos)', neg: 'var(--neg)', neutral: 'var(--text-3)' }[info.tone] || 'var(--text-3)';
   if (!info.hasBaseline) {
@@ -2181,7 +2201,7 @@ function TopicBubbles({ topics, onSelect }) {
               <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
-              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9"
+              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="var(--fs-overline)"
                 fill={t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)'}
                 fontWeight="700" style={{ pointerEvents: 'none' }}>
                 {t.delta == null ? '—' : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`}
@@ -3447,7 +3467,7 @@ function AlertsHistory({ onMentionClick }) {
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-05)', height: 110, alignItems: 'end' }}>
             {days.map((d) => (
               <div key={d} title={`${d} · ${byDay[d]} eventos`} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
-                <div style={{ width: '100%', height: `${(byDay[d] / max) * 100}%`, background: 'var(--accent)', opacity: 0.85, borderRadius: '2px 2px 0 0', minHeight: 2 }} />
+                <div style={{ width: '100%', height: `${(byDay[d] / max) * 100}%`, background: 'var(--accent)', opacity: 0.85, borderRadius: 'var(--r-sm) var(--r-sm) 0 0', minHeight: 2 }} />
               </div>
             ))}
           </div>
@@ -4254,8 +4274,7 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
                 <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</div>
               </div>
               <div style={{ marginTop: 'var(--sp-2)', fontSize: 'var(--fs-overline)', fontWeight: 600, color: dColor, display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-                {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
-                {c.delta === 0 ? 'estable' : `${c.delta > 0 ? '+' : ''}${Math.round(c.delta)}%`}
+                <DeltaBadge value={c.delta} metricKey={c.deltaMetric || 'volume'} />
               </div>
             </button>
           );
@@ -4347,8 +4366,9 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
   ];
   if (chartData.length === 0) {
     return (
-      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
-        Sin datos de tendencia en el periodo.
+      <div className="card">
+        <EmptyState reason="empty" title="Sin datos de tendencia"
+          detail="No hay menciones con fecha en el período seleccionado." />
       </div>
     );
   }
@@ -4585,8 +4605,9 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
     <div>
       {eyebrow}
       {allEmpty ? (
-        <div className="card" style={{ padding: 'var(--sp-4)', textAlign: 'center', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
-          Sin suficiente señal en el periodo seleccionado para generar insights.
+        <div className="card">
+          <EmptyState reason="pending" title="Todavía no hay suficiente señal"
+            detail="Los insights necesitan más menciones en el período para decir algo con fundamento. Prueba una ventana más amplia." />
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
@@ -4785,7 +4806,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
 
   const { nodes, pos, links, idIdx, bounds } = layout;
   const [hovered, setHovered] = React.useState(null);
-  if (!nodes.length) return <div className="narrative-empty">Sin narrativas suficientes para graficar.</div>;
+  if (!nodes.length) return <EmptyState reason="empty" title="Sin narrativas suficientes para el mapa" detail="Hacen falta al menos dos narrativas con relación entre ellas." />;
   const pad = 44;
   const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${(bounds.maxX - bounds.minX) + pad * 2} ${(bounds.maxY - bounds.minY) + pad * 2}`;
   const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
@@ -4839,7 +4860,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
                 fillOpacity={dim ? 0.18 : 0.9}
                 stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
               {showLabel && (
-                <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10}
+                <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize="var(--fs-overline)"
                   fill="var(--text)" stroke="var(--canvas)" strokeWidth={3} paintOrder="stroke"
                   style={{ pointerEvents: 'none', fontWeight: isActive || isFocus ? 700 : 500 }}>
                   {(n.name || '').slice(0, 28)}
@@ -4993,7 +5014,7 @@ function NarrativeScreen({ agency }) {
             </li>
           ))}
           {filteredNarratives.length === 0 && !loading && (
-            <li className="narrative-empty-li">Sin resultados</li>
+            <li><EmptyState reason="filtered" title="Sin resultados" detail="Ninguna narrativa coincide con la búsqueda." compact /></li>
           )}
         </ul>
       </aside>
@@ -5002,7 +5023,7 @@ function NarrativeScreen({ agency }) {
         {loading ? (
           <div className="narrative-empty">Cargando…</div>
         ) : error ? (
-          <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
+          <EmptyState reason="error" title="No se pudieron cargar las narrativas" detail={String(error)} />
         ) : (
           <>
             <div style={{ display: 'flex', gap: 'var(--sp-15)', marginBottom: 'var(--sp-3)' }}>
@@ -5017,7 +5038,7 @@ function NarrativeScreen({ agency }) {
                 onSelect={(id) => { setFocusedId(id); setView('detail'); setSelectedDay(null); }}
               />
             ) : !focused ? (
-              <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
+              <EmptyState reason="empty" title="Elige una narrativa" detail="Selecciónala en la lista de la izquierda para ver su análisis." />
             ) : (
               <NarrativeAnalysis
                 narrative={focused}
@@ -5096,6 +5117,14 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
   const init = narrative.initiatorFirst;
   const inf = narrative.initiatorInfluencer;
 
+  // Cuando el detalle viene vacío, las cinco secciones de desglose se
+  // convertían en cinco cajas idénticas diciendo "Sin datos" — el peor caso del
+  // panel, y el que más se ve, porque una narrativa recién detectada todavía no
+  // tiene desglose. Cinco huecos no informan más que uno: informan menos,
+  // porque hay que leerlos todos para descubrir que ninguno dice nada.
+  const hasBreakdown = sentimentTotals.total > 0 || topAuthors.length > 0
+    || platforms.length > 0 || !!init || !!inf;
+
   return (
     <div className="narrative-analysis">
       <div className="narrative-header">
@@ -5138,6 +5167,14 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
         onSelectDay={onSelectDay}
       />
 
+      {!hasBreakdown && !detailLoading ? (
+        <EmptyState
+          reason="empty"
+          title="Esta narrativa todavía no tiene desglose"
+          detail={`El cluster agrupa ${narrative.mentionCount.toLocaleString('es-PR')} menciones, pero ninguna trae aún los campos de autor, plataforma y sentimiento que este panel necesita. Aparecen cuando el procesador las enriquece.`}
+        />
+      ) : (
+      <>
       <div className="narrative-grid-3">
         <div className="narrative-panel">
           <div className="narrative-panel-label">Sentimiento</div>
@@ -5158,7 +5195,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5176,7 +5213,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5200,7 +5237,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
       </div>
@@ -5225,7 +5262,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               )}
             </div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5246,10 +5283,12 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               )}
             </div>
           ) : (
-            <div className="narrative-empty-small">Aún sin datos (requiere ≥24h)</div>
+            <EmptyState reason="pending" title="Aún no se puede calcular" detail="Requiere al menos 24 h de historia." compact />
           )}
         </div>
       </div>
+      </>
+      )}
 
       {recent.length > 0 && (
         <div className="narrative-panel">
@@ -5305,7 +5344,18 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
 
   if (loading) return <div className="narrative-stream-wrap narrative-empty-small">Cargando timeline…</div>;
   if (!timeline || timeline.length === 0) {
-    return <div className="narrative-stream-wrap narrative-empty-small">Sin datos temporales todavía.</div>;
+    // `pending`, no `empty`: no es que la serie valga cero, es que una narrativa
+    // con menciones de un solo día no tiene evolución que dibujar todavía.
+    return (
+      <div className="narrative-stream-wrap">
+        <EmptyState
+          reason="pending"
+          title="Sin evolución que dibujar todavía"
+          detail="Hacen falta menciones en más de un día para trazar la serie."
+          compact
+        />
+      </div>
+    );
   }
 
   const times = timeline.map((d) => new Date(d.day).getTime());
@@ -5416,7 +5466,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
         {peak && (
           <g style={{ pointerEvents: 'none' }}>
             <line x1={peakX} y1={margin.top} x2={peakX} y2={margin.top + innerH} stroke="var(--accent)" strokeWidth="0.5" opacity={0.4} />
-            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="10" fontWeight="600">
+            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="var(--fs-overline)" fontWeight="600">
               ✕ pico
             </text>
           </g>
@@ -5428,7 +5478,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
             entendía. */}
         <g style={{ pointerEvents: 'none' }}>
           <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerH} stroke="var(--pos)" strokeWidth="1.5" opacity={0.85} />
-          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="10" fontWeight="700">
+          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="var(--fs-overline)" fontWeight="700">
             ▸ inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
           </text>
         </g>
@@ -5439,7 +5489,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           return (
             <g key={i} style={{ pointerEvents: 'none' }}>
               <line x1={x} y1={margin.top + innerH} x2={x} y2={margin.top + innerH + 4} stroke="var(--hairline-strong)" />
-              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="10">
+              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-overline)">
                 {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
               </text>
             </g>
@@ -5489,7 +5539,7 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
           {loading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : !data || data.totalMentions === 0 ? (
-            <div className="narrative-empty-small">No hay menciones registradas en este día.</div>
+            <EmptyState reason="empty" title="Sin menciones este día" detail="La narrativa no registró actividad en la fecha seleccionada." compact />
           ) : (
             ['positivo', 'neutral', 'negativo', 'sin_clasificar'].map((kind) => {
               const items = (data.clusters && data.clusters[kind]) || [];
@@ -5637,11 +5687,9 @@ function SentimentSplitBar({ pos, neu, neg, height = 6 }) {
 }
 
 // Delta de posición (rankDelta: + = subió puestos). null = sin base previa.
+// Delegado a DeltaBadge: antes tenía su propio ▲/▼ y su propio criterio de color.
 function RankDelta({ delta }) {
-  if (delta == null) return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
-  if (delta > 0) return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--pos)', fontWeight: 700 }}>▲ {delta}</span>;
-  if (delta < 0) return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--neg)', fontWeight: 700 }}>▼ {Math.abs(delta)}</span>;
-  return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
+  return <DeltaBadge value={delta} metricKey="volume" />;
 }
 
 // Strip superior de KPIs del composite gobierno — compartido por Tabla y Sala.
