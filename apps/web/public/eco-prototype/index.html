@@ -51,6 +51,60 @@
   ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 10px; border: 2px solid var(--bg); }
   ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
+  /* ===========================================================================
+     Objetivo mínimo de 24x24 (WCAG 2.2 AA, SC 2.5.8). Aplica con ratón también,
+     así que va SIN media query. `:where()` tiene especificidad cero: sube el
+     piso sin ganarle a ninguna regla existente.
+     Nota de umbrales: 44x44 es WCAG 2.1 AAA (SC 2.5.5), no AA — el objetivo
+     declarado del proyecto es AA, y en táctil se sube a 44 más abajo.
+     ======================================================================== */
+  :where(button, [role="button"], select, textarea, summary, .btn-chip) {
+    min-height: 24px;
+  }
+  /* Los enlaces de atribución de Leaflet son markup de terceros y salen a 14px.
+     Se suben al mínimo sin tocar su tamaño de letra. */
+  .leaflet-control-attribution a { display: inline-flex; align-items: center; min-height: 24px; }
+  /* Un input sin la clase .input (p.ej. un range) también necesita piso. */
+  :where(input:not([type="checkbox"]):not([type="radio"])) { min-height: 24px; }
+  input[type="range"] { min-height: 24px; }
+
+  /* Un <a> en flujo inline ignora min-height: necesita ser caja. */
+  :where(a.link, a[href].chip, a[href].btn) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+  }
+  /* Los chips propios de Narrativas no comparten la clase .chip. */
+  .btn-chip { padding-block: 5px; }
+
+  /* ===========================================================================
+     Áreas táctiles (WS-A2). Se enganchan a `pointer: coarse`, NO al ancho: una
+     tablet de 1024px se toca con el dedo igual que un teléfono. Antes las
+     reglas vivían bajo `max-width: 768px` y apuntaban a 40/34px, por debajo del
+     mínimo de 44.
+     ======================================================================== */
+  @media (pointer: coarse) {
+    .btn, .chip, .btn-chip, .input, select, textarea, input[type="date"] { min-height: 44px; }
+    /* `.touch-target` expande el área SIN cambiar el tamaño visual: para los
+       controles densos (chips de serie, iconos de fila) donde estirar a 44px
+       rompería la retícula. */
+    .touch-target { position: relative; }
+    .touch-target::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+
+  /* Celda de heatmap: el hover con transform:scale(1.4) inline se movió a CSS
+     para tener también :focus-visible (era hover-only, inalcanzable sin ratón). */
+  .eco-heat-cell { transition: transform var(--dur-fast) var(--ease), outline-color var(--dur-fast) var(--ease); outline: 2px solid transparent; }
+  .eco-heat-cell:hover, .eco-heat-cell:focus-visible { transform: scale(1.4); outline-color: var(--accent); z-index: 10; }
+  @media (pointer: coarse) { .eco-heat-cell:active { transform: scale(1.25); outline-color: var(--accent); z-index: 10; } }
+
   /* utility */
   .num { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums lining-nums; font-feature-settings: 'tnum' 1, 'lnum' 1; letter-spacing: var(--letter-display, -0.005em); }
   .mono { font-family: var(--ff-mono); }
@@ -148,9 +202,9 @@
     .show-mobile { display: inline-flex !important; }
     .hide-mobile { display: none !important; }
     /* Larger tap targets on touch screens. */
-    .btn { min-height: 40px; }
-    .chip { min-height: 34px; }
-    select, input[type="date"], .input { min-height: 40px; }
+    .btn { min-height: 44px; }
+    .chip { min-height: 44px; }
+    select, input[type="date"], .input, textarea { min-height: 44px; }
     /* Header date-range popover: pin to the viewport so it can't be clipped
        off-screen when the header controls wrap (the absolute right:0 anchor
        would otherwise hang past the left edge under overflow-x:hidden). */
@@ -324,8 +378,8 @@
   }
 
   /* Row hover */
-  .row-hover { transition: background 0.1s var(--ease); }
-  .row-hover:hover { background: var(--canvas-2); }
+  .row-hover { transition: background var(--dur-fast) var(--ease); min-height: 28px; }
+  .row-hover:hover, .row-hover:focus-visible { background: var(--canvas-2); }
 
   /* Spotlight / command palette */
   .spotlight-backdrop {
@@ -1303,7 +1357,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc25';
+        s.src = base + '/' + f + '?v=prodc26';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

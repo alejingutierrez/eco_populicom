@@ -460,12 +460,13 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
               localStorage.removeItem('eco.to');
             } catch (_) {}
             setPeriod(p);
-          }} style={{
-            padding: '4px 10px', fontSize: 11, fontWeight: 600,
+          }} className="touch-target" aria-pressed={!isCustom && period === p} style={{
+            padding: '6px 11px', fontSize: 'var(--fs-caption)', fontWeight: 600,
+            minHeight: 28,
             borderRadius: 999,
             background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
-            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
-            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-2)',
+            boxShadow: (!isCustom && period === p) ? 'var(--shadow-sm)' : 'none',
           }}>{p}</button>
         ))}
       </div>

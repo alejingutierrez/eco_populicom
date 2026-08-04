@@ -755,53 +755,68 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 // Mejoras issue #8: etiquetas de horas cada 2h en vez de cada 4h, separadores
 // visuales en transiciones de turno (madrugada→mañana→tarde→noche), hover más
 // pronunciado con z-index para que destaque sobre las celdas vecinas.
-function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, onCellClick }) {
+function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick }) {
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const bp = (window.ecoUseBreakpoint ? window.ecoUseBreakpoint() : 'desktop');
+  // En táctil, 24 columnas dan celdas de 10x14px: 168 objetivos imposibles de
+  // acertar con el dedo. Se agrupan en franjas de 2 horas (12 columnas), que a
+  // 390px deja celdas de ~26px y mantiene legible el patrón día/noche.
+  const bucket = bp === 'mobile' ? 2 : 1;
+  const cols = Math.ceil(hours / bucket);
   // Separadores en horas que marcan transición de turno (6am, 12pm, 6pm).
-  const SHIFT_BREAKS = new Set([6, 12, 18]);
-  const extraGap = (h) => SHIFT_BREAKS.has(h) ? 4 : 0;
+  const SHIFT_BREAKS = new Set(bucket === 1 ? [6, 12, 18] : [3, 6, 9]);
+  const extraGap = (c) => SHIFT_BREAKS.has(c) ? 4 : 0;
+  const hourOf = (c) => c * bucket;
+  const valueOf = (d, c) => {
+    let sum = 0;
+    for (let k = 0; k < bucket; k++) sum += (data[d * hours + hourOf(c) + k] ?? 0);
+    return sum;
+  };
+  const hourLabel = (c) => bucket === 1
+    ? `${String(hourOf(c)).padStart(2, '0')}:00`
+    : `${String(hourOf(c)).padStart(2, '0')}:00–${String(hourOf(c) + bucket - 1).padStart(2, '0')}:59`;
+  // Celdas fluidas: ocupan el ancho disponible en vez de un cellSize fijo.
+  const gridCols = `repeat(${cols}, minmax(0, 1fr))`;
   return (
     <div>
-      <div style={{ display: 'flex', gap: 2, marginLeft: 30, fontSize: 9, color: 'var(--text-3)', marginBottom: 4 }}>
-        {Array.from({ length: hours }).map((_, h) => (
-          <div key={h} style={{ width: cellSize, textAlign: 'center', marginLeft: extraGap(h), fontWeight: SHIFT_BREAKS.has(h) ? 700 : 400, color: SHIFT_BREAKS.has(h) ? 'var(--text-2)' : 'var(--text-3)' }}>
-            {h % 2 === 0 ? h : ''}
+      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 2, marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 4 }}>
+        {Array.from({ length: cols }).map((_, c) => (
+          <div key={c} style={{ textAlign: 'center', marginLeft: extraGap(c), fontWeight: SHIFT_BREAKS.has(c) ? 700 : 400, color: SHIFT_BREAKS.has(c) ? 'var(--text-2)' : 'var(--text-3)' }}>
+            {(bucket === 1 ? hourOf(c) % 2 === 0 : true) ? hourOf(c) : ''}
           </div>
         ))}
       </div>
       {Array.from({ length: days }).map((_, d) => (
         <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: gap }}>
-          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
-          {Array.from({ length: hours }).map((_, h) => {
-            const v = data[d * hours + h] ?? 0;
-            const clickable = !!onCellClick;
-            return (
-              <div key={h}
-                role={clickable ? 'button' : undefined}
-                onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: h, value: v }) : undefined}
-                title={`${labels[d]} ${String(h).padStart(2, '0')}:00 — ${v} menciones`}
-                style={{
-                  width: cellSize, height: cellSize,
-                  background: colorFn(v),
-                  borderRadius: 3,
-                  marginLeft: extraGap(h),
-                  cursor: clickable ? 'pointer' : 'default',
-                  transition: 'transform 0.12s var(--ease)',
-                  position: 'relative',
-                }}
-                onMouseEnter={clickable ? (e) => {
-                  e.currentTarget.style.transform = 'scale(1.4)';
-                  e.currentTarget.style.outline = '2px solid var(--accent)';
-                  e.currentTarget.style.zIndex = '10';
-                } : undefined}
-                onMouseLeave={clickable ? (e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
-                  e.currentTarget.style.outline = 'none';
-                  e.currentTarget.style.zIndex = '';
-                } : undefined}
-              />
-            );
-          })}
+          <div style={{ width: 28, flexShrink: 0, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 2, flex: 1, minWidth: 0 }}>
+            {Array.from({ length: cols }).map((_, c) => {
+              const v = valueOf(d, c);
+              const clickable = !!onCellClick;
+              return (
+                <div key={c}
+                  role={clickable ? 'button' : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  aria-label={clickable ? `${labels[d]} ${hourLabel(c)}: ${v} menciones` : undefined}
+                  onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: hourOf(c), hourEnd: hourOf(c) + bucket - 1, value: v }) : undefined}
+                  onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCellClick({ day: d, dayLabel: labels[d], hour: hourOf(c), hourEnd: hourOf(c) + bucket - 1, value: v }); } } : undefined}
+                  title={`${labels[d]} ${hourLabel(c)} — ${v} menciones`}
+                  className={clickable ? 'eco-heat-cell' : undefined}
+                  style={{
+                    aspectRatio: '1 / 1',
+                    // >=24px en ambos modos: es el mínimo de objetivo táctil de
+                    // WCAG 2.2 AA (SC 2.5.8), y aplica también con ratón.
+                    minHeight: 24,
+                    background: colorFn(v),
+                    borderRadius: 3,
+                    marginLeft: extraGap(c),
+                    cursor: clickable ? 'pointer' : 'default',
+                    position: 'relative',
+                  }}
+                />
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>

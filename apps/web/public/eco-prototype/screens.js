@@ -492,10 +492,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
                 <button key={s.key} onClick={() => {
                   if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
                   else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
-                }} style={{
+                }} className="touch-target" style={{
                   display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '4px 9px', borderRadius: 999,
-                  fontSize: 10, fontWeight: 600,
+                  padding: '5px 10px', borderRadius: 999,
+                  fontSize: 'var(--fs-overline)', fontWeight: 600,
                   border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
                   background: on ? s.color : 'transparent',
                   color: on ? 'var(--on-accent)' : 'var(--text-2)',
@@ -649,6 +649,15 @@ function BrandHealthMini({ value }) {
   );
 }
 
+// Escala secuencial del heatmap y del mapa. Los 6 pasos viven en tokens.css
+// (--seq-0..5); aquí sólo está el orden, para que la LEYENDA y las CELDAS no
+// puedan divergir (era el hallazgo F6).
+const SEQ_STEPS = ['var(--seq-0)', 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
+function seqColor(intensity) {
+  const i = Math.round(Math.min(1, Math.max(0, intensity || 0)) * (SEQ_STEPS.length - 1));
+  return SEQ_STEPS[i];
+}
+
 // --- HourActivityCard: heatmap fed from window.ECO_DATA.HOUR_HEATMAP ---
 function HourActivityCard({ onCellClick }) {
   const data = React.useMemo(() => {
@@ -671,11 +680,15 @@ function HourActivityCard({ onCellClick }) {
           <div className="card-hd-title">Actividad por hora</div>
           <div className="card-hd-sub">Distribución por día y hora (TZ Puerto Rico) · click una franja</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)' }}>
+        {/* F6: la leyenda pintaba sus swatches con rgba(11,95,128,…) — el AZUL del
+            tema `costa` — mientras las celdas iban en el naranja de `mando`.
+            Leyenda y mapa no coincidían. Ahora ambos leen la MISMA escala
+            secuencial --seq-*. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           <span>menos</span>
           <div style={{ display: 'flex', gap: 1 }}>
-            {[0.1, 0.3, 0.5, 0.7, 0.95].map((o, i) => (
-              <div key={i} style={{ width: 8, height: 8, background: `rgba(11, 95, 128, ${o})`, borderRadius: 1 }} />
+            {SEQ_STEPS.map((t, i) => (
+              <div key={i} style={{ width: 10, height: 10, background: t, borderRadius: 1 }} />
             ))}
           </div>
           <span>más</span>
@@ -687,11 +700,7 @@ function HourActivityCard({ onCellClick }) {
         </div>
         <Heatmap
           data={data}
-          colorFn={(v) => {
-            const intensity = max > 0 ? Math.min(1, v / max) : 0;
-            return `rgba(255, 106, 61, ${0.08 + intensity * 0.85})`;
-          }}
-          cellSize={14}
+          colorFn={(v) => seqColor(max > 0 ? Math.min(1, v / max) : 0)}
           onCellClick={onCellClick}
         />
       </div>
@@ -1734,12 +1743,13 @@ function SentimentScreen({ onMentionClick, period, agency }) {
                   <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)' }}>{s.label}</span>
                   <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(total)}</span>
                 </div>
-                <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <button onClick={() => openGroupSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
+                {/* 24px de alto: mínimo de objetivo de WCAG 2.2 AA. Antes eran 12px. */}
+                <div style={{ display: 'flex', height: 24, borderRadius: 4, overflow: 'hidden', background: 'var(--canvas-2)' }}>
+                  <button onClick={() => openGroupSlice(s, 'positivo')} aria-label={`${s.label}: ${pos}% positivo, ver menciones`} title={`${pos}% positivo — click para ver menciones`}
                     style={{ width: `${pos}%`, background: 'var(--pos)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'neutral')} aria-label={`${s.label}: ${neu}% neutral, ver menciones`} title={`${neu}% neutral — click para ver menciones`}
                     style={{ width: `${neu}%`, background: 'var(--text-3)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'negativo')} aria-label={`${s.label}: ${neg}% negativo, ver menciones`} title={`${neg}% negativo — click para ver menciones`}
                     style={{ width: `${neg}%`, background: 'var(--neg)', border: 'none', cursor: 'pointer', padding: 0 }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>
@@ -2694,6 +2704,9 @@ function GeographyScreen({ onMentionClick }) {
     return () => { cancelled = true; };
   }, [contentFilter]);
 
+  // Máximo de volumen del período, para la escala secuencial del mapa.
+  const maxMuniCount = React.useMemo(() => munis.reduce((mx, m) => Math.max(mx, m.count || 0), 0), [munis]);
+
   function openMuniSlice(m) {
     const accent = m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)';
     // Desglose REAL: /api/eco-geo ya manda positivo/neutral/negativo por
@@ -2763,14 +2776,29 @@ function GeographyScreen({ onMentionClick }) {
             {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
             {loadingGeo && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Actualizando…</span>}
           </div>
+          {/* En modo Volumen la MAGNITUD va en la escala secuencial, no en el
+              acento: pintar los municipios con var(--accent) cubría Puerto Rico
+              de burbujas del color de alarma. */}
           <PRMap
             municipalities={munis}
             accessor={(m) => metric === 'count' ? m.count : Math.abs(m.nss)}
-            colorFn={(m) => metric === 'nss' ? (m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
+            colorFn={(m) => metric === 'nss'
+              ? (m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)')
+              : seqColor(maxMuniCount > 0 ? m.count / maxMuniCount : 0)}
             onMunicipalityClick={openMuniSlice}
           />
           <div style={{ display: 'flex', justifyContent: 'center', gap: 20, fontSize: 11, color: 'var(--text-2)', marginTop: 16 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: metric === 'nss' ? 'var(--pos)' : 'var(--accent)' }} /> {metric === 'nss' ? 'Positivo (>+2)' : 'Volumen'}</span>
+            {metric === 'nss' ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo (&gt;+2)</span>
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                menos
+                <span style={{ display: 'flex', gap: 1 }}>
+                  {SEQ_STEPS.map((t, i) => <span key={i} style={{ width: 10, height: 10, borderRadius: 2, background: t }} />)}
+                </span>
+                más · volumen de menciones
+              </span>
+            )}
             {metric === 'nss' && <>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--warn)' }} /> Neutral</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo (&lt;-2)</span>
