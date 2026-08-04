@@ -806,7 +806,38 @@ Cada workstream lleva id, fase, tamaño (XS–XL) y de qué depende. Los ids
 `WS-F*` de fundaciones, `WS-M*` de Menciones, `WS-N*` de Narrativas y `WS-A*`
 de accesibilidad.
 
-### Fase 0 — Dejar de mentir (lo que se hace esta semana)
+### Fase 0 — Dejar de mentir ✅ **IMPLEMENTADA** (commit `c16e181`)
+
+> **Estado: los nueve workstreams están aplicados y verificados.** Medido con
+> Chrome headless sobre las 10 rutas × {1440, 390}, con fixtures que traen a
+> propósito los tres casos borde (`polarizationIndex` nulo, status de narrativa
+> fuera del enum, `strength` de arista nula):
+>
+> | | Antes | Después |
+> |---|---:|---:|
+> | Paths SVG con `NaN` | 4 | **0** |
+> | Errores de consola en el Scorecard | 4 | **0** |
+> | Histogramas sintéticos rotulados como medidos | 3 | **0** |
+> | Registros de auditoría inventados | 1 | **0** |
+> | Fuentes rivales para «menciones» | 2 (47 vs 54 en prod) | **1** |
+> | Chips de narrativa que no suman a «Todas» | 5 de 8 | **8 de 8** |
+> | Texto bajo AA (escritorio) | 184 | **44** |
+>
+> Los 44 que quedan son exactamente los hex hardcodeados: 40 del calendario de
+> Tópicos (pinta con la paleta del tema `costa`) y 4 avatares con `#4A7FB5`.
+> Los cierra **`WS-F1`** de la Fase 1.
+>
+> Se añadió un décimo arreglo no planificado, del mismo tipo: `splitSentiment()`
+> inventaba el desglose pos/neu/neg a partir de un total con ratios fijos. En
+> Geografía se reemplazó por el desglose real que `/api/eco-geo` ya manda
+> (`route.ts:172`); la función se eliminó.
+>
+> Nota de método: la sonda WCAG leía sólo `backgroundColor`, así que no veía los
+> fondos en gradiente — daba falsos positivos con texto oscuro y, peor, falsos
+> **negativos** con texto blanco sobre gradiente. Ya corregida; la medición
+> `1,884 → 184` de §2.5 tenía ese punto ciego en ambos extremos, sin que cambie
+> la dirección de la conclusión.
+
 
 Nueve workstreams, todos S o M, todos independientes entre sí. Ninguno necesita
 que el sistema de diseño esté terminado. Si sólo se hace esta fase, el producto
