@@ -425,7 +425,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           )}
         </div>
         <h1 style={{
-          margin: '2px 0 0', fontSize: 22, fontWeight: 700,
+          margin: '2px 0 0', fontSize: 'var(--fs-display-lg)', fontWeight: 600,
           letterSpacing: 'var(--letter-display)',
           fontFamily: 'var(--ff-display)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -538,19 +538,24 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         )}
       </div>
 
-      {/* Chat contextual — asistente sobre la vista actual (⌘⏎) */}
-      {onOpenChat && (
-        <button className="btn" onClick={onOpenChat} title="Asistente contextual (⌘⏎)"
-          style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icons.Sparkles size={14} color="var(--accent)" />
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Chat</span>
+      {/* Acciones: se agrupan en un contenedor propio con flex:none para que
+          envuelvan JUNTAS. Antes el toggle de modo era el último hijo directo
+          del header (que tiene flex-wrap), así que caía solo a una fila propia
+          y se comía ~48px verticales en las 10 pantallas. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none', marginLeft: 'auto' }}>
+        {onOpenChat && (
+          <button className="btn" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icons.Sparkles size={14} color="var(--accent)" />
+            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Chat</span>
+          </button>
+        )}
+        <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+          aria-label={mode === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
+          {mode === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
         </button>
-      )}
-
-      {/* Dark/light */}
-      <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')} title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
-        {mode === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
-      </button>
+      </div>
     </header>
   );
 }

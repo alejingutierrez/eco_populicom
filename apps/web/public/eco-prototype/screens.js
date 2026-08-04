@@ -1,5 +1,5 @@
 // Dashboard + screens
-const { Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
+const { Sparkline, AreaLineChart, MultiLineChart, SeriesPanels, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
 const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
@@ -4330,12 +4330,17 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
         </div>
       </div>
       <div className="card-bd">
-        {/* Per-series normalization (cada línea con su propio min/max) +
-            smooth bezier — petición explícita del usuario: "me gustaba más
-            como se veía antes... me gustaban las líneas suavizadas". Con
-            shared-scale, los picos grandes (ej. neg=203) comprimían las
-            variaciones diarias normales en una banda plana al fondo. */}
-        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} smooth={true} />
+        {/* WS-C2 (arreglo de F2). Antes: MultiLineChart con normalización POR
+            SERIE, que dibujaba positivo=33 un ~40% más arriba que negativo=35
+            — el lector concluía lo contrario de lo que dicen los números.
+            Activar `sharedScale` en el gráfico superpuesto tampoco servía:
+            con un pico grande (neg=203 en un día de crisis) la variación diaria
+            normal se comprime en una banda plana al fondo, que es justo la
+            queja que originó la normalización por serie.
+            SeriesPanels separa las series en franjas que COMPARTEN el eje: cada
+            una conserva su forma y su curva suave (petición explícita del
+            usuario) y las alturas sí son comparables. */}
+        <SeriesPanels data={chartData} series={series} panelHeight={72} onPointClick={onDayClick} />
       </div>
     </div>
   );

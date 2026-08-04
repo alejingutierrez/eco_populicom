@@ -614,6 +614,131 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   );
 }
 
+// SeriesPanels — small multiples con dominio Y COMPARTIDO (WS-C2, arreglo de F2).
+//
+// El problema: `MultiLineChart` sin `sharedScale` normaliza cada serie a su
+// propio min/max, así que dos series con el MISMO valor se dibujan a alturas
+// distintas. Medido en el Overview: positivo=33 quedaba ~40% más arriba que
+// negativo=35. El lector concluye lo contrario de lo que dicen los números.
+//
+// Por qué no basta con activar `sharedScale` en el mismo gráfico: con las tres
+// líneas superpuestas y un pico grande (neg=203 en un día de crisis), la
+// variación diaria normal se comprime en una banda plana al fondo — que es
+// exactamente la queja que originó la normalización por serie.
+//
+// La salida es separar las series en paneles apilados que COMPARTEN el eje: cada
+// una tiene su propia franja vertical (así se ve su forma) pero la misma escala
+// (así las alturas son comparables). Se conservan las curvas suaves y el
+// relleno, que es lo que el usuario pidió explícitamente.
+function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueFormat, a11yTitle }) {
+  const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
+  const [hover, setHover] = React.useState(null);
+  const padding = { l: 44, r: 16 };
+  const innerW = Math.max(50, w - padding.l - padding.r);
+
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
+    return (
+      <div ref={ref} style={{ width: '100%', minHeight: panelHeight * 2, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
+        Sin datos suficientes para graficar.
+      </div>
+    );
+  }
+
+  // UN dominio para todas las series. Empieza en 0 porque son conteos: recortar
+  // el cero exagera las diferencias relativas.
+  const allVals = series.flatMap((sr) => data.map((d) => d[sr.key])).filter((v) => !isGap(v));
+  const dMax = Math.max(1, ...allVals);
+  const step = innerW / Math.max(1, data.length - 1);
+  const hoverIdx = hover == null ? data.length - 1 : hover;
+  const fmt = (v) => (isGap(v) ? 's/d' : (typeof valueFormat === 'function' ? valueFormat(v) : String(Math.round(v))));
+
+  function onMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const idx = Math.round((e.clientX - rect.left - padding.l) / step);
+    if (idx >= 0 && idx < data.length) setHover(idx);
+  }
+
+  const padTop = 8; // si no, la etiqueta del máximo del primer panel se recorta
+  const totalH = padTop + series.length * panelHeight + 22;
+  return (
+    <div ref={ref} style={{ width: '100%', position: 'relative' }}>
+      <svg width={w} height={totalH} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+        onClick={(e) => {
+          if (!onPointClick) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const idx = Math.round((e.clientX - rect.left - padding.l) / step);
+          if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx);
+        }}
+        style={{ display: 'block', cursor: onPointClick ? 'pointer' : 'crosshair' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || `Evolución de ${series.map((x) => x.label).join(', ')}`}
+          desc={`${series.length} paneles apilados que comparten la misma escala vertical (0 a ${Math.round(dMax)}), así que las alturas SÍ son comparables entre series. ${data.length} puntos, de ${data[0]?.date || ''} a ${data[data.length - 1]?.date || ''}.`} />
+        {series.map((sr, si) => {
+          const top = padTop + si * panelHeight;
+          const h = panelHeight - 12;
+          const y = (v) => top + h - ((v - 0) / dMax) * h;
+          const raw = data.map((d, i) => isGap(d[sr.key]) ? null : [padding.l + i * step, y(d[sr.key])]);
+          const segs = splitSegments(raw);
+          const hv = data[hoverIdx][sr.key];
+          return (
+            <g key={sr.key}>
+              {/* base del panel */}
+              <line x1={padding.l} y1={top + h} x2={padding.l + innerW} y2={top + h} stroke="var(--chart-grid)" />
+              {/* techo = máximo compartido, rotulado UNA vez por panel para que la
+                  escala sea visible y no haya que confiar en la memoria */}
+              <line x1={padding.l} y1={top} x2={padding.l + innerW} y2={top} stroke="var(--chart-grid)" strokeDasharray="2 3" />
+              <text x={padding.l - 6} y={top + 4} fontSize="9" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{Math.round(dMax)}</text>
+              <text x={padding.l - 6} y={top + h + 3} fontSize="9" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">0</text>
+              {/* relleno + curva suave, que es lo que se quería conservar */}
+              {segs.map((pts, i) => {
+                if (pts.length < 2) return pts.length === 1 ? <circle key={i} cx={pts[0][0]} cy={pts[0][1]} r="2" fill={sr.color} /> : null;
+                const line = catmullRomPath(pts);
+                const area = `M ${pts[0][0]},${top + h} ${line.replace(/^M /, 'L ')} L ${pts[pts.length - 1][0]},${top + h} Z`;
+                return (
+                  <g key={i}>
+                    <path d={area} fill={sr.color} opacity="0.14" />
+                    <path d={line} stroke={sr.color} strokeWidth="1.75" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </g>
+                );
+              })}
+              {/* etiqueta de la serie DENTRO del panel */}
+              <text x={padding.l + 4} y={top + 10} fontSize="10" fontWeight="600" fill={sr.color} fontFamily="var(--ff-sans)">{sr.label}</text>
+              {/* valor en el punto bajo el cursor */}
+              {!isGap(hv) && (
+                <>
+                  <circle cx={padding.l + hoverIdx * step} cy={y(hv)} r="3.5" fill="var(--canvas)" stroke={sr.color} strokeWidth="2" />
+                  <text x={padding.l + innerW} y={top + 10} fontSize="11" fontWeight="700" textAnchor="end" fill="var(--text)" fontFamily="var(--ff-numeric)">{fmt(hv)}</text>
+                </>
+              )}
+            </g>
+          );
+        })}
+        {/* crosshair único, atravesando los paneles */}
+        {hover != null && (
+          <line x1={padding.l + hoverIdx * step} y1={padTop} x2={padding.l + hoverIdx * step} y2={padTop + series.length * panelHeight - 12}
+            stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
+        )}
+        {/* eje X compartido */}
+        {(() => {
+          const maxLabels = Math.max(2, Math.floor(innerW / 62));
+          const n = Math.min(maxLabels, data.length);
+          const denom = Math.max(1, n - 1);
+          const idxs = [...new Set(Array.from({ length: n }, (_, i) => Math.round((i * (data.length - 1)) / denom)))];
+          return idxs.filter((i) => data[i]?.date).map((i) => (
+            <text key={i} x={padding.l + i * step} y={totalH - 6} fontSize="9" textAnchor="middle" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{data[i].date}</text>
+          ));
+        })()}
+      </svg>
+      <ChartTable ids={ids}
+        caption={a11yTitle || `Datos de ${series.map((x) => x.label).join(', ')}`}
+        columns={[{ key: 'date', label: 'Fecha' }].concat(series.map((x) => ({ key: x.key, label: x.label, format: (v) => fmt(v) })))}
+        rows={data} />
+    </div>
+  );
+}
+
 // Stacked area (sentiment over time)
 function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
@@ -1080,6 +1205,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
 }
 
 window.ECO_CHARTS = {
+  SeriesPanels,
   Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart,
   Donut, HBarList, RadialGauge, Heatmap, PRMap
 };
