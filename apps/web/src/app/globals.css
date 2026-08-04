@@ -1,3 +1,8 @@
+/* WS-F9: las páginas Next.js consumen LOS MISMOS tokens que la SPA.
+   Antes globals.css no tenía ni una declaración de font-family, así que
+   estas páginas nunca iban a recibir Besley/Krub. */
+@import url('/eco-prototype/tokens.css');
+
 /* ECO Design System — Global styles */
 /* Ant Design handles component styling via CSS-in-JS. */
 /* This file contains only reset, layout, and custom sidebar styles. */
