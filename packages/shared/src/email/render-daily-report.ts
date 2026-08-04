@@ -19,6 +19,8 @@ import {
   esc,
   fmtInt,
   sectionKicker,
+  blockHeader,
+  ctaButton,
   renderMetricTiles,
   emailDocument,
   type EmailMetric,
@@ -103,6 +105,8 @@ export interface DailyReportRenderData {
     velocity?: EmailMetric;
     engagementRate?: EmailMetric;
   };
+  /** URL a la landing de Overview del dashboard para el CTA del Bloque 2. */
+  overviewUrl?: string;
 }
 
 // ------------------------------------------------------------
@@ -178,7 +182,30 @@ function renderInsights(items: string[], color: string): string {
 export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const { totals, deltaVsPrev } = data;
 
-  const topicsList = data.topicsTable.slice(0, 9);
+  // Al grano: top 5 tópicos con nombre; el resto se pliega en "Otros tópicos"
+  // para que la tabla siga cuadrando con el total del periodo.
+  const namedTopics = data.topicsTable.filter((t) => !t.isOther && !t.isUnclassified);
+  const foldedTopics = namedTopics.slice(5);
+  const prevOther = data.topicsTable.find((t) => t.isOther);
+  const otherRow: DailyReportRenderData['topicsTable'] = (foldedTopics.length > 0 || prevOther)
+    ? [{
+        // Si plegamos tópicos aquí, el "(N)" del label upstream quedaría corto;
+        // un label plano nunca miente.
+        topic: foldedTopics.length > 0 ? 'Otros tópicos' : (prevOther?.topic ?? 'Otros tópicos'),
+        subtopics: '',
+        secondaryCount: 0,
+        total: (prevOther?.total ?? 0) + foldedTopics.reduce((s, t) => s + t.total, 0),
+        negative: (prevOther?.negative ?? 0) + foldedTopics.reduce((s, t) => s + t.negative, 0),
+        neutral: (prevOther?.neutral ?? 0) + foldedTopics.reduce((s, t) => s + t.neutral, 0),
+        positive: (prevOther?.positive ?? 0) + foldedTopics.reduce((s, t) => s + t.positive, 0),
+        isOther: true,
+      }]
+    : [];
+  const topicsList = [
+    ...namedTopics.slice(0, 5),
+    ...otherRow,
+    ...data.topicsTable.filter((t) => t.isUnclassified),
+  ];
   const topicsRows = topicsList
     .map((t, idx) => {
       const isLast = idx === topicsList.length - 1;
@@ -228,6 +255,17 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
   const neuPct = pct(totals.neutral, totals.total);
   const posPct = pct(totals.positive, totals.total);
 
+  // Insights: solo bloques CON contenido — un bloque vacío ("no hay señal")
+  // por sentimiento era ruido; si ninguno trae señal, una sola línea lo dice.
+  const insightSections = [
+    { label: 'Negativo', sub: `${negPct}% del total`, color: COLORS.neg, bg: COLORS.negSoft, items: data.insights.negative },
+    { label: 'Neutral', sub: `${neuPct}% del total`, color: COLORS.neu, bg: COLORS.neuSoft, items: data.insights.neutral },
+    { label: 'Positivo', sub: `${posPct}% del total`, color: COLORS.pos, bg: COLORS.posSoft, items: data.insights.positive },
+  ].filter((b) => b.items.some((s) => s && s.trim().length > 0));
+  const insightsBlocks = insightSections.length > 0
+    ? insightSections.map((b) => insightBlock(b.label, b.sub, b.color, b.bg, renderInsights(b.items, b.color))).join('\n              ')
+    : `<div class="force-text-soft" style="font-size:12.5px;color:${COLORS.inkMute};font-style:italic;">Sin señal suficiente para insights analíticos en este periodo.</div>`;
+
   // Indicadores compuestos numéricos: sólo si el caller adjuntó las métricas
   // ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
   const indicatorsBlock = data.metrics ? renderIndicators(data.metrics) : '';
@@ -247,8 +285,9 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
               </div>
             </td>
           </tr>
-
-          <!-- 01 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
+${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
+${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
+          <!-- BLOQUE 1 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
           <tr>
             <td class="px-32" style="padding:0 32px 22px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
@@ -267,10 +306,8 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
           <!-- 02 · TERMÓMETRO -->
           <tr>
             <td class="px-32" style="padding:0 32px 8px 32px;">
-              ${sectionKicker('02 · Termómetro · últimos 7 días')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 18px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Cómo se sintió la conversación
-              </h2>
+              ${sectionKicker('01 · Termómetro · últimos 7 días')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 <tr>
@@ -285,14 +322,12 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
               </div>
             </td>
           </tr>
-${indicatorsBlock}
-          <!-- 03 · TENDENCIA -->
+
+          <!-- BLOQUE 1 · 02 · TENDENCIA -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('03 · Tendencia')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Día a día
-              </h2>
+              ${sectionKicker('02 · Tendencia día a día')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
                 <tr>
@@ -318,16 +353,23 @@ ${indicatorsBlock}
             </td>
           </tr>
 
-          <!-- 04 · TÓPICO PRINCIPAL -->
+${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
+${indicatorsBlock}
+${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
+          <!-- BLOQUE 2 · 03 · INSIGHTS -->
+          <tr>
+            <td class="px-32" style="padding:16px 32px 20px 32px;">
+              ${sectionKicker('03 · Insights · lo más relevante')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
+              ${insightsBlocks}
+            </td>
+          </tr>
+${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
+          <!-- BLOQUE 2 · 04 · TÓPICOS -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Tópico principal')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Dónde se concentra la conversación
-              </h2>
-              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Cada mención se cuenta una sola vez bajo su tópico principal. Las menciones aún sin clasificar se agrupan al final.
-              </div>
+              ${sectionKicker('04 · Tópicos principales')}
+              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
 
               <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
                 <tr>
@@ -339,20 +381,6 @@ ${indicatorsBlock}
                 ${topicsEmpty}
                 ${topicsFooter}
               </table>
-            </td>
-          </tr>
-
-          <!-- 05 · INSIGHTS -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 20px 32px;">
-              ${sectionKicker('05 · Insights')}
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Lo que está diciendo la audiencia
-              </h2>
-
-              ${insightBlock('Negativo', `${negPct}% del total`, COLORS.neg, COLORS.negSoft, renderInsights(data.insights.negative, COLORS.neg))}
-              ${insightBlock('Neutral', `${neuPct}% del total`, COLORS.neu, COLORS.neuSoft, renderInsights(data.insights.neutral, COLORS.neu))}
-              ${insightBlock('Positivo', `${posPct}% del total`, COLORS.pos, COLORS.posSoft, renderInsights(data.insights.positive, COLORS.pos))}
             </td>
           </tr>`;
 
@@ -413,20 +441,21 @@ function kpiCard(
 // ------------------------------------------------------------
 
 function renderIndicators(metrics: NonNullable<DailyReportRenderData['metrics']>): string {
+  // Orden del cliente (jul 2026): en el diario sólo dos indicadores —
+  // Riesgo de crisis y Sentimiento neto. Salud de marca, Polarización,
+  // Velocidad y Tasa de interacción NO se muestran aquí (siguen en el
+  // dashboard). El interface conserva esos campos por retro-compatibilidad
+  // con el lambda, pero no se renderizan.
   const entries: Array<{ label: string; metric: EmailMetric }> = [
     { label: 'Riesgo de crisis', metric: metrics.crisis },
-    { label: 'Salud de marca', metric: metrics.bhi },
     { label: 'Sentimiento neto', metric: metrics.nss },
   ];
-  if (metrics.polarization) entries.push({ label: 'Polarización', metric: metrics.polarization });
-  if (metrics.velocity) entries.push({ label: 'Velocidad', metric: metrics.velocity });
-  if (metrics.engagementRate) entries.push({ label: 'Tasa de interacción', metric: metrics.engagementRate });
 
   return `
           <tr>
             <td class="px-32" style="padding:6px 32px 8px 32px;">
               ${sectionKicker('Indicadores · mismos valores que el dashboard')}
-              ${renderMetricTiles(entries, { cols: 3, deltaSuffix: 'vs 7 días previos' })}
+              ${renderMetricTiles(entries, { cols: 2, deltaSuffix: 'vs 7 días previos' })}
             </td>
           </tr>`;
 }
@@ -489,3 +518,4 @@ function insightBlock(label: string, sub: string, color: string, pillBg: string,
     </tr>
   </table>`;
 }
+

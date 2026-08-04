@@ -86,6 +86,15 @@ export function buildWeeklySummaryPrompt(inputs: WeeklyComparisonInputs): string
   const emotionBlock = (current.topEmotions ?? []).slice(0, 6)
     .map((e) => `- ${e.emotion}: ${e.count} menciones`).join('\n') || '- (sin datos)';
 
+  // Municipios y autores ya venían calculados en WeeklyAggregates pero no se
+  // le mostraban al modelo — habilitan highlights de asimetría de actor/canal
+  // (lo que el system prompt pide) sin cómputo adicional.
+  const muniBlock = (current.byMunicipality ?? []).slice(0, 8)
+    .map((m) => `- ${m.municipality}: ${m.total} menciones (${m.negative} neg)`).join('\n') || '- (sin datos)';
+
+  const authorBlock = (current.topAuthors ?? []).slice(0, 8)
+    .map((a) => `- ${a.author}: ${a.mentions} menciones (sentimiento dominante: ${a.sentiment})`).join('\n') || '- (sin datos)';
+
   return `
 AGENCIA: ${current.agencyName} (abreviada: ${current.agencyShortName})
 CORREO: resumen SEMANAL comparativo. Se envía el viernes a la mañana y cubre la semana cerrada del ${current.periodStart} al ${current.periodEnd} (${inputs.weekLabel}), comparada contra la semana anterior (${inputs.prevWeekLabel}). TZ America/Puerto_Rico.
@@ -109,6 +118,12 @@ ${goneTopics ? `\nTÓPICOS QUE SALIERON (tenían volumen la semana anterior, est
 FUENTES / MEDIOS DE LA SEMANA ACTUAL (top por volumen):
 ${sourceBlock}
 
+AUTORES / CUENTAS MÁS ACTIVAS DE LA SEMANA ACTUAL (recuerda: sin @handles personales ni nombres de ciudadanos privados en la salida — usa medios, cargos públicos o tipo de canal):
+${authorBlock}
+
+MUNICIPIOS CON MENCIONES ESTA SEMANA (etiquetado automático del NLP — NO es ground truth del lugar del evento; aplica la regla geográfica del sistema):
+${muniBlock}
+
 EMOCIONES AGREGADAS DE LA SEMANA ACTUAL:
 ${emotionBlock}
 
@@ -122,7 +137,7 @@ ${samples.positive.slice(0, 8).map((m, i) => formatSample(i + 1, m)).join('\n') 
 
 TAREA — DOS SALIDAS, AMBAS CENTRADAS EN LA COMPARACIÓN:
 
-1) "summary" — UN párrafo de 3 a 5 oraciones: la semana en un vistazo PARA UN LECTOR EJECUTIVO. Debe abrir con la TENSIÓN o el CAMBIO central de la semana vs la anterior (no con enumeración de conteos), citar el volumen total y su variación (${signedPct(totals.total, prevTotals.total)}), identificar el MECANISMO dominante (evento/cobertura/actor que explica el cambio) y cerrar con la posición de la agencia en su conversación. Usa <strong> para cifras y nombres propios clave.
+1) "summary" — UN párrafo COMPLETO de 4 a 6 oraciones (~120–160 palabras): la semana en un vistazo PARA UN LECTOR EJECUTIVO, con suficiente contexto para que entienda qué pasó y qué significa PARA ESTA AGENCIA (${current.agencyName}). Debe abrir con la TENSIÓN o el CAMBIO central de la semana vs la anterior (no con enumeración de conteos ni aperturas genéricas tipo "La conversación estuvo marcada por"), citar el volumen total y su variación (${signedPct(totals.total, prevTotals.total)}), identificar el MECANISMO dominante (evento/cobertura/actor que explica el cambio, anclado en el hecho concreto más relevante de las muestras) y cerrar con la posición de la agencia en su conversación. Usa <strong> para cifras y nombres propios clave.
 
 2) "highlights" — 2 a 4 oraciones independientes tipo "qué cambió esta semana", cada una sobre un CAMBIO distinto vs la semana anterior:
    - un movimiento de volumen o sentimiento con su mecanismo (qué evento lo explica),

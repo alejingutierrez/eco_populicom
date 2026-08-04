@@ -66,14 +66,18 @@ const data: WeeklySummaryRenderData = {
     '<strong>Críticas / Controversias</strong> salió del top de la semana: tenía <strong>71 menciones</strong> la semana anterior y esta semana no registra volumen clasificado.',
   ],
   topicsCompare: [
-    { topic: 'Desarrollo Empresarial', cur: 121, prev: 95, delta: formatDelta(121, 95, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Gestión del Secretario', cur: 98, prev: 117, delta: formatDelta(98, 117, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Permisos / Reforma', cur: 84, prev: 152, delta: formatDelta(84, 152, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Incentivos Económicos', cur: 67, prev: 24, delta: formatDelta(67, 24, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Legislación Económica', cur: 41, prev: 48, delta: formatDelta(41, 48, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Turismo y Promoción', cur: 28, prev: 0, delta: formatDelta(28, 0, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Inversión Extranjera', cur: 22, prev: 28, delta: formatDelta(22, 28, { kind: 'percent', decimals: 0 }) },
-    { topic: 'Críticas / Controversias', cur: 0, prev: 71, delta: formatDelta(0, 71, { kind: 'percent', decimals: 0 }) },
+    { topic: 'Desarrollo Empresarial', cur: 121, prev: 95, delta: formatDelta(121, 95, { kind: 'percent', decimals: 0 }), negShare: 18 },
+    { topic: 'Gestión del Secretario', cur: 98, prev: 117, delta: formatDelta(98, 117, { kind: 'percent', decimals: 0 }), negShare: 62 },
+    { topic: 'Permisos / Reforma', cur: 84, prev: 152, delta: formatDelta(84, 152, { kind: 'percent', decimals: 0 }), negShare: 44 },
+    { topic: 'Incentivos Económicos', cur: 67, prev: 24, delta: formatDelta(67, 24, { kind: 'percent', decimals: 0 }), negShare: 9 },
+    { topic: 'Legislación Económica', cur: 41, prev: 48, delta: formatDelta(41, 48, { kind: 'percent', decimals: 0 }), negShare: 27 },
+    { topic: 'Turismo y Promoción', cur: 28, prev: 0, delta: formatDelta(28, 0, { kind: 'percent', decimals: 0 }), negShare: 4 },
+    { topic: 'Inversión Extranjera', cur: 22, prev: 28, delta: formatDelta(22, 28, { kind: 'percent', decimals: 0 }), negShare: 14 },
+    { topic: 'Críticas / Controversias', cur: 0, prev: 71, delta: formatDelta(0, 71, { kind: 'percent', decimals: 0 }), negShare: null },
+  ],
+  goneTopics: [
+    { topic: 'Vivienda asequible', prev: 19 },
+    { topic: 'Zonas de oportunidad', prev: 12 },
   ],
   topMentions: [
     {
@@ -113,7 +117,7 @@ const data: WeeklySummaryRenderData = {
       tone: 'neutral',
     },
   ],
-  dashboardUrl: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com/dashboard?agency=ddecpr',
+  dashboardUrl: 'https://citizenecho.com/overview?agency=ddecpr',
 };
 
 function buildMockOverlayChartUrl(): string {

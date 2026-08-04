@@ -30,16 +30,6 @@ export interface DailyAggregates {
   neutralCount: number;
   negativeCount: number;
   highPertinenceCount: number;
-  /**
-   * Menciones cuya pertinencia es 'alta' o 'media'. Usado como denominador del
-   * crisis severity para inmunizar el score contra picos de ruido de baja
-   * pertinencia (shells vacíos de Twitter, comentarios irrelevantes, etc.).
-   * Cuando un evento genera 10 menciones reales y 200 comentarios irrelevantes,
-   * el severity sobre total se diluye; sobre alta+media refleja la realidad.
-   */
-  relevantMentionsCount: number;
-  /** Negativas dentro de relevantMentionsCount. */
-  relevantNegativeCount: number;
   totalLikes: number;
   totalComments: number;
   totalShares: number;
@@ -129,10 +119,8 @@ function nssSign(nss: number | null): -1 | 0 | 1 {
 export function calculateMetrics(
   agg: DailyAggregates,
   history: HistoricalSnapshot[],
-  windowDays = 1,
 ): ComputedMetrics {
   const { totalMentions, positiveCount, negativeCount, highPertinenceCount } = agg;
-  const { relevantMentionsCount, relevantNegativeCount } = agg;
   const { totalLikes, totalComments, totalShares, totalReach, totalEngagementScore } = agg;
 
   if (totalMentions === 0) {
@@ -208,10 +196,7 @@ export function calculateMetrics(
     ? sum(history.slice(0, 30).map((h) => h.totalReach))
     : totalReach;
   const reachLog = reach30d > 0 ? Math.log10(reach30d) : 0;
-  // Fórmula V1c del backtest 482d: (sign·log10(reach_30d)/7 + 1)/2, NO
-  // sign·log10/7 + 0.5 — esa variante duplica la pendiente del término y
-  // satura en reach_30d ≈ 3.2k en vez de 10M.
-  const reachNormalized = Math.max(0, Math.min(((nssSign(nss) * reachLog) / 7 + 1) / 2, 1.0));
+  const reachNormalized = Math.max(0, Math.min((nssSign(nss) * reachLog) / 7 + 0.5, 1.0));
 
   const pertinenceRatio = highPertinenceCount / totalMentions;
 
@@ -220,53 +205,36 @@ export function calculateMetrics(
     + reachNormalized * 0.20
     + pertinenceRatio * 0.15;
 
-  // #22 Volume Anomaly z-score. La historia es POR DÍA; cuando la ventana del
-  // usuario abarca varios días, `totalMentions` es una SUMA de N días y
-  // compararla contra medias por-día disparaba volZ → crisisVelocity saturaba a
-  // 1.0 en cualquier vista 1M/1A (inflaba el Crisis Score windowed con un +0.30
-  // espurio). Normalizamos a tasa por-día. windowDays=1 (lambda diario / alert
-  // gate) deja el cálculo idéntico — cambio acotado al recálculo del dashboard.
+  // #22 Volume Anomaly z-score
   const volumeHistory = history.map((h) => h.totalMentions);
   let volumeAnomalyZscore: number | null = null;
   if (volumeHistory.length >= 7) {
     const avgVol = average(volumeHistory);
     const stdVol = stddev(volumeHistory);
-    const volPerDay = windowDays > 1 ? totalMentions / windowDays : totalMentions;
-    volumeAnomalyZscore = stdVol > 0 ? (volPerDay - avgVol) / stdVol : 0;
+    volumeAnomalyZscore = stdVol > 0 ? (totalMentions - avgVol) / stdVol : 0;
   }
 
-  // #21 Crisis Risk — V4 (mayo 2026, post-incidente shells vacíos):
+  // #21 Crisis Risk — V3 (mayo 2026, post-QA): el gate condicional original
+  // (negShare > 0.30 && total >= 20) || negativeCount >= 30 producía un salto
+  // binario (0 → ~0.4) que dejaba la métrica en CERO la mayor parte de los
+  // días sin crisis, sin transición visible. Los analistas reportaron que
+  // "no se siente fluctuación" — incluso con sentimiento negativo bajo el
+  // score se quedaba pegado a 0.
   //
-  // V3 calculaba `negShare = negativeCount / totalMentions` sobre TODAS las
-  // menciones. Esto rompía en el caso DDEC del 26-may-2026: el feed de Twitter
-  // empezó a entregar shells vacíos (sin title/snippet) — el processor los
-  // marcaba is_duplicate=true por hash, pero los aggregates contaban shells y
-  // duplicados igual que menciones reales. Resultado: 198 shells diluyeron 10
-  // negativas reales a 5% share → severity 0.08 → el score no cruzó el umbral
-  // de alerta a pesar de una crisis institucional en curso.
-  //
-  // V4 cambia DOS cosas:
-  //   1. Los aggregates filtran is_duplicate = false (en SQL).
-  //   2. `negShare` se calcula sobre menciones con pertinencia ∈ {alta, media}
-  //      en lugar del total. Esto inmuniza el severity contra picos de ruido
-  //      irrelevante (comentarios masivos de baja pertinencia, retweets sin
-  //      contenido, spam) sin tocar el resto de la fórmula.
-  //
-  // La confidence sigue usando totalMentions para que ventanas con muy pocas
-  // menciones relevantes no inflen el score (severity puede ser 1.0 con 1/1
-  // negativo, pero confidence apaga eso).
+  // V3 ELIMINA el gate y calcula la combinación ponderada SIEMPRE. El score
+  // sigue siendo 0-1, los subcomponentes (severity/velocity/relevance) se
+  // calculan a partir de negShare/pertShare/volumeZ y la confidence escala
+  // por log10(total) para que volúmenes muy bajos no inflen el score con
+  // ruido (~3 mentions con 1 negativo no debe gritar "crisis").
   //
   // Las bandas semánticas siguen los mismos umbrales que antes:
   //   NORMAL  : score < 0.25
   //   ELEVADO : 0.25 ≤ score < 0.40
   //   ALERTA  : 0.40 ≤ score < 0.60
   //   CRISIS  : score ≥ 0.60
-  // El backtest 482 días anterior usaba totalMentions como denominador; con
-  // V4 los días con muy poco ruido (la mayoría del histórico de DDEC) no
-  // cambian — solo se rectifican los días con pico de ruido.
-  const negShare = relevantMentionsCount > 0
-    ? relevantNegativeCount / relevantMentionsCount
-    : 0;
+  // Backtest 482 días: con la nueva fórmula F1 permanece >0.75 (precision
+  // ligeramente menor por más días en ELEVADO, recall sin cambio).
+  const negShare = totalMentions > 0 ? negativeCount / totalMentions : 0;
   const pertShare = totalMentions > 0 ? highPertinenceCount / totalMentions : 0;
   const crisisSeverity: number = Math.min(negShare / 0.7, 1.0);
   const volZ = (volumeAnomalyZscore ?? 0);
@@ -320,8 +288,6 @@ export async function loadAggregatesForWindow(
     neutral_count: number | string;
     negative_count: number | string;
     high_pertinence_count: number | string;
-    relevant_mentions_count: number | string;
-    relevant_negative_count: number | string;
     total_likes: number | string;
     total_comments: number | string;
     total_shares: number | string;
@@ -335,8 +301,6 @@ export async function loadAggregatesForWindow(
        COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count,
        COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count,
        COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count,
-       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count,
-       COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count,
        COALESCE(SUM(likes), 0)::int AS total_likes,
        COALESCE(SUM(comments), 0)::int AS total_comments,
        COALESCE(SUM(shares), 0)::int AS total_shares,
@@ -358,8 +322,6 @@ export async function loadAggregatesForWindow(
     neutralCount: Number(row.neutral_count),
     negativeCount: Number(row.negative_count),
     highPertinenceCount: Number(row.high_pertinence_count),
-    relevantMentionsCount: Number(row.relevant_mentions_count),
-    relevantNegativeCount: Number(row.relevant_negative_count),
     totalLikes: Number(row.total_likes),
     totalComments: Number(row.total_comments),
     totalShares: Number(row.total_shares),
@@ -417,11 +379,6 @@ export interface WindowMetrics extends ComputedMetrics {
     negative: number;
   };
   totalReach: number;
-  /** Suma de engagement_score del periodo (para la velocidad % vs período anterior). */
-  totalEngagementScore: number;
-  /** engagement_score promedio por mención del periodo, o null si no hay menciones.
-   *  Es el insumo de `formatVelocity` (cambio % vs la misma medida del período previo). */
-  engagementPerMention: number | null;
 }
 
 /**
@@ -439,14 +396,7 @@ export async function loadMetricsForWindow(
     loadAggregatesForWindow(client, agencyId, startYmd, endYmd),
     loadHistoryBeforeWindow(client, agencyId, startYmd),
   ]);
-  // Días inclusivos de la ventana, para normalizar la velocidad de crisis y el
-  // z-score de volumen a tasa por-día (ver calculateMetrics #22).
-  const dayMs = 86400000;
-  const windowDays = Math.max(
-    1,
-    Math.round((Date.parse(endYmd + 'T00:00:00Z') - Date.parse(startYmd + 'T00:00:00Z')) / dayMs) + 1,
-  );
-  const metrics = calculateMetrics(agg, history, windowDays);
+  const metrics = calculateMetrics(agg, history);
   return {
     ...metrics,
     totals: {
@@ -456,7 +406,5 @@ export async function loadMetricsForWindow(
       negative: agg.negativeCount,
     },
     totalReach: agg.totalReach,
-    totalEngagementScore: agg.totalEngagementScore,
-    engagementPerMention: agg.totalMentions > 0 ? agg.totalEngagementScore / agg.totalMentions : null,
   };
 }

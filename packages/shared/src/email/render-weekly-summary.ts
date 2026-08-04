@@ -22,6 +22,8 @@ import {
   toneHex,
   deltaInline,
   sectionKicker,
+  blockHeader,
+  ctaButton,
   renderMetricTiles,
   emailDocument,
   type EmailMetric,
@@ -55,7 +57,14 @@ export interface WeeklySummaryRenderData {
     positive: DeltaDisplay;
   };
 
-  /** Indicadores compuestos con delta semanal — mismos valores que el dashboard. */
+  /**
+   * Indicadores compuestos con delta semanal — mismos valores que el dashboard.
+   * Se renderizan 4 tiles (crisis, nss, bhi, polarization — decisión del
+   * cliente ago 2026, espejo del recorte del diario). `velocity` y
+   * `engagementRate` se aceptan por retro-compatibilidad pero YA NO se
+   * muestran: la Velocidad es cambio % de volumen desde jul 2026 y duplicaba
+   * el delta que preside "Semana vs semana".
+   */
   metrics?: {
     crisis: EmailMetric;
     bhi: EmailMetric;
@@ -79,7 +88,15 @@ export interface WeeklySummaryRenderData {
     cur: number;
     prev: number;
     delta: DeltaDisplay;
+    /** % de menciones negativas del tópico en la semana actual (0–100). null cuando cur=0. */
+    negShare?: number | null;
   }>;
+
+  /**
+   * Tópicos que tenían volumen la semana anterior y esta semana no registran
+   * (excluye los que ya aparecen en la tabla con cur=0). Línea al pie de Tópicos.
+   */
+  goneTopics?: Array<{ topic: string; prev: number }>;
 
   /**
    * Menciones con mayor engagement de la semana (3–5), para aterrizar el
@@ -97,7 +114,7 @@ export interface WeeklySummaryRenderData {
     tone: 'negative' | 'neutral' | 'positive';
   }>;
 
-  /** Deeplink al dashboard (opcional — se omite el CTA si falta). */
+  /** Deeplink al Overview del dashboard — lo usan los 3 CTAs (se omiten si falta). */
   dashboardUrl?: string | null;
 }
 
@@ -191,10 +208,15 @@ function topicsCompareBlock(data: WeeklySummaryRenderData): string {
     const deltaHtml = dd.hasBaseline && dd.value != null
       ? `<span style="color:${toneHex(dd.tone)};font-weight:700;white-space:nowrap;">${esc(dd.arrow)} ${esc(dd.value)}</span>`
       : `<span style="color:${COLORS.inkMute};">—</span>`;
+    // Concentración negativa del tópico esta semana: rojo ≥50%, ámbar ≥25%.
+    const negHtml = t.negShare == null
+      ? `<span style="color:${COLORS.inkMute};">—</span>`
+      : `<span style="color:${t.negShare >= 50 ? COLORS.neg : t.negShare >= 25 ? COLORS.elevado : COLORS.inkMute};font-weight:${t.negShare >= 25 ? 700 : 400};">${t.negShare}%</span>`;
     return `
       <tr>
         <td class="force-text-dark" style="padding:12px 16px;font-size:13.5px;color:${COLORS.ink};font-weight:600;${border}">${esc(t.topic)}</td>
         <td align="right" class="force-text-dark" style="padding:12px 8px;font-size:13.5px;color:${COLORS.ink};font-weight:700;${border}white-space:nowrap;">${fmtInt(t.cur)}</td>
+        <td align="right" style="padding:12px 8px;font-size:12.5px;${border}white-space:nowrap;">${negHtml}</td>
         <td align="right" class="force-text-soft" style="padding:12px 8px;font-size:13px;color:${COLORS.inkMute};${border}white-space:nowrap;">${fmtInt(t.prev)}</td>
         <td align="right" style="padding:12px 16px;font-size:12.5px;${border}white-space:nowrap;">${deltaHtml}</td>
       </tr>`;
@@ -205,6 +227,7 @@ function topicsCompareBlock(data: WeeklySummaryRenderData): string {
                 <tr>
                   <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
                   <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">Esta semana</th>
+                  <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">% neg.</th>
                   <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">Anterior</th>
                   <th align="right" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Cambio</th>
                 </tr>
@@ -212,11 +235,19 @@ function topicsCompareBlock(data: WeeklySummaryRenderData): string {
               </table>`;
 }
 
+/** "Salieron de la conversación: X (71 la semana anterior) · Y (12)." */
+function goneTopicsLine(items: WeeklySummaryRenderData['goneTopics']): string {
+  const list = (items ?? []).filter((t) => t.topic && t.prev > 0).slice(0, 4);
+  if (!list.length) return '';
+  const parts = list.map((t) => `<strong style="color:${COLORS.inkSoft};font-weight:600;">${esc(t.topic)}</strong> (${fmtInt(t.prev)} la semana anterior)`);
+  return `<div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.6;">Salieron de la conversación: ${parts.join(' &nbsp;·&nbsp; ')}.</div>`;
+}
+
 // ------------------------------------------------------------
 // Highlights — "qué cambió esta semana"
 // ------------------------------------------------------------
 
-function highlightsBlock(items: string[]): string {
+function highlightsBlock(items: string[], sec: string): string {
   const clean = items.filter((s) => s && s.trim().length > 0).slice(0, 4);
   if (!clean.length) return '';
   const lis = clean.map((s, i) => {
@@ -229,7 +260,7 @@ function highlightsBlock(items: string[]): string {
   return `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('07 · Qué cambió')}
+              ${sectionKicker(`${sec} · Qué cambió`)}
               <h2 class="section-title force-text-dark" style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Los movimientos de la semana
               </h2>
@@ -254,7 +285,7 @@ const TONE_META: Record<'negative' | 'neutral' | 'positive', { label: string; co
   positive: { label: 'Positivo', color: COLORS.pos, pillBg: COLORS.posSoft },
 };
 
-function topMentionsBlock(data: WeeklySummaryRenderData): string {
+function topMentionsBlock(data: WeeklySummaryRenderData, sec: string): string {
   const items = (data.topMentions ?? []).slice(0, 5);
   if (!items.length) return '';
 
@@ -291,7 +322,7 @@ function topMentionsBlock(data: WeeklySummaryRenderData): string {
   return `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('05 · Lo más resonante')}
+              ${sectionKicker(`${sec} · Lo más resonante`)}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Las menciones con mayor engagement
               </h2>
@@ -310,28 +341,25 @@ function topMentionsBlock(data: WeeklySummaryRenderData): string {
 // ------------------------------------------------------------
 
 export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
-  const indicatorsBlock = data.metrics
-    ? `
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('03 · Indicadores de la semana · mismos valores que el dashboard')}
-              ${renderMetricTiles([
-                { label: 'Riesgo de crisis', metric: data.metrics.crisis },
-                { label: 'Salud de marca', metric: data.metrics.bhi },
-                { label: 'Sentimiento neto', metric: data.metrics.nss },
-                ...(data.metrics.polarization ? [{ label: 'Polarización', metric: data.metrics.polarization }] : []),
-                ...(data.metrics.velocity ? [{ label: 'Velocidad', metric: data.metrics.velocity }] : []),
-                ...(data.metrics.engagementRate ? [{ label: 'Tasa de interacción', metric: data.metrics.engagementRate }] : []),
-              ], { cols: 3, deltaSuffix: 'vs semana anterior' })}
-            </td>
-          </tr>`
-    : '';
+  // Numeración dinámica de secciones: las condicionales (ritmo, indicadores,
+  // qué cambió, lo más resonante) ya no dejan huecos tipo "02 → 05" cuando
+  // una no renderiza. Los números se asignan en orden de aparición.
+  let secCount = 0;
+  const nextSec = () => String(++secCount).padStart(2, '0');
+
+  // CTA compartido (mismo botón azul de marca que el diario). Se repite 3×:
+  // tras el hero, tras los indicadores y al cierre — patrón del diario
+  // (minuta 21-jul-2026 + ajuste ago 2026 para paridad entre correos).
+  const cta = data.dashboardUrl ? ctaButton(data.dashboardUrl) : '';
+
+  const summarySec = nextSec();
+  const weekVsWeekSec = nextSec();
 
   const chartBlock = data.chartImageUrl
     ? `
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Ritmo diario')}
+              ${sectionKicker(`${nextSec()} · Ritmo diario`)}
               <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Esta semana vs la anterior, día a día
               </h2>
@@ -358,22 +386,29 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
           </tr>`
     : '';
 
-  const ctaBlock = data.dashboardUrl
+  // BLOQUE 2 — los números se asignan después del chart (orden del documento).
+  const indicatorsBlock = data.metrics
     ? `
           <tr>
-            <td class="px-32" align="center" style="padding:20px 32px 24px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td bgcolor="${COLORS.ink}" style="background:${COLORS.ink};background-color:${COLORS.ink};border-radius:6px;">
-                    <a href="${esc(data.dashboardUrl)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      Explorar la semana en el dashboard →
-                    </a>
-                  </td>
-                </tr>
-              </table>
+            <td class="px-32" style="padding:24px 32px 8px 32px;">
+              ${sectionKicker(`${nextSec()} · Indicadores de la semana · mismos valores que el dashboard`)}
+              ${renderMetricTiles([
+                { label: 'Riesgo de crisis', metric: data.metrics.crisis },
+                { label: 'Sentimiento neto', metric: data.metrics.nss },
+                { label: 'Salud de marca', metric: data.metrics.bhi },
+                ...(data.metrics.polarization ? [{ label: 'Polarización', metric: data.metrics.polarization }] : []),
+              ], { cols: 2, deltaSuffix: 'vs semana anterior' })}
             </td>
           </tr>`
     : '';
+
+  const hasHighlights = data.highlights.some((s) => s && s.trim().length > 0);
+  const highlightsHtml = hasHighlights ? highlightsBlock(data.highlights, nextSec()) : '';
+
+  const hasMentions = (data.topMentions ?? []).length > 0;
+  const mentionsHtml = hasMentions ? topMentionsBlock(data, nextSec()) : '';
+
+  const topicsSec = nextSec();
 
   const contentRows = `
           <!-- HERO -->
@@ -391,14 +426,18 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
             </td>
           </tr>
 
-          <!-- 01 · LA SEMANA EN UN VISTAZO -->
+          <!-- CTA #1 · atajo inmediato al dashboard, antes del Bloque 1 -->
+${cta}
+
+${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
+          <!-- BLOQUE 1 · LA SEMANA EN UN VISTAZO -->
           <tr>
             <td class="px-32" style="padding:0 32px 22px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
                 <tr>
                   <td style="padding:18px 22px;">
                     <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
-                      01 · La semana en un vistazo
+                      ${summarySec} · La semana en un vistazo
                     </div>
                     <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.weeklySummary}</p>
                   </td>
@@ -407,23 +446,28 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
             </td>
           </tr>
 
-          <!-- 02 · SEMANA VS SEMANA -->
+          <!-- BLOQUE 1 · SEMANA VS SEMANA -->
           <tr>
             <td class="px-32" style="padding:0 32px 8px 32px;">
-              ${sectionKicker('02 · Semana vs semana')}
+              ${sectionKicker(`${weekVsWeekSec} · Semana vs semana`)}
               <h2 class="section-title force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Cuánto se habló y cómo
               </h2>
               ${weekVsWeekBlock(data)}
             </td>
           </tr>
-${indicatorsBlock}
 ${chartBlock}
-${topMentionsBlock(data)}
-          <!-- 06 · TÓPICOS QUE SUBIERON / BAJARON -->
+
+${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
+${indicatorsBlock}
+          <!-- CTA #2 · tras los indicadores del Bloque 2 -->
+${cta}
+${highlightsHtml}
+${mentionsHtml}
+          <!-- BLOQUE 2 · TÓPICOS QUE SUBIERON / BAJARON -->
           <tr>
             <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('06 · Tópicos')}
+              ${sectionKicker(`${topicsSec} · Tópicos`)}
               <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
                 Qué subió y qué bajó
               </h2>
@@ -431,11 +475,12 @@ ${topMentionsBlock(data)}
                 Menciones por tópico principal, comparadas con la semana anterior.
               </div>
               ${topicsCompareBlock(data)}
+              ${goneTopicsLine(data.goneTopics)}
             </td>
           </tr>
 
-${highlightsBlock(data.highlights)}
-${ctaBlock}`;
+          <!-- CTA #3 · cierre del correo -->
+${cta}`;
 
   return emailDocument({
     title: `Resumen semanal ECO · ${data.agencyShortName} · ${data.weekLabel}`,

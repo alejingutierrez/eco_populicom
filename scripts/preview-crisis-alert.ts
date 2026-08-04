@@ -33,9 +33,7 @@ const data: CrisisAlertRenderData = {
     crisisRiskScore: 0.557,
     crisisRiskScore24hAgo: 0.24,
     crisisSeverity: 0.654,
-    crisisVelocity: 0.511,
-    crisisRelevance: 0.382,
-    volumeAnomalyZscore: 1.53,
+    volumeVsAvg7Pct: 132,
   },
 
   volume: {
@@ -134,11 +132,13 @@ const data: CrisisAlertRenderData = {
     closing: 'El indicador cruza umbral por primera vez en mayo. La concentración geográfica y el volumen anómalo se ubican en el cuartil superior del histórico de 30 días.',
   },
 
-  dashboardUrl: 'https://app.populicom.com/dashboard?agency=ddecpr',
+  dashboardUrl: 'https://citizenecho.com/overview?agency=ddecpr',
 };
 
 const html = renderCrisisAlertHtml(data);
-const outPath = join(process.cwd(), 'apps/web/public/emails/crisis-alert-preview.html');
+// __dirname (no cwd): el preview debe aterrizar en el repo del script aunque
+// se invoque con tsx desde el monorepo principal.
+const outPath = join(__dirname, '..', 'apps/web/public/emails/crisis-alert-preview.html');
 writeFileSync(outPath, html, 'utf-8');
 console.log(`Written: ${outPath}`);
 console.log(`Preview: http://localhost:3000/emails/crisis-alert-preview.html`);
