@@ -1,0 +1,28 @@
+{
+ "agencies": [
+  {
+   "slug": "ddecpr",
+   "name": "DDEC",
+   "shortName": "DDEC",
+   "status": "active"
+  },
+  {
+   "slug": "aaa",
+   "name": "AAA",
+   "shortName": "AAA",
+   "status": "active"
+  },
+  {
+   "slug": "gobernadora",
+   "name": "Gobernadora",
+   "shortName": "JGO",
+   "status": "active"
+  },
+  {
+   "slug": "sgpr",
+   "name": "SGPR",
+   "shortName": "SGPR",
+   "status": "integrating"
+  }
+ ]
+}

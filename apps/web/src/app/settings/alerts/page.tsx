@@ -112,7 +112,11 @@ export default function AlertsCrisisSettingsPage() {
   }, [selectedAgencySlug, message]);
 
   const layoutBg = isEmbedded ? 'transparent' : '#F4F7FA';
-  const contentPadding = isEmbedded ? '12px 4px 4px 4px' : '28px';
+  // 16 px embebido = el mismo padding que `.card-bd` del prototype, que es la caja
+  // que contiene este iframe. Con '12px 4px 4px 4px' el primer control del
+  // formulario arrancaba 12 px a la izquierda del título de la card con el que
+  // tiene que alinearse.
+  const contentPadding = isEmbedded ? '16px' : '28px';
   const contentMaxWidth = isEmbedded ? '100%' : 960;
 
   return (

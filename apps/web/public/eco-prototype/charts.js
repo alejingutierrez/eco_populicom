@@ -197,25 +197,42 @@ function useChartWidth(fallback) {
 }
 
 // Sparkline
+// `width` acepta un número (ancho fijo) o la cadena 'auto', que MIDE el
+// contenedor con useChartWidth igual que BandScale y MultiLineChart. 'auto'
+// existe porque el KPI dibujaba 200px fijos dentro de cards cuyo content box es
+// de 159px en desktop (219px las dos anchas) y ~133px en móvil a dos columnas: el
+// `overflow:hidden` de la card cortaba el tramo FINAL de la serie —el valor más
+// reciente, que es el que se lee— en Volumen y en Polarización, y dejaba ~19px de
+// vacío a la derecha en NSS. En la card de Polarización el sparkline recortado
+// convivía además con una BandScale al 100%, o sea dos bordes derechos distintos.
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
+  // El hook va ANTES de cualquier return: el orden de hooks debe ser estable.
+  const auto = width === 'auto';
+  const [ref, measured] = useChartWidth(120);
+  const w = auto ? Math.max(1, measured) : width;
+  // `width:100%` en el style hace que el rect medido sea el del contenedor; el
+  // atributo `width` fija el sistema de coordenadas, así que ambos coinciden en
+  // cuanto corre el layout effect (antes del primer pintado).
+  const svgStyle = auto ? { display: 'block', width: '100%' } : { display: 'block' };
+  const svgRef = auto ? ref : undefined;
   // Decorativo a propósito: un sparkline siempre acompaña al número que resume
   // la serie, así que anunciarlo duplicaría la información sin añadir nada.
   // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
   // y la destructuración `{ path, points } = ''` daba `points = undefined`,
   // que reventaba al leer `points[points.length - 1]`.
   if (!Array.isArray(data) || data.length === 0) {
-    return <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false" />;
+    return <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false" />;
   }
-  const res = smoothLinePath(data, width, height, accessor, 2);
+  const res = smoothLinePath(data, w, height, accessor, 2);
   // Serie sin ningún valor finito: se devuelve un SVG vacío en vez de un path
   // con NaN. El caller ve un hueco, no una línea plana en cero.
   if (!res || !res.points || res.points.length === 0) {
-    return <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false" />;
+    return <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false" />;
   }
   const { path, points } = res;
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
-    <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true" focusable="false">
+    <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false">
       {fill && <path d={area} fill={color} opacity="0.12" />}
       <path d={path} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" />
     </svg>
@@ -393,11 +410,15 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               <span style={{ width: 8, height: 2, background: s.color }} />
               <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
               <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body-sm)' }}>{fmtVal(s.key, v)}</span>
+              {/* La dirección la decide el contrato de la métrica, no el signo.
+                  Esta tira pintaba TODA subida en --pos: un alza de Crisis
+                  (declarada up-bad en data.js) salía verde, y una baja de
+                  Menciones —volumen, declarado NEUTRO— salía roja. */}
               {delta == null ? (
                 <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', fontWeight: 600 }}>—</span>
               ) : (
-                <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 'var(--fs-overline)', fontWeight: 600 }}>
-                  {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
+                <span className="num" style={{ color: window.ecoDeltaColor(s.metricKey || s.key, delta), fontSize: 'var(--fs-overline)', fontWeight: 600 }}>
+                  {window.ecoDeltaArrow(delta)} {Math.abs(delta).toFixed(1)}%
                 </span>
               )}
             </div>
@@ -668,7 +689,14 @@ function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel })
             background: b.color,
             // La banda activa a plena saturación; las demás atenuadas, para que
             // el ojo vaya al veredicto sin perder la escala de referencia.
-            opacity: activeIdx === -1 ? 0.55 : (i === activeIdx ? 1 : 0.35),
+            // La severidad la codifica el COLOR, nunca la opacidad. Atenuar las
+            // inactivas al 35% rompía la monotonía de la rampa: con el valor en
+            // Alerta, la banda CRISIS —el extremo— quedaba más apagada que ella y
+            // leía como "zona deshabilitada", y Elevado (ámbar) al 35% se volvía
+            // oliva. La banda activa se marca con el anillo y con el marcador, no
+            // apagando las demás.
+            opacity: i === activeIdx ? 1 : 0.85,
+            boxShadow: i === activeIdx ? 'inset 0 0 0 1px var(--text)' : undefined,
           }} />
         ))}
         {v != null && (
@@ -679,27 +707,30 @@ function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel })
           }} />
         )}
       </div>
-      <div style={{ position: 'relative', height: 15, marginTop: 'var(--sp-1)' }}>
-        {bands.map((b, i) => {
-          if (!visible.includes(i)) return null;
-          const mid = pct((b.from + b.to) / 2);
-          // Los extremos se alinean al borde para no salirse de la pista.
-          const isFirst = i === 0;
-          const isLast = i === bands.length - 1;
-          return (
-            <span key={i} style={{
-              position: 'absolute',
-              left: isFirst ? 0 : isLast ? undefined : `${mid}%`,
-              right: isLast ? 0 : undefined,
-              transform: (isFirst || isLast) ? 'none' : 'translateX(-50%)',
-              whiteSpace: 'nowrap',
-              fontFamily: 'var(--ff-sans)',
-              fontSize: 'var(--fs-overline)',
-              fontWeight: i === activeIdx ? 700 : 500,
-              color: i === activeIdx ? 'var(--text-2)' : 'var(--text-3)',
-            }}>{b.label}</span>
-          );
-        })}
+      {/* Las etiquetas comparten la MISMA geometría que las bandas: cada una es
+          un tramo flex con el mismo `flex: (to - from)`, así que el rótulo cae
+          centrado sobre su banda por construcción y no por aritmética paralela.
+          Antes había dos reglas de anclaje en la misma fila: los extremos al
+          borde de la pista (left:0 / right:0) y los del medio al centro de su
+          banda, de modo que "Crisis" —que rotula 0.60–1— se imprimía en el 100%,
+          donde ya no hay banda que rotular, y "Normal" parecía el rótulo del
+          origen de la escala. Las que no caben se ocultan con `visibility` y NO
+          con return null: si desaparecieran del flex, las visibles se repartirían
+          el ancho y volverían a descolocarse. */}
+      <div style={{ display: 'flex', height: 15, marginTop: 'var(--sp-1)' }}>
+        {bands.map((b, i) => (
+          <span key={i} style={{
+            flex: (b.to - b.from),
+            minWidth: 0,
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+            visibility: visible.includes(i) ? 'visible' : 'hidden',
+            fontFamily: 'var(--ff-sans)',
+            fontSize: 'var(--fs-overline)',
+            fontWeight: i === activeIdx ? 700 : 500,
+            color: i === activeIdx ? 'var(--text-2)' : 'var(--text-3)',
+          }}>{b.label}</span>
+        ))}
       </div>
     </div>
   );
@@ -902,8 +933,17 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
             return xIdxs
               .filter((idx) => data[idx] && data[idx].date)
-              .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+              .map((idx, i, arr) => (
+                // Los ticks EXTREMOS se ancklan al borde, no al centro: con
+              // textAnchor='middle' el último se centraba en x=innerW y pedía
+              // ~14px a la derecha, pero padding.r es 10, así que el svg lo
+              // recortaba y en el eje se leía "27 ju" —una fecha cortada en la
+              // gráfica principal, lo primero que se ve al proyectar—. El
+              // primero, centrado en x=0, metía su mitad izquierda en la
+              // canaleta del eje Y y se leía pegado al rótulo "0".
+              <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)"
+                textAnchor={i === 0 ? 'start' : i === arr.length - 1 ? 'end' : 'middle'}
+                fill="var(--text-3)">{data[idx].date}</text>
               ));
           })()}
 
@@ -961,17 +1001,30 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
 // Donut chart
 function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTitle }) {
   const ids = useChartIds();
-  const sum = total ?? data.reduce((s, d) => s + d.value, 0);
+  const sum = total ?? data.reduce((s, d) => s + (Number(d.value) || 0), 0);
   const r = (size - thickness) / 2;
   const cx = size / 2, cy = size / 2;
   let angle = -Math.PI / 2;
+  // Un período sin menciones clasificadas trae `sum === 0`, y entonces
+  // `frac = 0/0 = NaN` se escribía tal cual en el atributo `d`: tres <path>
+  // inválidos y tres errores de consola en cada render. Es el mismo contrato que
+  // smoothLinePath: una primitiva de gráfica NO emite NaN al DOM, pase lo que
+  // pase con el dato. Sin datos se dibuja el anillo vacío, que ocupa el mismo
+  // espacio y no miente: no hay composición que mostrar.
+  const vacio = !Number.isFinite(sum) || sum <= 0;
   return (
     <svg width={size} height={size} role="img" aria-labelledby={ids.titleId}>
       <ChartTitle ids={ids}
         title={a11yTitle || 'Distribución'}
-        desc={(data || []).map((d) => `${d.label || d.name}: ${d.value}`).join('; ')} />
-      {data.map((d, i) => {
-        const frac = d.value / sum;
+        desc={vacio
+          ? 'Sin menciones clasificadas en el período.'
+          : (data || []).map((d) => `${d.label || d.name}: ${d.value}`).join('; ')} />
+      {vacio ? (
+        <circle cx={cx} cy={cy} r={r} fill="none"
+          stroke="var(--chart-void)" strokeWidth={thickness} />
+      ) : data.map((d, i) => {
+        const frac = (Number(d.value) || 0) / sum;
+        if (!Number.isFinite(frac) || frac <= 0) return null;   // segmento sin dato: no se dibuja
         const a0 = angle;
         const a1 = angle + frac * Math.PI * 2;
         angle = a1;
@@ -1010,7 +1063,10 @@ function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value',
               cursor: clickable ? 'pointer' : 'default',
             }}
             className={clickable ? 'row-hover' : undefined}>
-            <div style={{ width: 120, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it[labelKey]}</div>
+            {/* title: la caja del rótulo es fija (120 px) y se trunca con
+                ellipsis, así que sin tooltip un nombre largo de regla o de
+                municipio deja de ser identificable. */}
+            <div title={String(it[labelKey])} style={{ width: 120, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it[labelKey]}</div>
             <div className="bar-track" style={{ flex: 1, height: trackHeight }}>
               <div style={{ height: '100%', width: `${(it[valueKey] / _max) * 100}%`, background: colorFn ? colorFn(it, i) : 'var(--accent)', borderRadius: 'inherit', transition: 'width 0.3s var(--ease)' }} />
             </div>
@@ -1145,6 +1201,13 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
 // Puerto Rico map — tile-style mockup (Mapbox/Leaflet look)
 // Real map backed by Leaflet + OpenStreetMap tiles (no API key).
 // Falls back to the SVG mockup if Leaflet hasn't loaded yet.
+// Alto del mapa. Era 420px literal en cualquier viewport: en móvil la isla
+// ocupa 107 de esos 420 (25%) y el resto es basemap vacío, en la pantalla donde
+// el alto es el recurso escaso. Ahora sale del ancho con la proporción de la
+// isla (~2.6:1), con piso de 240 para que el encuadre no se quede sin sitio y
+// techo en los 420 de antes para no crecer en pantallas anchas.
+const MAP_HEIGHT = 'clamp(240px, 30vw, 420px)';
+
 function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
@@ -1159,7 +1222,10 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const map = L.map(containerRef.current, {
         center: [18.22, -66.59],
         zoom: 9,
-        minZoom: 8,
+        // 7 y no 8: en móvil el fitBounds ya tocaba el piso de zoom (el control
+        // de alejar sale deshabilitado), así que la isla quedaba recortada y las
+        // etiquetas del basemap se encavalgaban con los marcadores.
+        minZoom: 7,
         maxZoom: 14,
         scrollWheelZoom: true,
         zoomControl: true,
@@ -1216,9 +1282,11 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
     if (valid.length === 0) return;
     const max = Math.max(...valid.map(accessor), 1);
 
-    valid.forEach((m) => {
+    // De mayor a menor, para que con relleno opaco un municipio pequeño no
+    // desaparezca debajo de San Juan: el pequeño se pinta encima.
+    [...valid].sort((a, b) => accessor(b) - accessor(a)).forEach((m) => {
       const v = accessor(m);
-      const r = 8 + (v / max) * 22;
+      const r = mapMarkerRadius(v, max);
       const color = colorFn(m);
       const clickable = !!onMunicipalityClick;
       // Leaflet recibe los colores como STRINGS en opciones JS, no como CSS, así
@@ -1232,11 +1300,18 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         fillColor: color.startsWith('var(') ? T(color) : color,
         color: T('var(--canvas)'),
         weight: 1.5,
-        fillOpacity: 0.78,
+        // El alpha vive en el TOKEN (--seq-* es una rampa de opacidad): un 0.78
+        // encima lo multiplicaba por segunda vez, así que el chip de la leyenda
+        // y el marcador del mismo dato no coincidían (−18% de luminancia) y el
+        // paso más bajo quedaba en alpha efectivo 0.06.
+        fillOpacity: 1,
         className: 'eco-map-marker',
       });
       const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
-      const nssColor = T(window.ecoSentimentColor(m.nss > 0 ? 'positivo' : m.nss < 0 ? 'negativo' : 'neutral'));
+      // El tooltip juzga el NSS con el MISMO umbral que el relleno del marcador
+      // y que la leyenda (ecoNssColor, banda ±2). Antes con >0/<0, así que el
+      // mismo municipio salía ámbar en el círculo y rojo en su tooltip.
+      const nssColor = T(window.ecoNssColor(m.nss));
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       // El tooltip siempre muestra el conteo real de menciones (m.count). En
       // modo "Sentimiento" el accessor devuelve |NSS|, que NO es un conteo, así
@@ -1275,7 +1350,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   // If Leaflet hasn't loaded, show a lightweight placeholder (never the fake SVG).
   if (typeof window !== 'undefined' && !window.L) {
     return (
-      <div style={{ height: 420, borderRadius: 'var(--r-lg)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
+      <div style={{ height: MAP_HEIGHT, borderRadius: 'var(--r-lg)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Cargando mapa…
       </div>
     );
@@ -1285,7 +1360,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
     <div
       ref={containerRef}
       style={{
-        height: 420,
+        height: MAP_HEIGHT,
         borderRadius: 'var(--r-lg)',
         overflow: 'hidden',
         border: '1px solid var(--hairline)',
@@ -1295,9 +1370,31 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   );
 }
 
+// Radio del marcador del mapa. El ojo lee el ÁREA del círculo, no el radio: con
+// el radio lineal en el dato (r = 8 + v/max*22) Bayamón —146 menciones, 42% de
+// San Juan— dibujaba un área del 33%, y TODOS los municipios medios salían ~20
+// puntos por debajo de su volumen real. Con la raíz el área ES el dato: 42% del
+// dato, 42% del área. El piso de 6px existe sólo como objetivo de click para un
+// municipio con 1-2 menciones (por debajo de ~4% del máximo el círculo
+// sobre-representa, que es el lado seguro del error).
+// Exportada porque la LEYENDA de tamaño tiene que medir con esta misma función:
+// leyenda y marca no pueden divergir (fue el hallazgo F6 en el eje del color).
+function mapMarkerRadius(v, max) {
+  const R_MAX = 30, R_MIN = 6;
+  const frac = max > 0 ? Math.max(0, Math.min(1, v / max)) : 0;
+  return Math.max(R_MIN, R_MAX * Math.sqrt(frac));
+}
+
 window.ECO_CHARTS = {
+  // useChartWidth se exporta porque el streamgraph y el mapa de Narrativas
+  // dibujan en un viewBox propio, y dentro de un viewBox escalado ningún
+  // `font-size` vale lo que dice el token: se multiplica por (ancho renderizado
+  // / ancho del viewBox). Medir el contenedor es la única forma de que --fs-*
+  // signifique píxeles también dentro de un SVG.
+  useChartWidth,
   SeriesPanels,
   BandScale,
   Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart,
-  Donut, HBarList, RadialGauge, Heatmap, PRMap
+  Donut, HBarList, RadialGauge, Heatmap, PRMap,
+  mapMarkerRadius,
 };

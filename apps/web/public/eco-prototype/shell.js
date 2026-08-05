@@ -136,6 +136,39 @@ function ecoCanSeePage(key) {
 }
 if (typeof window !== 'undefined') { window.ecoCanSeePage = ecoCanSeePage; window.ecoHasCap = ecoHasCap; }
 
+// Iniciales de una persona. Un solo algoritmo para el rail, la tabla de
+// Configuración y el drawer: el rail partía por espacio/arroba/punto y la tabla
+// sólo por espacio, así que un usuario sin `name` —que cae a la parte local del
+// correo, «laura.quinones»— salía con dos letras en un sitio y una en el otro.
+function ecoInitials(nameOrEmail) {
+  const parts = String(nameOrEmail || 'Usuario').split(/[\s@._-]+/).filter(Boolean);
+  return parts.slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U';
+}
+
+// Avatar único (rail + tabla de usuarios + drawer). A la persona la identifican
+// sus INICIALES, no un hue: el fondo por hash del correo repartía la paleta
+// categórica —que se asigna EN ORDEN, ver data.js— y llegaba a --cat-8, el gris
+// reservado a «resto/otros», mientras el mismo usuario salía naranja de marca en
+// el rail. Fondo neutro derivado de --text-2, que además conserva el contraste
+// que motivó abandonar el azul fijo de 4.20:1 (las iniciales van en --text sobre
+// una mezcla al 18%). Al usuario de la sesión se le marca con un anillo
+// --accent, no con otro relleno. `tone="rail"` existe porque el rail es oscuro
+// en los dos modos y --canvas-2 (#091018) sobre --rail-bg (#030609) no se vería.
+function Avatar({ name, size = 28, tone = 'surface', self = false }) {
+  const rail = tone === 'rail';
+  return (
+    <div title={String(name || '')} style={{
+      width: size, height: size, borderRadius: 'var(--r-circle)', flexShrink: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: rail ? 'rgba(255,255,255,0.12)' : 'color-mix(in oklab, var(--text-2) 18%, transparent)',
+      border: `1px solid ${rail ? 'rgba(255,255,255,0.22)' : 'color-mix(in oklab, var(--text-2) 35%, transparent)'}`,
+      color: rail ? 'rgba(255,255,255,0.92)' : 'var(--text)',
+      fontSize: 'var(--fs-overline)', fontWeight: 700, lineHeight: 1,
+      boxShadow: self ? '0 0 0 2px var(--accent)' : 'none',
+    }}>{ecoInitials(name)}</div>
+  );
+}
+
 function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, mode }) {
   const I = Icons;
   // Con '__all__' seleccionada, la nav de análisis muestra las 3 pantallas
@@ -174,7 +207,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
               background: item.urgent ? 'var(--neg)' : 'rgba(255,255,255,0.10)',
               color: item.urgent ? 'var(--on-neg)' : 'rgba(255,255,255,0.7)',
               fontFamily: 'var(--ff-numeric)',
-            }}>{item.urgent ? item.badge : (item.badge > 999 ? (item.badge/1000).toFixed(1)+'K' : item.badge)}</span>
+            }}>{window.ecoFmtCount ? window.ecoFmtCount(item.badge) : item.badge}</span>
           )}
         </>}
       </button>
@@ -219,9 +252,15 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
           <span style={{
             position: 'absolute', bottom: -1, right: -1,
             width: 10, height: 10, borderRadius: '50%',
-            background: 'var(--pos)',
+            // El estado del sistema NO se pinta con el verde de sentimiento: en un
+            // producto de sentimiento --pos significa 'positivo', así que un punto
+            // verde junto al logotipo se lee como juicio de datos y contradice al
+            // header, que a 60px declara 'Datos al cierre de ayer' en --text-3.
+            // El glow era rgba(107,158,127,.6), un verde de la paleta anterior que
+            // no corresponde a ningún token.
+            background: 'var(--info)',
             border: '2px solid var(--rail-bg)',
-            boxShadow: '0 0 6px rgba(107,158,127,0.6)',
+            boxShadow: '0 0 6px color-mix(in oklab, var(--info) 60%, transparent)',
           }} />
         </div>
 
@@ -251,7 +290,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
             <div style={{
               fontSize: 'var(--fs-overline)',
               fontWeight: 500,
-              color: 'rgba(255,255,255,0.45)',
+              color: 'var(--rail-fg-muted)',
               marginTop: 'var(--sp-15)',
               display: 'flex', alignItems: 'center', gap: 'var(--sp-15)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -287,8 +326,10 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 
       {/* Status */}
       {!collapsed && (
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'rgba(255,255,255,0.5)' }}>
-          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--pos)' }} />
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--rail-fg-muted)' }}>
+          {/* Se conserva el pulso (la ingesta sí es continua: crons de 5 min) y se
+              cambia sólo el color: --pos está reservado a sentimiento positivo. */}
+          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--info)' }} />
           <span>Ingesta en vivo</span>
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--ff-mono)' }}>
             {(() => {
@@ -308,17 +349,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
         display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
         justifyContent: collapsed ? 'center' : 'flex-start',
       }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%',
-          background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
-          color: 'var(--on-accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 'var(--fs-overline)', fontWeight: 700,
-        }}>{(() => { const s = ecoSession(); const nm = (s && (s.name || s.email)) || 'Usuario'; return nm.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0].toUpperCase()).join('') || 'U'; })()}</div>
+        <Avatar name={(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()} size={28} tone="rail" self />
         {!collapsed && (
           <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 'var(--fs-caption)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
-            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 'var(--fs-overline)', textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
+            <div style={{ color: 'var(--rail-fg-active)', fontSize: 'var(--fs-caption)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
+            <div style={{ color: 'var(--rail-fg-muted)', fontSize: 'var(--fs-overline)', textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
           </div>
         )}
       </div>
@@ -326,7 +361,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
       <button onClick={() => setCollapsed(!collapsed)} style={{
         padding: collapsed ? '10px 0' : '10px 14px',
         borderTop: '1px solid var(--rail-border)',
-        color: 'rgba(255,255,255,0.4)', fontSize: 'var(--fs-overline)',
+        color: 'var(--rail-fg-muted)', fontSize: 'var(--fs-overline)',
         display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
         justifyContent: collapsed ? 'center' : 'flex-start',
         width: '100%',
@@ -337,6 +372,46 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
+// Un solo campo de búsqueda de menciones para toda la app. Antes el MISMO verbo
+// tenía dos implementaciones visibles a la vez en /search (34px/12px/icono 14 en
+// el header contra 48px/15px/icono 18 en el hero) con placeholders distintos, así
+// que nada decía cuál buscaba qué. Los dos tamaños salen de tokens: 'sm' es un
+// control de barra (hereda --control-h de `.input`), 'lg' es el campo
+// protagonista de la pantalla de búsqueda. `trailing` recibe el adorno de la
+// derecha (⌘K en el header, limpiar en el hero) y `trailingWidth` reserva su
+// espacio para que el texto no pase por debajo.
+const SEARCH_PLACEHOLDER = 'Buscar menciones, autor o URL…';
+function SearchField({ size = 'sm', value, onChange, onKeyDown, placeholder = SEARCH_PLACEHOLDER, title, ariaLabel, inputRef, trailing, trailingWidth }) {
+  const lg = size === 'lg';
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <span style={{ position: 'absolute', left: lg ? 14 : 11, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text-3)', pointerEvents: 'none' }}>
+        <Icons.Search size={lg ? 18 : 14} />
+      </span>
+      <input
+        ref={inputRef}
+        className="input"
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        title={title}
+        aria-label={ariaLabel || placeholder}
+        style={{
+          width: '100%',
+          // 'sm' no fija altura: la hereda de `.input` (--control-h) para no
+          // volver a tener un campo de 34 al lado de botones de 32.
+          height: lg ? 48 : undefined,
+          paddingLeft: lg ? 42 : 32,
+          paddingRight: trailingWidth || (lg ? 14 : 12),
+          fontSize: lg ? 'var(--fs-body-lg)' : 'var(--fs-body-sm)',
+        }}
+      />
+      {trailing}
+    </div>
+  );
+}
+
 // Buscador del header: input de texto real (no solo el botón ⌘K). Enter dispara
 // la búsqueda completa (texto o URL) navegando a /search; ⌘K sigue disponible
 // como atajo para el command palette. Petición del usuario: el buscador va en el
@@ -344,23 +419,24 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 function HeaderSearch({ onSearch, onOpenCommand }) {
   const [q, setQ] = React.useState('');
   return (
-    <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 180, maxWidth: 460 }}>
-      <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text-3)', pointerEvents: 'none' }}>
-        <Icons.Search size={14} />
-      </span>
-      <input
-        className="input"
+    // Se baja la BASE, no el máximo: maxWidth 460 se conserva (el buscador ancho
+    // fue un pedido explícito) y el flex-grow lo devuelve a su tamaño cuando hay
+    // sitio. Los 80px que se restan aquí son parte de los 130.5 que hacían falta
+    // para que el grupo de acciones no cayera a una fila propia.
+    <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 180, maxWidth: 460 }}>
+      <SearchField
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && typeof onSearch === 'function') onSearch(q.trim()); }}
-        placeholder="Buscar menciones, autor, URL…"
         title="Buscar por texto o URL — Enter. ⌘K abre el comando rápido."
-        style={{ width: '100%', padding: '8px 56px 8px 32px', fontSize: 'var(--fs-caption)' }}
+        trailingWidth={56}
+        trailing={(
+          <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
+            style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
+            <span className="kbd">⌘K</span>
+          </button>
+        )}
       />
-      <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
-        style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
-        <span className="kbd">⌘K</span>
-      </button>
     </div>
   );
 }
@@ -398,20 +474,31 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       position: 'sticky', top: 0, zIndex: 50,
       background: 'var(--canvas)',
       borderBottom: '1px solid var(--hairline)',
-      padding: '14px 28px',
+      padding: '14px var(--gutter-page)',
       display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap',
     }}>
       {/* Hamburger — opens the off-canvas nav drawer. Mobile only (CSS). */}
       <button className="show-mobile" onClick={onOpenMenu} aria-label="Abrir menú"
         style={{
           alignItems: 'center', justifyContent: 'center',
+          // El header centra sus hijos, y el bloque de título ocupa 3 líneas en
+          // móvil: centrado, el botón caía a la altura de 'Datos al cierre de
+          // ayer' en vez de compartir borde con nada. Arriba comparte el borde
+          // superior del bloque de título.
+          alignSelf: 'flex-start',
           width: 40, height: 40, flex: 'none',
-          borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)',
-          background: 'var(--canvas-2)', color: 'var(--text)',
+          borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline-strong)',
+          background: 'var(--control-bg)', color: 'var(--text)',
         }}>
         <Icons.Menu size={18} />
       </button>
-      <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+      {/* flex-basis, no ancho: con grow 1 el bloque sigue creciendo hasta ocupar
+          lo que sobre. Lo que cambia es la decisión de ENVOLVER — con 240+280 de
+          base la primera fila sumaba 1144.5 de 1163.5 y el grupo de acciones
+          (137.5 + 12 de gap) no cabía: caía a una fila propia con ~1027px vacíos
+          y 44px de cromo vertical en las 10 pantallas. Con 180+200 la fila suma
+          1154 y las acciones entran. */}
+      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
           {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
           {live && (
@@ -438,19 +525,24 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       {/* Agency switcher */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
-        padding: '6px 12px', borderRadius: 'var(--r-pill)',
-        background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+        // Alto por token en vez de padding vertical: con '6px 12px' el <select>
+        // interior estiraba la pastilla a 38px, 6px más que los botones de al lado.
+        padding: '0 var(--sp-3)', height: 'var(--control-h)', borderRadius: 'var(--r-pill)',
+        background: 'var(--control-bg)', border: '1px solid var(--hairline-strong)',
         fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500,
       }}>
         <Icons.Building size={13} color="var(--accent)" />
         <select value={agency} onChange={(e) => setAgency(e.target.value)}
-          style={{ background: 'none', border: 'none', fontSize: 'var(--fs-caption)', fontWeight: 500, color: 'var(--text)', maxWidth: 140 }}>
+          // minWidth: si la lista de agencias no carga, un <select> vacío
+          // colapsa a 20 px de ancho — bajo el mínimo táctil AA de 24 (SC
+          // 2.5.8) — y deja de ser accionable justo cuando hace falta.
+          style={{ background: 'none', border: 'none', fontSize: 'var(--fs-caption)', fontWeight: 500, color: 'var(--text)', maxWidth: 140, minWidth: 64 }}>
           {agencies.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
         </select>
       </div>
 
       {/* Period — estilo bolsa, único control de periodo de toda la app. */}
-      <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline)' }}>
+      <div style={{ display: 'flex', background: 'var(--control-bg)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline-strong)' }}>
         {PERIODS.map((p) => (
           <button key={p} onClick={() => {
             // Si el usuario venía de un rango personalizado, limpiar
@@ -462,12 +554,21 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
             } catch (_) {}
             setPeriod(p);
           }} className="touch-target" aria-pressed={!isCustom && period === p} style={{
-            padding: '6px 11px', fontSize: 'var(--fs-caption)', fontWeight: 600,
-            minHeight: 28,
+            padding: '0 11px', fontSize: 'var(--fs-caption)', fontWeight: 600,
+            // 26 + 2px de padding de la bolsa + 1px de borde por lado = 32 = la
+            // altura de los botones. Antes la bolsa salía 34 y no cuadraba con nada.
+            minHeight: 'var(--control-h-sm)',
             borderRadius: 'var(--r-pill)',
-            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
-            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-2)',
-            boxShadow: (!isCustom && period === p) ? 'var(--shadow-sm)' : 'none',
+            // El activo se marcaba con --canvas sobre la bolsa en --canvas-2:
+            // 1.13:1, invisible en proyector, y la sombra --shadow-sm no existe
+            // sobre fondo oscuro. Ahora lleva la MISMA marca que el botón de
+            // rango personalizado de al lado (tinte + contorno + texto en
+            // --accent): el contorno da 6.7:1 contra la bolsa. El borde va en
+            // TODOS los chips, transparente en los inactivos, porque si sólo lo
+            // llevara el activo la fila se desplazaría 2px al cambiar de período.
+            border: '1px solid ' + ((!isCustom && period === p) ? 'var(--accent)' : 'transparent'),
+            background: (!isCustom && period === p) ? 'var(--accent-fill)' : 'transparent',
+            color: (!isCustom && period === p) ? 'var(--accent)' : 'var(--text-2)',
           }}>{p}</button>
         ))}
       </div>
@@ -478,10 +579,11 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
           style={{
             display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
-            padding: '5px 10px', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-overline)', fontWeight: 600,
-            background: isCustom ? 'var(--accent-fill)' : 'var(--canvas-2)',
+            // Era el control más bajo del header (26px contra 38 de la pastilla).
+            padding: '0 10px', height: 'var(--control-h)', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-overline)', fontWeight: 600,
+            background: isCustom ? 'var(--accent-fill)' : 'var(--control-bg)',
             color: isCustom ? 'var(--accent)' : 'var(--text-2)',
-            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline)'),
+            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline-strong)'),
             cursor: 'pointer',
           }}>
           <Icons.Calendar size={12} />
@@ -550,7 +652,11 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
             <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Chat</span>
           </button>
         )}
+        {/* Único botón sin texto: con el padding de `.btn` medía 30px de alto y 2px
+            menos de ancho que Chat, así que dos botones pegados tenían los bordes
+            desfasados. Cuadrado a la altura de control. */}
         <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+          style={{ width: 'var(--control-h)', justifyContent: 'center', padding: 0 }}
           aria-label={mode === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
           title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
           {mode === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
@@ -1158,7 +1264,12 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
 //   · `reason="error"`    — falló la consulta. Nunca se debe pintar como vacío,
 //     que es lo que hacía UsersAdmin ("no hay usuarios · ajusta los filtros"
 //     cuando la API devolvía 500).
-function EmptyState({ reason = 'empty', title, detail, action, actionLabel, compact }) {
+function EmptyState({ reason = 'empty', title, detail, action, actionLabel, compact, size }) {
+  // Tres tamaños porque hay tres situaciones distintas, no por gusto: `compact`
+  // es un hueco dentro de una card apretada, el default es un hueco normal y
+  // `size="lg"` es el vacío que OCUPA la pantalla (p.ej. /search sin criterio),
+  // donde el título y la prosa son el contenido principal y no una nota al pie.
+  const lg = size === 'lg';
   const R = {
     empty:    { icon: 'Circle',        tone: 'var(--text-3)' },
     filtered: { icon: 'Filter',        tone: 'var(--text-2)' },
@@ -1180,15 +1291,21 @@ function EmptyState({ reason = 'empty', title, detail, action, actionLabel, comp
         padding: compact ? 'var(--sp-4)' : 'var(--sp-8) var(--sp-4)',
         minHeight: compact ? 0 : 120,
       }}>
-      {IC && <IC size={compact ? 16 : 20} color={R.tone} />}
+      {IC && <IC size={compact ? 16 : (lg ? 28 : 20)} color={R.tone} />}
       <div style={{
         fontFamily: 'var(--ff-sans)',
-        fontSize: compact ? 'var(--fs-body-sm)' : 'var(--fs-body)',
+        // En lg el título sube a --fs-title-lg (17): a --fs-title-md empataba con
+        // el placeholder del buscador, así que el elemento tipográficamente más
+        // grande de la pantalla era un placeholder y no un título.
+        fontSize: compact ? 'var(--fs-body-sm)' : (lg ? 'var(--fs-title-lg)' : 'var(--fs-body)'),
         fontWeight: 500,
-        color: reason === 'error' ? 'var(--neg)' : 'var(--text-2)',
+        color: reason === 'error' ? 'var(--neg)' : (lg ? 'var(--text)' : 'var(--text-2)'),
       }}>{title || defaults[reason]}</div>
       {detail && (
-        <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', maxWidth: '42ch', lineHeight: 1.5 }}>
+        // El detalle de un vacío protagonista es PROSA de 3-4 líneas: en
+        // --fs-caption/--text-3 quedaba en el piso de la escala, que tokens.css
+        // reserva a metadatos y ticks de eje. En lg va a --fs-body sobre --text-2.
+        <div style={{ fontSize: lg ? 'var(--fs-body)' : 'var(--fs-caption)', color: lg ? 'var(--text-2)' : 'var(--text-3)', maxWidth: lg ? '46ch' : '42ch', lineHeight: 1.5 }}>
           {detail}
         </div>
       )}
@@ -1808,4 +1925,4 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
   );
 }
 
-window.ECO_SHELL = { EmptyState, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };
+window.ECO_SHELL = { EmptyState, Avatar, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };

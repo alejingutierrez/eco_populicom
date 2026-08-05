@@ -83,8 +83,7 @@
     align-items: center;
     min-height: 24px;
   }
-  /* Los chips propios de Narrativas no comparten la clase .chip. */
-  .btn-chip { padding-block: 5px; }
+
 
   /* ===========================================================================
      Áreas táctiles (WS-A2). Se enganchan a `pointer: coarse`, NO al ancho: una
@@ -154,7 +153,7 @@
   }
 
   .eco-page {
-    padding: 20px 28px 48px;
+    padding: 20px var(--gutter-page) 48px;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -207,7 +206,8 @@
       box-shadow: 0 0 40px rgba(0,0,0,0.45);
     }
     .eco-app[data-menu-open="true"] .eco-sidebar { transform: translateX(0); }
-    .eco-page { padding: 14px 12px 36px; }
+    :root { --gutter-page: 12px; }
+    .eco-page { padding: 14px var(--gutter-page) 36px; }
     .show-mobile { display: inline-flex !important; }
     .hide-mobile { display: none !important; }
     /* Larger tap targets on touch screens. */
@@ -243,13 +243,24 @@
     padding: 14px 16px 10px;
     display: flex;
     align-items: center;
+    /* `flex-wrap` es lo que impide que el título y los controles se peleen el
+       mismo renglón. Sin él, `.card-hd > div:first-child` (flex:1, min-width:0)
+       se comprimía a ~55px mientras los 6 chips de series no cedían nada: el
+       subtítulo de "Evolución multi-métrica" caía en once líneas de una palabra y
+       el punto del chip "NSS" quedaba ENCIMA de la palabra "hasta". Con wrap los
+       controles bajan enteros a su propia línea y el `gap` ya separa las dos. */
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 12px;
     border-bottom: 1px solid var(--hairline);
   }
   .card-hd > div:first-child { min-width: 0; flex: 1; }
-  .card-hd-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: -0.005em; }
-  .card-hd-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .card-hd-title { font-family: var(--ff-display); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); color: var(--text); text-transform: none; letter-spacing: var(--tracking-tight); }
+  /* 12px, no 11: --fs-overline sólo cubre eyebrows en mayúsculas y ticks de eje
+     (tokens.css §1) y este subtítulo es prosa en minúsculas — es justo donde vive
+     la metodología que el cliente pregunta en la reunión ("cada mención cuenta
+     una vez bajo su tópico de mayor confianza"). En móvil ocupa dos líneas. */
+  .card-hd-sub { font-size: var(--fs-caption); color: var(--text-3); margin-top: var(--sp-05); }
   .card-bd { padding: 16px; }
   .card-bd-flush { padding: 0; }
 
@@ -287,7 +298,13 @@
     border-color: color-mix(in oklab, var(--text-2) 45%, transparent);
   }
   .pill-warn { background: var(--warn-bg); color: var(--warn); }
-  .pill-info { background: var(--accent-fill); color: var(--accent); }
+  /* 'info' pintada con el naranja de marca era el bug: --accent-fill + --accent
+     es el tratamiento del ESTADO de interacción (chip activo, término
+     seleccionado, página actual, coincidencia de búsqueda). Una pill que informa
+     de un ATRIBUTO del dato ('nuevo', 'datos cacheados') compartía tratamiento
+     exacto con 'seleccionado' dentro del mismo componente. --info/--info-bg ya
+     existían y estaban libres (#58A6FF, 7.22:1 sobre --canvas). */
+  .pill-info { background: var(--info-bg); color: var(--info); }
   /* Fallback for unexpected sentiment values (should never hit in prod given
      the DB constraint, but surfaces gracefully if it does). */
   .pill-unknown {
@@ -302,12 +319,34 @@
     display: inline-flex; align-items: center; gap: 6px;
     padding: 5px 10px; border-radius: 999px;
     font-size: 11px; font-weight: 500;
-    background: var(--canvas); border: 1px solid var(--hairline);
+    /* El chip se rellenaba con el MISMO color que la card que lo contiene, así
+       que los 8 chips de tópicos se leían como contornos fantasma a 1.15:1. */
+    background: var(--control-bg); border: 1px solid var(--hairline-strong);
     color: var(--text-2);
     transition: all 0.15s var(--ease);
   }
   .chip:hover { border-color: var(--hairline-strong); color: var(--text); }
-  .chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  /* Un chip es un SELECTOR (filtro, modo, pestaña): en las 17 veces que aparece
+     `.chip.active` en screens.js no hay ni una acción primaria. Con el relleno
+     --accent y --on-accent era indistinguible de `.btn-primary`, y en el hero del
+     Scorecard "Señal del día" (chip activo) queda pegado a "Ver menciones" (botón
+     primario): dos primarios iguales, uno navega y otro selecciona. Seleccionado
+     = borde y texto del accent sobre relleno tenue (5.35:1 en oscuro, 4.58:1 en
+     claro). El relleno saturado queda para la acción, que es una por vista. */
+  .chip.active { background: var(--accent-fill); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+  /* Grupo de chips que forman UN control (criterio, vista, orden, sentimiento).
+     terms-cloud.js usaba la clase `.toggle-group` que NUNCA existió en el CSS:
+     sin regla el div no era flex y sus dos cápsulas de radio 999px quedaban a
+     0px, tocándose. El gap es el mismo --sp-15 que ViewToggle y los chips de
+     sentimiento ya escribían a mano; ahora los cuatro grupos de la pantalla lo
+     leen de un solo sitio en vez de declarar 0, 4 y 6px cada uno. */
+  .toggle-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-15);
+    flex-wrap: wrap;
+  }
 
   /* Button */
   .btn {
@@ -316,14 +355,21 @@
     font-family: var(--ff-sans);
     display: inline-flex; align-items: center; gap: 8px;
     padding: 7px 14px;
+    /* min-height (no height) para que un botón con texto largo pueda crecer: la
+       altura de control sólo pone el PISO, que es lo que estaba desalineado —
+       el botón con texto medía 32 y el de sólo icono 30. */
+    min-height: var(--control-h);
     border-radius: var(--r);
     font-size: 13px; font-weight: 500;
+    min-height: var(--ctl-h);
     border: 1px solid var(--hairline);
-    background: var(--canvas);
+    background: var(--control-bg);
     color: var(--text);
     transition: all 0.15s var(--ease);
   }
-  .btn:hover { border-color: var(--hairline-strong); background: var(--canvas-2); }
+  /* El hover tiene que ir hacia ARRIBA en la escala: con --canvas-2 (hundido)
+     pasar el ratón oscurecía el botón. */
+  .btn:hover { border-color: var(--hairline-strong); background: var(--control-bg-hover); }
   /* Primer plano oscuro sobre relleno saturado: #fff sobre --accent da 2.85:1
      (falla AA). Ver tokens.css §5 --on-*. */
   .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
@@ -333,25 +379,36 @@
   .input {
     width: 100%;
     padding: 7px 12px;
+    /* height exacta, no min-height: `.input` sólo viste campos y selects de una
+       línea, y en una barra la altura tiene que ser IGUAL, no "al menos". */
+    height: var(--control-h);
+    min-height: var(--ctl-h);
     border-radius: var(--r);
     border: 1px solid var(--hairline);
-    background: var(--canvas);
+    background: var(--control-bg);
     color: var(--text);
     font-size: 13px;
     transition: border-color 0.15s var(--ease);
   }
   .input:hover { border-color: var(--hairline-strong); }
   .input:focus { outline: none; border-color: var(--accent); }
+  /* Un <select> con estilo inline tiene que medir lo mismo que un .input a su
+     lado: el piso de :where(select) son 24px (especificidad cero) y dejaba que
+     cada sitio inventara su alto con padding. */
+  select { min-height: var(--ctl-h); }
 
   /* Section title */
   .section-eyebrow {
     font-family: var(--ff-sans);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--fs-overline);
+    font-weight: var(--fw-semibold);
     color: var(--text-2);
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 4px;
+    /* El token existe desde el día uno (tokens.css --tracking-overline: 0.09em) y
+       no lo usaba nadie más que el splash: aquí había 0.1em y en screens.js 16
+       divs con 0.08em a mano. Un solo valor para todos los overlines. */
+    letter-spacing: var(--tracking-overline);
+    margin-bottom: var(--sp-1);
   }
 
   /* Loading shimmer */
@@ -590,7 +647,14 @@
     color: var(--text-3) !important;
     font-size: var(--fs-overline) !important;
   }
-  .leaflet-control-attribution a { color: var(--info) !important; }
+  /* --accent, no --info: `.link` del sistema es --accent y estos eran el único
+     azul de la pantalla. */
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+  /* Los tiles traen un gris neutro (#262626 en el agua) que no pertenece a la
+     rampa de superficies (#060A10…#1B2632): el bloque más grande de la pantalla
+     se lee como de otro sistema. El filtro los acerca sin tocar la imagen. Sólo
+     en oscuro; en claro los tiles ya conviven con --canvas. */
+  [data-mode="dark"] .leaflet-tile-pane { filter: saturate(0.75) brightness(0.82) contrast(1.05); }
   .eco-map-marker { transition: stroke-width var(--dur-fast) var(--ease); cursor: pointer; }
   .eco-map-marker:hover { stroke-width: 3 !important; }
 
@@ -600,7 +664,8 @@
   .narrative-screen {
     display: grid;
     grid-template-columns: 320px 1fr;
-    gap: 14px;
+    /* 14px no existe en la escala de espaciado (tokens.css §2). */
+    gap: var(--gap-grid);
     min-height: calc(100vh - 140px);
   }
   .narrative-menu {
@@ -634,37 +699,37 @@
     flex-wrap: wrap;
     gap: 4px;
   }
-  .btn-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--hairline-strong);
-    background: var(--canvas-2);
-    color: var(--text-2);
-    font-family: var(--ff-sans);
-    font-size: var(--fs-caption);
-    cursor: pointer;
-    transition: all 0.12s var(--ease);
-  }
-  .btn-chip:hover:not(.disabled) { color: var(--text); border-color: var(--accent); }
-  .btn-chip.active {
-    background: var(--accent-fill);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .btn-chip.disabled,
-  .btn-chip:disabled {
+  /* .btn-chip era un SEGUNDO primitivo de chip con la representación de
+     "activo" INVERTIDA respecto de .chip (tinte contra relleno sólido) a 40px
+     de distancia en la misma pantalla. Los filtros de Narrativas usan ahora
+     .chip; lo único que .btn-chip aportaba y .chip no tenía era el estado
+     deshabilitado, que sube a la primitiva. */
+  .chip.disabled,
+  .chip:disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
+  /* Sobre el relleno sólido del chip activo, un punto de DATO queda a ~1.6:1;
+     el aro lo devuelve al primer plano sin tocar su hue. */
+  .chip.active .narrative-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
   .narrative-dot {
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: var(--r-circle);
     flex-shrink: 0;
     display: inline-block;
+    box-sizing: border-box;
+    background: var(--narr-tone, var(--text-3));
+  }
+  /* "Sin clasificar" NO puede ser un segundo gris: --narr-unknown y
+     --narr-dormant están a ΔE76 10.7 en oscuro y 6.0 en claro, indistinguibles
+     en un punto de 8px y en un trazo de sparkline de 1.2px. Se separan por
+     FORMA —anillo hueco— igual que .pill-unknown se separa por trama: una
+     narrativa muerta y una que el clasificador no supo etiquetar son cosas
+     distintas y son 3 de las 8 narrativas de la lista. */
+  .narrative-dot.is-unknown {
+    background: transparent;
+    border: 1.5px solid var(--narr-tone, var(--text-3));
   }
   .narrative-menu-count {
     font-size: var(--fs-overline);
@@ -731,11 +796,19 @@
     text-align: center;
   }
 
+  /* El inset vive en la CARD, no en uno de sus hijos. El conmutador
+     Detalle/Mapa, la card del grafo y el EmptyState de "elige una narrativa"
+     son HERMANOS de .narrative-analysis, así que con el padding puesto en el
+     hijo el pill saturado del conmutador arrancaba a 0px del borde de la card
+     (medido: borde en x=1164, relleno del pill en x=1166) mientras la píldora
+     de estado, el streamgraph y los seis paneles arrancaban a 20px. Un solo
+     padding alinea los cuatro hermanos. */
   .narrative-canvas {
     background: var(--canvas);
     border: 1px solid var(--hairline);
     border-radius: var(--r-lg);
     overflow: auto;
+    padding: var(--pad-card) var(--pad-card-lg) var(--sp-6);
   }
   .narrative-empty {
     padding: 80px 24px;
@@ -753,7 +826,7 @@
     text-align: center;
   }
 
-  .narrative-analysis { padding: 16px 20px 24px; }
+  .narrative-analysis { padding: 0; } /* el inset lo pone .narrative-canvas */
 
   .narrative-header {
     display: flex;
@@ -767,7 +840,11 @@
   .narrative-header-main { flex: 1; min-width: 0; }
   .narrative-header-row {
     display: flex;
-    align-items: center;
+    /* baseline, no center: cuando el título envuelve a dos líneas ("Apagones y
+       confianza en" / "LUMA" en 390px) `center` dejaba la píldora PICO flotando
+       entre las dos líneas, sin pertenecer a ninguna. Con baseline se apoya en
+       la línea base de la primera, que es la que lleva el nombre. */
+    align-items: baseline;
     gap: 10px;
     margin-bottom: 6px;
   }
@@ -776,11 +853,12 @@
      relleno saturado que tokens.css resuelve con --on-*. Tintada usa el color
      del estado como TEXTO —los seis pasan AA sobre --canvas— y como fondo una
      versión translúcida, igual que .pill-pos / .pill-neg. */
+  /* Hereda .pill (radio de píldora, padding, tamaño, nowrap): era el único
+     rectángulo de --r-sm rodeado de píldoras de --r-pill — en la captura PICO
+     sale cuadrado y apagón/LUMA/abonados ovalados. Aquí queda SÓLO el tono:
+     píldora tintada, no rellena, porque `color: white` sobre el color del
+     estado daba 2.38:1 con el naranja de "Pico". */
   .narrative-status-pill {
-    padding: 3px 9px;
-    border-radius: var(--r-sm);
-    font-family: var(--ff-sans);
-    font-size: var(--fs-overline);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -791,11 +869,13 @@
   .narrative-title {
     margin: 0;
     font-family: var(--ff-display);
-    font-size: 20px;
+    /* Token fluido: 20px fijos eran el mismo tamaño en 390px que en 1440px, y
+       el nombre de la narrativa es el objeto de toda la pantalla. */
+    font-size: var(--fs-display-lg);
+    line-height: var(--lh-display-lg);
     font-weight: 700;
     color: var(--text);
     letter-spacing: var(--letter-display);
-    line-height: 1.25;
   }
   .narrative-summary {
     color: var(--text-2);
@@ -826,35 +906,25 @@
     font-size: var(--fs-caption);
     margin-left: 4px;
   }
+  /* Las cifras las pinta <StatBox> (screens.js), el primitivo de KPI del
+     sistema; aquí sólo queda la caja que las alinea. Las tres reglas que había
+     (.narrative-metric / -label / -value) eran una copia a mano de StatBox con
+     18px en vez de 30px, otro peso y otro tracking: se borran para que no puedan
+     volver a divergir. `text-align: right` para que etiqueta y cifra compartan
+     el borde derecho del encabezado (en ≤980px pasa a rejilla a la izquierda).
+     18px tampoco existía en la escala de espaciado. */
   .narrative-header-metrics {
     display: flex;
-    gap: 18px;
+    gap: var(--sp-5);
     flex-shrink: 0;
-  }
-  .narrative-metric {
     text-align: right;
-  }
-  .narrative-metric-label {
-    font-size: var(--fs-overline);
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .narrative-metric-value {
-    font-size: var(--fs-num-md);
-    font-weight: 600;
-    color: var(--text);
-    font-family: var(--ff-numeric);
-    /* Besley proporcional: sin esto el 1 es más angosto que el 8 y la columna
-       de métricas de la narrativa se corre al cambiar de período. */
-    font-variant-numeric: tabular-nums lining-nums;
-    line-height: 1.2;
-    margin-top: 2px;
   }
 
   .narrative-stream-wrap {
-    margin-bottom: 16px;
-    padding: 12px;
+    /* Un solo medianil vertical en el panel: había 12px entre columnas, 14px
+       entre filas y 16px bajo el streamgraph. */
+    margin-bottom: var(--gap-grid);
+    padding: var(--sp-3);
     background: var(--canvas-2);
     border: 1px solid var(--hairline);
     border-radius: var(--r);
@@ -892,26 +962,37 @@
     max-height: 280px;
     display: block;
   }
-  .narrative-stream-day:hover rect { fill: rgba(63, 181, 216, 0.08); }
+  /* Un estado, un color. La banda del día seleccionado se pintaba con
+     rgba(63,181,216,…) —el azul del tema `costa`, ajeno a esta paleta, el mismo
+     defecto que tokens.css:349-352 documenta para HourActivityCard— mientras la
+     línea y el punto del MISMO día iban en --accent; y el hover usaba ese mismo
+     cian, así que hover y selección compartían hue. Ahora el hover es neutro y
+     sólo la selección usa el hue de selección de la app.
+     `.is-selected` va DESPUÉS del hover a propósito: misma especificidad, gana
+     la última, así que el cursor sobre el día ya elegido no lo apaga. */
+  .narrative-stream-day:hover rect { fill: var(--hairline); }
+  .narrative-stream-day.is-selected rect { fill: var(--accent-fill); }
 
+  /* Horizontal y vertical con el MISMO token: 12/14 mezclados hacían que la
+     retícula de paneles no cuadrara consigo misma, y 14 no está en la escala. */
   .narrative-grid-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--gap-grid);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--gap-grid);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-panel {
     background: var(--canvas-2);
     border: 1px solid var(--hairline);
     border-radius: var(--r);
-    padding: 12px;
-    margin-bottom: 14px;
+    padding: var(--sp-3);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-grid-3 .narrative-panel,
   .narrative-grid-2 .narrative-panel { margin-bottom: 0; }
@@ -1232,11 +1313,24 @@
   }
 
   @media (max-width: 980px) {
-    .narrative-screen { grid-template-columns: 1fr; }
-    .narrative-menu { position: relative; height: auto; max-height: 400px; }
+    /* En una columna el grid ya no necesita el alto de la ventana: con
+       min-height y dos filas auto, el reparto del sobrante abría 125px de vacío
+       entre dos cards cuyo gap declarado es --gap-grid. */
+    .narrative-screen { grid-template-columns: 1fr; min-height: 0; align-content: start; }
+    /* El alto sale del viewport, no de un 400px fijo del que los chips a 44px
+       (pointer: coarse) se comían ~150px y dejaban 3 de 8 narrativas visibles.
+       El padding se iguala al inset de la card de análisis: apiladas, las dos
+       cards tenían un escalón de 8px (contenido en x=25 contra x=33). */
+    .narrative-menu { position: relative; height: auto; max-height: min(70vh, 520px); padding: var(--pad-card-lg); }
     .narrative-grid-3, .narrative-grid-2 { grid-template-columns: 1fr; }
     .narrative-header { flex-direction: column; }
-    .narrative-header-metrics { width: 100%; justify-content: space-between; }
+    /* Rejilla de 3 columnas iguales y texto a la izquierda: con space-between +
+       text-align:right cada cifra cerraba contra su propia celda y la fila de
+       tres KPI se leía sin eje común (la primera cifra colgaba 29px a la
+       derecha del borde izquierdo de su etiqueta). El selector va por hijos
+       para alinear igual con <StatBox> o con los divs antiguos. */
+    .narrative-header-metrics { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+    .narrative-header-metrics > * { text-align: left; }
   }
 </style>
 </head>
@@ -1368,7 +1462,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc43';
+        s.src = base + '/' + f + '?v=prodc50';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

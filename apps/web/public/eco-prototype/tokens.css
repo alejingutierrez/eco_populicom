@@ -71,7 +71,12 @@
 
   /* Cifras. Besley tiene tabular + lining; se fuerzan por si el subset falla. */
   --fs-num-2xl: clamp(28px, 3.2vw, 38px);
-  --fs-num-xl: 30px;
+  /* Fluido, no fijo: este slot no sólo lleva cifras cortas ('1.3K'), también
+     las PALABRAS del formateador de métricas ('Acelerada', 'Desacelerada' —
+     @eco/shared/format). A 30px fijos 'Acelerada' se salía 13px del padding de
+     una QuickMetric de media columna en móvil y 'Desacelerada' cruzaba el borde
+     de la card, que no recorta. */
+  --fs-num-xl: clamp(22px, 2.4vw, 30px);
   --fs-num-lg: 24px;
   --fs-num-md: 18px;
   --fs-num-sm: 15px;
@@ -112,10 +117,24 @@
   /* Ritmo de página. `--gap-section` es la separación entre bloques numerados
      del Overview; `--gap-grid` la de las rejillas de cards. */
   --gap-grid: var(--sp-3);
+  /* Altura EXTERIOR única de cualquier control de barra (botón, input, select,
+     pastilla, bolsa de período). Existe porque los seis controles del header
+     medían 26/30/32/34/38: sus centros coincidían, pero los bordes quedaban
+     escalonados. --control-h-sm es el chip que vive DENTRO de una bolsa: la
+     bolsa aporta 2px de padding + 1px de borde por lado, así que 32 - 6 = 26 y
+     el conjunto vuelve a medir --control-h. */
+  --control-h: 32px;
+  --control-h-sm: 26px;
   --gap-section: var(--sp-6);
   --pad-card: var(--sp-4);
   --pad-card-lg: var(--sp-5);
   --pad-page: clamp(var(--sp-4), 2vw, var(--sp-8));
+  /* Canaleta horizontal ÚNICA de header y página: el borde izquierdo del bloque
+     de título y el de las cards tienen que caer en el mismo eje. Antes el header
+     llevaba 28px inline y `.eco-page` bajaba a 12px en móvil, así que en móvil
+     había dos bordes izquierdos distintos a la vez. Se sobreescribe a 12px bajo
+     768px (index.html, bloque móvil). */
+  --gutter-page: 28px;
 }
 
 /* ===========================================================================
@@ -135,6 +154,19 @@
   --r-circle: 50%;
   --r: var(--r-md);
 }
+
+/* ===========================================================================
+   3b · ALTURA DE CONTROL
+   Un solo alto para los controles que comparten fila (botón, select, input).
+   Existe porque en la fila de filtros de Configuración convivían 33px (.btn),
+   34px (select con padding inline) y 38px (buscador armado a mano) con el mismo
+   centro vertical: tres alturas para tres controles del mismo rango. En táctil
+   sube a 44px, y así la relación no se invierte entre desktop y móvil (antes el
+   buscador era el MÁS alto en desktop y el MÁS bajo en el teléfono, además del
+   único control que no llegaba al objetivo táctil).
+   ======================================================================== */
+:root { --ctl-h: 34px; }
+@media (pointer: coarse) { :root { --ctl-h: 44px; } }
 
 /* ===========================================================================
    4 · MOVIMIENTO
@@ -198,6 +230,16 @@
   --hairline: rgba(255, 255, 255, 0.06);
   --hairline-strong: rgba(255, 255, 255, 0.12);
 
+  /* Relleno de CONTROL (chip, botón, input, pastilla y bolsa del header). No es
+     lo mismo que "superficie elevada": el control tiene que ser más CLARO que su
+     soporte en oscuro y más OSCURO en claro, así que ningún token de elevación
+     sirve para los dos modos (--surface-raised es #FFFFFF en claro, igual que
+     --canvas). Antes los controles usaban --canvas-2, que en oscuro es más
+     oscuro que --canvas: 1.05:1 sobre el header, un control que sólo existía
+     por su hairline. Con esto el relleno sube a 1.13:1 y el contorno a 1.38:1. */
+  --control-bg: #16202C;
+  --control-bg-hover: #1B2632;
+
   /* texto — escalera 15.3 / 7.9 / 5.0, los tres pasan AA */
   --text: #E6ECF3;
   --text-2: #A2ACBA;
@@ -216,8 +258,13 @@
   --warn-bg: rgba(255, 192, 67, 0.10);
   --info: #58A6FF;
   --info-bg: rgba(88, 166, 255, 0.10);
-  --neu: var(--text-3);
-  --neu-bg: rgba(124, 135, 152, 0.10);
+  /* --neu es el gris del DATO neutral; --text-3 es el del TEXTO. Eran el mismo
+     valor y --text-3 es además --chart-axis, así que la serie "Neutral" del
+     gráfico salía idéntica a los ticks y a los rótulos del eje: el 36% del
+     volumen indistinguible del cromo. Mismo valor que --cat-8 (gris categórico,
+     ≥6.6:1 sobre --canvas) porque el neutral es una categoría, no un juicio. */
+  --neu: #94A3B8;
+  --neu-bg: rgba(148, 163, 184, 0.10);
 
   /* primer plano sobre relleno saturado */
   --on-accent: #1A0A04;
@@ -230,6 +277,12 @@
   /* rail de navegación */
   --rail-bg: #030609;
   --rail-fg: rgba(255, 255, 255, 0.62);
+  /* El rail tenía SIETE alfas de blanco escritas a mano (0.28…0.85) y las cuatro
+     más bajas quedaban en 2.32-4.47:1, es decir texto de 11px por debajo de AA
+     en el menú que estructura toda la app. Un único nivel "atenuado" con
+     luminancia declarada: 6.5:1 sobre --rail-bg (6.3:1 en modo claro, cuyo rail
+     también es oscuro), así que no necesita variante por modo. */
+  --rail-fg-muted: #8A93A0;
   --rail-fg-active: #FFFFFF;
   --rail-active-bg: rgba(255, 106, 61, 0.18);
   --rail-border: rgba(255, 255, 255, 0.05);
@@ -255,6 +308,11 @@
   --hairline: #DFE2E6;
   --hairline-strong: #BFC5CC;
 
+  /* En claro el control va un paso más OSCURO que la superficie que lo sostiene
+     (que es blanca): es el mismo concepto invertido, no otro token. */
+  --control-bg: #F5F6F7;
+  --control-bg-hover: #E8EAED;
+
   --text: #0E1116;
   --text-2: #4A515B;
   --text-3: #6B7280;
@@ -271,8 +329,9 @@
   --warn-bg: rgba(150, 96, 11, 0.12);
   --info: #1F4575;
   --info-bg: rgba(31, 69, 117, 0.10);
-  --neu: var(--text-3);
-  --neu-bg: rgba(107, 114, 128, 0.10);
+  /* En claro la paleta categórica es oscura: mismo valor que --cat-8. */
+  --neu: #52525B;
+  --neu-bg: rgba(82, 82, 91, 0.10);
 
   --on-accent: #FFFFFF;
   --on-pos: #FFFFFF;
@@ -332,23 +391,54 @@
   --logo-to: #0B111A;
   --logo-border: rgba(125, 183, 172, 0.18);
 
-  /* emociones — 7 valores del taxonomía NLP. Familias frías para las
-     negativas, cálidas para las positivas, neutro para sorpresa. */
-  --emo-ira: #FF5470;
-  --emo-frustracion: #FF8A63;
-  --emo-miedo: #A78BFA;
-  --emo-tristeza: #5B9DF9;
-  --emo-alegria: #3FD47A;
-  --emo-esperanza: #2DD4BF;
-  --emo-sorpresa: #FFC043;
+  /* emociones — 7 valores de la taxonomía NLP.
+   *
+   * INVARIANTE: ningún --emo-* puede igualar ni acercarse a --pos / --neg /
+   * --warn / --accent / --accent-2. Antes ira ERA --neg, alegría ERA --pos y
+   * sorpresa ERA --warn: en la pantalla de Sentimiento la barra de "Ira" y la
+   * banda "Negativo" del chart de al lado salían con el mismo hex, así que el
+   * lector deducía un mapeo emoción→sentimiento que sólo se cumplía en 3 de 7
+   * filas (tristeza, negativa, era azul; esperanza, positiva, era teal). Una
+   * marca de emoción es un CONTEO, no un juicio de severidad.
+   *
+   * Sí se aceptan vecindades con --cat-*: el sector azul/teal ya está ocupado
+   * por --cat-1/3/5/7 + --info y no queda hueco, pero un hue categórico no
+   * afirma severidad, que es el error que había que quitar.
+   *
+   * Verificado: CR 6.13–11.33:1 sobre --canvas; ΔE76 mínimo entre pares 44.4
+   * (antes 27.6 entre miedo y tristeza, filas contiguas del ranking a 8px). */
+  --emo-ira: #EC7096;          /* rosa-rojo  6.35:1  ΔE 24 de --neg */
+  --emo-frustracion: #F48B38;  /* naranja    7.45:1  ΔE 20 de --accent-2 */
+  --emo-miedo: #D484EF;        /* orquídea   7.23:1 */
+  --emo-tristeza: #65A9F8;     /* azul cielo 7.44:1 */
+  --emo-alegria: #4FA93E;      /* verde      6.13:1  ΔE 22 de --pos */
+  --emo-esperanza: #30CCAF;    /* teal       8.99:1 */
+  --emo-sorpresa: #D9CE7D;     /* arena     11.33:1  ΔE 33 de --warn */
 
   /* estados de narrativa — 6 del ciclo de vida + fallback obligatorio para
      un status desconocido (hoy se renderiza sin color y en inglés crudo). */
   --narr-emerging: #2DD4BF;
-  --narr-active: #3FD47A;
-  --narr-peaking: #FF6A3D;
-  --narr-declining: #FFC043;
-  --narr-revived: #F472B6;
+  /* Azul, no #3FD47A: `active` era idéntico a --pos, que en ESTA pantalla es
+     "Positivo" en la leyenda del streamgraph, en la barra de sentimiento y en el
+     marcador "▸ inicio". El punto verde de "Récord de visitantes" se leía como
+     un juicio de sentimiento y no como una fase del ciclo de vida. */
+  --narr-active: #5B9DF9;      /* --cat-1, 6.61:1 */
+  /* Violeta, NO el naranja de marca. `peaking` valía exactamente --accent, así
+     que un mismo hex significaba marca, vista seleccionada, filtro
+     seleccionado, fila seleccionada y fase del ciclo de vida en un solo
+     viewport: el chip "Pico (1)" se leía como un segundo filtro encendido junto
+     a "Todas (8)". Un token de DATOS no puede igualar --accent — misma
+     corrección que se le hizo a --neg arriba. */
+  --narr-peaking: #A78BFA;   /* --cat-2, 6.69:1 sobre --canvas */
+  /* Ámbar fuera: `declining` era idéntico a --warn y el punto de "Ferias de
+     empleo regionales" se leía como una advertencia cuando el dato sólo dice
+     que la narrativa decae —que para una oficina de comunicaciones suele ser
+     buena noticia. Se toma rosa (--cat-4) porque es el hue libre más lejano de
+     violeta/azul/teal; `revived` baja a lavanda (--cat-6), vecina de violeta:
+     confundir "revivida" con "pico" cuesta mucho menos que confundir "pico"
+     con "decae", y las dos etiquetas van escritas al lado del punto. */
+  --narr-declining: #F472B6;   /* --cat-4, 6.87:1 */
+  --narr-revived: #C4B5FD;     /* --cat-6 */
   --narr-dormant: #7C8798;
   --narr-unknown: #94A3B8;   /* 7.10:1 — legible como texto */
 
@@ -357,10 +447,14 @@
      los swatches con rgba(11,95,128,…) — el azul del tema `costa` — mientras
      las celdas van en naranja. */
   --seq-0: rgba(255, 106, 61, 0.08);
-  --seq-1: rgba(255, 106, 61, 0.24);
-  --seq-2: rgba(255, 106, 61, 0.42);
-  --seq-3: rgba(255, 106, 61, 0.60);
-  --seq-4: rgba(255, 106, 61, 0.78);
+  /* Los pasos 1..5 se redistribuyeron: --seq-1 a 0.24 medía 1.45:1 sobre
+     --canvas, o sea el paso más usado del mapa era invisible. Ahora
+     1.77 / 2.47 / 3.37 / 4.3 / 6.2 : 1. --seq-0 se queda abajo a propósito,
+     porque en el heatmap significa "sin dato" y no debe leerse como dato. */
+  --seq-1: rgba(255, 106, 61, 0.34);
+  --seq-2: rgba(255, 106, 61, 0.50);
+  --seq-3: rgba(255, 106, 61, 0.65);
+  --seq-4: rgba(255, 106, 61, 0.80);
   --seq-5: rgba(255, 106, 61, 0.95);
 
   /* divergente (delta vs periodo anterior: negativo ← neutro → positivo) */
@@ -400,27 +494,35 @@
   --on-cat: #FFFFFF;   /* en claro la paleta es oscura: 5.4:1 el peor caso */
   --knob: #FFFFFF;
 
-  --emo-ira: #C2183F;
-  --emo-frustracion: #B4460F;
-  --emo-miedo: #6D28D9;
-  --emo-tristeza: #1D4ED8;
-  --emo-alegria: #14722F;
-  --emo-esperanza: #0F766E;
-  --emo-sorpresa: #96600B;
+  /* Mismo invariante que en oscuro. En claro sobrevivían tres coincidencias
+     con la paleta semántica (ira==--neg, alegría==--pos, sorpresa==--warn) y
+     una cuarta que el barrido no había visto: miedo == --metric-polarization
+     #6D28D9, o sea la serie de Polarización y la emoción "Miedo" pintadas del
+     mismo violeta. Verificado: CR 4.63–6.48:1 sobre blanco, ΔE76 mínimo entre
+     pares 45.0, ΔE >= 17 de los cinco tokens de severidad. */
+  --emo-ira: #A33C62;
+  --emo-frustracion: #C15400;
+  --emo-miedo: #A23EB8;
+  --emo-tristeza: #2765A8;
+  --emo-alegria: #267B04;
+  --emo-esperanza: #00735E;
+  --emo-sorpresa: #6E5D18;
 
   --narr-emerging: #0F766E;
-  --narr-active: #14722F;
-  --narr-peaking: #C83A1E;
-  --narr-declining: #96600B;
-  --narr-revived: #BE185D;
+  --narr-active: #1D4ED8;      /* --cat-1 claro; era idéntico a --pos */
+  --narr-peaking: #6D28D9;   /* --cat-2 claro; era idéntico a --accent */
+  --narr-declining: #BE185D;   /* --cat-4 claro; era idéntico a --warn */
+  --narr-revived: #7C3AED;     /* --cat-6 claro */
   --narr-dormant: #6B7280;
   --narr-unknown: #64748B;   /* 4.76:1 sobre blanco */
 
   --seq-0: rgba(200, 58, 30, 0.06);
-  --seq-1: rgba(200, 58, 30, 0.20);
-  --seq-2: rgba(200, 58, 30, 0.38);
-  --seq-3: rgba(200, 58, 30, 0.56);
-  --seq-4: rgba(200, 58, 30, 0.75);
+  /* Mismo piso que en oscuro, medido sobre --canvas #FFFFFF: 0.20 daba
+     1.34:1, 0.34 da 1.64:1. */
+  --seq-1: rgba(200, 58, 30, 0.34);
+  --seq-2: rgba(200, 58, 30, 0.48);
+  --seq-3: rgba(200, 58, 30, 0.62);
+  --seq-4: rgba(200, 58, 30, 0.77);
   --seq-5: rgba(200, 58, 30, 0.92);
 
   --div-neg-2: #C2183F;
@@ -479,7 +581,12 @@ svg text { font-variant-numeric: tabular-nums lining-nums; }
 .t-num-md  { font-size: var(--fs-num-md);  line-height: 1.2; font-weight: var(--fw-semibold); }
 .t-num-sm  { font-size: var(--fs-num-sm);  line-height: 1.3; font-weight: var(--fw-medium); }
 
-.mono { font-family: var(--ff-mono); font-size: var(--fs-caption); }
+/* SÓLO familia. Con `font-size` aquí, la clase pisaba el token que el elemento
+   contenedor declaraba (un `--fs-overline` en el padre salía 12px en el hijo
+   `.mono`), así que el mismo micro-rótulo medía 11 o 12 según si el tamaño se
+   había escrito inline sobre el propio span. El tamaño es decisión del sitio
+   que usa el mono, no de la familia tipográfica. */
+.mono { font-family: var(--ff-mono); }
 
 /* ===========================================================================
    8 · UTILIDADES DE ACCESIBILIDAD
@@ -494,6 +601,10 @@ svg text { font-variant-numeric: tabular-nums lining-nums; }
   transform: translate(-50%, -50%);
 }
 @media (pointer: coarse) {
+  /* Con dedo el piso de 44px es LA altura del control, no una excepción: si sólo
+     se eleva `.btn/.input` (index.html:96) los controles con estilo inline se
+     quedan en 26-34 y la dispersión de alturas del header llega a 2.2×. */
+  :root { --control-h: 44px; --control-h-sm: 38px; }
   .touch-target-strict { min-width: 44px; min-height: 44px; }
 }
 

@@ -1,0 +1,1366 @@
+{
+ "AGENCIES_FULL": [
+  {
+   "key": "ddecpr",
+   "name": "DDEC",
+   "slug": "ddecpr"
+  },
+  {
+   "key": "aaa",
+   "name": "AAA",
+   "slug": "aaa"
+  },
+  {
+   "key": "gobernadora",
+   "name": "Gobernadora",
+   "slug": "gobernadora"
+  },
+  {
+   "key": "sgpr",
+   "name": "SGPR",
+   "slug": "sgpr"
+  },
+  {
+   "key": "__all__",
+   "name": "Todas las agencias",
+   "slug": "__all__"
+  }
+ ],
+ "USER_AGENCY_SLUG": "ddecpr",
+ "TIMELINE": [
+  {
+   "date": "07-28",
+   "fullDate": "2026-07-28",
+   "totalMentions": 106,
+   "positivo": 36,
+   "neutral": 38,
+   "negativo": 32,
+   "nss": -2.2
+  },
+  {
+   "date": "07-29",
+   "fullDate": "2026-07-29",
+   "totalMentions": 89,
+   "positivo": 28,
+   "neutral": 31,
+   "negativo": 30,
+   "nss": -1.42
+  },
+  {
+   "date": "07-30",
+   "fullDate": "2026-07-30",
+   "totalMentions": 21,
+   "positivo": 6,
+   "neutral": 8,
+   "negativo": 7,
+   "nss": null
+  },
+  {
+   "date": "07-31",
+   "fullDate": "2026-07-31",
+   "totalMentions": 67,
+   "positivo": 20,
+   "neutral": 24,
+   "negativo": 23,
+   "nss": -0.83
+  },
+  {
+   "date": "08-01",
+   "fullDate": "2026-08-01",
+   "totalMentions": 56,
+   "positivo": 17,
+   "neutral": 22,
+   "negativo": 17,
+   "nss": -1.21
+  },
+  {
+   "date": "08-02",
+   "fullDate": "2026-08-02",
+   "totalMentions": 148,
+   "positivo": 47,
+   "neutral": 61,
+   "negativo": 40,
+   "nss": -1.92
+  },
+  {
+   "date": "08-03",
+   "fullDate": "2026-08-03",
+   "totalMentions": 171,
+   "positivo": 58,
+   "neutral": 70,
+   "negativo": 43,
+   "nss": -2.73
+  }
+ ],
+ "CURRENT_METRICS": {
+  "nss": -2.2,
+  "nssDelta": -0.4,
+  "nss7d": -1.9,
+  "nss30d": -1.1,
+  "brandHealthIndex": 41,
+  "brandHealthDelta": 2.6,
+  "crisisRiskScore": 0.18,
+  "crisisDelta": 0.03,
+  "totalMentions": 658,
+  "totalMentionsDelta": 12.4,
+  "totalReach": 1284000,
+  "engagementRate": 3.4,
+  "engagementDelta": -1.2,
+  "amplificationRate": 1.8,
+  "amplificationDelta": 0.4,
+  "reputationMomentum": -0.6,
+  "engagementVelocity": 1.3,
+  "volumeAnomalyZscore": 0.9,
+  "polarizationIndex": null,
+  "positiveCount": 289,
+  "neutralCount": 305,
+  "negativeCount": 264,
+  "highPertinenceCount": 148,
+  "totalEngagement": 36581,
+  "display": {
+   "nss": {
+    "word": "Negativo leve",
+    "value": -2.2,
+    "short": "-2.2",
+    "raw": -2.2,
+    "band": null,
+    "tone": "neg",
+    "color": "var(--neg)"
+   },
+   "brandHealth": {
+    "word": "Débil",
+    "value": 41,
+    "short": "41/100",
+    "raw": 41,
+    "band": null,
+    "tone": "warn",
+    "color": "var(--warn)"
+   },
+   "crisis": {
+    "word": "Normal",
+    "value": 0.18,
+    "short": "0.18",
+    "raw": 0.18,
+    "band": null,
+    "tone": "pos",
+    "color": "var(--pos)"
+   },
+   "polarization": {
+    "word": "—",
+    "value": null,
+    "short": "—",
+    "raw": null,
+    "band": null,
+    "tone": "neutral",
+    "color": "var(--text-3)"
+   },
+   "engagementRate": {
+    "word": "Moderada",
+    "value": 3.4,
+    "short": "3.4%",
+    "raw": 3.4,
+    "band": null,
+    "tone": "warn",
+    "color": "var(--warn)"
+   },
+   "amplificationRate": {
+    "word": "Baja",
+    "value": 1.8,
+    "short": "1.8x",
+    "raw": 1.8,
+    "band": null,
+    "tone": "neutral",
+    "color": "var(--text-2)"
+   },
+   "velocity": {
+    "word": "Acelerada",
+    "value": 1.3,
+    "short": "1.3x",
+    "raw": 1.3,
+    "band": null,
+    "tone": "warn",
+    "color": "var(--warn)"
+   }
+  },
+  "deltaDisplay": {
+   "nss": {
+    "word": "baja",
+    "direction": "down",
+    "arrow": "▼",
+    "value": -0.4,
+    "magnitude": 0.4,
+    "hasBaseline": true,
+    "tone": "neg"
+   },
+   "brandHealth": {
+    "word": "sube",
+    "direction": "up",
+    "arrow": "▲",
+    "value": 2.6,
+    "magnitude": 2.6,
+    "hasBaseline": true,
+    "tone": "pos"
+   },
+   "crisis": {
+    "word": "sube",
+    "direction": "up",
+    "arrow": "▲",
+    "value": 0.03,
+    "magnitude": 0.03,
+    "hasBaseline": true,
+    "tone": "neg"
+   },
+   "engagementRate": {
+    "word": "baja",
+    "direction": "down",
+    "arrow": "▼",
+    "value": -1.2,
+    "magnitude": 1.2,
+    "hasBaseline": true,
+    "tone": "neg"
+   },
+   "totalMentions": {
+    "word": "sube",
+    "direction": "up",
+    "arrow": "▲",
+    "value": 12.4,
+    "magnitude": 12.4,
+    "hasBaseline": true,
+    "tone": "neutral"
+   },
+   "polarization": {
+    "word": "sin base",
+    "direction": "none",
+    "arrow": "—",
+    "value": null,
+    "magnitude": null,
+    "hasBaseline": false,
+    "tone": "neutral"
+   }
+  }
+ },
+ "SENTIMENT_BREAKDOWN": [
+  {
+   "name": "positivo",
+   "value": 289,
+   "label": "Positivo"
+  },
+  {
+   "name": "neutral",
+   "value": 305,
+   "label": "Neutral"
+  },
+  {
+   "name": "negativo",
+   "value": 264,
+   "label": "Negativo"
+  }
+ ],
+ "TOP_SOURCES": [
+  {
+   "source": "X / Twitter",
+   "key": "x",
+   "count": 412
+  },
+  {
+   "source": "Noticias",
+   "key": "news",
+   "count": 338
+  },
+  {
+   "source": "Facebook",
+   "key": "facebook",
+   "count": 291
+  },
+  {
+   "source": "Instagram",
+   "key": "instagram",
+   "count": 154
+  },
+  {
+   "source": "YouTube",
+   "key": "youtube",
+   "count": 88
+  },
+  {
+   "source": "TikTok",
+   "key": "tiktok",
+   "count": 48
+  }
+ ],
+ "TOPICS": [
+  {
+   "name": "Energía e infraestructura",
+   "slug": "energia",
+   "count": 253,
+   "positivePct": 17,
+   "neutralPct": 34,
+   "negativePct": 49,
+   "delta": 12,
+   "dominantSentiment": "negativo",
+   "alsoCount": 5
+  },
+  {
+   "name": "Permisos y trámites",
+   "slug": "permisos",
+   "count": 213,
+   "positivePct": 15,
+   "neutralPct": 35,
+   "negativePct": 50,
+   "delta": -3,
+   "dominantSentiment": "negativo",
+   "alsoCount": 4
+  },
+  {
+   "name": "Empleo y adiestramiento",
+   "slug": "empleo",
+   "count": 173,
+   "positivePct": 34,
+   "neutralPct": 41,
+   "negativePct": 25,
+   "delta": 18,
+   "dominantSentiment": "positivo",
+   "alsoCount": 3
+  },
+  {
+   "name": "Transparencia y fondos",
+   "slug": "transparencia",
+   "count": 160,
+   "positivePct": 11,
+   "neutralPct": 41,
+   "negativePct": 48,
+   "delta": 0,
+   "dominantSentiment": "negativo",
+   "alsoCount": 3
+  },
+  {
+   "name": "Incentivos contributivos",
+   "slug": "incentivos",
+   "count": 133,
+   "positivePct": 37,
+   "neutralPct": 44,
+   "negativePct": 19,
+   "delta": -7,
+   "dominantSentiment": "positivo",
+   "alsoCount": 2
+  },
+  {
+   "name": "PyMEs y comercio local",
+   "slug": "pymes",
+   "count": 120,
+   "positivePct": 43,
+   "neutralPct": 41,
+   "negativePct": 16,
+   "delta": 4,
+   "dominantSentiment": "positivo",
+   "alsoCount": 2
+  },
+  {
+   "name": "Turismo",
+   "slug": "turismo",
+   "count": 106,
+   "positivePct": 58,
+   "neutralPct": 33,
+   "negativePct": 9,
+   "delta": 9,
+   "dominantSentiment": "positivo",
+   "alsoCount": 1
+  },
+  {
+   "name": "Agricultura",
+   "slug": "agricultura",
+   "count": 93,
+   "positivePct": 43,
+   "neutralPct": 44,
+   "negativePct": 13,
+   "delta": -2,
+   "dominantSentiment": "positivo",
+   "alsoCount": 1
+  },
+  {
+   "name": "Atención ciudadana",
+   "slug": "atencion",
+   "count": 80,
+   "positivePct": 28,
+   "neutralPct": 41,
+   "negativePct": 31,
+   "delta": 18,
+   "dominantSentiment": "mixed",
+   "alsoCount": 1
+  }
+ ],
+ "MUNICIPALITIES": [
+  {
+   "name": "San Juan",
+   "region": "Norte",
+   "count": 346,
+   "nss": -3.1,
+   "lat": 18.4655,
+   "lon": -66.1057
+  },
+  {
+   "name": "Bayamón",
+   "region": "Norte",
+   "count": 146,
+   "nss": -2.4,
+   "lat": 18.3985,
+   "lon": -66.1614
+  },
+  {
+   "name": "Carolina",
+   "region": "Norte",
+   "count": 120,
+   "nss": -1.8,
+   "lat": 18.3809,
+   "lon": -65.9574
+  },
+  {
+   "name": "Ponce",
+   "region": "Sur",
+   "count": 106,
+   "nss": 0.0,
+   "lat": 18.0111,
+   "lon": -66.6141
+  },
+  {
+   "name": "Caguas",
+   "region": "Este",
+   "count": 93,
+   "nss": -1.2,
+   "lat": 18.2341,
+   "lon": -66.0485
+  },
+  {
+   "name": "Mayagüez",
+   "region": "Oeste",
+   "count": 80,
+   "nss": 0.0,
+   "lat": 18.2013,
+   "lon": -67.1397
+  },
+  {
+   "name": "Arecibo",
+   "region": "Norte",
+   "count": 67,
+   "nss": 1.4,
+   "lat": 18.4725,
+   "lon": -66.7156
+  },
+  {
+   "name": "Guaynabo",
+   "region": "Norte",
+   "count": 67,
+   "nss": -0.9,
+   "lat": 18.3574,
+   "lon": -66.111
+  }
+ ],
+ "EMOTIONS": [
+  {
+   "emotion": "ira",
+   "count": 453
+  },
+  {
+   "emotion": "preocupación",
+   "count": 320
+  },
+  {
+   "emotion": "esperanza",
+   "count": 186
+  },
+  {
+   "emotion": "alegría",
+   "count": 160
+  },
+  {
+   "emotion": "sorpresa",
+   "count": 133
+  },
+  {
+   "emotion": "tristeza",
+   "count": 80
+  }
+ ],
+ "MENTIONS": [
+  {
+   "id": "m1",
+   "title": "DDEC anuncia inversión de $340 millones en manufactura",
+   "author": "@medio_0",
+   "source": "x",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T09:00:00Z",
+   "sentiment": "negativo",
+   "engagement": 0,
+   "municipality": "San Juan",
+   "region": "Norte"
+  },
+  {
+   "id": "m2",
+   "title": "Empresarios denuncian demoras de hasta 8 meses en permisos",
+   "author": "@medio_1",
+   "source": "news",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T10:07:00Z",
+   "sentiment": "neutral",
+   "engagement": 274,
+   "municipality": "Bayamón",
+   "region": "Norte"
+  },
+  {
+   "id": "m3",
+   "title": "Tercer apagón general del mes deja a 1.2 millones sin luz",
+   "author": "@medio_2",
+   "source": "facebook",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T11:14:00Z",
+   "sentiment": "positivo",
+   "engagement": 411,
+   "municipality": "Carolina",
+   "region": "Norte"
+  },
+  {
+   "id": "m4",
+   "title": "Puerto Rico rompe récord de visitantes: 6.4 millones",
+   "author": "@medio_3",
+   "source": "instagram",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T12:21:00Z",
+   "sentiment": "negativo",
+   "engagement": 548,
+   "municipality": "Ponce",
+   "region": "Sur"
+  },
+  {
+   "id": "m5",
+   "title": "Feria de empleo en Ponce conecta a 1,400 solicitantes",
+   "author": "@medio_4",
+   "source": "youtube",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T13:28:00Z",
+   "sentiment": "neutral",
+   "engagement": 685,
+   "municipality": "Caguas",
+   "region": "Este"
+  },
+  {
+   "id": "m6",
+   "title": "DDEC anuncia inversión de $340 millones en manufactura",
+   "author": "@medio_5",
+   "source": "tiktok",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T14:35:00Z",
+   "sentiment": "positivo",
+   "engagement": 822,
+   "municipality": "Mayagüez",
+   "region": "Oeste"
+  },
+  {
+   "id": "m7",
+   "title": "Empresarios denuncian demoras de hasta 8 meses en permisos",
+   "author": "@medio_6",
+   "source": "x",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T15:42:00Z",
+   "sentiment": "negativo",
+   "engagement": 0,
+   "municipality": "Arecibo",
+   "region": "Norte"
+  },
+  {
+   "id": "m8",
+   "title": "Tercer apagón general del mes deja a 1.2 millones sin luz",
+   "author": "@medio_0",
+   "source": "news",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T16:49:00Z",
+   "sentiment": "neutral",
+   "engagement": 1096,
+   "municipality": "Guaynabo",
+   "region": "Norte"
+  },
+  {
+   "id": "m9",
+   "title": "Puerto Rico rompe récord de visitantes: 6.4 millones",
+   "author": "@medio_1",
+   "source": "facebook",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T17:56:00Z",
+   "sentiment": "positivo",
+   "engagement": 1233,
+   "municipality": "San Juan",
+   "region": "Norte"
+  },
+  {
+   "id": "m10",
+   "title": "Feria de empleo en Ponce conecta a 1,400 solicitantes",
+   "author": "@medio_2",
+   "source": "instagram",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T18:03:00Z",
+   "sentiment": "negativo",
+   "engagement": 1370,
+   "municipality": "Bayamón",
+   "region": "Norte"
+  },
+  {
+   "id": "m11",
+   "title": "DDEC anuncia inversión de $340 millones en manufactura",
+   "author": "@medio_3",
+   "source": "youtube",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T19:10:00Z",
+   "sentiment": "neutral",
+   "engagement": 1507,
+   "municipality": "Carolina",
+   "region": "Norte"
+  },
+  {
+   "id": "m12",
+   "title": "Empresarios denuncian demoras de hasta 8 meses en permisos",
+   "author": "@medio_4",
+   "source": "tiktok",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T20:17:00Z",
+   "sentiment": "positivo",
+   "engagement": 1644,
+   "municipality": "Ponce",
+   "region": "Sur"
+  },
+  {
+   "id": "m13",
+   "title": "Tercer apagón general del mes deja a 1.2 millones sin luz",
+   "author": "@medio_5",
+   "source": "x",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T09:24:00Z",
+   "sentiment": "negativo",
+   "engagement": 0,
+   "municipality": "Caguas",
+   "region": "Este"
+  },
+  {
+   "id": "m14",
+   "title": "Puerto Rico rompe récord de visitantes: 6.4 millones",
+   "author": "@medio_6",
+   "source": "news",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T10:31:00Z",
+   "sentiment": "neutral",
+   "engagement": 1918,
+   "municipality": "Mayagüez",
+   "region": "Oeste"
+  },
+  {
+   "id": "m15",
+   "title": "Feria de empleo en Ponce conecta a 1,400 solicitantes",
+   "author": "@medio_0",
+   "source": "facebook",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T11:38:00Z",
+   "sentiment": "positivo",
+   "engagement": 2055,
+   "municipality": "Arecibo",
+   "region": "Norte"
+  },
+  {
+   "id": "m16",
+   "title": "DDEC anuncia inversión de $340 millones en manufactura",
+   "author": "@medio_1",
+   "source": "instagram",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T12:45:00Z",
+   "sentiment": "negativo",
+   "engagement": 2192,
+   "municipality": "Guaynabo",
+   "region": "Norte"
+  },
+  {
+   "id": "m17",
+   "title": "Empresarios denuncian demoras de hasta 8 meses en permisos",
+   "author": "@medio_2",
+   "source": "youtube",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T13:52:00Z",
+   "sentiment": "neutral",
+   "engagement": 2329,
+   "municipality": "San Juan",
+   "region": "Norte"
+  },
+  {
+   "id": "m18",
+   "title": "Tercer apagón general del mes deja a 1.2 millones sin luz",
+   "author": "@medio_3",
+   "source": "tiktok",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T14:59:00Z",
+   "sentiment": "positivo",
+   "engagement": 2466,
+   "municipality": "Bayamón",
+   "region": "Norte"
+  },
+  {
+   "id": "m19",
+   "title": "Puerto Rico rompe récord de visitantes: 6.4 millones",
+   "author": "@medio_4",
+   "source": "x",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T15:06:00Z",
+   "sentiment": "negativo",
+   "engagement": 0,
+   "municipality": "Carolina",
+   "region": "Norte"
+  },
+  {
+   "id": "m20",
+   "title": "Feria de empleo en Ponce conecta a 1,400 solicitantes",
+   "author": "@medio_5",
+   "source": "news",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T16:13:00Z",
+   "sentiment": "neutral",
+   "engagement": 2740,
+   "municipality": "Ponce",
+   "region": "Sur"
+  },
+  {
+   "id": "m21",
+   "title": "DDEC anuncia inversión de $340 millones en manufactura",
+   "author": "@medio_6",
+   "source": "facebook",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T17:20:00Z",
+   "sentiment": "positivo",
+   "engagement": 2877,
+   "municipality": "Caguas",
+   "region": "Este"
+  },
+  {
+   "id": "m22",
+   "title": "Empresarios denuncian demoras de hasta 8 meses en permisos",
+   "author": "@medio_0",
+   "source": "instagram",
+   "domain": "elnuevodia.com",
+   "publishedAt": "2026-08-01T18:27:00Z",
+   "sentiment": "negativo",
+   "engagement": 3014,
+   "municipality": "Mayagüez",
+   "region": "Oeste"
+  },
+  {
+   "id": "m23",
+   "title": "Tercer apagón general del mes deja a 1.2 millones sin luz",
+   "author": "@medio_1",
+   "source": "youtube",
+   "domain": "primerahora.com",
+   "publishedAt": "2026-08-02T19:34:00Z",
+   "sentiment": "neutral",
+   "engagement": 3151,
+   "municipality": "Arecibo",
+   "region": "Norte"
+  },
+  {
+   "id": "m24",
+   "title": "Puerto Rico rompe récord de visitantes: 6.4 millones",
+   "author": "@medio_2",
+   "source": "tiktok",
+   "domain": "x.com",
+   "publishedAt": "2026-08-03T20:41:00Z",
+   "sentiment": "positivo",
+   "engagement": 3288,
+   "municipality": "Guaynabo",
+   "region": "Norte"
+  }
+ ],
+ "ALERTS": [
+  {
+   "id": "a1",
+   "name": "Pico de menciones negativas · Energía",
+   "priority": "critical",
+   "active": true,
+   "triggered": 0,
+   "lastFired": "2026-08-03T14:20:00Z",
+   "channels": [
+    "email"
+   ]
+  },
+  {
+   "id": "a2",
+   "name": "Crisis: NSS bajo umbral",
+   "priority": "high",
+   "active": true,
+   "triggered": 0,
+   "lastFired": "2026-08-02T09:00:00Z",
+   "channels": [
+    "email"
+   ]
+  },
+  {
+   "id": "a3",
+   "name": "Volumen anómalo",
+   "priority": "medium",
+   "active": true,
+   "triggered": 0,
+   "lastFired": null,
+   "channels": [
+    "email"
+   ]
+  },
+  {
+   "id": "a4",
+   "name": "Sentimiento negativo sostenido",
+   "priority": "low",
+   "active": false,
+   "triggered": 0,
+   "lastFired": null,
+   "channels": []
+  }
+ ],
+ "ALERT_FEED": [
+  {
+   "id": "f0",
+   "ruleName": "Pico de menciones negativas · Energía",
+   "severity": "critical",
+   "firedAt": "2026-08-01T10:00:00Z",
+   "mentionCount": 4
+  },
+  {
+   "id": "f1",
+   "ruleName": "Crisis: NSS bajo umbral",
+   "severity": "high",
+   "firedAt": "2026-08-02T11:00:00Z",
+   "mentionCount": 3
+  },
+  {
+   "id": "f2",
+   "ruleName": "Volumen anómalo",
+   "severity": "medium",
+   "firedAt": "2026-08-03T12:00:00Z",
+   "mentionCount": 24
+  },
+  {
+   "id": "f3",
+   "ruleName": "Pico de menciones negativas · Energía",
+   "severity": "critical",
+   "firedAt": "2026-08-01T13:00:00Z",
+   "mentionCount": 7
+  },
+  {
+   "id": "f4",
+   "ruleName": "Crisis: NSS bajo umbral",
+   "severity": "high",
+   "firedAt": "2026-08-02T14:00:00Z",
+   "mentionCount": 4
+  },
+  {
+   "id": "f5",
+   "ruleName": "Volumen anómalo",
+   "severity": "medium",
+   "firedAt": "2026-08-03T15:00:00Z",
+   "mentionCount": 3
+  },
+  {
+   "id": "f6",
+   "ruleName": "Pico de menciones negativas · Energía",
+   "severity": "critical",
+   "firedAt": "2026-08-01T16:00:00Z",
+   "mentionCount": 24
+  },
+  {
+   "id": "f7",
+   "ruleName": "Crisis: NSS bajo umbral",
+   "severity": "high",
+   "firedAt": "2026-08-02T17:00:00Z",
+   "mentionCount": 7
+  }
+ ],
+ "COMPARISON": [
+  {
+   "label": "Esta semana",
+   "total": 658,
+   "nss": -2.2
+  },
+  {
+   "label": "Semana anterior",
+   "total": 585,
+   "nss": -1.8
+  }
+ ],
+ "SENTIMENT_BY_SOURCE": [
+  {
+   "source": "X / Twitter",
+   "total": 412,
+   "positive": 124,
+   "neutral": 157,
+   "negative": 132,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  },
+  {
+   "source": "Noticias",
+   "total": 338,
+   "positive": 101,
+   "neutral": 128,
+   "negative": 108,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  },
+  {
+   "source": "Facebook",
+   "total": 291,
+   "positive": 87,
+   "neutral": 111,
+   "negative": 93,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  },
+  {
+   "source": "Instagram",
+   "total": 154,
+   "positive": 46,
+   "neutral": 59,
+   "negative": 49,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  },
+  {
+   "source": "YouTube",
+   "total": 88,
+   "positive": 26,
+   "neutral": 33,
+   "negative": 28,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  },
+  {
+   "source": "TikTok",
+   "total": 48,
+   "positive": 14,
+   "neutral": 18,
+   "negative": 15,
+   "positivePct": 30,
+   "neutralPct": 38,
+   "negativePct": 32
+  }
+ ],
+ "SENTIMENT_BY_TOPIC": [
+  {
+   "topic": "Energía e infraestructura",
+   "total": 253,
+   "positive": 43,
+   "neutral": 86,
+   "negative": 124,
+   "positivePct": 17,
+   "neutralPct": 34,
+   "negativePct": 49
+  },
+  {
+   "topic": "Permisos y trámites",
+   "total": 213,
+   "positive": 32,
+   "neutral": 75,
+   "negative": 106,
+   "positivePct": 15,
+   "neutralPct": 35,
+   "negativePct": 50
+  },
+  {
+   "topic": "Empleo y adiestramiento",
+   "total": 173,
+   "positive": 59,
+   "neutral": 71,
+   "negative": 43,
+   "positivePct": 34,
+   "neutralPct": 41,
+   "negativePct": 25
+  },
+  {
+   "topic": "Transparencia y fondos",
+   "total": 160,
+   "positive": 18,
+   "neutral": 66,
+   "negative": 77,
+   "positivePct": 11,
+   "neutralPct": 41,
+   "negativePct": 48
+  },
+  {
+   "topic": "Incentivos contributivos",
+   "total": 133,
+   "positive": 49,
+   "neutral": 59,
+   "negative": 25,
+   "positivePct": 37,
+   "neutralPct": 44,
+   "negativePct": 19
+  },
+  {
+   "topic": "PyMEs y comercio local",
+   "total": 120,
+   "positive": 52,
+   "neutral": 49,
+   "negative": 19,
+   "positivePct": 43,
+   "neutralPct": 41,
+   "negativePct": 16
+  },
+  {
+   "topic": "Turismo",
+   "total": 106,
+   "positive": 61,
+   "neutral": 35,
+   "negative": 10,
+   "positivePct": 58,
+   "neutralPct": 33,
+   "negativePct": 9
+  },
+  {
+   "topic": "Agricultura",
+   "total": 93,
+   "positive": 40,
+   "neutral": 41,
+   "negative": 12,
+   "positivePct": 43,
+   "neutralPct": 44,
+   "negativePct": 13
+  },
+  {
+   "topic": "Atención ciudadana",
+   "total": 80,
+   "positive": 22,
+   "neutral": 33,
+   "negative": 25,
+   "positivePct": 28,
+   "neutralPct": 41,
+   "negativePct": 31
+  }
+ ],
+ "SENTIMENT_BY_REGION": [
+  {
+   "region": "Norte",
+   "total": 346,
+   "positive": 107,
+   "neutral": 128,
+   "negative": 111,
+   "positivePct": 31,
+   "neutralPct": 37,
+   "negativePct": 32
+  },
+  {
+   "region": "Norte",
+   "total": 146,
+   "positive": 45,
+   "neutral": 54,
+   "negative": 47,
+   "positivePct": 31,
+   "neutralPct": 37,
+   "negativePct": 32
+  },
+  {
+   "region": "Norte",
+   "total": 120,
+   "positive": 37,
+   "neutral": 44,
+   "negative": 38,
+   "positivePct": 31,
+   "neutralPct": 37,
+   "negativePct": 32
+  },
+  {
+   "region": "Sur",
+   "total": 106,
+   "positive": 33,
+   "neutral": 39,
+   "negative": 34,
+   "positivePct": 31,
+   "neutralPct": 37,
+   "negativePct": 32
+  },
+  {
+   "region": "Este",
+   "total": 93,
+   "positive": 29,
+   "neutral": 34,
+   "negative": 30,
+   "positivePct": 31,
+   "neutralPct": 37,
+   "negativePct": 32
+  }
+ ],
+ "SENTIMENT_BY_SUBTOPIC": [
+  {
+   "subtopic": "Apagones",
+   "total": 121,
+   "positive": 11,
+   "neutral": 34,
+   "negative": 76,
+   "positivePct": 9,
+   "neutralPct": 28,
+   "negativePct": 63
+  },
+  {
+   "subtopic": "Tarifas",
+   "total": 74,
+   "positive": 9,
+   "neutral": 24,
+   "negative": 41,
+   "positivePct": 12,
+   "neutralPct": 33,
+   "negativePct": 55
+  },
+  {
+   "subtopic": "Generación",
+   "total": 58,
+   "positive": 12,
+   "neutral": 26,
+   "negative": 20,
+   "positivePct": 21,
+   "neutralPct": 44,
+   "negativePct": 35
+  }
+ ],
+ "SUBTOPICS": {
+  "energia": [
+   {
+    "name": "Subtópico 1 de Energía e infr",
+    "slug": "energia-1",
+    "volume": 84,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Energía e infr",
+    "slug": "energia-2",
+    "volume": 63,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Energía e infr",
+    "slug": "energia-3",
+    "volume": 50,
+    "sentiment": "positivo"
+   }
+  ],
+  "permisos": [
+   {
+    "name": "Subtópico 1 de Permisos y trá",
+    "slug": "permisos-1",
+    "volume": 71,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Permisos y trá",
+    "slug": "permisos-2",
+    "volume": 53,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Permisos y trá",
+    "slug": "permisos-3",
+    "volume": 42,
+    "sentiment": "positivo"
+   }
+  ],
+  "empleo": [
+   {
+    "name": "Subtópico 1 de Empleo y adies",
+    "slug": "empleo-1",
+    "volume": 57,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Empleo y adies",
+    "slug": "empleo-2",
+    "volume": 43,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Empleo y adies",
+    "slug": "empleo-3",
+    "volume": 34,
+    "sentiment": "positivo"
+   }
+  ],
+  "transparencia": [
+   {
+    "name": "Subtópico 1 de Transparencia ",
+    "slug": "transparencia-1",
+    "volume": 53,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Transparencia ",
+    "slug": "transparencia-2",
+    "volume": 40,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Transparencia ",
+    "slug": "transparencia-3",
+    "volume": 32,
+    "sentiment": "positivo"
+   }
+  ],
+  "incentivos": [
+   {
+    "name": "Subtópico 1 de Incentivos con",
+    "slug": "incentivos-1",
+    "volume": 44,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Incentivos con",
+    "slug": "incentivos-2",
+    "volume": 33,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Incentivos con",
+    "slug": "incentivos-3",
+    "volume": 26,
+    "sentiment": "positivo"
+   }
+  ],
+  "pymes": [
+   {
+    "name": "Subtópico 1 de PyMEs y comerc",
+    "slug": "pymes-1",
+    "volume": 40,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de PyMEs y comerc",
+    "slug": "pymes-2",
+    "volume": 30,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de PyMEs y comerc",
+    "slug": "pymes-3",
+    "volume": 24,
+    "sentiment": "positivo"
+   }
+  ],
+  "turismo": [
+   {
+    "name": "Subtópico 1 de Turismo",
+    "slug": "turismo-1",
+    "volume": 35,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Turismo",
+    "slug": "turismo-2",
+    "volume": 26,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Turismo",
+    "slug": "turismo-3",
+    "volume": 21,
+    "sentiment": "positivo"
+   }
+  ],
+  "agricultura": [
+   {
+    "name": "Subtópico 1 de Agricultura",
+    "slug": "agricultura-1",
+    "volume": 31,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Agricultura",
+    "slug": "agricultura-2",
+    "volume": 23,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Agricultura",
+    "slug": "agricultura-3",
+    "volume": 18,
+    "sentiment": "positivo"
+   }
+  ],
+  "atencion": [
+   {
+    "name": "Subtópico 1 de Atención ciuda",
+    "slug": "atencion-1",
+    "volume": 26,
+    "sentiment": "negativo"
+   },
+   {
+    "name": "Subtópico 2 de Atención ciuda",
+    "slug": "atencion-2",
+    "volume": 20,
+    "sentiment": "neutral"
+   },
+   {
+    "name": "Subtópico 3 de Atención ciuda",
+    "slug": "atencion-3",
+    "volume": 16,
+    "sentiment": "positivo"
+   }
+  ]
+ },
+ "TOPIC_CALENDAR": [
+  {
+   "date": "07-28",
+   "fullDate": "2026-07-28",
+   "topicName": "Energía e infraestructura",
+   "topicSlug": "energia",
+   "volume": 106,
+   "sentiment": "negativo"
+  },
+  {
+   "date": "07-29",
+   "fullDate": "2026-07-29",
+   "topicName": "Permisos y trámites",
+   "topicSlug": "permisos",
+   "volume": 89,
+   "sentiment": "negativo"
+  },
+  {
+   "date": "07-30",
+   "fullDate": "2026-07-30",
+   "topicName": "Empleo y adiestramiento",
+   "topicSlug": "empleo",
+   "volume": 21,
+   "sentiment": "positivo"
+  },
+  {
+   "date": "07-31",
+   "fullDate": "2026-07-31",
+   "topicName": "Transparencia y fondos",
+   "topicSlug": "transparencia",
+   "volume": 67,
+   "sentiment": "negativo"
+  },
+  {
+   "date": "08-01",
+   "fullDate": "2026-08-01",
+   "topicName": "Incentivos contributivos",
+   "topicSlug": "incentivos",
+   "volume": 56,
+   "sentiment": "positivo"
+  },
+  {
+   "date": "08-02",
+   "fullDate": "2026-08-02",
+   "topicName": "PyMEs y comercio local",
+   "topicSlug": "pymes",
+   "volume": 148,
+   "sentiment": "positivo"
+  },
+  {
+   "date": "08-03",
+   "fullDate": "2026-08-03",
+   "topicName": "Turismo",
+   "topicSlug": "turismo",
+   "volume": 171,
+   "sentiment": "positivo"
+  }
+ ]
+}

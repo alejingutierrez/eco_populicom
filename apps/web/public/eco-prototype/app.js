@@ -196,7 +196,7 @@ const SCREEN_META = {
   topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
-  settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
+  settings:  { label: 'Configuración', eyebrow: 'Usuarios y plantillas' },
   narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
   'exec-tabla': { label: 'Tabla de posiciones', eyebrow: 'Vista ejecutiva · ranking de salud digital' },
   'exec-sala':  { label: 'Sala de mando',       eyebrow: 'Vista ejecutiva · sala de mando multi-agencia' },

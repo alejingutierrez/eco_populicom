@@ -116,6 +116,29 @@ window.ecoPeriodMentionTotal = function ecoPeriodMentionTotal() {
 };
 
 // ---------------------------------------------------------------------------
+// Formato de CONTEOS — una sola función y una regla explícita.
+//
+// Un conteo de menciones es EXACTO y el drill-down puede reproducirlo, así que
+// se escribe exacto (`ecoFmtCount`). Sólo se abrevia (`ecoFmtCompact`) cuando el
+// dato es una estimación de orden de magnitud (alcance) o el slot no admite más
+// glifos. NUNCA las dos formas del mismo dato en el mismo viewport: en /mentions
+// el total salía '1.3K' en el KPI y '1,322' a 40px de distancia. Y había TRES
+// abreviadores: `fmt` en screens.js, uno inline en el badge del rail (shell.js)
+// que no sabía de millones —4.8M se leía '4800.0K'— y `toLocaleString` suelto en
+// dos subtítulos.
+window.ecoFmtCount = function ecoFmtCount(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  return Number(n).toLocaleString('es-PR');
+};
+window.ecoFmtCompact = function ecoFmtCompact(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  const v = Number(n);
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toLocaleString('es-PR');
+};
+
+// ---------------------------------------------------------------------------
 // Puente de tokens para JavaScript (WS-F1).
 //
 // tokens.css es la fuente única de los valores, pero hay dos cosas que el CSS
@@ -197,6 +220,38 @@ window.ecoSentimentColor = function ecoSentimentColor(s) {
   return 'var(--text-3)';
 };
 
+// Etiqueta del estado de sentimiento — un solo mapa para todo el producto. El
+// API emite el ENUM crudo ('positivo' | 'negativo' | 'mixed' para un tópico;
+// 'neutral' para el día del calendario) y la interfaz lo imprimía tal cual
+// dentro de un .pill en MAYÚSCULAS: se leía "MIXED", en inglés, junto a
+// "POSITIVO". El mismo concepto tenía además dos traducciones a mano en la misma
+// pantalla ("Mixto" en la leyenda de burbujas, "Neutral" en el calendario). El
+// enum no se imprime nunca.
+window.ecoSentimentLabel = function ecoSentimentLabel(s) {
+  const k = String(s || '').toLowerCase().trim();
+  if (k === 'positivo' || k === 'positive' || k === 'pos') return 'Positivo';
+  if (k === 'negativo' || k === 'negative' || k === 'neg') return 'Negativo';
+  if (k === 'mixed' || k === 'mixto') return 'Mixto';
+  return 'Neutral';
+};
+
+// NSS es un PUNTAJE, no una etiqueta: necesita umbral, y el umbral tiene que ser
+// UNO. Antes el mapa juzgaba con ±2, el tooltip de ese mismo marcador con >0/<0
+// (vía ecoSentimentColor, que espera una ETIQUETA) y la card de región con >0:
+// un municipio con NSS −0.9 salía ámbar en el círculo, rotulado "Neutral", y
+// ROJO en su propio tooltip y en la card. `--neu` y no `--warn`: --warn es
+// ADVERTENCIA, y como sólo 1 de 6 regiones sale de la banda, pintar la banda
+// neutra de ámbar convertía el mapa entero en una alarma.
+window.ECO_NSS_NEUTRAL_BAND = 2;
+window.ecoNssColor = function ecoNssColor(nss) {
+  const v = Number(nss);
+  if (!Number.isFinite(v)) return 'var(--neu)';
+  const b = window.ECO_NSS_NEUTRAL_BAND;
+  if (v > b) return 'var(--pos)';
+  if (v < -b) return 'var(--neg)';
+  return 'var(--neu)';
+};
+
 // Métricas compuestas que necesitan color propio en las series de gráfica.
 window.ECO_METRIC_COLOR = {
   nss: 'var(--accent)',
@@ -216,6 +271,39 @@ window.ecoTokenValue = function ecoTokenValue(cssValue, fallback) {
   if (!m) return v || fallback || '#000';
   const out = getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim();
   return out || fallback || '#000';
+};
+
+// ---------------------------------------------------------------------------
+// Fechas — UNA convención para todo el producto, con zona horaria obligatoria.
+//
+// El mismo evento salía a las 9:00 en el KPI "Última alerta" (toLocaleString sin
+// timeZone rinde la hora del NAVEGADOR) y a las 10:00:00 en la fila del
+// historial (que sí fija AST): una hora de diferencia entre dos números que el
+// usuario ve sin hacer clic. El gobierno opera en AST, así que la zona no es una
+// preferencia de formato, es parte del dato. Dos variantes y ninguna más:
+// `ecoFmtDate` para KPI y ejes, `ecoFmtDateTime` para filas y marcas de evento
+// (sin segundos: ninguna decisión de esta plataforma se toma al segundo).
+//
+// Las dos van con mes ABREVIADO y no numérico: es-PR rinde los meses numéricos
+// al estilo de EE.UU. (07/20/26), así que "07/20" y "20/07" son indistinguibles
+// para un lector puertorriqueño. "20 jul" no admite dos lecturas.
+// ---------------------------------------------------------------------------
+window.ECO_TZ = 'America/Puerto_Rico';
+window.ecoFmtDate = function ecoFmtDate(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-PR', { timeZone: window.ECO_TZ, day: '2-digit', month: 'short', year: 'numeric' });
+};
+window.ecoFmtDateTime = function ecoFmtDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-PR', {
+    timeZone: window.ECO_TZ,
+    day: '2-digit', month: 'short', year: '2-digit',
+    hour: 'numeric', minute: '2-digit',
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -255,8 +343,11 @@ window.ecoDeltaColor = function ecoDeltaColor(metricKey, delta) {
   return good ? 'var(--pos)' : 'var(--neg)';
 };
 
+// UN solo juego de glifos de tendencia. Este helper devolvía ↑/↓/↔ mientras el
+// DeltaDisplay que calcula el backend trae ▲/▼/·, así que DeltaBadge pintaba dos
+// vocabularios distintos según por qué rama entrara — el mismo componente.
 window.ecoDeltaArrow = function ecoDeltaArrow(delta) {
   if (delta == null || !Number.isFinite(Number(delta))) return '—';
   const d = Number(delta);
-  return d > 0 ? '↑' : d < 0 ? '↓' : '↔';
+  return d > 0 ? '▲' : d < 0 ? '▼' : '·';
 };

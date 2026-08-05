@@ -57,14 +57,18 @@ function measure(text, px, weight) {
 // sobre-lectura del área. Se rechaza la escala por RANGO (posición 1..N): es más
 // bonita y miente, porque aplana la cola larga y hace que el #1 con 400
 // menciones y el #2 con 12 parezcan vecinos.
+//
+// El dominio ancla en 0, NO en el mínimo del lote. Con (v−vMin)/(vMax−vMin) el
+// término más pequeño de CADA lote medía siempre fsMin y el mayor siempre fsMax:
+// el cuerpo no expresaba una cantidad, sino una posición dentro del lote, y
+// cambiaba de significado al mover el período o un filtro. Anclado en 0 el
+// cuerpo es proporcional a sqrt(v/vMax) y comparable entre lotes.
 function sizeScale(vals, fsMin, fsMax) {
-  const finite = vals.filter((v) => Number.isFinite(v));
-  if (finite.length === 0) return () => Math.round((fsMin + fsMax) / 2);
-  const vMin = Math.min(...finite);
-  const vMax = Math.max(...finite);
-  if (vMax === vMin) return () => Math.round((fsMin + fsMax) / 2);
+  const finite = vals.filter((v) => Number.isFinite(v) && v >= 0);
+  const vMax = finite.length ? Math.max(...finite) : 0;
+  if (!(vMax > 0)) return () => Math.round((fsMin + fsMax) / 2);
   return (v) => {
-    const n = (Math.max(vMin, Math.min(vMax, v)) - vMin) / (vMax - vMin);
+    const n = Math.max(0, Math.min(vMax, Number(v) || 0)) / vMax;
     return Math.round(fsMin + (fsMax - fsMin) * Math.sqrt(n));
   };
 }
@@ -159,7 +163,17 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const m = () => setW(Math.max(0, Math.floor(el.getBoundingClientRect().width)));
+    // La caja que POSICIONA los términos es la de CONTENIDO del .card-bd (son
+    // absolutos dentro de un hijo position:relative), pero
+    // getBoundingClientRect() incluye sus 2×16px de padding: la nube se
+    // centraba en una pista 32px más ancha que su caja —16px corrida a la
+    // derecha— y la fila más ancha cruzaba el padding derecho, anulando el
+    // colchón de −8px de layoutRows.
+    const m = () => {
+      const cs = getComputedStyle(el);
+      const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      setW(Math.max(0, Math.floor(el.clientWidth - pad)));
+    };
     m();
     let ro = null;
     if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(m); ro.observe(el); }
@@ -196,13 +210,30 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
   const selSet = useMemo(() => new Set(selected || []), [selected]);
 
   // --- layout memoizado ----------------------------------------------------
-  const fsMin = isMobile ? 13 : 14;
-  const fsMax = isMobile ? 28 : 40;
+  // Endpoints del cuerpo. Van como número porque el layout mide en px, pero son
+  // PASOS de la escala, no valores libres: piso --fs-body-sm (13px), techo
+  // --fs-num-xl (30px) en desktop y --fs-num-lg (24px) en móvil. El techo era
+  // 40px = el tope de --fs-display-2xl, el paso que el sistema reserva a la
+  // cifra principal de una pantalla: el término más mencionado quedaba por
+  // encima del h1 (--fs-display-lg, 24px) y de los cinco KPI (30px), así que un
+  // detalle de la conversación era el glifo más grande del fold. No baja más
+  // porque el cociente fsMax/fsMin ES el canal de la nube: con un techo de 20px
+  // sobre 13px quedaría 1.5x y el tamaño dejaría de distinguir nada.
+  const fsMin = 13;
+  const fsMax = isMobile ? 24 : 30;
   const laid = useMemo(() => {
     if (!w || terms.length === 0) return { placed: [], height: 0 };
-    const scale = sizeScale(terms.map((t) => (mode === 'frequent' ? t.df : t.score)), fsMin, fsMax);
+    // El cuerpo escala con `df` (menciones) SIEMPRE, también en modo
+    // `distinctive`. Antes escalaba con `score` — el log-odds-ratio de
+    // eco-terms/route.ts:259-269 —, una magnitud que ninguna otra parte del
+    // componente publica: el aria-label, el tooltip y el número y la barra del
+    // Ranking reportan `df`. El canal más fuerte de la nube quedaba sin cifra
+    // que lo respaldara, así que el usuario no podía verificarlo ni
+    // interpretarlo. Lo distintivo sigue expresado donde ya estaba: el ORDEN
+    // (la API ordena por score) y, vía `centerOut`, la posición central de fila.
+    const scale = sizeScale(terms.map((t) => t.df), fsMin, fsMax);
     const items = terms.map((t, i) => {
-      const px = scale(mode === 'frequent' ? t.df : t.score);
+      const px = scale(t.df);
       const weight = px >= 24 ? 600 : 500;
       const padX = 9;
       const padY = 5;
@@ -240,7 +271,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                     : `Lo que distingue este período de los ${state.data.refDays} días anteriores`)
                 : 'Los términos más frecuentes del período')
             : 'Cargando…'}
-          {nNew > 0 && <> · <strong style={{ color: 'var(--accent)' }}>{nNew} nuevo{nNew === 1 ? '' : 's'}</strong></>}
+          {nNew > 0 && <> · <strong style={{ color: 'var(--info)' }}>{nNew} nuevo{nNew === 1 ? '' : 's'}</strong></>}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', flexShrink: 0 }}>
@@ -346,7 +377,10 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                   {t.isNew && (
                     <span aria-hidden="true" style={{
                       position: 'absolute', top: 2, right: 2,
-                      width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)',
+                      // 'nuevo' es un atributo del DATO, así que va en --info y no en
+                      // el naranja de interacción: el relleno --accent-fill de dos
+                      // líneas arriba ya significa 'seleccionado' en este mismo botón.
+                      width: 5, height: 5, borderRadius: '50%', background: 'var(--info)',
                     }} />
                   )}
                 </button>
@@ -376,10 +410,21 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                                      textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.term}</span>
                       {t.isNew && <span className="pill pill-info" style={{ flexShrink: 0 }}>nuevo</span>}
                     </span>
+                    {/* La barra es MAGNITUD: una sola tinta para todas, la misma que
+                        las otras dos listas de barras del producto (HBarList en
+                        charts.js y .narrative-bar-fill). Antes se pintaba con
+                        polarityColor, y --wc-* está declarada para TEXTO
+                        (tokens.css:379-387): codifica la extremidad en saturación,
+                        no en luminosidad, así que --wc-neu #A2ACBA (luminancia
+                        0.412) pesa 1.43x más que --wc-neg-2 #FF5470 (0.289) y la
+                        barra más neutra era la que más gritaba de la columna. La
+                        polaridad sigue en el color del término, el tooltip y el
+                        aria-label. Tampoco sirve --div-*: su centro --div-mid da
+                        2.39:1 sobre el track y falla el 3:1 de WCAG 1.4.11. */}
                     <span className="bar-track" style={{ height: 6 }}>
                       <span style={{ display: 'block', height: '100%', borderRadius: 'inherit',
                                      width: `${Math.max(2, (t.df / maxDf) * 100)}%`,
-                                     background: polarityColor(t.polarity) }} />
+                                     background: 'var(--accent)' }} />
                     </span>
                     <span className="num t-num-sm" style={{ textAlign: 'right', color: 'var(--text-2)' }}>{t.df}</span>
                   </button>
@@ -403,7 +448,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
               <span style={{ fontWeight: 600, color: polarityColor(t.polarity) }}>{t.term}</span>
               <span><span className="num" style={{ color: 'var(--text)' }}>{t.df}</span> menciones</span>
               <span style={{ color: 'var(--text-2)' }}>{polarityWord(t.polarity)}</span>
-              {t.isNew && <span style={{ color: 'var(--accent)', fontWeight: 600 }}>no aparecía en el período anterior</span>}
+              {t.isNew && <span style={{ color: 'var(--info)', fontWeight: 600 }}>no aparecía en el período anterior</span>}
               {t.firstSeen && <span style={{ color: 'var(--text-3)' }}>primera vez: {t.firstSeen}</span>}
             </div>
           );
@@ -414,9 +459,10 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
           lo dice en vez de fingir que no. El Ranking es la vista precisa. */}
       <div className="card-bd" style={{ paddingTop: 0 }}>
         <div className="t-caption" style={{ color: 'var(--text-3)' }}>
-          El tamaño indica {mode === 'frequent' ? 'la frecuencia' : 'lo distintivo'} y el color el sentimiento
-          medio del término. Para comparar cifras exactas usa el Ranking: en una nube el área
-          se lee mal por naturaleza.
+          El tamaño indica las menciones del término y el color su sentimiento medio.
+          El criterio ({mode === 'frequent' ? 'Frecuentes' : 'Distintivos'}) decide qué términos
+          entran y en qué orden, no su tamaño. Para comparar cifras exactas usa el Ranking:
+          en una nube el área se lee mal por naturaleza.
         </div>
       </div>
     </div>
