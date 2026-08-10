@@ -65,6 +65,12 @@ interface InvokePayload {
    * a toda la lista de la regla.
    */
   recipientsOverride?: string[];
+  /**
+   * Renderiza el correo de crisis con datos reales del día y lo devuelve en
+   * el body ({preview:true, html}) SIN enviar SES ni insertar alert_history
+   * (a diferencia de forceCrisis, no arranca cooldown). Requiere agencySlug.
+   */
+  previewCrisis?: boolean;
 }
 
 export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: number; body: string }> => {
@@ -106,6 +112,23 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       }
       console.log(`[metrics-calculator] backfilled ${computed} snapshots across ${dates.length} days`);
       return { statusCode: 200, body: `Backfilled ${computed} snapshots` };
+    }
+
+    // Preview de crisis: render con datos reales, sin SES ni alert_history.
+    if (event.previewCrisis) {
+      const agency = agencies.find((a) => a.slug === event.agencySlug);
+      if (!agency) {
+        return { statusCode: 400, body: 'previewCrisis requiere un agencySlug válido' };
+      }
+      const today = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
+      await computeForAgency(client, agency.id, today);
+      const snap = await getTodaySnapshot(client, agency.id, today);
+      if (!snap) {
+        return { statusCode: 404, body: `sin snapshot de ${today} para ${agency.slug}` };
+      }
+      const previewRule: CrisisRuleRow = { id: 'preview', name: 'preview', config: { type: 'crisis_threshold' }, notify_emails: [] };
+      const html = await fireCrisisAlert(client, agency, previewRule, snap, [], today, { previewOnly: true });
+      return { statusCode: 200, body: JSON.stringify({ preview: true, html }) };
     }
 
     // Modo normal: compute hoy y evalúa crisis.
@@ -679,6 +702,46 @@ async function fireCrisisAlert(
   }>;
   const prevSnap = prevRows[0] ?? null;
 
+  // 1b. Display del tile "Velocidad" (ago 2026): cambio % del volumen de HOY
+  // vs el promedio de los 7 días previos AL MISMO CORTE HORARIO. La alerta
+  // dispara a media jornada con el día parcial — comparar contra días
+  // completos daría un negativo enorme en plena crisis, y comparar sin corte
+  // contra días pre-onboarding (snapshots en cero) inflaría el %. Por eso:
+  //   - cada día previo se cuenta solo hasta la hora actual PR ($3::time),
+  //   - solo promedian días con ingesta real (full_cnt > 0),
+  //   - mínimo 3 días válidos y promedio ≥ 3 menciones para publicar el %.
+  // La crisisVelocity interna (clamp del z-score 30d) sigue viva dentro del
+  // crisis_risk_score; aquí solo cambia lo que se MUESTRA.
+  const nowTimePR = new Intl.DateTimeFormat('en-GB', {
+    timeZone: REPORT_TIMEZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(new Date());
+  const avg7Result = await client.query(
+    `WITH days AS (
+       SELECT d::date AS day
+         FROM generate_series(($2::date - 7)::timestamp, ($2::date - 1)::timestamp, interval '1 day') d
+     ),
+     counts AS (
+       SELECT dy.day,
+              COUNT(m.id) FILTER (WHERE (m.published_at AT TIME ZONE 'America/Puerto_Rico')::time <= $3::time)::int AS partial_cnt,
+              COUNT(m.id)::int AS full_cnt
+         FROM days dy
+         LEFT JOIN mentions m
+           ON m.agency_id = $1
+          AND m.is_duplicate = false
+          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = dy.day
+        GROUP BY dy.day
+     )
+     SELECT (AVG(partial_cnt) FILTER (WHERE full_cnt > 0))::float AS avg_partial,
+            (COUNT(*) FILTER (WHERE full_cnt > 0))::int AS days
+       FROM counts`,
+    [agency.id, today, nowTimePR],
+  );
+  const avg7Row = avg7Result.rows[0] as { avg_partial: number | null; days: number } | undefined;
+  const avg7 = avg7Row?.avg_partial != null && avg7Row.days >= 3 ? Number(avg7Row.avg_partial) : null;
+  const volumeVsAvg7Pct = avg7 != null && avg7 >= 3
+    ? Math.round(((snap.total_mentions - avg7) / avg7) * 100)
+    : null;
+
   // 2. Top tópicos con concentración negativa (del día detonante).
   const topicsResult = await client.query(
     `SELECT t.name AS topic,
@@ -845,8 +908,7 @@ async function fireCrisisAlert(
     crisisRiskScore: snap.crisis_risk_score ?? 0,
     crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
     crisisSeverity: snap.crisis_severity ?? 0,
-    crisisVelocity: snap.crisis_velocity ?? 0,
-    crisisRelevance: snap.crisis_relevance ?? 0,
+    volumeVsAvg7Pct,
     volumeAnomalyZscore: snap.volume_anomaly_zscore,
     totalMentions: snap.total_mentions,
     negativeCount: snap.negative_count,
@@ -922,9 +984,7 @@ async function fireCrisisAlert(
       crisisRiskScore: snap.crisis_risk_score ?? 0,
       crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
       crisisSeverity: snap.crisis_severity ?? 0,
-      crisisVelocity: snap.crisis_velocity ?? 0,
-      crisisRelevance: snap.crisis_relevance ?? 0,
-      volumeAnomalyZscore: snap.volume_anomaly_zscore,
+      volumeVsAvg7Pct,
     },
     volume: {
       totalMentions: snap.total_mentions,
@@ -946,7 +1006,8 @@ async function fireCrisisAlert(
     heroImageUrl,
     heroImageCaption,
     editorial,
-    dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
+    // Misma URL que los CTAs del diario/semanal (paridad ago 2026).
+    dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
   const html = renderCrisisAlertHtml(renderData);
@@ -1131,19 +1192,23 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
     }
   }
   // Fallback editorial mínimo si Bedrock falla completo — el correo igual sale,
-  // pero sin narrativa. Mejor un correo plano que un correo nunca.
+  // pero sin narrativa. Mejor un correo plano que un correo nunca. Números en
+  // escala pública % (misma regla que el prompt) — nunca el 0–1 interno.
   console.error('[crisis] editorial generation failed completely', lastErr);
+  const pubPct = (n: number) => `${Math.round(n * 100)}%`;
   return {
     headline: `Alerta · ${inputs.agencyShortName}: indicadores de crisis elevados`,
-    lede: `El Crisis Score del día (${inputs.crisisRiskScore.toFixed(2)}) supera el umbral configurado.`,
+    lede: `El riesgo de crisis del día (${pubPct(inputs.crisisRiskScore)}) supera el umbral configurado.`,
     bodyParagraphsHtml: [
-      `Se registraron ${inputs.totalMentions} menciones, ${inputs.negativeCount} negativas (${Math.round(inputs.negativeShare * 100)}%).`,
+      `Se registraron ${inputs.totalMentions} menciones, ${inputs.negativeCount} negativas (${pubPct(inputs.negativeShare)}).`,
     ],
     representativeVoices: [],
     drivers: [
-      { label: 'Concentración negativa', description: `Severidad ${inputs.crisisSeverity.toFixed(2)}.` },
-      { label: 'Velocidad', description: `Velocidad ${inputs.crisisVelocity.toFixed(2)}.` },
-      { label: 'Relevancia', description: `Relevancia ${inputs.crisisRelevance.toFixed(2)}.` },
+      { label: 'Concentración negativa', description: `Severidad de ${pubPct(inputs.crisisSeverity)} en la conversación del día.` },
+      { label: 'Volumen del día', description: inputs.volumeVsAvg7Pct == null
+          ? `${inputs.totalMentions} menciones en el día detonante.`
+          : `${inputs.totalMentions} menciones, ${inputs.volumeVsAvg7Pct > 0 ? '+' : ''}${inputs.volumeVsAvg7Pct}% vs el promedio de los 7 días previos a esta hora.` },
+      { label: 'Riesgo de crisis', description: `Score del día en ${pubPct(inputs.crisisRiskScore)}.` },
     ],
     closing: 'Editorial no disponible; revisar el dashboard para contexto completo.',
   };

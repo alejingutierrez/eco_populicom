@@ -107,14 +107,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // reciente, lo que producía valores idénticos para todos los periods
     // (Crisis ayer = 0.185 para 1D/7D/1M/3M/6M/1A) — inconsistencia visible
     // contra el Scorecard que sí recalculaba (0.588 para 7D).
-    const [winCur, winPrev] = await Promise.all([
-      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
-      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
-    ]);
+    const winCur = await loadMetricsForWindow(pool, agencyId, startYmd, endYmd);
 
-    const totalMentionsDelta = winPrev.totals.total > 0
-      ? Number((((winCur.totals.total - winPrev.totals.total) / winPrev.totals.total) * 100).toFixed(1))
-      : (winCur.totals.total > 0 ? 100 : 0);
+    // Volumen y su delta salen del MISMO report que el hero/termómetro/tabla
+    // (universo pertinente) — antes venían de loadMetricsForWindow (universo
+    // completo) y el payload traía DOS totales distintos (auditoría 2026-08,
+    // P0-16). Las métricas compuestas (NSS/crisis/BHI) siguen saliendo de
+    // loadMetricsForWindow: su universo está calibrado por backtest y no se
+    // toca — son índices, no conteos.
+    const totalMentionsDelta = report.prevTotals.total > 0
+      ? Number((((report.totals.total - report.prevTotals.total) / report.prevTotals.total) * 100).toFixed(1))
+      : (report.totals.total > 0 ? 100 : 0);
 
     const response: OverviewResponse = {
       periodLabel: formatPeriodLabel(startYmd, endYmd),
@@ -133,7 +136,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         crisisRiskScore: winCur.crisisRiskScore,
         brandHealthIndex: winCur.brandHealthIndex,
         engagementRate: winCur.engagementRate,
-        totalMentions: winCur.totals.total,
+        totalMentions: report.totals.total,
         totalReach: winCur.totalReach,
         totalMentionsDelta,
         display: {
@@ -141,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           crisis: formatMetric('crisis', winCur.crisisRiskScore),
           brandHealth: formatMetric('bhi', winCur.brandHealthIndex),
         },
-        totalMentionsDeltaDisplay: formatDelta(winCur.totals.total, winPrev.totals.total, { kind: 'percent', decimals: 0 }),
+        totalMentionsDeltaDisplay: formatDelta(report.totals.total, report.prevTotals.total, { kind: 'percent', decimals: 0 }),
       },
     };
 

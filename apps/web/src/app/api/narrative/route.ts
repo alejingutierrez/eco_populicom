@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, agencies } from '@eco/database';
 import { eq } from 'drizzle-orm';
+import { PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1,
-  '5D': 5,
-  '1M': 30,
-  '3M': 90,
-  '6M': 180,
-  '1A': 365,
-  Max: 730,
-};
+// PERIOD_DAYS: mapa canónico de @eco/shared. El local anterior no tenía
+// 7D/30D/90D y esos chips caían en silencio a 730 días (auditoría 2026-08).
+// El filtro sigue siendo por RECENCIA de actividad (last_mention_at), no una
+// ventana de conteo — las narrativas son entidades vivas, no agregados.
 
 interface NarrativeListItem {
   id: string;

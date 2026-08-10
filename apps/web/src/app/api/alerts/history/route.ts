@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, alertHistory, alertRules } from '@eco/database';
 import { sql, eq, and } from 'drizzle-orm';
+import { PERIOD_DAYS, ymdInTimeZone, addDaysYmd } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
-
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
-  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
-  '24h': 1, '7d': 7, '30d': 30, '90d': 90,
-};
 
 /** Banda de crisis (la escribe metrics-calculator) → severidad alta/media/baja. */
 function bandToSeverity(band: unknown): 'alta' | 'media' | 'baja' | null {
@@ -36,17 +31,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Agency not resolved' }, { status: 403 });
   }
 
-  // Ventana: 'custom' usa from/to (AST -04:00); si no, days del period (acepta
-  // 7D/30D/custom que el header emite y antes caían silenciosamente a 30 días).
+  // Ventana en días calendario AST *incluyendo hoy*: esto es un LOG de
+  // eventos operativos — ocultar la alerta de hace una hora (ventana cerrada
+  // en ayer) sería peor producto. La cota inferior ancla a la medianoche AST
+  // de (hoy − days + 1); antes era rolling `now − days` con la hora actual,
+  // que se deslizaba intra-día (auditoría 2026-08, P1-4). from/to (YYYY-MM-DD
+  // AST) se honran siempre que sean válidos — antes solo con period=custom.
   let since: Date;
   let until: Date | null = null;
-  if (periodKey === 'custom' && fromParam && toParam && /^\d{4}-\d{2}-\d{2}$/.test(fromParam) && /^\d{4}-\d{2}-\d{2}$/.test(toParam)) {
+  if (fromParam && toParam && /^\d{4}-\d{2}-\d{2}$/.test(fromParam) && /^\d{4}-\d{2}-\d{2}$/.test(toParam) && fromParam <= toParam) {
     since = new Date(`${fromParam}T00:00:00-04:00`);
     until = new Date(`${toParam}T23:59:59.999-04:00`);
   } else {
     const days = PERIOD_DAYS[periodKey] ?? 30;
-    since = new Date();
-    since.setDate(since.getDate() - days);
+    const todayAst = ymdInTimeZone(new Date(), 'America/Puerto_Rico');
+    since = new Date(`${addDaysYmd(todayAst, -(days - 1))}T00:00:00-04:00`);
   }
 
   const db = getDb();

@@ -25,8 +25,12 @@ export interface CrisisEditorialInputs {
   crisisRiskScore: number;
   crisisRiskScore24hAgo: number | null;
   crisisSeverity: number;
-  crisisVelocity: number;
-  crisisRelevance: number;
+  /**
+   * Cambio % del volumen de HOY (día parcial en curso) vs el promedio de los
+   * 7 días previos AL MISMO CORTE HORARIO — el MISMO número que el lector ve
+   * en el tile "Velocidad" del correo (ago 2026). null sin historial suficiente.
+   */
+  volumeVsAvg7Pct: number | null;
   volumeAnomalyZscore: number | null;
 
   /** Conteos del día detonante. */
@@ -100,7 +104,7 @@ REGLAS INNEGOCIABLES:
 
 2. **No amplifiques crisis donde solo hay ruido.** Si la banda es ELEVADO o NORMAL, usa lenguaje contenido. Reserva "crisis" únicamente para banda CRISIS (score ≥ 0.60).
 
-3. **Cada afirmación cuantitativa debe estar respaldada por un número del contexto:** crisisRiskScore, crisisSeverity, crisisVelocity, volumeAnomalyZscore, %neg del tópico, total de menciones, salto vs día anterior.
+3. **Cada afirmación cuantitativa debe estar respaldada por un número del contexto:** Crisis Score, Severidad, el cambio % de volumen vs el promedio de 7 días, %neg del tópico, total de menciones, salto vs día anterior.
 
 4. **Cita voces concretas cuando ayuden a entender el enojo del público.** Cuando uses una frase de la muestra, parafrásala (no la copies literal larga). PROHIBIDO citar @handles personales o nombres de ciudadanos privados; en su lugar identifica el **tipo de canal o medio** ("comentaristas en Facebook", "un editorial en ElNuevoDia.com", "Notiuno cubrió el tema"). SÍ puedes nombrar funcionarios públicos por su cargo ("el Secretario del DDEC") y medios de prensa por su nombre ("ElNuevoDia.com", "PrimeraHora", "Telemundo PR", "WAPA TV", "Notiuno"). NO uses el nombre personal de un ciudadano aunque aparezca en una mención.
 
@@ -179,11 +183,10 @@ AGENCIA: ${inp.agencyName} (abreviada: ${inp.agencyShortName})
 GENERADO: ${inp.generatedAtLabel}
 BANDA ACTUAL: ${inp.band}
 
-INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas):
+INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas; son los MISMOS que el lector ve en el correo):
 - Crisis Score: ${fmtPct(inp.crisisRiskScore)} ${scoreDelta}
 - Severidad (concentración negativa): ${fmtPctN(inp.crisisSeverity)}
-- Velocidad (ritmo del volumen): ${fmtPctN(inp.crisisVelocity)}
-- Relevancia (pertinencia alta del flujo): ${fmtPctN(inp.crisisRelevance)}
+- Velocidad (volumen del día EN CURSO, a esta hora, vs el promedio de los 7 días previos al mismo corte horario): ${inp.volumeVsAvg7Pct == null ? 'sin historial suficiente' : `${inp.volumeVsAvg7Pct > 0 ? '+' : ''}${inp.volumeVsAvg7Pct}%`}
 - Volumen vs lo usual de los últimos 30 días: ${volumePlain(inp.volumeAnomalyZscore)}
 
 VOLUMEN DEL DÍA DETONANTE:

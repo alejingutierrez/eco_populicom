@@ -292,15 +292,15 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     // Sin histogram: el "Volumen por hora" que se mostraba aquí era una
-    // senoide sintética, no datos (auditoría 2026-08). includeLow: el
-    // datapoint del TIMELINE cuenta todas las pertinencias.
+    // senoide sintética, no datos (auditoría 2026-08). El datapoint del
+    // TIMELINE cuenta el universo pertinente — igual que el default del modal.
     setSlice({
       eyebrow: d.date,
       title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
       mentions: [],
-      _filter: { day: dayIso, includeLow: '1' },
+      _filter: { day: dayIso },
     });
   }
 
@@ -312,9 +312,9 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       title: src.label,
       accent: colors[key] || 'var(--accent)',
       mentions: [],
-      // TOP_SOURCES cuenta la ventana cerrada de eco-data con TODAS las
-      // pertinencias — la modal hereda ambas cosas para cuadrar con la card.
-      _filter: { ...ecoDataWindow(), source: key, includeLow: '1' },
+      // TOP_SOURCES cuenta la ventana cerrada de eco-data en el universo
+      // pertinente — el mismo default del modal; solo viaja la ventana.
+      _filter: { ...ecoDataWindow(), source: key },
     });
   }
 
@@ -324,7 +324,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       title: 'Franja horaria',
       accent: 'var(--accent)',
       mentions: [],
-      _filter: { ...ecoDataWindow(), dow: cell.day, hour: cell.hour, includeLow: '1' },
+      _filter: { ...ecoDataWindow(), dow: cell.day, hour: cell.hour },
     });
   }
 
@@ -339,8 +339,8 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       accent,
       mentions: [],
       // TOPICS.count es primario (default del modal) sobre la ventana de
-      // eco-data con todas las pertinencias.
-      _filter: { ...ecoDataWindow(), topic: t.slug, includeLow: '1' },
+      // eco-data en el universo pertinente (default del endpoint).
+      _filter: { ...ecoDataWindow(), topic: t.slug },
     });
   }
 
@@ -967,14 +967,18 @@ function MentionsScreen({ onMentionClick }) {
         </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-          {loading ? 'Cargando…' : `${data.total.toLocaleString('es-PR')} menciones`}
+          {/* El feed es EN VIVO (ventana rolling que incluye hoy) — a
+              diferencia de los agregados, que cierran en ayer. El rótulo lo
+              hace explícito para que los dos totales de esta pantalla no
+              parezcan contradictorios (auditoría 2026-08, P0-10). */}
+          {loading ? 'Cargando…' : `${data.total.toLocaleString('es-PR')} menciones · en vivo (incluye hoy)`}
         </span>
       </div>
 
       {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
           período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
       <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
-        <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} />
+        <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} sub="período · cierre de ayer" />
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
         <QuickMetric label="Engagement rate" value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate.word) || '—'} />
         <QuickMetric
@@ -1495,7 +1499,7 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
                         ? 'Error de conexión'
                         : (data.total === 0
                             ? 'Sin resultados'
-                            : `${data.total.toLocaleString('es-PR')} menciones · página ${page} de ${totalPages}`)}
+                            : `${data.total.toLocaleString('es-PR')} menciones · en vivo (incluye hoy) · página ${page} de ${totalPages}`)}
                 </div>
               </div>
               <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
@@ -1580,9 +1584,10 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       accent,
       histogram: { label: `Evolución diaria · ${row.label.toLowerCase()}`, values, xLabels },
       mentions: [],
-      // El donut (SENTIMENT_BREAKDOWN) cuenta la ventana de eco-data con
-      // todas las pertinencias — la modal hereda ventana y universo.
-      _filter: { ...ecoDataWindow(), sentiment: name, includeLow: '1' },
+      // El donut (SENTIMENT_BREAKDOWN) cuenta la ventana de eco-data en el
+      // universo pertinente — la modal hereda la ventana; el universo es el
+      // default de ambos.
+      _filter: { ...ecoDataWindow(), sentiment: name },
     });
   }
 
@@ -1593,7 +1598,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       title: e.emotion,
       accent,
       mentions: [],
-      _filter: { ...ecoDataWindow(), emotion: e.emotion, includeLow: '1' },
+      _filter: { ...ecoDataWindow(), emotion: e.emotion },
     });
   }
 
@@ -1609,16 +1614,16 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       accent,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
       mentions: [],
-      _filter: { day: dayIso, includeLow: '1' },
+      _filter: { day: dayIso },
     });
   }
 
   function openGroupSlice(row, sentimentType) {
     const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
     const label = row.label;
-    // Las tablas "Sentimiento por X" cuentan la ventana de eco-data con todas
-    // las pertinencias — la modal hereda ambas.
-    const filter = { ...ecoDataWindow(), sentiment: sentimentType, includeLow: '1' };
+    // Las tablas "Sentimiento por X" cuentan la ventana de eco-data en el
+    // universo pertinente — la modal hereda la ventana.
+    const filter = { ...ecoDataWindow(), sentiment: sentimentType };
     if (groupBy === 'source') {
       filter.source = {
         'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
@@ -2029,9 +2034,9 @@ function TopicsScreen({ onMentionClick }) {
         const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
         const dateStr = dayModal.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         const dayIso = dayModal.dt.toISOString().slice(0, 10);
-        // topicMode 'all' + includeLow: la celda del calendario cuenta
-        // multi-clasificación con todas las pertinencias — el modal abre en
-        // la MISMA base para que el total cuadre con la celda. (El histograma
+        // topicMode 'all': la celda del calendario cuenta multi-clasificación
+        // (universo pertinente) — el modal abre en la MISMA base para que el
+        // total cuadre con la celda. (El histograma
         // "Volumen por hora" que se mostraba aquí era una senoide sintética
         // con jitter — eliminado, auditoría 2026-08.)
         return (
@@ -2041,7 +2046,7 @@ function TopicsScreen({ onMentionClick }) {
               title: dayModal.topicName,
               accent,
               mentions: [],
-              _filter: { topic: dayModal.topicSlug, day: dayIso, topicMode: 'all', includeLow: '1' },
+              _filter: { topic: dayModal.topicSlug, day: dayIso, topicMode: 'all' },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
               ctaIcon: 'Hash',
               onCta: () => { setDayModal(null); openTopic(dayModal.topicSlug); },
@@ -2295,11 +2300,11 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   React.useEffect(() => {
     let cancelled = false;
     setMentionsState((s) => ({ ...s, loading: true }));
-    // topicMode primary + includeLow: la MISMA base del hero de esta pantalla
-    // (TOPICS.count: primario, ventana cerrada, todas las pertinencias). Antes
-    // la tabla contaba multi-clasificación sin baja sobre otra ventana y su
-    // total contradecía el hero (auditoría 2026-08, P0-5).
-    fetchSliceMentions({ ...ecoDataWindow(), topic: topic.slug, topicMode: 'primary', includeLow: '1', limit: pageSize, offset: (page - 1) * pageSize })
+    // topicMode primary: la MISMA base del hero de esta pantalla
+    // (TOPICS.count: primario, ventana cerrada, universo pertinente). Antes
+    // la tabla contaba multi-clasificación sobre otra ventana y su total
+    // contradecía el hero (auditoría 2026-08, P0-5).
+    fetchSliceMentions({ ...ecoDataWindow(), topic: topic.slug, topicMode: 'primary', limit: pageSize, offset: (page - 1) * pageSize })
       .then((r) => {
         if (cancelled) return;
         setMentionsState({ loading: false, mentions: r.mentions || [], total: r.total || 0 });
@@ -2851,8 +2856,13 @@ function GeographyScreen({ onMentionClick }) {
             {[...new Set((munis || []).map((m) => m.region).filter(Boolean))].map((r, i) => {
               const regionMunis = munis.filter(m => m.region === r);
               if (regionMunis.length === 0) return null;
-              const avgNss = regionMunis.reduce((s,m) => s+m.nss, 0) / regionMunis.length;
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
+              // NSS regional PONDERADO por volumen: antes era media simple de
+              // los NSS municipales y un municipio con 2 menciones pesaba
+              // igual que uno con 4,000 (auditoría 2026-08, P1-12).
+              const avgNss = total > 0
+                ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
+                : 0;
               const pct = Math.max(-1, Math.min(1, avgNss / 10));
               return (
                 <button key={r}
@@ -4117,11 +4127,11 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       accent,
       volume: count,
       mentions: [],
-      // Ventana y universo del termómetro (/api/overview: ventana cerrada,
-      // todas las pertinencias). Sin el desglose one-hot sintético que
+      // Ventana del termómetro (/api/overview: cerrada, universo pertinente —
+      // el mismo default del modal). Sin el desglose one-hot sintético que
       // afirmaba "0" en los otros sentimientos mientras cargaba — el real
       // llega del fetch del modal.
-      _filter: { from: data.periodStart, to: data.periodEnd, sentiment: name, includeLow: '1' },
+      _filter: { from: data.periodStart, to: data.periodEnd, sentiment: name },
     });
   }
 
@@ -4142,9 +4152,9 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       volume: total,
       sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
       mentions: [],
-      // includeLow: la serie diaria del Overview cuenta todas las
-      // pertinencias; `day` acota al día exacto server-side.
-      _filter: { day: d.fullDate, includeLow: '1' },
+      // La serie diaria del Overview cuenta el universo pertinente (default
+      // del modal); `day` acota al día exacto server-side.
+      _filter: { day: d.fullDate },
     });
   }
 
@@ -4200,7 +4210,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
             // (buildSentimentReport: cerrada, primario, todas las
             // pertinencias). El default primary del modal cuadra con el
             // conteo de la fila; el toggle muestra las secundarias.
-            _filter: { from: data.periodStart, to: data.periodEnd, topic: topic.slug, includeLow: '1' },
+            _filter: { from: data.periodStart, to: data.periodEnd, topic: topic.slug },
           });
         }}
       />
