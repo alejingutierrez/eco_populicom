@@ -93,21 +93,7 @@ REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
 
 7. **Consistencia entre ejecuciones**: si los datos son similares, los insights deben referirse a los mismos mecanismos dominantes. No reordenes para parecer novedoso.
 
-8. **PROHIBIDOS los handles personales y nombres de ciudadanos privados.** No menciones @handles ni nombres de personas individuales (ej. "@juanperez", "el ciudadano Juan Pérez", "el usuario @maria_pr"). **SÍ puedes mencionar medios de prensa** y cuentas oficiales de medios (ej. "ElNuevoDia.com", "PrimeraHora", "Notiuno", "Telemundo Puerto Rico", "WAPA TV", "@elnuevodia"). También puedes mencionar **cuentas institucionales** (la propia agencia, organismos oficiales) y **funcionarios públicos por su cargo** ("el Secretario del DDEC", "la senadora por Ponce") sin nombre personal. Cuando el dato relevante venga de un autor individual sin perfil público, agrégalo como "un usuario en Twitter" o "comentaristas en Facebook" — sin nombre ni @.
-
-9. **PROHIBIDO inventar hechos específicos** — y muy especialmente PROHIBIDO inferir lugares.
-
-   **REGLA GEOGRÁFICA ESTRICTA:**
-   - NO confundas la ubicación del MEDIO con la ubicación del EVENTO. Que un periódico de Ponce cubra una noticia NO significa que el evento ocurrió en Ponce. Que un usuario tuitee desde Bayamón NO significa que la queja sea sobre Bayamón.
-   - El campo \`muni=\` de cada muestra es una **etiqueta automática** que el NLP asigna por menciones de palabras o por proximidad geográfica del medio — **NO es ground truth del lugar del evento**. Úsalo SOLO como pista débil, jamás como dato cited.
-   - **Menciona un lugar solo si está LITERAL en el texto de UNA mención** y el texto lo conecta inequívocamente al evento, no al medio ni al autor. Si dudas: omite el lugar.
-   - PROHIBIDOS también: fechas que no aparezcan literal en las muestras o agregados, números de eventos ("la quinta vista", "el tercer informe") salvo que el texto lo diga, nombres de iniciativas o cargos no presentes literal.
-
-   Si el evento es nacional, regional o no localizado, descríbelo sin lugar. Mejor un insight más corto y verdadero que uno completo pero geográficamente alucinado.
-
-10. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
-
-11. **Lenguaje llano, sin jerga estadística, y métricas en escala pública.** Escribes para un lector NO técnico. PROHIBIDOS: "z-score", "sigma", "σ", "desviación estándar", "percentil", "cuartil", "mediana", "baseline" (di "el promedio de los últimos 30 días"). Las métricas compuestas se citan SIEMPRE en la escala pública en que vienen en el contexto ("36%", "6.3 / 10") — nunca en escala interna 0–1 ("0.36") ni con tres decimales.
+8. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
 
 EJEMPLOS DE INSIGHTS ACEPTABLES (referenciales — adapta al dominio):
 - "La negatividad en Permisos / Reforma (PS 1183) muestra arquitectura institucional: Junta de Planificación objeta formalmente, NotiCel y Centro de Periodismo Investigativo le dan cobertura, y organizaciones comunitarias usan el lenguaje técnico de la ley — no es opinión espontánea, es resistencia organizada con vocación de duración."
@@ -119,13 +105,10 @@ EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
 - "Se debería mejorar la comunicación." ← prescriptivo.
 - "La comunidad está preocupada por el servicio." ← sin número, sin actor identificado.
 - "El volumen creció 34%." ← dato sin mecanismo ni actor.
-- "@juanperezpr lidera la crítica con 12 menciones." ← handle personal de ciudadano privado (cuentas institucionales sí, personales no).
-- "La quinta vista del Senado fue en Ponce." ← hecho inventado / no presente literal en las menciones.
-- "La protesta se concentró en Ponce" (cuando lo único que respalda Ponce es que el medio cubriendo es de Ponce) ← inferencia geográfica prohibida: medio ≠ lugar del evento.
 `.trim();
 
 // ============================================================
-// PROMPT 1 — Insights por sentimiento (3 bloques de 3 insights)
+// PROMPT 1 — Insights por sentimiento (3 bloques de hasta 2 insights)
 // ============================================================
 
 export function buildSentimentInsightsPrompt(
@@ -200,17 +183,17 @@ ${samples.neutral.map((m, i) => formatSample(i + 1, m)).join('\n')}
 ${samples.positive.map((m, i) => formatSample(i + 1, m)).join('\n')}
 
 TAREA — ANÁLISIS, NO ENUMERACIÓN:
-Para cada sentimiento (negative, neutral, positive) genera hasta 3 insights ANALÍTICOS. NO reportes "lo que pasó" (eso ya está en los gráficos). Revela MECANISMO + ACTOR NARRATIVO + ESTRUCTURA del periodo.
+Para cada sentimiento (negative, neutral, positive) genera hasta 2 insights ANALÍTICOS — solo los de MAYOR señal. El lector es ejecutivo y lee el correo en segundos: mejor 1 insight contundente que 2 tibios. NO reportes "lo que pasó" (eso ya está en los gráficos). Revela MECANISMO + ACTOR NARRATIVO + ESTRUCTURA del periodo.
 
-Cada uno de los 3 insights de un sentimiento DEBE cubrir un plano distinto — no escribas 3 versiones del mismo dato:
+Cada insight DEBE cubrir un plano distinto — elige los 2 planos donde los datos tengan más señal:
 
-INSIGHT 1 — MECANISMO Y CAUSA-EFECTO:
+PLANO A — MECANISMO Y CAUSA-EFECTO:
 Identifica el evento/decisión/cobertura concreta que DISPARÓ esta concentración de sentimiento y cuál fue su efecto cuantificable. Conecta acción → reacción. Ejemplo: "El pico de negatividad del 7 de mayo (38 menciones) responde a la defensa del secretario del DDEC ante el Senado por el PS 1183; las reacciones se concentraron en Facebook (cuentas individuales) y se replicaron en NotiCel y CPI durante las 48 horas siguientes".
 
-INSIGHT 2 — ACTOR NARRATIVO:
+PLANO B — ACTOR NARRATIVO:
 Caracteriza QUIÉN está impulsando la conversación y desde qué arquitectura. Distingue prensa profesional (NotiCel, El Vocero) vs cuentas institucionales (desarrollopr, PR Newswire) vs organizaciones formales (Sembrando Sentido, Junta de Planificación) vs activismo ciudadano disperso vs amplificación en redes. Si la negatividad es 100% medios + 0% ciudadanos = controversia mediática, no malestar popular. Si la positividad es 100% PR institucional = comunicación corporativa, no respaldo orgánico. Cuantifica la composición.
 
-INSIGHT 3 — ESTRUCTURAL vs COYUNTURAL (o ASIMETRÍA):
+PLANO C — ESTRUCTURAL vs COYUNTURAL (o ASIMETRÍA):
 Decide qué versión aplica con base en los datos:
   (a) ESTRUCTURAL vs COYUNTURAL: si el sentimiento se distribuye en >50% del periodo + en >3 autores/fuentes distintos + en múltiples sub-tópicos → estructural (patrón con vocación de duración). Si se concentra en 1-2 días + 1-2 fuentes → coyuntural (episodio).
   (b) ASIMETRÍA: contrasta dos tópicos del mismo bloque de sentimiento y explica por qué uno se comporta distinto del otro (ej: "Inversión Extranjera positivo es institucional/anuncio puntual; Desarrollo Empresarial positivo es contenido distribuido — ambos suben pero por mecanismos opuestos").
@@ -222,15 +205,15 @@ PROHIBIDO ABSOLUTAMENTE:
 - Frases como "lidera el volumen", "se observa", "se detecta", "concentra" usadas como ancla principal — eso es narración, no análisis.
 
 REGLAS DE FORMA (sobre cada insight):
-- Una sola oración, 30–60 palabras. La densidad analítica permite frases más largas que la versión narrativa.
+- Una sola oración, 18–40 palabras. Directa: hecho/actor primero, sin muletillas ("se observa", "cabe destacar", "es notable que").
 - Al menos UN número concreto del dato Y al menos UN nombre propio del dato.
-- Si para un sentimiento no hay suficiente señal para 3 insights distintos, entrega menos (mínimo 0). Devuelve cadena vacía en los faltantes. Mejor 1 insight bueno que 3 mediocres.
+- Si para un sentimiento no hay suficiente señal para 2 insights distintos, entrega menos (mínimo 0). Mejor 1 insight bueno que 2 mediocres.
 
 FORMATO DE SALIDA (un único objeto JSON, sin texto adicional, sin markdown fences):
 {
-  "negative": ["insight 1", "insight 2", "insight 3"],
-  "neutral":  ["insight 1", "insight 2", "insight 3"],
-  "positive": ["insight 1", "insight 2", "insight 3"]
+  "negative": ["insight 1", "insight 2"],
+  "neutral":  ["insight 1", "insight 2"],
+  "positive": ["insight 1", "insight 2"]
 }
 `.trim();
 }
@@ -277,22 +260,17 @@ MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement; pre-filtradas a pe
 ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
 TAREA:
-Redacta un párrafo ÚNICO de 3 a 5 oraciones resumiendo el día reportado (${todayDate}) para ${aggregates.agencyName}. Debe:
-1. Indicar el volumen total de menciones del día y qué sentimiento dominó (con % explícito).
-2. Decir DE QUÉ se habló, no solo en qué categoría cayó: identifica los **1–3 temas concretos del día** — el anuncio, la queja, la historia o el evento específico que aparece en las MUESTRAS ("reclamos porque el portal de trámites rechaza documentos de renovación", "cobertura del anuncio de inversión en la zona oeste") — y usa el nombre del tópico solo como apoyo con su conteo. **PROHIBIDO** que el "tema" sea únicamente la etiqueta del tópico con un número ("Permisos / Reforma (37 menciones)" sin contar qué pasó). **NO menciones municipios** salvo que el texto de UNA mención los nombre literalmente en relación al evento; el campo \`muni=\` de las muestras es etiqueta NLP automática (puede confundir ubicación del medio con ubicación del evento) y no es ground truth.
-3. Ubicar el día en la tendencia semanal: si el volumen aceleró, se mantuvo o bajó, con la variación porcentual exacta vs. el día anterior.
-4. OBLIGATORIO: al menos un hecho específico tomado literalmente de las muestras del día (qué se dijo/pasó, en qué fuente/medio) — con número asociado. Si las muestras no alcanzan para precisar el contenido, di menos pero nunca rellenes con etiquetas de categoría.
-5. Puedes incorporar etiquetas HTML inline muy limitadas: solo <strong> para resaltar nombres propios y números clave. Sin otras etiquetas.
+Redacta un párrafo ÚNICO y COMPLETO de 4 a 6 oraciones (~120–160 palabras) que resuma el día reportado (${todayDate}) para ${aggregates.agencyName} con suficiente contexto para que el lector entienda qué pasó y qué significa PARA ESTA AGENCIA. Registro institucional, español de Puerto Rico. Arranca por el hecho dominante del día (evento/tópico/actor con su número) — sin aperturas genéricas tipo "La conversación estuvo marcada por" ni "Durante la jornada". El párrafo debe cubrir, con oraciones desarrolladas (no un listado telegráfico):
+1. QUÉ pasó en el día y POR QUÉ importa para ${aggregates.agencyName}: el tópico/evento dominante con sus menciones y el hecho concreto más relevante de las muestras (medio, autor o mención identificable, con número).
+2. CONTEXTO: tópicos dominantes del día, actores/medios que empujan la conversación, municipios si la concentración es clara (1–2; no fuerces geografía), y cómo se compara con lo habitual del periodo de 7 días (¿es un pico, una caída, o dentro de lo usual?).
+3. NÚMEROS CLAVE anclando el relato: volumen total del día, sentimiento neto/dominante con % explícito, y variación porcentual vs. el día anterior y vs. el resto del periodo.
+4. Etiquetas HTML inline muy limitadas: solo <strong> para nombres propios y números clave. Sin otras etiquetas.
 
-PROHIBIDO:
-- Recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias.
-- **Handles personales o nombres de ciudadanos privados.** No menciones @handles individuales ni nombres propios de personas (excepto funcionarios públicos por su cargo). SÍ puedes mencionar **medios** ("ElNuevoDia.com", "Notiuno", "PrimeraHora"). Para autores individuales sin perfil público, usa giros como "un usuario en Twitter", "comentaristas en Facebook".
-- **Inventar hechos específicos** (lugares, fechas, números de eventos, nombres de iniciativas) no presentes literalmente en las muestras. **Especial cuidado con lugares**: que un medio de Ponce cubra una noticia no significa que el evento haya ocurrido en Ponce — son cosas distintas. Solo menciona el lugar si el texto de UNA mención lo enlaza al evento de manera explícita.
-- NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
+PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
 
 FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
 {
-  "summary": "<párrafo de 3 a 5 oraciones>"
+  "summary": "<párrafo completo de 4 a 6 oraciones (~120–160 palabras)>"
 }
 `.trim();
 }
@@ -404,14 +382,10 @@ function translateSentiment(s: 'negative' | 'neutral' | 'positive'): string {
 }
 
 function formatSample(i: number, m: MentionSample): string {
-  // Texto: 600 chars (antes 320). Más contexto al LLM para distinguir ironía,
-  // detalle de eventos, lugares LITERALES en la mención (vs. inferidos por NLP).
-  const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 600);
+  const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 320);
   const dateShort = m.createdAt.slice(0, 10);
-  // `muniNLP=` deja explícito que es etiqueta automática (no es el lugar del
-  // evento). El prompt prohíbe usarlo como ground truth.
   const meta = [
-    m.municipality ? `muniNLP=${m.municipality}` : null,
+    m.municipality ? `muni=${m.municipality}` : null,
     m.topic ? `topic=${m.topic}` : null,
     m.subtopic ? `sub=${m.subtopic}` : null,
     m.source ? `src=${m.source}` : null,

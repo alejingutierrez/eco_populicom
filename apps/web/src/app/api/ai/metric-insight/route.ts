@@ -26,6 +26,8 @@ import { sql, and, eq, gte, lte, desc } from 'drizzle-orm';
 import {
   closedWindowYmdInTZ,
   loadMetricsForWindow,
+  loadSentimentTotals,
+  PERIOD_DAYS,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
   formatMetric,
@@ -48,13 +50,8 @@ export const dynamic = 'force-dynamic';
 
 const TZ = 'America/Puerto_Rico';
 
-const PERIOD_DAYS: Record<string, number> = {
-  // Debe aceptar todos los valores que el selector de período del header puede
-  // enviar (30D/90D/Max incluidos) — antes faltaban y devolvían 400 al abrir
-  // el insight de una métrica con esos chips activos.
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
-  '1M': 30, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
-};
+// PERIOD_DAYS viene del mapa canónico de @eco/shared (auditoría 2026-08:
+// había 7 copias divergentes en el codebase).
 
 // In-memory LRU cache (TTL 30 min). Reset al reiniciar el contenedor — basta
 // para evitar regeneraciones cuando el usuario abre el mismo modal varias
@@ -156,24 +153,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'No agency resolved' }, { status: 404 });
   }
 
-  const cacheKey = `${agencyId}::${metric}::${periodKey}`;
+  // La ventana resuelta forma parte de la clave: a medianoche AST el mismo
+  // periodKey pasa a describir otra ventana, y la clave vieja servía el
+  // insight de ayer hasta 30 min (auditoría 2026-08).
+  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = closedWindowYmdInTZ(days, new Date(), TZ);
+  const cacheKey = `${agencyId}::${metric}::${periodKey}::${startYmd}::${endYmd}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
 
   try {
-    const { startYmd, endYmd, prevStartYmd, prevEndYmd } = closedWindowYmdInTZ(days, new Date(), TZ);
     const pool = getPool() as unknown as PgClientLike;
 
     // Métricas actuales y previas en la misma ventana — para deltaVsPrev.
-    const [winCur, winPrev] = await Promise.all([
+    // Los CONTEOS (volume) salen del universo pertinente (misma query que
+    // Overview/eco-data/correo); las métricas compuestas conservan su
+    // universo calibrado (decisión D2, auditoría 2026-08).
+    const [winCur, winPrev, volCur, volPrev] = await Promise.all([
       loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
       loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+      loadSentimentTotals(pool, agencyId, startYmd, endYmd),
+      loadSentimentTotals(pool, agencyId, prevStartYmd, prevEndYmd),
     ]);
 
-    const value = metricValueFrom(metric, winCur);
-    const prevValue = metricValueFrom(metric, winPrev);
+    const value = metric === 'volume' ? volCur.total : metricValueFrom(metric, winCur);
+    const prevValue = metric === 'volume' ? volPrev.total : metricValueFrom(metric, winPrev);
     const deltaVsPrev = value != null && prevValue != null
       ? Math.round((value - prevValue) * 100) / 100
       : null;
@@ -224,7 +229,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
            FROM daily_metric_snapshots
           WHERE agency_id = $1
             AND date BETWEEN ($2::date - INTERVAL '90 days') AND $2::date`,
-        [agencyId, startYmd],
+        [agencyId, endYmd],
       );
       p25 = p25p75.rows[0]?.p25 != null ? Number(p25p75.rows[0].p25) : null;
       p75 = p25p75.rows[0]?.p75 != null ? Number(p25p75.rows[0].p75) : null;
@@ -237,22 +242,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // menciones positivas o negativas según el caso. Try/catch propio: el
     // orderBy de crisis (share negativo) es el más complejo — si falla, el
     // resto del endpoint (serie, valor, banda) sigue sirviéndose sin tópicos.
-    const totalForShare = winCur.totals.total || 1;
+    // Atribución PRIMARIA (top-confidence) + universo pertinente + GROUP BY
+    // id — la misma base que TOPICS.count del dashboard. Antes era any-touch
+    // dividido entre el total de todas las menciones: los shares podían
+    // exceder 100% y dos tópicos homónimos se fusionaban (auditoría 2026-08).
+    const totalForShare = volCur.total || 1;
     let topContributingTopics: Array<{ name: string; share: number }> = [];
     try {
       const orderBy = metric === 'crisis'
-        ? `(COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC`
+        ? `(COUNT(*) FILTER (WHERE COALESCE(pm.nlp_sentiment, pm.bw_sentiment) IN ('negativo','negative')))::float / NULLIF(COUNT(*), 0) DESC`
         : `COUNT(*) DESC`;
       const topicsRes = await pool.query<{ name: string; total: number | string }>(
         `SELECT t.name AS name, COUNT(*)::int AS total
-           FROM mentions m
-           JOIN mention_topics mt ON mt.mention_id = m.id
-           JOIN topics t ON t.id = mt.topic_id
-          WHERE m.agency_id = $1
-            AND m.is_duplicate = false
-            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
-            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
-          GROUP BY t.name
+           FROM (
+             SELECT m.id, m.nlp_sentiment, m.bw_sentiment,
+                    (SELECT topic_id FROM mention_topics
+                       WHERE mention_id = m.id
+                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+               FROM mentions m
+              WHERE m.agency_id = $1
+                AND m.is_duplicate = false
+                AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+                AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+                AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
+           ) pm
+           JOIN topics t ON t.id = pm.topic_id
+          GROUP BY t.id, t.name
           HAVING COUNT(*) >= 3
           ORDER BY ${orderBy}
           LIMIT 3`,

@@ -355,6 +355,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .where(and(
         inArray(alertHistory.agencyId, activeIds),
         sql`${alertHistory.triggeredAt} >= ${startYmd + 'T00:00:00-04:00'}`,
+        // Cota superior: sin ella, un rango custom histórico devolvía
+        // alertas posteriores a la ventana (auditoría 2026-08, P1-4).
+        sql`${alertHistory.triggeredAt} <= ${endYmd + 'T23:59:59.999-04:00'}`,
       ))
       .orderBy(sql`${alertHistory.triggeredAt} DESC`)
       .limit(100);
