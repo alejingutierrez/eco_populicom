@@ -10,17 +10,15 @@ import {
   mentionMunicipalities,
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, inArray } from 'drizzle-orm';
-import { sourceKey, sourceMatchTerms } from '@eco/shared';
+import { sourceKey, sourceMatchTerms, PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
-  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
-};
+// PERIOD_DAYS viene del mapa canónico de @eco/shared — la auditoría de
+// consistencia 2026-08 encontró 7 copias locales divergentes en el codebase.
 
 /**
  * Espejo de parseCustomRange en /api/eco-data — interpreta from/to
@@ -117,7 +115,7 @@ function relativeTime(d: Date): string {
  *   emotion — emotion name (lowercase; matches any element of nlp_emotions array)
  *   dow — day-of-week 0..6 (Mon=0)
  *   hour — hour 0..23
- *   day — YYYY-MM-DD (filter to that calendar day in UTC)
+ *   day — YYYY-MM-DD (día calendario AST; REEMPLAZA la ventana del período)
  *   pertinence — alta | media | baja (explicit; bypasses default exclude-low)
  *   includeLow — '1'/'true' to keep baja pertinencia in results (default excludes)
  *   minEngagement — number; keeps mentions con engagement_score >= N (viral filter)
@@ -167,13 +165,26 @@ export async function GET(request: NextRequest) {
     return await handleSimilarTo(similarTo, agencyId, limit);
   }
 
+  // `day=YYYY-MM-DD` acota a ese día calendario AST y REEMPLAZA la ventana
+  // del período. Antes se intersectaba con la cota rolling derivada de
+  // `period`, y clickear el primer día visible de un chart devolvía el día
+  // recortado desde la hora actual (auditoría consistencia 2026-08, P0-3).
+  const dayParam = searchParams.get('day');
+  const day = dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam) ? dayParam : null;
+
   const conditions: ReturnType<typeof eq>[] = [
     eq(mentions.agencyId, agencyId),
     eq(mentions.isDuplicate, false),
-    gte(mentions.publishedAt, since),
   ];
-  if (customRange) {
-    conditions.push(lt(mentions.publishedAt, customRange.untilExclusiveUtc));
+  if (day) {
+    // AST es UTC-4 todo el año (sin DST): bordes del día con offset explícito.
+    conditions.push(gte(mentions.publishedAt, new Date(day + 'T00:00:00-04:00')));
+    conditions.push(lte(mentions.publishedAt, new Date(day + 'T23:59:59.999-04:00')));
+  } else {
+    conditions.push(gte(mentions.publishedAt, since));
+    if (customRange) {
+      conditions.push(lt(mentions.publishedAt, customRange.untilExclusiveUtc));
+    }
   }
 
   // Sentimiento EFECTIVO: COALESCE(nlp, bw) + bilingüe (nlp en español,
@@ -255,16 +266,6 @@ export async function GET(request: NextRequest) {
   const hour = searchParams.get('hour');
   if (hour !== null && hour !== '') {
     conditions.push(sql`EXTRACT(HOUR FROM (${mentions.publishedAt} AT TIME ZONE 'America/Puerto_Rico')) = ${Number(hour)}` as any);
-  }
-
-  const day = searchParams.get('day');
-  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
-    // AST is UTC-4 year-round (no DST in PR), so start/end in AST maps to
-    // explicit -04:00 offsets in UTC.
-    const start = new Date(day + 'T00:00:00-04:00');
-    const end = new Date(day + 'T23:59:59.999-04:00');
-    conditions.push(gte(mentions.publishedAt, start));
-    conditions.push(lte(mentions.publishedAt, end));
   }
 
   // Defensive validation — Drizzle parameterizes these, but shaped slugs

@@ -91,3 +91,68 @@ export function closedWindowYmdInTZ(
   const prevStartYmd = addDaysYmd(prevEndYmd, -(daysBack - 1));
   return { startYmd, endYmd, prevStartYmd, prevEndYmd };
 }
+
+/**
+ * Mapa canónico período→días. ÚNICA fuente de verdad: los endpoints no deben
+ * declarar copias locales (la auditoría de consistencia 2026-08 encontró 7
+ * copias divergentes — p.ej. insights sin `Max` → 400, narrativas sin `7D`).
+ * Si el SPA añade un chip nuevo, va aquí y en ECO_PERIOD_DAYS de shell.js.
+ */
+export const PERIOD_DAYS: Record<string, number> = {
+  '1D': 1,
+  '5D': 5,
+  '7D': 7,
+  '30D': 30,
+  '90D': 90,
+  '1M': 30,
+  '2M': 60,
+  '3M': 90,
+  '6M': 180,
+  '1A': 365,
+  'Max': 730,
+};
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface ResolvedWindow extends ClosedWindow {
+  /** true si la ventana vino de from/to explícitos (rango personalizado). */
+  custom: boolean;
+  /** Días de la ventana actual, inclusive en ambos extremos. */
+  days: number;
+}
+
+/**
+ * Resuelve la ventana temporal del producto a partir de los query params
+ * estándar (`period`, `from`, `to`). Semántica única para TODOS los
+ * endpoints:
+ *
+ *  - `from`/`to` válidos (YYYY-MM-DD, from <= to) ganan sobre `period` y se
+ *    interpretan como días calendario AST inclusivos; la ventana previa tiene
+ *    la misma duración terminando justo antes de `from`.
+ *  - Si no, `period` se traduce a una ventana CERRADA de N días terminando
+ *    AYER en la TZ dada (`closedWindowYmdInTZ`) — nunca rolling, nunca hoy.
+ *  - Devuelve null si no hay ni rango válido ni período conocido: el caller
+ *    decide si eso es 400 o un default, pero NUNCA debe degradar en silencio
+ *    a otra ventana.
+ */
+export function resolveWindow(opts: {
+  period?: string | null;
+  from?: string | null;
+  to?: string | null;
+  now?: Date;
+  timeZone?: string;
+}): ResolvedWindow | null {
+  const { from, to } = opts;
+  if (from && to && YMD_RE.test(from) && YMD_RE.test(to) && from <= to) {
+    const days = Math.round(
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000,
+    ) + 1;
+    const prevEndYmd = addDaysYmd(from, -1);
+    const prevStartYmd = addDaysYmd(prevEndYmd, -(days - 1));
+    return { startYmd: from, endYmd: to, prevStartYmd, prevEndYmd, custom: true, days };
+  }
+  const days = PERIOD_DAYS[opts.period ?? ''];
+  if (!days) return null;
+  const w = closedWindowYmdInTZ(days, opts.now ?? new Date(), opts.timeZone ?? 'America/Puerto_Rico');
+  return { ...w, custom: false, days };
+}
