@@ -1595,13 +1595,21 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
     // invalida cachés generados antes del backfill V3 (crisis sin gate +
     // BHI escala 1-10), que se quedaban pegados en sessionStorage del
     // tab y mostraban valores stale aún tras redeploy.
-    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}`;
+    // Rango personalizado: mandar from/to explícitos (el endpoint ya los
+    // acepta vía resolveWindow) e incluirlos en la clave del caché — antes
+    // period='custom' devolvía 400 y, peor, cambiar el rango manteniendo
+    // 'custom' servía el insight stale del rango anterior (auditoría
+    // 2026-08, P0-7).
+    const w = (period === 'custom' && window.ecoResolvedWindow) ? window.ecoResolvedWindow() : null;
+    const winSuffix = w && w.from && w.to ? `.${w.from}.${w.to}` : '';
+    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}${winSuffix}`;
     try {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) { setData(JSON.parse(cached)); return; }
     } catch (_) {}
     const ctrl = new AbortController();
     const params = new URLSearchParams({ metric: metricKey, period: period || '7D' });
+    if (w && w.from && w.to) { params.set('from', w.from); params.set('to', w.to); }
     if (agency) params.set('agency', agency);
     fetch(`/api/ai/metric-insight?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))

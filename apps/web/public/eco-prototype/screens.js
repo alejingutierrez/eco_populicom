@@ -582,7 +582,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           label={metricModal.label}
           accent={metricModal.accent}
           period={period}
-          agency={(window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || (localStorage.getItem('eco.agency') || '')}
+          agency={localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || ''}
           onClose={() => setMetricModal(null)}
         />
       )}
@@ -1565,6 +1565,11 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       value: `${m.nss > 0 ? '+' : ''}${m.nss}`,
       accent: 'var(--accent)',
       label: 'Net Sentiment Score',
+      // Ventana explícita de los datos que esta pantalla muestra (D.PERIOD).
+      // Con solo periodPreset, el rango personalizado devolvía 400 en
+      // /api/eco-metric-insight (sin clave 'custom' — auditoría 2026-08).
+      periodStart: ecoDataWindow().from,
+      periodEnd: ecoDataWindow().to,
       periodPreset: period || '7D',
       agency,
       subcomponents: [],

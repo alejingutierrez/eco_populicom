@@ -1,0 +1,40 @@
+# Test de contrato de datos — guardia de la auditoría de consistencia 2026-08.
+# Corre los tests de apps/web (incluye src/contracts/data-contract.test.ts:
+# ventana canónica, universo pertinente en el SQL compartido, tripwire de
+# predicados por endpoint y tokens de período SPA↔shared). Sin DB: todo es
+# comportamiento puro, SQL capturado con un cliente mock y análisis de fuente.
+name: Contract tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package-lock.json'
+      - '.github/workflows/contract-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Data contract (jest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run contract tests
+        run: npm test -w apps/web

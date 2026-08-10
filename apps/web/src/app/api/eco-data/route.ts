@@ -161,19 +161,14 @@ export async function GET(request: NextRequest) {
 
   const db = getDb();
 
-  // Resolve agency — fall back to the first active agency if the requested
-  // one doesn't exist (so a stale localStorage slug from testing doesn't 404).
-  let agencyId = await resolveAgencyId(searchParams);
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya maneja el
+  // slug stale del switcher (cae a la agencia primaria DENTRO del set
+  // permitido) y devuelve null solo cuando el usuario no tiene ninguna
+  // agencia concedida — servirle otra era un leak de tenant (auditoría
+  // 2026-08, P1-1). El boot del SPA muestra su banner de error con el 404.
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
-  if (!agencyId) {
-    return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
+    return NextResponse.json({ error: 'No agency resolved for this user' }, { status: 404 });
   }
 
   // Ventana cerrada en TZ Puerto Rico — termina ayer (no incluye hoy parcial),

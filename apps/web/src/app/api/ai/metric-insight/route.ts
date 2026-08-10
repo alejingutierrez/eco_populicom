@@ -24,10 +24,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, dailyMetricSnapshots } from '@eco/database';
 import { sql, and, eq, gte, lte, desc } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ,
+  resolveWindow,
   loadMetricsForWindow,
   loadSentimentTotals,
-  PERIOD_DAYS,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
   formatMetric,
@@ -49,9 +48,6 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const TZ = 'America/Puerto_Rico';
-
-// PERIOD_DAYS viene del mapa canónico de @eco/shared (auditoría 2026-08:
-// había 7 copias divergentes en el codebase).
 
 // In-memory LRU cache (TTL 30 min). Reset al reiniciar el contenedor — basta
 // para evitar regeneraciones cuando el usuario abre el mismo modal varias
@@ -139,12 +135,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const metric = (searchParams.get('metric') ?? '') as MetricKey;
   const periodKey = searchParams.get('period') ?? '7D';
-  const days = PERIOD_DAYS[periodKey];
 
   if (!metric || !METRIC_LABELS[metric]) {
     return NextResponse.json({ error: `Unsupported metric: ${metric}` }, { status: 400 });
   }
-  if (!days) {
+  // resolveWindow: mismo contrato que el resto del producto — from/to
+  // (rango del calendario) gana sobre period; presets → ventana cerrada.
+  // Antes este endpoint NO soportaba from/to y los KPI del Scorecard
+  // mostraban "HTTP 400" en rango personalizado (auditoría 2026-08, P0-7).
+  const window = resolveWindow({
+    period: periodKey,
+    from: searchParams.get('from'),
+    to: searchParams.get('to'),
+    timeZone: TZ,
+  });
+  if (!window) {
     return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
   }
 
@@ -156,7 +161,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // La ventana resuelta forma parte de la clave: a medianoche AST el mismo
   // periodKey pasa a describir otra ventana, y la clave vieja servía el
   // insight de ayer hasta 30 min (auditoría 2026-08).
-  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = closedWindowYmdInTZ(days, new Date(), TZ);
+  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
   const cacheKey = `${agencyId}::${metric}::${periodKey}::${startYmd}::${endYmd}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
@@ -305,7 +310,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       metricLabel: METRIC_LABELS[metric],
       currentValue: displayValue ?? 0,
       band,
-      windowDays: days,
+      windowDays: window.days,
       deltaVsPrev: displayDelta,
       historicalP25: displayP25,
       historicalP75: displayP75,
@@ -352,7 +357,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       deltaVsPrev: displayDelta,
       valueDisplay,
       deltaDisplay,
-      windowDays: days,
+      windowDays: window.days,
       periodStart: startYmd,
       periodEnd: endYmd,
       series: displaySeries,

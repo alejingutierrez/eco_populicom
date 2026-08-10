@@ -44,7 +44,12 @@ async function resolveCallerAgencyId(request: NextRequest): Promise<string | nul
 }
 
 export async function GET(request: NextRequest) {
-  const agencyId = await resolveCallerAgencyId(request);
+  // Lectura: resolveAgencyId honra el switcher (?agency=) DENTRO del set
+  // permitido del usuario — antes esta ruta fijaba la agencia del JWT y la
+  // pantalla mostraba reglas de una agencia con historial de otra
+  // (auditoría 2026-08, P1-3). Las escrituras siguen usando
+  // resolveCallerAgencyId (pinneado a la sesión).
+  const agencyId = await resolveAgencyId(request.nextUrl.searchParams);
   if (!agencyId) {
     return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
   }

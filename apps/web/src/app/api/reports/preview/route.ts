@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { requireCapability } from '@/lib/auth/require-admin';
+import { resolveAllowedAgencySlugs } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,6 +24,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const agencySlug = searchParams.get('agencySlug') || searchParams.get('agency') || '';
   const template = searchParams.get('template') || 'weekly';
   if (!agencySlug) return NextResponse.json({ error: 'agencySlug required' }, { status: 400 });
+
+  // Scope de tenant: la capacidad (rol) no basta — un admin/editor de la
+  // agencia X podía renderizar el reporte (con menciones) de la agencia Y
+  // pasando agencySlug crudo (auditoría 2026-08, P1-2). null = staff que ve
+  // todas; si hay lista, el slug debe pertenecer a ella.
+  const allowedSlugs = await resolveAllowedAgencySlugs();
+  if (allowedSlugs !== null && !allowedSlugs.includes(agencySlug)) {
+    return NextResponse.json({ error: 'agency not allowed for this user' }, { status: 403 });
+  }
   // Hoy solo el reporte semanal soporta dryRun-render. La alerta de crisis se
   // previsualiza al dispararse (o vía una acción de preview futura).
   if (template !== 'weekly') {

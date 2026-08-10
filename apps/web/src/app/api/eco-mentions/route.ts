@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import {
   mentions,
-  agencies,
   topics,
   subtopics,
   municipalities,
@@ -141,13 +140,12 @@ export async function GET(request: NextRequest) {
 
   const db = getDb();
 
-  let agencyId = await resolveAgencyId(searchParams);
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya resuelve
+  // dentro del set PERMITIDO del usuario; null = set vacío, y servir otra
+  // agencia era un leak de tenant (auditoría 2026-08, P1-1).
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
-    const [first] = await db.select({ id: agencies.id }).from(agencies).where(eq(agencies.isActive, true)).limit(1);
-    agencyId = first?.id ?? null;
-  }
-  if (!agencyId) {
-    return NextResponse.json({ mentions: [], total: 0 });
+    return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
   }
 
   const since = customRange ? customRange.sinceUtc : (() => {
