@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool, agencies } from '@eco/database';
-import { eq } from 'drizzle-orm';
+import { getPool } from '@eco/database';
 import { PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -56,16 +55,10 @@ export async function GET(request: NextRequest) {
   const minMentions = Math.max(0, Number(searchParams.get('minMentions') ?? 0));
   const limit = Math.min(500, Math.max(1, Number(searchParams.get('limit') ?? 250)));
 
-  const db = getDb();
-  let agencyId = await resolveAgencyId(searchParams);
-  if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya resuelve
+  // dentro del set PERMITIDO del usuario; null = set vacío, y servir otra
+  // agencia era un leak de tenant (auditoría 2026-08, P1-1).
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
     return NextResponse.json({ narratives: [], meta: { total: 0, period: periodKey } });
   }
