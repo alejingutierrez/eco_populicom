@@ -34,6 +34,11 @@ for(const cont of document.querySelectorAll('body *')){
   const rows=[];
   for(const k of kids){
     const r=k.getBoundingClientRect();if(r.width<40||r.height<4)continue;
+    // Una fila con VARIAS cifras no dice cuál codifica la barra: leer la primera
+    // producía pares absurdos (un delta contra el ancho de otra cosa). Si hay
+    // ambigüedad, la fila no se mide.
+    const nums=(String(k.innerText||'').match(/-?[\d][\d.,]*/g)||[]);
+    if(nums.length!==1)continue;
     const v=numOf(k.innerText||'');if(v===null)continue;
     let bar=null,bw=0,trackW=0;
     for(const d of k.querySelectorAll('*')){
@@ -46,6 +51,17 @@ for(const cont of document.querySelectorAll('body *')){
       const par=d.parentElement;if(!par)continue;
       const pr=par.getBoundingClientRect();
       if(!(pr.width>dr.width+1&&pr.height<=dr.height*1.8))continue;  // el padre es la pista
+      // Si la pista tiene VARIOS hijos rellenos es una barra APILADA: sus
+      // segmentos codifican composición (suman 100%), no magnitud, así que
+      // medir su proporcionalidad contra el volumen de la fila es la vara
+      // equivocada — y elegir el segmento más ancho da lecturas erráticas
+      // según qué sentimiento domine. Se descarta: la pregunta de si dos cards
+      // usan el mismo dibujo con significados distintos no la contesta esta
+      // sonda, la contesta leer el código.
+      let rellenos=0;
+      for(const sib of par.children){const sc=getComputedStyle(sib);
+        if(sc.backgroundColor&&sc.backgroundColor!=='rgba(0, 0, 0, 0)')rellenos++}
+      if(rellenos>1)continue;
       if(!bar||bar.contains(d)){bar=d;bw=dr.width;trackW=pr.width}}
     if(!bar)continue;
     rows.push({v,w:Math.round(bw*10)/10,frac:trackW>0?bw/trackW:null})}
