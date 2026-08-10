@@ -1261,6 +1261,17 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.json({
       AGENCIES_FULL,
       USER_AGENCY_SLUG,
+      // Ventana efectiva de TODOS los agregados de este payload (días AST
+      // inclusivos, cerrada terminando ayer). El SPA la propaga a los
+      // drill-downs (`_filter.from/to` → /api/eco-mentions) para que la modal
+      // consulte EXACTAMENTE la misma ventana que la card que la abrió.
+      PERIOD: {
+        key: customRange ? 'custom' : periodKey,
+        startYmd,
+        endYmd,
+        prevStartYmd,
+        prevEndYmd,
+      },
       TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
       CURRENT_METRICS,
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
