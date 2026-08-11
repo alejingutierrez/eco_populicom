@@ -3,7 +3,7 @@
  "threshold": 0.4,
  "windowHours": 12,
  "recipients": [
-  "agutierrez@populicom.com"
+  "prueba@example.test"
  ],
  "band": "normal",
  "score": 0.18
