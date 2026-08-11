@@ -31,7 +31,7 @@
     flushPara(); flushList();
     return blocks.map((b, i) => {
       if (b.type === 'ul') {
-        return React.createElement('ul', { key: 'ul' + i, style: { margin: '6px 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 } },
+        return React.createElement('ul', { key: 'ul' + i, style: { margin: '6px 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' } },
           b.items.map((it, j) => React.createElement('li', { key: j, style: { lineHeight: 1.5 } }, inlineBold(it, 'li' + i + j))));
       }
       return React.createElement('p', { key: 'p' + i, style: { margin: '0 0 8px', lineHeight: 1.55 } }, inlineBold(b.text, 'p' + i));
@@ -78,7 +78,7 @@
     },
       React.createElement('div', {
         style: {
-          maxWidth: '88%', padding: '10px 13px', borderRadius: 12, fontSize: 13,
+          maxWidth: '88%', padding: '10px 13px', borderRadius: 'var(--r-xl)', fontSize: 'var(--fs-body-sm)',
           background: isUser ? 'var(--accent-fill)' : 'var(--canvas-2)',
           border: '1px solid var(--hairline)',
           color: 'var(--text)',
@@ -89,7 +89,7 @@
           ? React.createElement('div', { style: { lineHeight: 1.5, whiteSpace: 'pre-wrap' } }, m.content)
           : (m.content
               ? renderRich(m.content)
-              : React.createElement('span', { style: { color: 'var(--text-3)', fontSize: 12 } },
+              : React.createElement('span', { style: { color: 'var(--text-3)', fontSize: 'var(--fs-caption)' } },
                   m.error ? m.error : 'Pensando…')),
         !isUser && m.streaming && m.content
           ? React.createElement('span', { style: { display: 'inline-block', width: 7, height: 13, marginLeft: 2, background: 'var(--accent)', verticalAlign: 'text-bottom', animation: 'fadeIn 0.6s infinite alternate' } })
@@ -261,7 +261,7 @@
     return React.createElement('aside', { className: 'chat-drawer', role: 'complementary', 'aria-label': 'Asistente contextual' }, [
       // ---- Cabecera ----
       React.createElement('div', { key: 'head', className: 'chat-head' }, [
-        React.createElement('div', { key: 'l', style: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 } }, [
+        React.createElement('div', { key: 'l', style: { display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', minWidth: 0, flex: 1 } }, [
           React.createElement(Icons.Sparkles, { key: 'i', size: 15, color: 'var(--accent)' }),
           React.createElement('button', {
             key: 'sw', className: 'chat-title-btn', onClick: () => setListOpen((v) => !v), title: 'Conversaciones',
@@ -279,7 +279,7 @@
       // ---- Lista de conversaciones (desplegable) ----
       listOpen ? React.createElement('div', { key: 'list', className: 'chat-list' },
         convos.length === 0
-          ? React.createElement('div', { style: { padding: '12px 14px', fontSize: 12, color: 'var(--text-3)' } }, 'Sin conversaciones previas.')
+          ? React.createElement('div', { style: { padding: '12px 14px', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' } }, 'Sin conversaciones previas.')
           : convos.map((c) => React.createElement('div', {
               key: c.id, className: 'chat-list-item' + (c.id === activeId ? ' active' : ''), onClick: () => openConvo(c.id),
             }, [
@@ -294,10 +294,10 @@
       React.createElement('div', { key: 'msgs', className: 'chat-msgs', ref: scrollRef },
         messages.length === 0
           ? React.createElement('div', { key: 'empty', className: 'chat-empty' }, [
-              React.createElement('div', { key: 'h', style: { fontSize: 14, fontWeight: 700, fontFamily: 'var(--ff-display)', marginBottom: 4 } }, 'Pregúntale a tus datos'),
-              React.createElement('div', { key: 's', style: { fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 14 } },
+              React.createElement('div', { key: 'h', style: { fontSize: 'var(--fs-body)', fontWeight: 700, fontFamily: 'var(--ff-display)', marginBottom: 'var(--sp-1)' } }, 'Pregúntale a tus datos'),
+              React.createElement('div', { key: 's', style: { fontSize: 'var(--fs-caption)', color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 'var(--sp-4)' } },
                 'Responde sobre la vista actual — ' + (props.screenLabel || props.screen || '') + ', periodo ' + (props.period || '') + '. Si algo no está en estos datos, te lo dirá.'),
-              React.createElement('div', { key: 'sg', style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+              React.createElement('div', { key: 'sg', style: { display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' } },
                 SUGGESTIONS.map((s, i) => React.createElement('button', {
                   key: i, className: 'chat-suggest', onClick: () => send(s),
                 }, s))),

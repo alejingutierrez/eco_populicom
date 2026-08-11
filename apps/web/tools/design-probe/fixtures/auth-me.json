@@ -1,0 +1,9 @@
+{
+ "user": {
+  "email": "prueba@example.test",
+  "name": "Alejandro Gutiérrez",
+  "role": "admin",
+  "agencySlug": "ddecpr",
+  "allAgencies": true
+ }
+}

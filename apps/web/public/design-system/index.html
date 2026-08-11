@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ECO · Sistema de diseño</title>
+<link rel="icon" type="image/svg+xml" href="/eco-prototype/icon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,400..800;1,400..600&family=Krub:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<!-- FUENTE ÚNICA DE VERDAD: los mismos tokens que consume el dashboard. -->
+<link rel="stylesheet" href="/eco-prototype/tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: var(--ff-sans); font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: var(--pad-page); }
+
+  header.masthead {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: var(--sp-4); flex-wrap: wrap;
+    padding-bottom: var(--sp-5); margin-bottom: var(--sp-8);
+    border-bottom: 1px solid var(--hairline-strong);
+  }
+  h1 { margin: var(--sp-2) 0 0; font-family: var(--ff-display); font-size: var(--fs-display-2xl); line-height: var(--lh-display-2xl); font-weight: 600; letter-spacing: var(--tracking-display); }
+  h2 { margin: var(--sp-10) 0 var(--sp-1); font-family: var(--ff-display); font-size: var(--fs-display-lg); line-height: var(--lh-display-lg); font-weight: 600; letter-spacing: var(--tracking-tight); }
+  h2:first-of-type { margin-top: 0; }
+  h3 { margin: var(--sp-6) 0 var(--sp-2); font-family: var(--ff-display); font-size: var(--fs-title-lg); font-weight: 600; }
+  .lede { max-width: 68ch; color: var(--text-2); font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); }
+  .note { max-width: 78ch; color: var(--text-2); font-size: var(--fs-body-sm); line-height: 1.6; margin: var(--sp-2) 0 var(--sp-4); }
+  .note strong { color: var(--text); font-weight: 600; }
+  code { font-family: var(--ff-mono); font-size: 0.92em; background: var(--surface-inset); padding: 1px 5px; border-radius: var(--r-sm); color: var(--text); }
+
+  .panel { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--pad-card-lg); }
+  .grid { display: grid; gap: var(--gap-grid); }
+  .cols-auto { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .cols-narrow { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+  table { width: 100%; border-collapse: collapse; font-size: var(--fs-body-sm); }
+  th { text-align: left; font-family: var(--ff-sans); font-size: var(--fs-overline); font-weight: 600; letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-2); padding: 0 var(--sp-3) var(--sp-2) 0; border-bottom: 1px solid var(--hairline-strong); white-space: nowrap; }
+  td { padding: var(--sp-2) var(--sp-3) var(--sp-2) 0; border-bottom: 1px solid var(--hairline); vertical-align: baseline; }
+  td.num-cell { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; max-width: 100%; }
+
+  /* swatches */
+  .sw { border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; background: var(--canvas); }
+  .sw-chip { height: 62px; display: flex; align-items: flex-end; padding: var(--sp-2); }
+  .sw-meta { padding: var(--sp-2); border-top: 1px solid var(--hairline); }
+  .sw-name { font-family: var(--ff-mono); font-size: var(--fs-overline); color: var(--text); }
+  .sw-val { font-family: var(--ff-mono); font-size: var(--fs-overline); color: var(--text-3); }
+  .ratio { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums; font-size: var(--fs-caption); font-weight: 600; }
+  .pass { color: var(--pos); } .fail { color: var(--neg); }
+
+  /* component demos, mirroring the SPA primitives */
+  .card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); }
+  .card-hd { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); padding: var(--pad-card) var(--pad-card) var(--sp-2); }
+  .card-hd-title { font-family: var(--ff-display); font-size: var(--fs-title-md); line-height: var(--lh-title-md); font-weight: 600; color: var(--text); letter-spacing: var(--tracking-tight); }
+  .card-hd-sub { font-size: var(--fs-caption); color: var(--text-3); margin-top: 2px; }
+  .card-bd { padding: 0 var(--pad-card) var(--pad-card); }
+
+  .pill { display: inline-flex; align-items: center; gap: var(--sp-1); font-family: var(--ff-sans); font-size: var(--fs-overline); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 8px; border-radius: var(--r-sm); border: 1px solid transparent; }
+  .pill-pos { background: var(--pos-bg); color: var(--pos); border-color: color-mix(in oklab, var(--pos) 30%, transparent); }
+  .pill-neg { background: var(--neg-bg); color: var(--neg); border-color: color-mix(in oklab, var(--neg) 30%, transparent); }
+  .pill-warn { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, transparent); }
+  .pill-neu { background: var(--neu-bg); color: var(--text-2); border-color: var(--hairline-strong); }
+  .pill-info { background: var(--info-bg); color: var(--info); border-color: color-mix(in oklab, var(--info) 30%, transparent); }
+  .pill-solid-accent { background: var(--accent); color: var(--on-accent); }
+  .pill-solid-pos { background: var(--pos); color: var(--on-pos); }
+  .pill-solid-warn { background: var(--warn); color: var(--on-warn); }
+
+  .btn { display: inline-flex; align-items: center; gap: var(--sp-2); font-family: var(--ff-sans); font-size: var(--fs-label); font-weight: 600; line-height: 1; padding: 9px 14px; min-height: 38px; border-radius: var(--r-sm); border: 1px solid var(--hairline-strong); background: transparent; color: var(--text); cursor: pointer; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+  .btn:hover { background: var(--surface-raised); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+  .btn-quiet { border-color: transparent; color: var(--text-2); }
+  .btn-quiet:hover { color: var(--text); background: var(--surface-raised); }
+  .btn-danger { border-color: color-mix(in oklab, var(--neg) 50%, transparent); color: var(--neg); }
+
+  .chip { display: inline-flex; align-items: center; gap: var(--sp-1); font-family: var(--ff-sans); font-size: var(--fs-caption); font-weight: 600; padding: 6px 10px; min-height: 32px; border-radius: var(--r-sm); border: 1px solid var(--hairline-strong); background: transparent; color: var(--text-2); cursor: pointer; }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  .input { width: 100%; font-family: var(--ff-sans); font-size: var(--fs-body); padding: 9px 12px; min-height: 40px; border-radius: var(--r-sm); border: 1px solid var(--hairline-strong); background: var(--surface-inset); color: var(--text); }
+  .input::placeholder { color: var(--text-3); }
+
+  .bar-track { height: 8px; border-radius: var(--r-pill); background: var(--surface-inset); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: var(--r-pill); }
+
+  .section-eyebrow { font-family: var(--ff-sans); font-size: var(--fs-overline); line-height: var(--lh-overline); font-weight: 600; letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-2); }
+
+  .surface-stack > div { padding: var(--sp-3); border: 1px solid var(--hairline); border-radius: var(--r-md); font-family: var(--ff-mono); font-size: var(--fs-overline); }
+
+  .do-dont { display: grid; gap: var(--gap-grid); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .dd { border-radius: var(--r-md); padding: var(--sp-4); border: 1px solid var(--hairline); }
+  .dd-do { border-left: 3px solid var(--pos); }
+  .dd-dont { border-left: 3px solid var(--neg); }
+  .dd h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-label); font-family: var(--ff-sans); text-transform: uppercase; letter-spacing: 0.06em; }
+  .dd-do h4 { color: var(--pos); } .dd-dont h4 { color: var(--neg); }
+  .dd p { margin: 0; font-size: var(--fs-body-sm); color: var(--text-2); line-height: 1.55; }
+
+  .toggle { display: inline-flex; gap: var(--sp-1); padding: 3px; background: var(--surface-inset); border-radius: var(--r-md); border: 1px solid var(--hairline); }
+  .toggle button { border: none; background: transparent; color: var(--text-2); font-family: var(--ff-sans); font-size: var(--fs-caption); font-weight: 600; padding: 6px 12px; border-radius: var(--r-sm); cursor: pointer; }
+  .toggle button[aria-pressed="true"] { background: var(--canvas); color: var(--text); }
+
+  .tokenwarn { border-left: 3px solid var(--warn); background: var(--warn-bg); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm); font-size: var(--fs-body-sm); color: var(--text); line-height: 1.6; }
+  .tokenwarn code { background: rgba(0,0,0,0.25); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <div class="section-eyebrow">Eco · Consola de operaciones</div>
+      <h1>Sistema de diseño</h1>
+      <p class="lede" style="margin-top: var(--sp-3)">
+        Especimen vivo. Todo lo que ves aquí lee
+        <code>/eco-prototype/tokens.css</code> — el mismo archivo que consume el
+        dashboard. Si un valor cambia allí, cambia aquí. Si algo se ve distinto
+        en el producto que en esta página, el producto tiene un valor
+        hardcodeado y es deuda.
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="Modo de color">
+      <button type="button" aria-pressed="true" data-mode-btn="dark">Oscuro</button>
+      <button type="button" aria-pressed="false" data-mode-btn="light">Claro</button>
+    </div>
+  </header>
+
+  <!-- ================================================== TIPOGRAFÍA -->
+  <h2>Tipografía</h2>
+  <p class="note">
+    <strong>Besley</strong> (serif de contraste alto) para títulos y cifras;
+    <strong>Krub</strong> (sans humanista) para todo el texto de interfaz.
+    El piso de tamaño es <strong>12px</strong>; el único paso por debajo es el
+    overline de 11px en mayúsculas. Antes había 16 tamaños distintos dominados
+    por 9–11px.
+  </p>
+
+  <div class="panel">
+    <div class="t-display-2xl">Conversación pública</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">display-2xl · Besley 600 · clamp(30–40px)</div>
+
+    <div class="t-display-xl">Riesgo de crisis en alerta</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">display-xl · Besley 600 · clamp(24–32px) — título de página</div>
+
+    <div class="t-display-lg">Tendencia día a día</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">display-lg · Besley 600 · clamp(20–24px)</div>
+
+    <div class="t-title-lg">Permisos y trámites</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">title-lg · Besley 600 · 17px</div>
+
+    <div class="t-title-md">Actividad por hora</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">title-md · Besley 600 · 15px — título de card por defecto</div>
+
+    <div class="t-body-lg" style="max-width:68ch">El periodo cierra con 1,313 menciones y el sentimiento neto cae a −8.4, empujado por Energía e infraestructura.</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">body-lg · Krub 400 · 15px — briefing, texto de lectura</div>
+
+    <div class="t-body" style="max-width:68ch">Empresarios denuncian demoras de hasta 8 meses en el permiso único de OGPe.</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">body · Krub 400 · 14px — texto por defecto de la interfaz</div>
+
+    <div class="t-body-sm" style="max-width:68ch">María Rivera · primerahora.com · hace 6 h</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">body-sm · Krub 400 · 13px — filas densas, secundario</div>
+
+    <div class="t-label">Destinatarios del reporte</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5)">label · Krub 600 · 13px — labels, botones, chips</div>
+
+    <div class="t-caption">Datos al cierre de ayer · TZ Puerto Rico</div>
+    <div class="t-caption" style="margin-bottom: var(--sp-5); color: var(--text-3)">caption · Krub 400 · 12px — PISO de tamaño</div>
+
+    <div class="t-overline">01 · Termómetro · vs ventana previa</div>
+    <div class="t-caption">overline · Krub 600 · 11px + tracking 0.09em — único paso bajo 12px</div>
+  </div>
+
+  <h3>Cifras</h3>
+  <p class="note">
+    Besley con <code>tabular-nums</code> forzado, para que las columnas de
+    números no bailen al cambiar de dígito. Nunca se mezclan dos estilos de
+    numeral en la misma vista.
+  </p>
+  <div class="grid cols-auto">
+    <div class="panel"><div class="t-num t-num-2xl">1,313</div><div class="t-caption">num-2xl · KPI héroe</div></div>
+    <div class="panel"><div class="t-num t-num-xl" style="color:var(--neg)">583</div><div class="t-caption">num-xl · card de termómetro</div></div>
+    <div class="panel"><div class="t-num t-num-lg">4.8M</div><div class="t-caption">num-lg</div></div>
+    <div class="panel"><div class="t-num t-num-md">−8.4</div><div class="t-caption">num-md</div></div>
+    <div class="panel"><div class="t-num t-num-sm">41%</div><div class="t-caption">num-sm · en línea</div></div>
+  </div>
+
+  <!-- ================================================== COLOR -->
+  <h2>Color semántico</h2>
+  <div class="tokenwarn" style="margin-bottom: var(--sp-5)">
+    <strong>Dos correcciones respecto de la paleta anterior.</strong>
+    (1) <code>--text-3</code> era <code>#525B68</code> = <strong>2.65:1</strong>
+    sobre <code>--canvas</code> — fallaba AA, y era el color de la mayor parte
+    del texto de 9–11px del dashboard. Ahora es <code>#7C8798</code> = 5.00:1.
+    (2) <code>--accent</code> y <code>--neg</code> eran <em>el mismo naranja</em>
+    <code>#FF6A3D</code>, así que un chip activo era indistinguible de un
+    indicador negativo y «Velocidad: Acelerada» se leía como alarma.
+    <code>--neg</code> pasa a <code>#FF5470</code> (Δhue 24°, 5.85:1); el
+    naranja se queda como identidad de marca.
+  </div>
+
+  <div class="grid cols-narrow" id="sem-swatches"></div>
+
+  <h3>Primer plano sobre relleno saturado</h3>
+  <p class="note">
+    Blanco sobre relleno brillante falla AA <em>sin excepción</em>:
+    <code>#fff</code> sobre <code>--accent</code> da 2.85:1, sobre
+    <code>--pos</code> 1.92:1, sobre <code>--warn</code> 1.63:1. El texto sobre
+    relleno saturado es <strong>siempre oscuro</strong> (<code>--on-*</code>).
+    Esto reemplaza los 12 <code>#fff</code> hardcodeados —
+    el más visible es la etiqueta de valor de <code>MultiLineChart</code>
+    (<code>charts.js:417</code>).
+  </p>
+  <div class="grid cols-auto">
+    <div class="panel" style="background:var(--accent); color:var(--on-accent)">
+      <div class="t-label">Correcto</div>
+      <div class="t-num t-num-lg" style="margin-top:var(--sp-2)">43.0</div>
+      <div class="t-caption" style="color:var(--on-accent); opacity:.75">--on-accent sobre --accent · 6.4:1</div>
+    </div>
+    <div class="panel" style="background:var(--accent); color:#fff">
+      <div class="t-label">Incorrecto</div>
+      <div class="t-num t-num-lg" style="margin-top:var(--sp-2)">43.0</div>
+      <div class="t-caption" style="color:#fff; opacity:.75">#fff sobre --accent · 2.85:1 ✗</div>
+    </div>
+    <div class="panel" style="background:var(--pos); color:var(--on-pos)">
+      <div class="t-label">Correcto</div>
+      <div class="t-num t-num-lg" style="margin-top:var(--sp-2)">36.0</div>
+      <div class="t-caption" style="color:var(--on-pos); opacity:.75">--on-pos sobre --pos · 9.5:1</div>
+    </div>
+    <div class="panel" style="background:var(--pos); color:#fff">
+      <div class="t-label">Incorrecto</div>
+      <div class="t-num t-num-lg" style="margin-top:var(--sp-2)">36.0</div>
+      <div class="t-caption" style="color:#fff; opacity:.75">#fff sobre --pos · 1.92:1 ✗</div>
+    </div>
+  </div>
+
+  <h3>Paletas de datos</h3>
+  <p class="note">
+    <strong>Categórico y semántico son espacios disjuntos.</strong> Hoy
+    «Noticias» se pinta verde en Fuentes Top del Scorecard; en un dashboard de
+    sentimiento el verde ya significa «positivo», así que la categoría se lee
+    como un juicio. La paleta categórica no reutiliza los hues de
+    <code>--pos</code> / <code>--neg</code> / <code>--warn</code>, y se asigna
+    <strong>en orden</strong>, nunca por hash del nombre.
+  </p>
+  <div class="grid cols-narrow" id="cat-swatches"></div>
+
+  <h3 style="margin-top:var(--sp-6)">Emociones · estados de narrativa · secuencial</h3>
+  <div class="grid cols-narrow" id="emo-swatches"></div>
+  <div class="grid cols-narrow" id="narr-swatches" style="margin-top:var(--sp-3)"></div>
+  <div class="panel" style="margin-top:var(--sp-3)">
+    <div class="t-label" style="margin-bottom:var(--sp-2)">Secuencial (heatmap, mapa)</div>
+    <div style="display:flex; gap:2px">
+      <div style="flex:1;height:36px;border-radius:var(--r-sm) 0 0 var(--r-sm);background:var(--seq-0)"></div>
+      <div style="flex:1;height:36px;background:var(--seq-1)"></div>
+      <div style="flex:1;height:36px;background:var(--seq-2)"></div>
+      <div style="flex:1;height:36px;background:var(--seq-3)"></div>
+      <div style="flex:1;height:36px;background:var(--seq-4)"></div>
+      <div style="flex:1;height:36px;border-radius:0 var(--r-sm) var(--r-sm) 0;background:var(--seq-5)"></div>
+    </div>
+    <div class="t-caption" style="margin-top:var(--sp-2)">
+      La leyenda del heatmap DEBE usar estos mismos tokens. Hoy
+      <code>HourActivityCard</code> pinta los swatches con
+      <code>rgba(11,95,128,…)</code> — el azul del tema <code>costa</code> —
+      mientras las celdas van en naranja: leyenda y mapa no coinciden.
+    </div>
+  </div>
+
+  <!-- ================================================== SUPERFICIES -->
+  <h2>Superficies y elevación</h2>
+  <p class="note">
+    En modo oscuro <strong>más elevación = más claro</strong>. La paleta
+    anterior usaba <code>--canvas-2</code> (<em>más oscuro</em> que
+    <code>--canvas</code>) tanto para pistas hundidas como para popovers
+    elevados, así que un menú flotante parecía un hueco. Ahora hay dos tokens
+    distintos: <code>--surface-inset</code> hunde, <code>--surface-raised</code>
+    y <code>--surface-overlay</code> elevan.
+  </p>
+  <div class="grid cols-auto surface-stack">
+    <div style="background:var(--bg)">--bg · página</div>
+    <div style="background:var(--surface-inset)">--surface-inset · pistas, campos</div>
+    <div style="background:var(--canvas)">--canvas · card</div>
+    <div style="background:var(--surface-raised)">--surface-raised · popover, hover</div>
+    <div style="background:var(--surface-overlay); box-shadow:var(--shadow-lg)">--surface-overlay · modal, drawer</div>
+  </div>
+
+  <!-- ================================================== ESPACIADO -->
+  <h2>Espaciado y radios</h2>
+  <p class="note">
+    Base 4px. Antes había <strong>17 valores distintos de <code>gap</code></strong>
+    y 14 de <code>padding</code> escritos a mano, y 10 radios contra 4 tokens
+    que casi nadie usaba.
+  </p>
+  <div class="scroll-x">
+    <table>
+      <thead><tr><th>Token</th><th>Valor</th><th>Muestra</th><th>Reemplaza a</th></tr></thead>
+      <tbody id="space-rows"></tbody>
+    </table>
+  </div>
+
+  <h3>Radios</h3>
+  <div class="grid cols-narrow" id="radius-demo"></div>
+
+  <!-- ================================================== COMPONENTES -->
+  <h2>Primitivas</h2>
+  <p class="note">
+    Estas son las primitivas que el dashboard ya tiene. Las que faltan y que el
+    código reinventa cada vez —<code>Overlay</code>, <code>DataTable</code>,
+    <code>EmptyState</code>, <code>Tooltip</code>, <code>MetricValue</code>,
+    <code>DeltaBadge</code>— están especificadas en el plan.
+  </p>
+
+  <h3>Card</h3>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+    <div class="card">
+      <div class="card-hd">
+        <div>
+          <div class="card-hd-title">Actividad por hora</div>
+          <div class="card-hd-sub">Mapa de calor · 1,313 menciones · click una franja</div>
+        </div>
+        <span class="pill pill-info">En vivo</span>
+      </div>
+      <div class="card-bd">
+        <div class="bar-track"><div class="bar-fill" style="width:64%;background:var(--accent)"></div></div>
+        <div class="t-caption" style="margin-top:var(--sp-2)">Pico: martes a las 10:00</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd">
+        <div>
+          <div class="card-hd-title">Riesgo de crisis</div>
+          <div class="card-hd-sub">Escala 0–1 · umbral de alerta 0.40</div>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div style="display:flex;align-items:baseline;gap:var(--sp-2)">
+          <span class="t-num t-num-xl" style="color:var(--warn)">0.41</span>
+          <span class="pill pill-warn">Alerta</span>
+        </div>
+        <div class="t-caption" style="margin-top:var(--sp-2)">+12 pts vs ventana previa</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Pills — estado semántico</h3>
+  <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center">
+    <span class="pill pill-pos">Positivo</span>
+    <span class="pill pill-neu">Neutral</span>
+    <span class="pill pill-neg">Negativo</span>
+    <span class="pill pill-warn">Alerta</span>
+    <span class="pill pill-info">Emergente</span>
+    <span class="pill pill-solid-accent">Nuevo</span>
+    <span class="pill pill-solid-pos">Resuelto</span>
+    <span class="pill pill-solid-warn">Vigilar</span>
+  </div>
+
+  <h3>Botones</h3>
+  <p class="note">
+    Un solo botón primario por región. Hoy el briefing del Scorecard pone
+    «Ver menciones» y «Señal del día» ambos en naranja relleno, adyacentes: no
+    hay jerarquía.
+  </p>
+  <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center">
+    <button class="btn btn-primary">Ver menciones</button>
+    <button class="btn">Narrativas emergentes</button>
+    <button class="btn btn-quiet">Vigilancia de crisis</button>
+    <button class="btn btn-danger">Eliminar regla</button>
+  </div>
+
+  <h3>Chips y controles</h3>
+  <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3)">
+    <button class="chip active">Todas</button>
+    <button class="chip">Positivo</button>
+    <button class="chip">Neutral</button>
+    <button class="chip">Negativo</button>
+  </div>
+  <div style="max-width:420px"><input class="input" placeholder="Buscar en menciones…" /></div>
+
+  <!-- ================================================== REGLAS -->
+  <h2>Reglas</h2>
+  <div class="do-dont">
+    <div class="dd dd-do">
+      <h4>Sí</h4>
+      <p>Texto oscuro (<code>--on-*</code>) sobre cualquier relleno saturado.
+      Un solo primario por región. Escala compartida con eje Y cuando dos series
+      se comparan. Categórico asignado en orden. Un único total por pantalla,
+      resuelto desde una sola fuente.</p>
+    </div>
+    <div class="dd dd-dont">
+      <h4>No</h4>
+      <p>Hex escritos a mano (hay 103 hoy). <code>#fff</code> sobre relleno de
+      color. Normalizar cada serie a su propio min/max sin eje. Verde para una
+      categoría en una vista de sentimiento. Texto por debajo de 12px salvo el
+      overline. Cinco maneras distintas de expresar la misma métrica en cinco
+      cards adyacentes.</p>
+    </div>
+  </div>
+
+  <h2>Accesibilidad</h2>
+  <p class="note">
+    Objetivo: <strong>WCAG 2.1 AA</strong>. Estado medido sobre 40 capturas
+    reales del dashboard: <strong>471</strong> instancias de texto bajo el
+    mínimo de contraste en escritorio y <strong>369</strong> áreas táctiles
+    menores de 44px en móvil. La corrección de
+    <code>--text-3</code> y de los <code>--on-*</code> resuelve la mayor parte
+    del primer número; el segundo se cierra con <code>.touch-target</code>.
+  </p>
+  <div class="scroll-x">
+    <table>
+      <thead><tr><th>Token</th><th>Valor</th><th>Contraste sobre --canvas</th><th>AA normal</th><th>AA grande</th></tr></thead>
+      <tbody id="a11y-rows"></tbody>
+    </table>
+  </div>
+
+  <footer style="margin-top:var(--sp-16); padding-top:var(--sp-5); border-top:1px solid var(--hairline); color:var(--text-3); font-size:var(--fs-caption)">
+    ECO · Sistema de diseño · sembrado 2026-07-28 ·
+    tokens en <code>/eco-prototype/tokens.css</code> ·
+    plan en <code>docs/auditoria-diseno-2026-07.md</code>
+  </footer>
+</div>
+
+<script>
+/* Contraste WCAG 2.1 calculado en vivo sobre los valores resueltos de los
+   tokens, para que la tabla no pueda quedar desincronizada del CSS. */
+function srgbToLin(c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+function parseColor(str) {
+  const d = document.createElement('div');
+  d.style.color = str; document.body.appendChild(d);
+  const m = getComputedStyle(d).color.match(/rgba?\(([^)]+)\)/);
+  d.remove();
+  if (!m) return null;
+  const p = m[1].split(',').map(Number);
+  return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+}
+function lum(c) { return 0.2126 * srgbToLin(c.r) + 0.7152 * srgbToLin(c.g) + 0.0722 * srgbToLin(c.b); }
+function contrast(fg, bg) {
+  const a = lum(fg), b = lum(bg), hi = Math.max(a, b), lo = Math.min(a, b);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function token(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function swatch(name, opts) {
+  opts = opts || {};
+  const val = token(name);
+  const bg = parseColor(token('--canvas'));
+  const fg = parseColor(val);
+  let ratioHtml = '';
+  if (fg && bg && fg.a > 0.9 && !opts.noRatio) {
+    const r = contrast(fg, bg);
+    ratioHtml = '<span class="ratio ' + (r >= 4.5 ? 'pass' : 'fail') + '">' + r.toFixed(2) + ':1</span>';
+  }
+  return '<div class="sw">'
+    + '<div class="sw-chip" style="background:' + val + '"></div>'
+    + '<div class="sw-meta"><div class="sw-name">' + name + '</div>'
+    + '<div class="sw-val">' + val + ' ' + ratioHtml + '</div></div></div>';
+}
+
+function render() {
+  document.getElementById('sem-swatches').innerHTML =
+    ['--text', '--text-2', '--text-3', '--accent', '--accent-2', '--pos', '--neg', '--warn', '--info', '--neu']
+      .map((n) => swatch(n)).join('');
+
+  document.getElementById('cat-swatches').innerHTML =
+    ['--cat-1', '--cat-2', '--cat-3', '--cat-4', '--cat-5', '--cat-6', '--cat-7', '--cat-8']
+      .map((n) => swatch(n)).join('');
+
+  document.getElementById('emo-swatches').innerHTML =
+    ['--emo-ira', '--emo-frustracion', '--emo-miedo', '--emo-tristeza', '--emo-alegria', '--emo-esperanza', '--emo-sorpresa']
+      .map((n) => swatch(n)).join('');
+
+  document.getElementById('narr-swatches').innerHTML =
+    ['--narr-emerging', '--narr-active', '--narr-peaking', '--narr-declining', '--narr-revived', '--narr-dormant', '--narr-unknown']
+      .map((n) => swatch(n)).join('');
+
+  const SPACE = [
+    ['--sp-05', '2px', '1, 2, 3'], ['--sp-1', '4px', '4'], ['--sp-15', '6px', '5, 6'],
+    ['--sp-2', '8px', '8'], ['--sp-3', '12px', '10, 11, 12'], ['--sp-4', '16px', '14, 16'],
+    ['--sp-5', '20px', '18, 20'], ['--sp-6', '24px', '22, 24'], ['--sp-8', '32px', '28'],
+    ['--sp-10', '40px', '40'], ['--sp-12', '48px', '—'], ['--sp-16', '64px', '—'],
+  ];
+  document.getElementById('space-rows').innerHTML = SPACE.map(function (row) {
+    return '<tr><td><code>' + row[0] + '</code></td><td class="num-cell">' + row[1]
+      + '</td><td><div style="height:12px;width:' + row[1] + ';background:var(--accent);border-radius:2px"></div></td>'
+      + '<td style="color:var(--text-3)">' + row[2] + '</td></tr>';
+  }).join('');
+
+  document.getElementById('radius-demo').innerHTML =
+    [['--r-sm', '4px', '1, 2, 3'], ['--r-md', '6px', '4, 5, 6'], ['--r-lg', '10px', '8, 10'],
+     ['--r-xl', '14px', '12'], ['--r-pill', '999px', '999']]
+      .map(function (r) {
+        return '<div class="panel" style="text-align:center">'
+          + '<div style="height:56px;background:var(--accent-fill);border:1px solid var(--accent);border-radius:' + r[1] + '"></div>'
+          + '<div class="sw-name" style="margin-top:var(--sp-2)">' + r[0] + '</div>'
+          + '<div class="sw-val">' + r[1] + ' · reemplaza ' + r[2] + '</div></div>';
+      }).join('');
+
+  const bg = parseColor(token('--canvas'));
+  document.getElementById('a11y-rows').innerHTML =
+    ['--text', '--text-2', '--text-3', '--accent', '--pos', '--neg', '--warn', '--info']
+      .map(function (n) {
+        const fg = parseColor(token(n));
+        const r = contrast(fg, bg);
+        return '<tr><td><code>' + n + '</code></td><td class="num-cell">' + token(n)
+          + '</td><td class="num-cell">' + r.toFixed(2) + ':1</td>'
+          + '<td class="' + (r >= 4.5 ? 'pass' : 'fail') + '">' + (r >= 4.5 ? 'Pasa' : 'Falla') + '</td>'
+          + '<td class="' + (r >= 3 ? 'pass' : 'fail') + '">' + (r >= 3 ? 'Pasa' : 'Falla') + '</td></tr>';
+      }).join('');
+}
+
+document.querySelectorAll('[data-mode-btn]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const mode = btn.getAttribute('data-mode-btn');
+    document.documentElement.setAttribute('data-mode', mode);
+    document.querySelectorAll('[data-mode-btn]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+    render();
+  });
+});
+
+render();
+</script>
+</body>
+</html>

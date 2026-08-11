@@ -119,6 +119,57 @@ export interface DbscanResult<T> {
  * Para tablas grandes (>10K), considerar índice espacial; nuestra pool de
  * candidatos rara vez supera unos cientos antes de spawnear narrativas.
  */
+/**
+ * eps auto-calibrado por percentil de la k-distancia (N2).
+ *
+ * El barrido k-NN sobre una ventana real de este corpus (685 puntos de la crisis
+ * Domenech) mostró que **no hay rodilla**: las pendientes p05→p10 = 0.86,
+ * p10→p25 = 0.90 y p25→p50 = 0.456 describen una curva que se aplana sin formar
+ * codo. Sin brecha de densidad, cualquier `eps` global es una decisión de
+ * política, no un descubrimiento — y por eso llevarlo como constante mágica
+ * (0.19 en prod, 0.22 en el comentario del código) fue un error: el mismo número
+ * aplicado a ventanas de densidad distinta produce 0 clusters o cientos.
+ *
+ * Aquí se deriva de los datos de CADA corrida: se toma la distancia al k-ésimo
+ * vecino de cada punto, y `eps` es el percentil `p` de esa distribución,
+ * recortado a `[min, max]` para que una ventana degenerada no lo lleve a un
+ * extremo. Devuelve también lo medido, para poder registrarlo y auditarlo.
+ */
+export function autoEps<T>(
+  points: T[],
+  distance: (a: T, b: T) => number,
+  k: number,
+  percentile = 0.25,
+  min = 0.22,
+  max = 0.34,
+): { eps: number; raw: number; clamped: boolean; sampled: number } {
+  const n = points.length;
+  if (n <= k || k < 1) return { eps: min, raw: min, clamped: true, sampled: 0 };
+  const kDistances: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    // k distancias más pequeñas hacia los demás puntos, sin ordenar las n.
+    const best: number[] = [];
+    for (let j = 0; j < n; j += 1) {
+      if (i === j) continue;
+      const d = distance(points[i], points[j]);
+      if (best.length < k) {
+        best.push(d);
+        best.sort((a, b) => a - b);
+      } else if (d < best[k - 1]) {
+        best[k - 1] = d;
+        best.sort((a, b) => a - b);
+      }
+    }
+    if (best.length === k) kDistances.push(best[k - 1]);
+  }
+  if (kDistances.length === 0) return { eps: min, raw: min, clamped: true, sampled: 0 };
+  kDistances.sort((a, b) => a - b);
+  const idx = Math.min(kDistances.length - 1, Math.max(0, Math.floor(percentile * (kDistances.length - 1))));
+  const raw = kDistances[idx];
+  const eps = Math.min(max, Math.max(min, raw));
+  return { eps, raw, clamped: eps !== raw, sampled: kDistances.length };
+}
+
 export function dbscan<T>(
   points: T[],
   getDistance: (a: T, b: T) => number,
@@ -192,6 +243,28 @@ export interface LifecycleInput {
   ageDays: number;
   /** Estado previo — necesario para reconocer 'revived'. */
   prevStatus: NarrativeStatus | null;
+  /**
+   * Días desde que la narrativa fue DETECTADA (created_at), no desde la fecha de
+   * su mención más vieja (born_at).
+   *
+   * N6: `born_at` se fija con `first.published_at` — la mención MÁS VIEJA del
+   * cluster. Con el pool oldest-first eso hacía nacer narrativas con `ageDays`
+   * grande, así que nacían ya `declining` o `dormant` y JAMÁS pasaban por
+   * `emerging`. Con `detectedDaysAgo` la máquina puede distinguir "esto es viejo"
+   * de "esto lo acabo de ver", que son cosas distintas.
+   * Opcional para no romper los callers existentes.
+   */
+  detectedDaysAgo?: number;
+  /**
+   * Días desde la última mención ASIGNADA (nm.assigned_at), frente a
+   * `daysSinceLast` que mide sobre published_at.
+   *
+   * N6: toda la velocidad se medía con `m.published_at`, así que una narrativa
+   * detectada hoy sobre menciones de hace cinco días tenía `velocity24h = 0`: el
+   * sistema no tenía noción de "acabo de verlo". Eso es lo que producía la
+   * píldora que dice "Pico" junto a "VEL. 24H 0.0".
+   */
+  daysSinceAssigned?: number;
 }
 
 export interface LifecycleResult {
@@ -221,14 +294,27 @@ export function computeLifecycleState(input: LifecycleInput): LifecycleResult {
     ageDays,
     prevStatus,
   } = input;
+  // Edad efectiva: la de DETECCIÓN si el caller la da, la de born_at si no.
+  // Ver la nota de `detectedDaysAgo`: con el pool oldest-first, born_at hacía
+  // nacer narrativas ya viejas.
+  const effAge = input.detectedDaysAgo != null ? Math.min(ageDays, input.detectedDaysAgo) : ageDays;
+  // Recencia efectiva: lo que ocurra más tarde entre la última publicación y la
+  // última asignación. Una narrativa que acabo de detectar no está "sin
+  // actividad" aunque sus menciones sean de hace cinco días.
+  const effSinceLast = input.daysSinceAssigned != null
+    ? Math.min(daysSinceLast, input.daysSinceAssigned)
+    : daysSinceLast;
 
   // 1. Dormant: 14+ días sin actividad (estado definitivo).
-  if (daysSinceLast > 14) {
+  if (effSinceLast > 14) {
     return { status: 'dormant', enteredPeaking: false };
   }
 
-  // 2. Revived: estaba dormant y ahora hay actividad (estado transitorio).
-  if (prevStatus === 'dormant' && velocity24h > 0) {
+  // 2. Revived: estaba dormant y ahora hay actividad. N6: es STICKY durante la
+  // ventana de detección — antes duraba una sola corrida y el siguiente ciclo lo
+  // borraba, así que la señal más interesante para el analista ("esto volvió")
+  // pasaba desapercibida. Ahora se sostiene mientras la actividad sea reciente.
+  if ((prevStatus === 'dormant' || prevStatus === 'revived') && (velocity24h > 0 || effSinceLast <= 2)) {
     return { status: 'revived', enteredPeaking: false };
   }
 
@@ -239,15 +325,17 @@ export function computeLifecycleState(input: LifecycleInput): LifecycleResult {
 
   // 4. Declining: dos formas — promedio caído >70%, o sin actividad reciente
   //    (>7 días) pero aún no en zona dormant. Cubre el caso "se enfrió".
-  if (avgVelocity7d > 0 && velocity24h < avgVelocity7d * 0.3 && daysSinceLast > 3) {
+  if (avgVelocity7d > 0 && velocity24h < avgVelocity7d * 0.3 && effSinceLast > 3) {
     return { status: 'declining', enteredPeaking: false };
   }
-  if (daysSinceLast > 7) {
+  if (effSinceLast > 7) {
     return { status: 'declining', enteredPeaking: false };
   }
 
-  // 5. Emerging: brand new y aún chica.
-  if (mentionCount < 50 && ageDays < 7) {
+  // 5. Emerging: recién DETECTADA y aún chica. Con effAge (que respeta la fecha
+  // de detección) una narrativa nueva sobre menciones viejas ya sí pasa por
+  // emerging, en vez de nacer declining.
+  if (mentionCount < 50 && effAge < 7) {
     return { status: 'emerging', enteredPeaking: false };
   }
 

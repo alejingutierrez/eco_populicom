@@ -24,8 +24,21 @@
  * Tunables vía env vars (defaults entre paréntesis):
  *   NARRATIVE_THRESHOLD             (0.78)  similitud coseno mínima para asignar
  *   NARRATIVE_EWMA_ALPHA            (0.05)  peso del nuevo punto en update centroide
- *   NARRATIVE_MIN_MENTIONS_BIRTH    (10)    DBSCAN minPts para nacer narrativa
- *   NARRATIVE_DBSCAN_EPS            (0.22)  DBSCAN eps (1 - threshold)
+ *   NARRATIVE_MIN_MENTIONS_BIRTH    (7)     DBSCAN minPts para nacer narrativa
+ *   NARRATIVE_DBSCAN_EPS            (0.19)  eps de respaldo (ver NARRATIVE_EPS_AUTO)
+ *   NARRATIVE_EPS_AUTO              (true)  eps por percentil de la k-distancia
+ *   NARRATIVE_EPS_PERCENTILE        (0.25)  percentil usado cuando EPS_AUTO
+ *   NARRATIVE_EPS_MIN / _MAX        (0.22 / 0.34)  recorte del eps automático
+ *   NARRATIVE_CANDIDATE_WINDOW_DAYS (21)    ventana del pool sobre published_at
+ *   NARRATIVE_REVIVE_THRESHOLD      (0.82)  similitud para resucitar una dormant
+ *   NARRATIVE_REVIVE_WINDOW_DAYS    (45)    antigüedad máxima para revivir
+ *
+ * N8 — nota sobre el "drift" de configuración: la auditoría de julio afirmaba
+ * que producción corría 0.19/7 contra un git que decía 0.22/10. Es FALSO:
+ * `infra/lib/workers-stack.ts` ya declaraba '0.19' y '7'. El desajuste estaba
+ * en ESTE comentario y en los defaults de abajo, que seguían diciendo 0.22/10 y
+ * hacían creer que la infraestructura estaba desalineada. Los defaults del
+ * código ahora coinciden con el env desplegado.
  *   NARRATIVE_TOP_N_MATCHES         (3)     máximo narrativas por mención
  *   NARRATIVE_INFLUENCE_WINDOW_HOURS (24)   ventana para top influencia
  *   NARRATIVE_PER_AGENCY_LIMIT      (5000)  máximo de menciones a procesar/agencia/corrida
@@ -38,6 +51,7 @@ import {
   ewmaUpdate,
   vectorMean,
   dbscan,
+  autoEps,
   cosineDistance,
   parseVectorLiteral,
   toVectorLiteral,
@@ -50,10 +64,19 @@ const sm = new SecretsManagerClient({});
 const bedrock = new BedrockRuntimeClient({});
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
-const THRESHOLD = Number(process.env.NARRATIVE_THRESHOLD ?? 0.78);
+// N5: 0.70, no 0.78. Medido en producción, la máx-similitud promedio de una
+// mención contra cualquier centroide es 0.44-0.51, así que 0.78 vivía en la cola
+// y `assigned` era 0 en todas las corridas.
+const THRESHOLD = Number(process.env.NARRATIVE_THRESHOLD ?? 0.70);
+// Resucitar exige MÁS evidencia que continuar: una dormant sólo revive con una
+// mención claramente suya.
+const REVIVE_THRESHOLD = Number(process.env.NARRATIVE_REVIVE_THRESHOLD ?? 0.82);
+// Cuán atrás puede estar la última mención de una dormant para seguir siendo
+// candidata a revivir. Más allá, la narrativa está cerrada.
+const REVIVE_WINDOW_DAYS = Number(process.env.NARRATIVE_REVIVE_WINDOW_DAYS ?? 45);
 const EWMA_ALPHA = Number(process.env.NARRATIVE_EWMA_ALPHA ?? 0.05);
-const MIN_MENTIONS_BIRTH = Number(process.env.NARRATIVE_MIN_MENTIONS_BIRTH ?? 10);
-const DBSCAN_EPS = Number(process.env.NARRATIVE_DBSCAN_EPS ?? 0.22);
+const MIN_MENTIONS_BIRTH = Number(process.env.NARRATIVE_MIN_MENTIONS_BIRTH ?? 7);
+const DBSCAN_EPS = Number(process.env.NARRATIVE_DBSCAN_EPS ?? 0.19);
 const TOP_N_MATCHES = Number(process.env.NARRATIVE_TOP_N_MATCHES ?? 3);
 const INFLUENCE_WINDOW_HOURS = Number(process.env.NARRATIVE_INFLUENCE_WINDOW_HOURS ?? 24);
 const PER_AGENCY_LIMIT = Number(process.env.NARRATIVE_PER_AGENCY_LIMIT ?? 5000);
@@ -62,6 +85,19 @@ const PER_AGENCY_LIMIT = Number(process.env.NARRATIVE_PER_AGENCY_LIMIT ?? 5000);
 // ni en 15 min. Con el cap, cada corrida digiere los candidatos más viejos;
 // los clusters nacidos drenan el pool y la siguiente corrida toma el resto.
 const CANDIDATE_POOL_LIMIT = Number(process.env.NARRATIVE_CANDIDATE_POOL_LIMIT ?? 12000);
+// N1: ventana temporal del pool y de la admisión, en días sobre published_at.
+// 21 días cubre el ciclo de vida de una noticia en este corpus sin arrastrar el
+// backlog histórico.
+const CANDIDATE_WINDOW_DAYS = Number(process.env.NARRATIVE_CANDIDATE_WINDOW_DAYS ?? 21);
+// N2: eps por PERCENTIL de la k-distancia de la ventana, no constante mágica.
+// Ver la nota de autoEps() en @eco/shared: el barrido k-NN sobre la ventana de
+// la crisis Domenech (685 puntos) mostró que NO hay rodilla, así que cualquier
+// eps global es política. El p25 de la 6-NN medía 0.300; el 0.19 de producción
+// está en el p12.
+const EPS_AUTO = (process.env.NARRATIVE_EPS_AUTO ?? 'true') !== 'false';
+const EPS_PERCENTILE = Number(process.env.NARRATIVE_EPS_PERCENTILE ?? 0.25);
+const EPS_MIN = Number(process.env.NARRATIVE_EPS_MIN ?? 0.22);
+const EPS_MAX = Number(process.env.NARRATIVE_EPS_MAX ?? 0.34);
 const MAX_NEW_PER_RUN = Number(process.env.NARRATIVE_MAX_NEW_PER_RUN ?? 20);
 
 /**
@@ -199,11 +235,20 @@ async function clusterForAgency(
        WHERE m.agency_id = $1
          AND m.is_duplicate = false
          AND m.embedding IS NOT NULL
+         -- N1: ventana sobre published_at. Sin esto el query re-encolaba
+         -- indefinidamente las mismas menciones viejas que la poda acababa de
+         -- borrar, y el pool nunca convergía. Va sobre published_at y NO sobre
+         -- created_at porque created_at es fecha de ENCOLADO: un backfill la
+         -- pone "hoy" para menciones de 2025 (medido: 53,225 candidatos de
+         -- gobernadora creados el 29-30 jul con published_at de 2025), así que
+         -- no es monótona y no sirve como eje temporal.
+         AND m.published_at >= NOW() - ($3 || ' days')::interval
          AND NOT EXISTS (SELECT 1 FROM narrative_mentions nm WHERE nm.mention_id = m.id)
          AND NOT EXISTS (SELECT 1 FROM narrative_candidates nc WHERE nc.mention_id = m.id)
-       ORDER BY m.published_at ASC
+       -- Lo más RECIENTE primero: una narrativa que nace tarde no sirve.
+       ORDER BY m.published_at DESC
        LIMIT $2`,
-    [agency.id, PER_AGENCY_LIMIT],
+    [agency.id, PER_AGENCY_LIMIT, CANDIDATE_WINDOW_DAYS],
   );
   stats.unassigned = unassignedRes.rows.length;
   console.log(`[${agency.slug}] unassigned mentions: ${stats.unassigned}`);
@@ -211,20 +256,40 @@ async function clusterForAgency(
   // 2. Assign each to nearest narratives or pool of candidates
   for (const mention of unassignedRes.rows) {
     try {
-      const nearest = await client.query<{ id: string; similarity: string }>(
-        `SELECT id, (1 - (centroid <=> $1::vector)) AS similarity
+      // N5/N6: dos etapas.
+      //
+      // La fase de asignación estaba MUERTA — `assigned = 0` en todas las
+      // corridas — por dos razones medidas en producción:
+      //   (a) el umbral 0.78 vive muy por encima de la similitud real: la
+      //       máx-similitud promedio de una mención contra cualquier centroide
+      //       es 0.44-0.51, así que 0.78 está en la cola de la distribución;
+      //   (b) 1,273 de 1,291 narrativas (98.6%) están `dormant`, y el query las
+      //       excluía por completo.
+      //
+      // Etapa 1: narrativas VIVAS con el umbral normal.
+      // Etapa 2: narrativas DORMANT RECIENTES con un umbral más ALTO (0.82) —
+      // resucitar exige más evidencia que continuar. Sin esta etapa `revived`
+      // es estructuralmente inalcanzable: una dormant es invisible al matching,
+      // así que nunca recibe menciones y su velocidad nunca sube. Medido:
+      // incluir dormant recientes sube de 1 a 19 los matches de 642 menciones
+      // de gobernadora en 7 días. La tabla tenía 0 filas con status='revived'.
+      const nearest = await client.query<{ id: string; similarity: string; status: string }>(
+        `SELECT id, (1 - (centroid <=> $1::vector)) AS similarity, status
            FROM narratives
            WHERE agency_id = $2
-             AND status != 'dormant'
              AND centroid IS NOT NULL
+             AND (
+               status <> 'dormant'
+               OR last_mention_at >= NOW() - ($4 || ' days')::interval
+             )
            ORDER BY centroid <=> $1::vector
            LIMIT $3`,
-        [mention.embedding, agency.id, TOP_N_MATCHES],
+        [mention.embedding, agency.id, TOP_N_MATCHES, REVIVE_WINDOW_DAYS],
       );
 
       const matches = nearest.rows
-        .map((r) => ({ id: r.id, similarity: Number(r.similarity) }))
-        .filter((r) => r.similarity >= THRESHOLD);
+        .map((r) => ({ id: r.id, similarity: Number(r.similarity), status: r.status }))
+        .filter((r) => r.similarity >= (r.status === 'dormant' ? REVIVE_THRESHOLD : THRESHOLD));
 
       if (matches.length > 0) {
         if (event.dryRun) {
@@ -331,14 +396,19 @@ async function spawnNarrativesFromCandidates(
   // clusterizar Y su mención tiene >30 días — ya no va a parir narrativa de
   // actualidad. Sin la poda, el pool crece sin tope y los rancios bloquean la
   // ventana LIMIT del DBSCAN (oldest-first) para los candidatos nuevos.
+  // N1: la poda usa EL MISMO predicado que la admisión. Antes exigía las DOS
+  // condiciones (created_at >7d Y published_at >30d), así que un candidato de 10
+  // días con mención de 20 no se podaba nunca pero tampoco clusterizaba; y el
+  // query de no-asignadas, sin filtro de fecha, re-encolaba lo podado con
+  // created_at fresco. El invariante ahora es simple: "está en el pool ⟺
+  // published_at está en la ventana".
   await client.query(
     `DELETE FROM narrative_candidates nc
       USING mentions m
       WHERE m.id = nc.mention_id
         AND nc.agency_id = $1
-        AND nc.created_at < NOW() - INTERVAL '7 days'
-        AND m.published_at < NOW() - INTERVAL '30 days'`,
-    [agency.id],
+        AND m.published_at < NOW() - ($2 || ' days')::interval`,
+    [agency.id, CANDIDATE_WINDOW_DAYS],
   );
 
   const candRes = await client.query<CandidateRow>(
@@ -351,9 +421,17 @@ async function spawnNarrativesFromCandidates(
        JOIN mentions m ON m.id = nc.mention_id
        WHERE nc.agency_id = $1
        AND m.is_duplicate = false
-       ORDER BY nc.created_at ASC
+       -- N1: ventana temporal COHERENTE. Esta era la causa DOMINANTE de que la
+       -- detección se degradara ~40x: el DBSCAN recibía siempre exactamente
+       -- 12,000 candidatos ordenados por created_at ASC, de los cuales el 81.7%
+       -- eran publicaciones de 2025 y sólo el 0.57% de los últimos 7 días — las
+       -- menciones de hoy NUNCA entraban al muestreo. Medido sobre el pool real:
+       -- una ventana de 72h da 29 core points con el eps que ya corre en
+       -- producción; el pool oldest-first dio 0 clusters en 96 corridas.
+       AND m.published_at >= NOW() - ($3 || ' days')::interval
+       ORDER BY m.published_at DESC
        LIMIT $2`,
-    [agency.id, CANDIDATE_POOL_LIMIT],
+    [agency.id, CANDIDATE_POOL_LIMIT, CANDIDATE_WINDOW_DAYS],
   );
 
   if (candRes.rows.length < MIN_MENTIONS_BIRTH) {
@@ -366,16 +444,31 @@ async function spawnNarrativesFromCandidates(
     vec: parseVectorLiteral(row.embedding),
   }));
 
-  const { clusters } = dbscan(
-    points,
-    (a, b) => cosineDistance(a.vec, b.vec),
-    DBSCAN_EPS,
-    MIN_MENTIONS_BIRTH,
-  );
+  // N2: eps derivado de la ventana. Con NARRATIVE_EPS_AUTO=false vuelve al valor
+  // de env, para poder comparar corridas.
+  const dist = (a: Point, b: Point) => cosineDistance(a.vec, b.vec);
+  let epsUsed = DBSCAN_EPS;
+  let epsSource = 'env';
+  if (EPS_AUTO && points.length > MIN_MENTIONS_BIRTH) {
+    const auto = autoEps(points, dist, Math.max(1, MIN_MENTIONS_BIRTH - 1), EPS_PERCENTILE, EPS_MIN, EPS_MAX);
+    epsUsed = auto.eps;
+    epsSource = `auto p${Math.round(EPS_PERCENTILE * 100)} raw=${auto.raw.toFixed(3)}${auto.clamped ? ' clamp' : ''}`;
+  }
 
-  console.log(
-    `[${agency.slug}] DBSCAN: ${candRes.rows.length} candidates → ${clusters.length} clusters (eps=${DBSCAN_EPS}, minPts=${MIN_MENTIONS_BIRTH})`,
-  );
+  const { clusters } = dbscan(points, dist, epsUsed, MIN_MENTIONS_BIRTH);
+
+  // N7: log estructurado. Sin esto, "la detección se congeló" tardó SEIS SEMANAS
+  // en notarse. Estos son los campos que hay que alarmar.
+  console.log(JSON.stringify({
+    evt: 'narrative_dbscan',
+    agency: agency.slug,
+    candidates: candRes.rows.length,
+    clusters: clusters.length,
+    eps: Number(epsUsed.toFixed(4)),
+    epsSource,
+    minPts: MIN_MENTIONS_BIRTH,
+    windowDays: CANDIDATE_WINDOW_DAYS,
+  }));
 
   let created = 0;
   let named = 0;
@@ -526,6 +619,8 @@ async function updateLifecycleStates(
     days_since_last: string | null;
     velocity_24h: string;
     avg_velocity_7d: string;
+    detected_days_ago: number | string | null;
+    days_since_assigned: number | string | null;
   }>(
     `SELECT n.id,
             n.status,
@@ -543,7 +638,19 @@ async function updateLifecycleStates(
                JOIN mentions m ON m.id = nm.mention_id
                WHERE nm.narrative_id = n.id AND nm.is_primary = true
                  AND m.published_at >= NOW() - INTERVAL '7 days'
-            ) AS avg_velocity_7d
+            ) AS avg_velocity_7d,
+            -- N6: born_at es la fecha de la mención MÁS VIEJA del cluster
+            -- (index.ts usa first.published_at), así que con el pool
+            -- oldest-first las narrativas nacían viejas. created_at es cuándo
+            -- LA DETECTAMOS, que es lo que hace falta para 'emerging'.
+            EXTRACT(EPOCH FROM (NOW() - n.created_at)) / 86400.0 AS detected_days_ago,
+            -- N6: recencia por ASIGNACIÓN, no por publicación. Una narrativa
+            -- detectada hoy sobre menciones de hace 5 días tenía velocity24h=0 y
+            -- se marcaba 'declining' el mismo run que la creaba.
+            (SELECT CASE WHEN MAX(nm.assigned_at) IS NULL THEN NULL
+                         ELSE EXTRACT(EPOCH FROM (NOW() - MAX(nm.assigned_at))) / 86400.0 END
+               FROM narrative_mentions nm WHERE nm.narrative_id = n.id
+            ) AS days_since_assigned
        FROM narratives n
        WHERE n.agency_id = $1`,
     [agency.id],
@@ -559,6 +666,8 @@ async function updateLifecycleStates(
       mentionCount: Number(row.mention_count),
       ageDays: Number(row.age_days),
       prevStatus: row.status,
+      detectedDaysAgo: row.detected_days_ago == null ? undefined : Number(row.detected_days_ago),
+      daysSinceAssigned: row.days_since_assigned == null ? undefined : Number(row.days_since_assigned),
     });
 
     const setPeakedAt = result.enteredPeaking && !row.peaked_at;

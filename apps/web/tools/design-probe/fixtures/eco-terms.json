@@ -1,0 +1,206 @@
+{
+ "terms": [
+  {
+   "term": "apagón",
+   "stem": "apagón",
+   "df": 88,
+   "score": 4.2,
+   "sentiment": "negativo",
+   "polarity": -0.62,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "luma",
+   "stem": "luma",
+   "df": 74,
+   "score": 4.06,
+   "sentiment": "negativo",
+   "polarity": -0.55,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "abonados",
+   "stem": "abonad",
+   "df": 66,
+   "score": 3.92,
+   "sentiment": "negativo",
+   "polarity": -0.31,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "permiso",
+   "stem": "permis",
+   "df": 59,
+   "score": 3.78,
+   "sentiment": "neutral",
+   "polarity": -0.12,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "manufactura",
+   "stem": "manufa",
+   "df": 52,
+   "score": 3.64,
+   "sentiment": "positivo",
+   "polarity": 0.28,
+   "isNew": true,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "incentivo",
+   "stem": "incent",
+   "df": 48,
+   "score": 3.5,
+   "sentiment": "positivo",
+   "polarity": 0.41,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "empleo",
+   "stem": "empleo",
+   "df": 45,
+   "score": 3.36,
+   "sentiment": "positivo",
+   "polarity": 0.36,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "subasta",
+   "stem": "subast",
+   "df": 41,
+   "score": 3.22,
+   "sentiment": "neutral",
+   "polarity": -0.08,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "generación",
+   "stem": "genera",
+   "df": 37,
+   "score": 3.08,
+   "sentiment": "negativo",
+   "polarity": -0.44,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "tarifa",
+   "stem": "tarifa",
+   "df": 34,
+   "score": 2.94,
+   "sentiment": "negativo",
+   "polarity": -0.51,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "inversión",
+   "stem": "invers",
+   "df": 31,
+   "score": 2.8,
+   "sentiment": "positivo",
+   "polarity": 0.55,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "turismo",
+   "stem": "turism",
+   "df": 28,
+   "score": 2.66,
+   "sentiment": "positivo",
+   "polarity": 0.62,
+   "isNew": true,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "ventanilla",
+   "stem": "ventan",
+   "df": 24,
+   "score": 2.52,
+   "sentiment": "positivo",
+   "polarity": 0.18,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "auditoría",
+   "stem": "audito",
+   "df": 22,
+   "score": 2.38,
+   "sentiment": "negativo",
+   "polarity": -0.38,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "fondos",
+   "stem": "fondos",
+   "df": 19,
+   "score": 2.24,
+   "sentiment": "negativo",
+   "polarity": -0.22,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "ponce",
+   "stem": "ponce",
+   "df": 17,
+   "score": 2.1,
+   "sentiment": "neutral",
+   "polarity": 0.05,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "bayamón",
+   "stem": "bayamó",
+   "df": 15,
+   "score": 1.96,
+   "sentiment": "neutral",
+   "polarity": 0.02,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "caguas",
+   "stem": "caguas",
+   "df": 13,
+   "score": 1.82,
+   "sentiment": "neutral",
+   "polarity": 0.11,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "adiestramiento",
+   "stem": "adiest",
+   "df": 11,
+   "score": 1.68,
+   "sentiment": "positivo",
+   "polarity": 0.44,
+   "isNew": true,
+   "firstSeen": "2026-07-30"
+  },
+  {
+   "term": "microempresa",
+   "stem": "microe",
+   "df": 9,
+   "score": 1.54,
+   "sentiment": "positivo",
+   "polarity": 0.49,
+   "isNew": false,
+   "firstSeen": "2026-07-30"
+  }
+ ],
+ "mode": "distinctive",
+ "refMode": "prev"
+}

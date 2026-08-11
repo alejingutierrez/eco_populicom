@@ -1,0 +1,22 @@
+{
+ "edges": [
+  {
+   "source": "n1",
+   "target": "n8",
+   "type": "co-ocurrencia",
+   "strength": 0.42
+  },
+  {
+   "source": "n1",
+   "target": "n6",
+   "type": "co-ocurrencia",
+   "strength": 0.19
+  },
+  {
+   "source": "n2",
+   "target": "n3",
+   "type": "co-ocurrencia",
+   "strength": null
+  }
+ ]
+}

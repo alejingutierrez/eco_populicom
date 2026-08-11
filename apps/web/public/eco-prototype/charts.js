@@ -17,6 +17,95 @@
  *    cp2 = P2 - (P3 - P1) * tension / 6
  *  Donde P0 y P3 son los puntos previo y siguiente (o reflexión en bordes).
  */
+// Contrato de accesibilidad de las gráficas (WS-A1).
+//
+// Ninguno de los 9 SVG del producto tenía `<title>`, `role` ni foco por
+// teclado: para un lector de pantalla ninguna gráfica de ECO existía, y para
+// quien no usa ratón el tooltip —la única superficie con las cifras exactas—
+// era inalcanzable.
+//
+// `chartA11y()` devuelve los props del <svg> (role img + aria-labelledby) y los
+// nodos <title>/<desc>. `ChartTable` emite la tabla equivalente, visualmente
+// oculta con .sr-only, que es la que de verdad permite leer los datos: un
+// `<title>` resume, una tabla se navega.
+let _chartUid = 0;
+function useChartIds() {
+  const ref = React.useRef(null);
+  if (ref.current == null) { _chartUid += 1; ref.current = `eco-c${_chartUid}`; }
+  return { titleId: `${ref.current}-t`, descId: `${ref.current}-d`, tableId: `${ref.current}-tb` };
+}
+
+function ChartTitle({ ids, title, desc }) {
+  return (
+    <>
+      <title id={ids.titleId}>{title}</title>
+      {desc ? <desc id={ids.descId}>{desc}</desc> : null}
+    </>
+  );
+}
+
+// Tabla equivalente. `columns` = [{key, label, format?}], `rows` = objetos.
+function ChartTable({ ids, caption, columns, rows }) {
+  if (!rows || rows.length === 0) return null;
+  // El .sr-only va en un <div> envolvente, NO en la <table>: `width:1px` sobre
+  // un elemento `display:table` es un MÍNIMO, no un máximo — la tabla crece
+  // hasta su ancho intrínseco (medido: 1,153px) y desbordaba la página 838px.
+  // Y no se puede arreglar con `display:block` en la tabla porque eso le quita
+  // la semántica de tabla a los lectores de pantalla, que es justo lo que
+  // queremos conservar.
+  return (
+    <div className="sr-only">
+    <table id={ids.tableId}>
+      <caption>{caption}</caption>
+      <thead>
+        <tr>{columns.map((c) => <th key={c.key} scope="col">{c.label}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {columns.map((c, ci) => {
+              const v = c.format ? c.format(r[c.key], r) : r[c.key];
+              const txt = (v == null || v === '') ? 'sin dato' : String(v);
+              return ci === 0
+                ? <th key={c.key} scope="row">{txt}</th>
+                : <td key={c.key}>{txt}</td>;
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    </div>
+  );
+}
+
+// Contrato de nulos de las gráficas (WS-P0.7).
+//
+// `/api/eco-data` emite valores nulos legítimos —p.ej. TIMELINE[].polarizationIndex
+// cuando el snapshot de ese día no la trae— y antes eso (a) tumbaba la pantalla
+// completa porque fmtVal hacía v.toFixed() sin guarda, y (b) cuando no tumbaba,
+// el `?? 0` de los sitios de llamada dibujaba el hueco como si fuera un CERO
+// MEDIDO: el sparkline de Polarización mostraba dos caídas al suelo que se leen
+// como "la polarización se desplomó" cuando el dato simplemente no existe.
+//
+// Regla: un hueco NO es un cero. `isGap()` lo detecta, la escala lo ignora al
+// calcular min/max, y las líneas se parten en ese punto en vez de bajar a cero.
+function isGap(v) {
+  return v == null || (typeof v === 'number' && !Number.isFinite(v));
+}
+
+// Parte una lista de puntos en tramos contiguos sin huecos, para que la línea
+// se interrumpa donde falta el dato en vez de interpolarlo.
+function splitSegments(pts) {
+  const out = [];
+  let cur = [];
+  for (const p of pts) {
+    if (p == null) { if (cur.length) { out.push(cur); cur = []; } }
+    else cur.push(p);
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 function catmullRomPath(pts, tension = 1) {
   if (pts.length === 0) return '';
   if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
@@ -52,11 +141,25 @@ function linePath(data, w, h, accessor = (d) => d, padding = 4, minY = null, max
 function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = null, maxY = null) {
   if (!data.length) return '';
   const vals = data.map(accessor);
-  const min = minY !== null ? minY : Math.min(...vals);
-  const max = maxY !== null ? maxY : Math.max(...vals);
+  // Huecos fuera del dominio: con `Math.min(...vals)` y un null dentro, min/max
+  // salían NaN y el path entero se emitía como "M 2,NaN …" — el navegador lo
+  // descartaba y el sparkline aparecía vacío, con 4 errores de consola por
+  // render en el Scorecard.
+  const finite = vals.filter((v) => v != null && Number.isFinite(v));
+  if (finite.length === 0) return '';
+  const min = minY !== null ? minY : Math.min(...finite);
+  const max = maxY !== null ? maxY : Math.max(...finite);
   const range = max - min || 1;
   const step = (w - padding * 2) / Math.max(1, data.length - 1);
-  const pts = data.map((d, i) => [padding + i * step, h - padding - ((accessor(d) - min) / range) * (h - padding * 2)]);
+  // Los puntos sin dato se omiten; el tramo se une entre los que sí lo tienen.
+  // (En un sparkline de 80px partir la línea sería ruido; lo importante es no
+  // dibujar un cero que nadie midió.)
+  const pts = data.map((d, i) => {
+    const v = accessor(d);
+    if (v == null || !Number.isFinite(v)) return null;
+    return [padding + i * step, h - padding - ((v - min) / range) * (h - padding * 2)];
+  }).filter(Boolean);
+  if (pts.length === 0) return '';
   let p = `M ${pts[0][0]},${pts[0][1]}`;
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1];
@@ -94,17 +197,42 @@ function useChartWidth(fallback) {
 }
 
 // Sparkline
+// `width` acepta un número (ancho fijo) o la cadena 'auto', que MIDE el
+// contenedor con useChartWidth igual que BandScale y MultiLineChart. 'auto'
+// existe porque el KPI dibujaba 200px fijos dentro de cards cuyo content box es
+// de 159px en desktop (219px las dos anchas) y ~133px en móvil a dos columnas: el
+// `overflow:hidden` de la card cortaba el tramo FINAL de la serie —el valor más
+// reciente, que es el que se lee— en Volumen y en Polarización, y dejaba ~19px de
+// vacío a la derecha en NSS. En la card de Polarización el sparkline recortado
+// convivía además con una BandScale al 100%, o sea dos bordes derechos distintos.
 function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', accessor = (d) => d, fill = true }) {
+  // El hook va ANTES de cualquier return: el orden de hooks debe ser estable.
+  const auto = width === 'auto';
+  const [ref, measured] = useChartWidth(120);
+  const w = auto ? Math.max(1, measured) : width;
+  // `width:100%` en el style hace que el rect medido sea el del contenedor; el
+  // atributo `width` fija el sistema de coordenadas, así que ambos coinciden en
+  // cuanto corre el layout effect (antes del primer pintado).
+  const svgStyle = auto ? { display: 'block', width: '100%' } : { display: 'block' };
+  const svgRef = auto ? ref : undefined;
+  // Decorativo a propósito: un sparkline siempre acompaña al número que resume
+  // la serie, así que anunciarlo duplicaría la información sin añadir nada.
   // Guard: sin datos no podemos calcular el path. smoothLinePath devuelve ''
   // y la destructuración `{ path, points } = ''` daba `points = undefined`,
   // que reventaba al leer `points[points.length - 1]`.
   if (!Array.isArray(data) || data.length === 0) {
-    return <svg width={width} height={height} style={{ display: 'block' }} />;
+    return <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false" />;
   }
-  const { path, points } = smoothLinePath(data, width, height, accessor, 2);
+  const res = smoothLinePath(data, w, height, accessor, 2);
+  // Serie sin ningún valor finito: se devuelve un SVG vacío en vez de un path
+  // con NaN. El caller ve un hueco, no una línea plana en cero.
+  if (!res || !res.points || res.points.length === 0) {
+    return <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false" />;
+  }
+  const { path, points } = res;
   const area = fill ? path + ` L ${points[points.length - 1][0]},${height} L ${points[0][0]},${height} Z` : '';
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}>
+    <svg ref={svgRef} width={w} height={height} style={svgStyle} aria-hidden="true" focusable="false">
       {fill && <path d={area} fill={color} opacity="0.12" />}
       <path d={path} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" />
     </svg>
@@ -112,8 +240,9 @@ function Sparkline({ data, width = 80, height = 24, color = 'var(--accent)', acc
 }
 
 // Big area line chart
-function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', showAxis = true, showGrid = true, yMin = null, yMax = null }) {
+function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', showAxis = true, showGrid = true, yMin = null, yMax = null, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const padding = { t: 10, r: 10, b: 22, l: 32 };
   const innerW = w - padding.l - padding.r;
   const innerH = height - padding.t - padding.b;
@@ -140,7 +269,8 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 
   return (
     <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={height}>
+      <svg width={w} height={height} role="img" aria-labelledby={ids.titleId}>
+        <ChartTitle ids={ids} title={a11yTitle || 'Serie temporal'} />
         <defs>
           <linearGradient id="area-grad-ac" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.25" />
@@ -156,10 +286,10 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
           <path d={linePath} stroke={color} strokeWidth="2" fill="none" />
           {showAxis && ticks.map((t, i) => {
             const y = innerH - ((t - min) / range) * innerH;
-            return <text key={i} x={-6} y={y + 3} fontSize="10" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(t * 10) / 10}</text>;
+            return <text key={i} x={-6} y={y + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(t * 10) / 10}</text>;
           })}
           {showAxis && xIdxs.filter((idx) => data[idx] && data[idx].date).map((idx) => (
-            <text key={idx} x={idx * step} y={innerH + 14} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+            <text key={idx} x={idx * step} y={innerH + 14} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
           ))}
         </g>
       </svg>
@@ -181,11 +311,15 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 //                           prioridad sobre sharedScale.
 //   valueFormat  (main)   — función custom para formatear valores en tooltip;
 //                           si no se pasa, usa el switch por key.
-function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat }) {
+function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const [hover, setHover] = React.useState(null); // index or null
   // Padding left más amplio para que los Y-axis labels (números) quepan.
-  const padding = { t: 28, r: 20, b: 34, l: 44 };
+  // r=52: la etiqueta de último valor mide 46px y se dibuja en
+  // translate(innerW + 4), así que necesita 4 + 46 = 50px. Con r=20 se
+  // recortaban 30 de sus 46px y el chart cerraba mostrando un solo dígito.
+  const padding = { t: 28, r: 52, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
 
@@ -194,7 +328,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   // volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
     return (
-      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Sin datos suficientes para graficar.
       </div>
     );
@@ -210,18 +344,23 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
       vals: data.map((d) => d[s.key]),
     }));
   } else if (sharedScale) {
-    const allVals = series.flatMap((s) => data.map((d) => d[s.key] || 0));
+    // Los huecos se excluyen del dominio (antes `|| 0` los metía como ceros y
+    // hundía el mínimo compartido).
+    const allVals = series.flatMap((s) => data.map((d) => d[s.key])).filter((v) => !isGap(v));
     const sharedMin = 0;
     const sharedMax = Math.max(1, ...allVals);
     normalized = series.map((s) => ({
       ...s, min: sharedMin, max: sharedMax, range: sharedMax - sharedMin || 1,
-      vals: data.map((d) => d[s.key] || 0),
+      vals: data.map((d) => d[s.key]),
     }));
   } else {
     normalized = series.map((s) => {
       const vals = data.map((d) => d[s.key]);
-      const min = Math.min(...vals);
-      const max = Math.max(...vals);
+      const finite = vals.filter((v) => !isGap(v));
+      // Serie completamente vacía: dominio degenerado pero estable (nada que
+      // dibujar, y ningún NaN propagándose al path).
+      const min = finite.length ? Math.min(...finite) : 0;
+      const max = finite.length ? Math.max(...finite) : 1;
       return { ...s, min, max, range: max - min || 1, vals };
     });
   }
@@ -241,6 +380,10 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   //   crisis → % de riesgo · BHI → escala 1–10 · polarización → %.
   // Antes crisis/BHI salían como "0.59" crudo en el hover.
   function fmtVal(key, v) {
+    // Guarda de nulos: sin esto, un null en cualquier serie lanzaba
+    // "Cannot read properties of undefined (reading 'toFixed')" y el
+    // EcoErrorBoundary se comía la pantalla entera.
+    if (isGap(v)) return 's/d';
     if (typeof valueFormat === 'function') return valueFormat(v);
     if (key === 'totalMentions') return v >= 1000 ? (v/1000).toFixed(1) + 'K' : v.toFixed(0);
     if (key === 'nss') return (v > 0 ? '+' : '') + v.toFixed(1);
@@ -256,28 +399,44 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
   return (
     <div ref={ref} style={{ width: '100%', position: 'relative' }}>
       {/* Value strip / legend at top — stock-ticker style */}
-      <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', padding: '0 4px 10px', fontSize: 11, flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 9, fontWeight: 700 }}>{dateLabel}</span>
+      <div style={{ display: 'flex', gap: 'var(--sp-5)', alignItems: 'baseline', padding: '0 4px 10px', fontSize: 'var(--fs-overline)', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 'var(--fs-overline)', fontWeight: 700 }}>{dateLabel}</span>
         {normalized.map(s => {
           const v = data[hoverIdx][s.key];
-          const first = s.vals[0];
-          const delta = first ? ((v - first) / first) * 100 : 0;
+          const first = s.vals.find((x) => !isGap(x));
+          const delta = (!isGap(v) && !isGap(first) && first) ? ((v - first) / first) * 100 : null;
           return (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-15)' }}>
               <span style={{ width: 8, height: 2, background: s.color }} />
-              <span style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
-              <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 13 }}>{fmtVal(s.key, v)}</span>
-              <span className="num" style={{ color: delta >= 0 ? 'var(--pos)' : 'var(--neg)', fontSize: 10, fontWeight: 600 }}>
-                {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
-              </span>
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
+              <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body-sm)' }}>{fmtVal(s.key, v)}</span>
+              {/* La dirección la decide el contrato de la métrica, no el signo.
+                  Esta tira pintaba TODA subida en --pos: un alza de Crisis
+                  (declarada up-bad en data.js) salía verde, y una baja de
+                  Menciones —volumen, declarado NEUTRO— salía roja. */}
+              {delta == null ? (
+                <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', fontWeight: 600 }}>—</span>
+              ) : (
+                <span className="num" style={{ color: window.ecoDeltaColor(s.metricKey || s.key, delta), fontSize: 'var(--fs-overline)', fontWeight: 600 }}>
+                  {window.ecoDeltaArrow(delta)} {Math.abs(delta).toFixed(1)}%
+                </span>
+              )}
             </div>
           );
         })}
       </div>
 
-      <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+      <svg width={w} height={height} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}
         onClick={(e) => { if (!onPointClick) return; const rect = e.currentTarget.getBoundingClientRect(); const x = e.clientX - rect.left - padding.l; const idx = Math.round(x / step); if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx); }}
         style={{ display: 'block', cursor: onPointClick ? 'pointer' : 'crosshair' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || `Evolución de ${series.map((x) => x.label).join(', ')}`}
+          desc={`${data.length} puntos, de ${data[0]?.date || ''} a ${data[data.length - 1]?.date || ''}. ` +
+            (Array.isArray(yDomain) || sharedScale
+              ? 'Todas las series comparten la escala vertical.'
+              : 'Cada serie usa su propia escala vertical, así que las alturas no son comparables entre series.') +
+            ' Los datos exactos están en la tabla que sigue.'} />
         <defs>
           {normalized.map(s => (
             <linearGradient key={s.key} id={`mlg-${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -294,7 +453,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             <g key={i}>
               <line x1={0} y1={p * innerH} x2={innerW} y2={p * innerH} stroke="var(--hairline)" strokeDasharray={i === 0 || i === 4 ? '0' : '2 3'} />
               {sharedScale && normalized[0] && (
-                <text x={-6} y={p * innerH + 3} fontSize="9" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
+                <text x={-6} y={p * innerH + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
                   {Math.round(normalized[0].max - (p * normalized[0].range))}
                 </text>
               )}
@@ -308,7 +467,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return [0, 0.5, 1].map((p) => {
               const val = s.max - p * s.range;
               return (
-                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="9" textAnchor="end"
+                <text key={`yl-${p}`} x={-4} y={p * innerH + 3} fontSize="var(--fs-overline)" textAnchor="end"
                       fill="var(--text-3)" fontFamily="var(--ff-numeric)">
                   {fmtVal(s.key, val)}
                 </text>
@@ -321,7 +480,8 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               el fill confundía visualmente. */}
           {!sharedScale && normalized[0] && (() => {
             const s = normalized[0];
-            const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
+            const pts = data.map((d, i) => isGap(d[s.key]) ? null : [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]).filter(Boolean);
+            if (pts.length < 2) return null;
             // Reemplazo el M inicial del path Catmull-Rom por L para anexarlo al
             // move-to bottom-left que abre el área.
             const lineFromL = catmullRomPath(pts).replace(/^M /, 'L ');
@@ -332,14 +492,26 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           {/* Lines — Catmull-Rom cuando smooth=true (pasa por cada punto sin
               overshoot ni mesetas) o straight L cuando smooth=false. */}
           {normalized.map((s) => {
-            const pts = data.map((d, i) => [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
-            const useSmooth = smooth || (!sharedScale && pts.length > 2);
-            const p = useSmooth ? catmullRomPath(pts) : (() => {
-              let str = `M ${pts[0][0]},${pts[0][1]}`;
-              for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
-              return str;
-            })();
-            return <path key={s.key} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            // Un hueco parte la línea: no se interpola por encima de un día sin
+            // dato ni se baja a cero. Cada tramo contiguo es su propio <path>.
+            const raw = data.map((d, i) => isGap(d[s.key]) ? null : [i * step, innerH - ((d[s.key] - s.min) / s.range) * innerH]);
+            const segments = splitSegments(raw);
+            return (
+              <g key={s.key}>
+                {segments.map((pts, si) => {
+                  if (pts.length === 1) {
+                    return <circle key={si} cx={pts[0][0]} cy={pts[0][1]} r="2.5" fill={s.color} />;
+                  }
+                  const useSmooth = smooth || (!sharedScale && pts.length > 2);
+                  const p = useSmooth ? catmullRomPath(pts) : (() => {
+                    let str = `M ${pts[0][0]},${pts[0][1]}`;
+                    for (let i = 1; i < pts.length; i++) str += ` L ${pts[i][0]},${pts[i][1]}`;
+                    return str;
+                  })();
+                  return <path key={si} d={p} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+                })}
+              </g>
+            );
           })}
 
           {/* Dots SIEMPRE visibles en cada día — el usuario puede verificar
@@ -349,6 +521,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           {normalized.map((s) => (
             <g key={`${s.key}-dots`}>
               {data.map((d, i) => {
+                if (isGap(d[s.key])) return null;
                 const y = innerH - ((d[s.key] - s.min) / s.range) * innerH;
                 const isHover = hover === i;
                 return (
@@ -377,6 +550,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
               <g>
                 <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {normalized.map(s => {
+                  if (isGap(dotData[s.key])) return null;
                   const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
                   return (
                     <g key={s.key}>
@@ -395,7 +569,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
                   {normalized.map((s, i) => (
                     <g key={s.key}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={s.color} rx={2} />
-                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{s.label}</text>
+                      <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{s.label}</text>
                       <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {fmtVal(s.key, dotData[s.key])}
                       </text>
@@ -408,13 +582,17 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
 
           {/* Last-point value tags on the right edge */}
           {normalized.map(s => {
-            const lastIdx = data.length - 1;
+            // Ancla al último punto CON dato: si la serie termina en hueco, la
+            // etiqueta marcaba una posición inventada (o NaN).
+            let lastIdx = -1;
+            for (let i = data.length - 1; i >= 0; i--) { if (!isGap(data[i][s.key])) { lastIdx = i; break; } }
+            if (lastIdx === -1) return null;
             const y = innerH - ((data[lastIdx][s.key] - s.min) / s.range) * innerH;
             const v = data[lastIdx][s.key];
             return (
               <g key={s.key + '-tag'} transform={`translate(${innerW + 4}, ${y})`}>
                 <rect x={0} y={-8} width={46} height={16} fill={s.color} rx={2} />
-                <text x={23} y={3} fontSize="10" fontWeight="700" fill="#fff" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
+                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
               </g>
             );
           })}
@@ -438,7 +616,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
             return unique
               .filter((idx) => data[idx] && data[idx].date)
               .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="9" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
+                <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{data[idx].date}</text>
               ));
           })()}
           {/* Tick marks bajo cada día (útil cuando hay >14 días y no caben labels) */}
@@ -447,20 +625,253 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
           ))}
         </g>
       </svg>
+      <ChartTable ids={ids}
+        caption={a11yTitle || `Datos de ${series.map((x) => x.label).join(', ')}`}
+        columns={[{ key: 'date', label: 'Fecha' }].concat(series.map((x) => ({
+          key: x.key, label: x.label, format: (v) => (isGap(v) ? 'sin dato' : fmtVal(x.key, v)),
+        })))}
+        rows={data} />
+    </div>
+  );
+}
+
+// BandScale — pista de bandas con marcador y etiquetas EN SU UMBRAL (WS-F8/G6).
+//
+// Reemplaza cuatro copias del mismo patrón (gauge de crisis en Overview y en
+// Scorecard, BrandHealthMini, barra de Polarización), cada una con su propia
+// aritmética y sus propias etiquetas.
+//
+// Arregla tres cosas que las cuatro copias tenían mal:
+//
+//  1. LAS ETIQUETAS ESTABAN EN EL SITIO EQUIVOCADO. Usaban
+//     `justify-content: space-between`, que las reparte en cuartos IGUALES. Pero
+//     los umbrales reales de crisis son 0.25 / 0.40 / 0.60, así que la palabra
+//     "ALERTA" quedaba impresa sobre la zona de CRISIS y el marcador al 41%
+//     parecía lejísimos de la alerta mientras el titular decía "Alerta". Aquí
+//     cada etiqueta se ancla al CENTRO de su banda real.
+//  2. SE PISABAN. Al subir la escala tipográfica a 11px, "APÁTICA MODERADA ALTA
+//     EXTREMA" dejaba de caber y se leía "APÁTICAMODERADAALTAEXTREMA". Ahora las
+//     etiquetas que no caben se ocultan (se conserva la primera y la última, que
+//     son las que dan la escala) y siempre quedan legibles.
+//  3. NO DECÍAN SU VALOR. El marcador no llevaba el número, así que había que
+//     inferirlo de la posición.
+function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel }) {
+  const [ref, w] = useChartWidth(240);
+  const ids = useChartIds();
+  const v = isGap(value) ? null : Math.min(max, Math.max(0, value));
+  const pct = (x) => (x / max) * 100;
+
+  // ¿Caben todas las etiquetas? Estimación conservadora de 6.4px por carácter a
+  // 11px en Krub, más 8px de aire a cada lado.
+  const totalChars = bands.reduce((n, b) => n + String(b.label).length, 0);
+  // 6.9px/carácter y 14px de aire por etiqueta: la estimación anterior (6.4/8)
+  // decía que caben y se tocaban («Elevado» pegado a «Alerta»).
+  const fits = w === 0 || totalChars * 6.9 + bands.length * 14 <= w;
+  const visible = fits
+    ? bands.map((_, i) => i)
+    // Si no caben, se conservan sólo los extremos: son los que fijan la escala.
+    : [0, bands.length - 1];
+
+  const activeIdx = v == null ? -1 : bands.findIndex((b, i) => v >= b.from && (v < b.to || i === bands.length - 1));
+
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <div role="img" aria-labelledby={ids.titleId}
+        style={{ height, borderRadius: 'var(--r-sm)', position: 'relative', overflow: 'hidden', display: 'flex' }}>
+        <span id={ids.titleId} className="sr-only">
+          {ariaLabel || 'Escala por bandas'}
+          {v != null && activeIdx >= 0 ? `: ${valueLabel ?? v}, banda ${bands[activeIdx].label}` : ': sin dato'}
+        </span>
+        {bands.map((b, i) => (
+          <span key={i} style={{
+            // El ancho es proporcional al RANGO REAL de la banda, no 1/n.
+            flex: (b.to - b.from),
+            background: b.color,
+            // La banda activa a plena saturación; las demás atenuadas, para que
+            // el ojo vaya al veredicto sin perder la escala de referencia.
+            // La severidad la codifica el COLOR, nunca la opacidad. Atenuar las
+            // inactivas al 35% rompía la monotonía de la rampa: con el valor en
+            // Alerta, la banda CRISIS —el extremo— quedaba más apagada que ella y
+            // leía como "zona deshabilitada", y Elevado (ámbar) al 35% se volvía
+            // oliva. La banda activa se marca con el anillo y con el marcador, no
+            // apagando las demás.
+            opacity: i === activeIdx ? 1 : 0.85,
+            boxShadow: i === activeIdx ? 'inset 0 0 0 1px var(--text)' : undefined,
+          }} />
+        ))}
+        {v != null && (
+          <span aria-hidden="true" style={{
+            position: 'absolute', left: `${pct(v)}%`, top: -2, bottom: -2,
+            width: 2, background: 'var(--text)', transform: 'translateX(-50%)',
+            borderRadius: 'var(--r-pill)',
+          }} />
+        )}
+      </div>
+      {/* Las etiquetas comparten la MISMA geometría que las bandas: cada una es
+          un tramo flex con el mismo `flex: (to - from)`, así que el rótulo cae
+          centrado sobre su banda por construcción y no por aritmética paralela.
+          Antes había dos reglas de anclaje en la misma fila: los extremos al
+          borde de la pista (left:0 / right:0) y los del medio al centro de su
+          banda, de modo que "Crisis" —que rotula 0.60–1— se imprimía en el 100%,
+          donde ya no hay banda que rotular, y "Normal" parecía el rótulo del
+          origen de la escala. Las que no caben se ocultan con `visibility` y NO
+          con return null: si desaparecieran del flex, las visibles se repartirían
+          el ancho y volverían a descolocarse. */}
+      <div style={{ display: 'flex', height: 15, marginTop: 'var(--sp-1)' }}>
+        {bands.map((b, i) => (
+          <span key={i} style={{
+            flex: (b.to - b.from),
+            minWidth: 0,
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+            visibility: visible.includes(i) ? 'visible' : 'hidden',
+            fontFamily: 'var(--ff-sans)',
+            fontSize: 'var(--fs-overline)',
+            fontWeight: i === activeIdx ? 700 : 500,
+            color: i === activeIdx ? 'var(--text-2)' : 'var(--text-3)',
+          }}>{b.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// SeriesPanels — small multiples con dominio Y COMPARTIDO (WS-C2, arreglo de F2).
+//
+// El problema: `MultiLineChart` sin `sharedScale` normaliza cada serie a su
+// propio min/max, así que dos series con el MISMO valor se dibujan a alturas
+// distintas. Medido en el Overview: positivo=33 quedaba ~40% más arriba que
+// negativo=35. El lector concluye lo contrario de lo que dicen los números.
+//
+// Por qué no basta con activar `sharedScale` en el mismo gráfico: con las tres
+// líneas superpuestas y un pico grande (neg=203 en un día de crisis), la
+// variación diaria normal se comprime en una banda plana al fondo — que es
+// exactamente la queja que originó la normalización por serie.
+//
+// La salida es separar las series en paneles apilados que COMPARTEN el eje: cada
+// una tiene su propia franja vertical (así se ve su forma) pero la misma escala
+// (así las alturas son comparables). Se conservan las curvas suaves y el
+// relleno, que es lo que el usuario pidió explícitamente.
+function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueFormat, a11yTitle }) {
+  const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
+  const [hover, setHover] = React.useState(null);
+  const padding = { l: 44, r: 16 };
+  const innerW = Math.max(50, w - padding.l - padding.r);
+
+  if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
+    return (
+      <div ref={ref} style={{ width: '100%', minHeight: panelHeight * 2, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
+        Sin datos suficientes para graficar.
+      </div>
+    );
+  }
+
+  // UN dominio para todas las series. Empieza en 0 porque son conteos: recortar
+  // el cero exagera las diferencias relativas.
+  const allVals = series.flatMap((sr) => data.map((d) => d[sr.key])).filter((v) => !isGap(v));
+  const dMax = Math.max(1, ...allVals);
+  const step = innerW / Math.max(1, data.length - 1);
+  const hoverIdx = hover == null ? data.length - 1 : hover;
+  const fmt = (v) => (isGap(v) ? 's/d' : (typeof valueFormat === 'function' ? valueFormat(v) : String(Math.round(v))));
+
+  function onMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const idx = Math.round((e.clientX - rect.left - padding.l) / step);
+    if (idx >= 0 && idx < data.length) setHover(idx);
+  }
+
+  const padTop = 8; // si no, la etiqueta del máximo del primer panel se recorta
+  const totalH = padTop + series.length * panelHeight + 22;
+  return (
+    <div ref={ref} style={{ width: '100%', position: 'relative' }}>
+      <svg width={w} height={totalH} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+        onClick={(e) => {
+          if (!onPointClick) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const idx = Math.round((e.clientX - rect.left - padding.l) / step);
+          if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx);
+        }}
+        style={{ display: 'block', cursor: onPointClick ? 'pointer' : 'crosshair' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || `Evolución de ${series.map((x) => x.label).join(', ')}`}
+          desc={`${series.length} paneles apilados que comparten la misma escala vertical (0 a ${Math.round(dMax)}), así que las alturas SÍ son comparables entre series. ${data.length} puntos, de ${data[0]?.date || ''} a ${data[data.length - 1]?.date || ''}.`} />
+        {series.map((sr, si) => {
+          const top = padTop + si * panelHeight;
+          const h = panelHeight - 12;
+          const y = (v) => top + h - ((v - 0) / dMax) * h;
+          const raw = data.map((d, i) => isGap(d[sr.key]) ? null : [padding.l + i * step, y(d[sr.key])]);
+          const segs = splitSegments(raw);
+          const hv = data[hoverIdx][sr.key];
+          return (
+            <g key={sr.key}>
+              {/* base del panel */}
+              <line x1={padding.l} y1={top + h} x2={padding.l + innerW} y2={top + h} stroke="var(--chart-grid)" />
+              {/* techo = máximo compartido, rotulado UNA vez por panel para que la
+                  escala sea visible y no haya que confiar en la memoria */}
+              <line x1={padding.l} y1={top} x2={padding.l + innerW} y2={top} stroke="var(--chart-grid)" strokeDasharray="2 3" />
+              <text x={padding.l - 6} y={top + 4} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{Math.round(dMax)}</text>
+              <text x={padding.l - 6} y={top + h + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">0</text>
+              {/* relleno + curva suave, que es lo que se quería conservar */}
+              {segs.map((pts, i) => {
+                if (pts.length < 2) return pts.length === 1 ? <circle key={i} cx={pts[0][0]} cy={pts[0][1]} r="2" fill={sr.color} /> : null;
+                const line = catmullRomPath(pts);
+                const area = `M ${pts[0][0]},${top + h} ${line.replace(/^M /, 'L ')} L ${pts[pts.length - 1][0]},${top + h} Z`;
+                return (
+                  <g key={i}>
+                    <path d={area} fill={sr.color} opacity="0.14" />
+                    <path d={line} stroke={sr.color} strokeWidth="1.75" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </g>
+                );
+              })}
+              {/* etiqueta de la serie DENTRO del panel */}
+              <text x={padding.l + 4} y={top + 10} fontSize="var(--fs-overline)" fontWeight="600" fill={sr.color} fontFamily="var(--ff-sans)">{sr.label}</text>
+              {/* valor en el punto bajo el cursor */}
+              {!isGap(hv) && (
+                <>
+                  <circle cx={padding.l + hoverIdx * step} cy={y(hv)} r="3.5" fill="var(--canvas)" stroke={sr.color} strokeWidth="2" />
+                  <text x={padding.l + innerW} y={top + 10} fontSize="11" fontWeight="700" textAnchor="end" fill="var(--text)" fontFamily="var(--ff-numeric)">{fmt(hv)}</text>
+                </>
+              )}
+            </g>
+          );
+        })}
+        {/* crosshair único, atravesando los paneles */}
+        {hover != null && (
+          <line x1={padding.l + hoverIdx * step} y1={padTop} x2={padding.l + hoverIdx * step} y2={padTop + series.length * panelHeight - 12}
+            stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
+        )}
+        {/* eje X compartido */}
+        {(() => {
+          const maxLabels = Math.max(2, Math.floor(innerW / 62));
+          const n = Math.min(maxLabels, data.length);
+          const denom = Math.max(1, n - 1);
+          const idxs = [...new Set(Array.from({ length: n }, (_, i) => Math.round((i * (data.length - 1)) / denom)))];
+          return idxs.filter((i) => data[i]?.date).map((i) => (
+            <text key={i} x={padding.l + i * step} y={totalH - 6} fontSize="var(--fs-overline)" textAnchor="middle" fill="var(--chart-axis)" fontFamily="var(--ff-numeric)">{data[i].date}</text>
+          ));
+        })()}
+      </svg>
+      <ChartTable ids={ids}
+        caption={a11yTitle || `Datos de ${series.map((x) => x.label).join(', ')}`}
+        columns={[{ key: 'date', label: 'Fecha' }].concat(series.map((x) => ({ key: x.key, label: x.label, format: (v) => fmt(v) })))}
+        rows={data} />
     </div>
   );
 }
 
 // Stacked area (sentiment over time)
-function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels }) {
+function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labels, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
+  const ids = useChartIds();
   const [hover, setHover] = React.useState(null); // índice del punto bajo el cursor
   const padding = { t: 10, r: 10, b: 24, l: 36 };
   const innerW = Math.max(50, w - padding.l - padding.r);
   const innerH = height - padding.t - padding.b;
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(keys) || keys.length === 0) {
     return (
-      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Sin datos suficientes para graficar.
       </div>
     );
@@ -493,11 +904,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
 
   return (
     <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={height}
+      <svg width={w} height={height} role="img" aria-labelledby={ids.titleId}
         onClick={onSvgClick}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         style={{ cursor: onPointClick ? 'pointer' : 'crosshair', display: 'block' }}>
+        <ChartTitle ids={ids}
+          title={a11yTitle || 'Volumen por sentimiento en el tiempo'}
+          desc={`${(data || []).length} días. Área apilada: la altura total de cada columna es el volumen del día.`} />
         <g transform={`translate(${padding.l},${padding.t})`}>
           {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
             <line key={i} x1={0} y1={innerH * p} x2={innerW} y2={innerH * p} stroke="var(--hairline)" />
@@ -511,7 +925,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
           })}
           {[0, 0.5, 1].map((p, i) => {
             const v = max * (1 - p);
-            return <text key={i} x={-6} y={innerH * p + 3} fontSize="10" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(v)}</text>;
+            return <text key={i} x={-6} y={innerH * p + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(v)}</text>;
           })}
           {(() => {
             const xTickCount = Math.min(7, data.length);
@@ -519,8 +933,17 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const xIdxs = Array.from({ length: xTickCount }, (_, i) => Math.round((i * (data.length - 1)) / denom));
             return xIdxs
               .filter((idx) => data[idx] && data[idx].date)
-              .map((idx) => (
-                <text key={idx} x={idx * step} y={innerH + 16} fontSize="10" textAnchor="middle" fill="var(--text-3)">{data[idx].date}</text>
+              .map((idx, i, arr) => (
+                // Los ticks EXTREMOS se ancklan al borde, no al centro: con
+              // textAnchor='middle' el último se centraba en x=innerW y pedía
+              // ~14px a la derecha, pero padding.r es 10, así que el svg lo
+              // recortaba y en el eje se leía "27 ju" —una fecha cortada en la
+              // gráfica principal, lo primero que se ve al proyectar—. El
+              // primero, centrado en x=0, metía su mitad izquierda en la
+              // canaleta del eje Y y se leía pegado al rótulo "0".
+              <text key={idx} x={idx * step} y={innerH + 16} fontSize="var(--fs-overline)"
+                textAnchor={i === 0 ? 'start' : i === arr.length - 1 ? 'end' : 'middle'}
+                fill="var(--text-3)">{data[idx].date}</text>
               ));
           })()}
 
@@ -553,14 +976,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
                   {keys.map((k, i) => (
                     <g key={k}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={colors[i]} rx={2} />
-                      <text x={24} y={22 + i * 18 + 11} fontSize="10" fill="var(--text-2)">{seriesLabel(k)}</text>
+                      <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{seriesLabel(k)}</text>
                       <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {Math.round(d[k] || 0)}
                       </text>
                     </g>
                   ))}
                   <g>
-                    <text x={10} y={22 + keys.length * 18 + 11} fontSize="10" fill="var(--text-3)" fontWeight="700">Total</text>
+                    <text x={10} y={22 + keys.length * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-3)" fontWeight="700">Total</text>
                     <text x={tooltipW - 10} y={22 + keys.length * 18 + 11} fontSize="11" fontWeight="700" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                       {Math.round(total)}
                     </text>
@@ -576,15 +999,32 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
 }
 
 // Donut chart
-function Donut({ data, size = 120, thickness = 16, colors, total = null }) {
-  const sum = total ?? data.reduce((s, d) => s + d.value, 0);
+function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTitle }) {
+  const ids = useChartIds();
+  const sum = total ?? data.reduce((s, d) => s + (Number(d.value) || 0), 0);
   const r = (size - thickness) / 2;
   const cx = size / 2, cy = size / 2;
   let angle = -Math.PI / 2;
+  // Un período sin menciones clasificadas trae `sum === 0`, y entonces
+  // `frac = 0/0 = NaN` se escribía tal cual en el atributo `d`: tres <path>
+  // inválidos y tres errores de consola en cada render. Es el mismo contrato que
+  // smoothLinePath: una primitiva de gráfica NO emite NaN al DOM, pase lo que
+  // pase con el dato. Sin datos se dibuja el anillo vacío, que ocupa el mismo
+  // espacio y no miente: no hay composición que mostrar.
+  const vacio = !Number.isFinite(sum) || sum <= 0;
   return (
-    <svg width={size} height={size}>
-      {data.map((d, i) => {
-        const frac = d.value / sum;
+    <svg width={size} height={size} role="img" aria-labelledby={ids.titleId}>
+      <ChartTitle ids={ids}
+        title={a11yTitle || 'Distribución'}
+        desc={vacio
+          ? 'Sin menciones clasificadas en el período.'
+          : (data || []).map((d) => `${d.label || d.name}: ${d.value}`).join('; ')} />
+      {vacio ? (
+        <circle cx={cx} cy={cy} r={r} fill="none"
+          stroke="var(--chart-void)" strokeWidth={thickness} />
+      ) : data.map((d, i) => {
+        const frac = (Number(d.value) || 0) / sum;
+        if (!Number.isFinite(frac) || frac <= 0) return null;   // segmento sin dato: no se dibuja
         const a0 = angle;
         const a1 = angle + frac * Math.PI * 2;
         angle = a1;
@@ -607,22 +1047,26 @@ function Donut({ data, size = 120, thickness = 16, colors, total = null }) {
 function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value', trackHeight = 6, onItemClick }) {
   const _max = max ?? Math.max(...items.map(i => i[valueKey]));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
       {items.map((it, i) => {
         const clickable = !!onItemClick;
         const El = clickable ? 'button' : 'div';
         return (
           <El key={i}
             onClick={clickable ? () => onItemClick(it, i) : undefined}
+            aria-label={clickable ? `${it[labelKey]}: ${it[valueKey]}` : undefined}
             style={{
-              display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)',
               background: 'transparent', border: 'none', padding: clickable ? '4px 6px' : 0,
               marginInline: clickable ? -6 : 0,
-              borderRadius: 6, textAlign: 'left', width: '100%',
+              borderRadius: 'var(--r-md)', textAlign: 'left', width: '100%',
               cursor: clickable ? 'pointer' : 'default',
             }}
             className={clickable ? 'row-hover' : undefined}>
-            <div style={{ width: 120, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it[labelKey]}</div>
+            {/* title: la caja del rótulo es fija (120 px) y se trunca con
+                ellipsis, así que sin tooltip un nombre largo de regla o de
+                municipio deja de ser identificable. */}
+            <div title={String(it[labelKey])} style={{ width: 120, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it[labelKey]}</div>
             <div className="bar-track" style={{ flex: 1, height: trackHeight }}>
               <div style={{ height: '100%', width: `${(it[valueKey] / _max) * 100}%`, background: colorFn ? colorFn(it, i) : 'var(--accent)', borderRadius: 'inherit', transition: 'width 0.3s var(--ease)' }} />
             </div>
@@ -672,55 +1116,84 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 // Mejoras issue #8: etiquetas de horas cada 2h en vez de cada 4h, separadores
 // visuales en transiciones de turno (madrugada→mañana→tarde→noche), hover más
 // pronunciado con z-index para que destaque sobre las celdas vecinas.
-function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, onCellClick }) {
+function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a11yTitle }) {
+  const ids = useChartIds();
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const bp = (window.ecoUseBreakpoint ? window.ecoUseBreakpoint() : 'desktop');
+  // En táctil, 24 columnas dan celdas de 10x14px: 168 objetivos imposibles de
+  // acertar con el dedo. Se agrupan en franjas de 2 horas (12 columnas), que a
+  // 390px deja celdas de ~26px y mantiene legible el patrón día/noche.
+  const bucket = bp === 'mobile' ? 2 : 1;
+  const cols = Math.ceil(hours / bucket);
   // Separadores en horas que marcan transición de turno (6am, 12pm, 6pm).
-  const SHIFT_BREAKS = new Set([6, 12, 18]);
-  const extraGap = (h) => SHIFT_BREAKS.has(h) ? 4 : 0;
+  const SHIFT_BREAKS = new Set(bucket === 1 ? [6, 12, 18] : [3, 6, 9]);
+  const extraGap = (c) => SHIFT_BREAKS.has(c) ? 4 : 0;
+  const hourOf = (c) => c * bucket;
+  const valueOf = (d, c) => {
+    let sum = 0;
+    for (let k = 0; k < bucket; k++) sum += (data[d * hours + hourOf(c) + k] ?? 0);
+    return sum;
+  };
+  const hourLabel = (c) => bucket === 1
+    ? `${String(hourOf(c)).padStart(2, '0')}:00`
+    : `${String(hourOf(c)).padStart(2, '0')}:00–${String(hourOf(c) + bucket - 1).padStart(2, '0')}:59`;
+  // Celdas fluidas: ocupan el ancho disponible en vez de un cellSize fijo.
+  const gridCols = `repeat(${cols}, minmax(0, 1fr))`;
+  // Tabla equivalente: una rejilla de 7x12 (o 7x24) de celdas de color es
+  // ilegible con lector de pantalla. Las celdas siguen siendo focoables una a
+  // una (tabIndex + aria-label), y la tabla da la lectura completa.
+  const tableRows = Array.from({ length: days }).map((_, d) => {
+    const row = { dia: labels[d] };
+    for (let c = 0; c < cols; c++) row[`h${c}`] = valueOf(d, c);
+    return row;
+  });
+  const tableCols = [{ key: 'dia', label: 'Día' }].concat(
+    Array.from({ length: cols }).map((_, c) => ({ key: `h${c}`, label: hourLabel(c) })));
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 2, marginLeft: 30, fontSize: 9, color: 'var(--text-3)', marginBottom: 4 }}>
-        {Array.from({ length: hours }).map((_, h) => (
-          <div key={h} style={{ width: cellSize, textAlign: 'center', marginLeft: extraGap(h), fontWeight: SHIFT_BREAKS.has(h) ? 700 : 400, color: SHIFT_BREAKS.has(h) ? 'var(--text-2)' : 'var(--text-3)' }}>
-            {h % 2 === 0 ? h : ''}
+    <div role="group" aria-label={a11yTitle || 'Actividad por día y hora'}>
+      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 'var(--sp-05)', marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-1)' }}>
+        {Array.from({ length: cols }).map((_, c) => (
+          <div key={c} style={{ textAlign: 'center', marginLeft: extraGap(c), fontWeight: SHIFT_BREAKS.has(c) ? 700 : 400, color: SHIFT_BREAKS.has(c) ? 'var(--text-2)' : 'var(--text-3)' }}>
+            {(bucket === 1 ? hourOf(c) % 2 === 0 : true) ? hourOf(c) : ''}
           </div>
         ))}
       </div>
       {Array.from({ length: days }).map((_, d) => (
-        <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: gap }}>
-          <div style={{ width: 28, fontSize: 10, color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
-          {Array.from({ length: hours }).map((_, h) => {
-            const v = data[d * hours + h] ?? 0;
-            const clickable = !!onCellClick;
-            return (
-              <div key={h}
-                role={clickable ? 'button' : undefined}
-                onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: h, value: v }) : undefined}
-                title={`${labels[d]} ${String(h).padStart(2, '0')}:00 — ${v} menciones`}
-                style={{
-                  width: cellSize, height: cellSize,
-                  background: colorFn(v),
-                  borderRadius: 3,
-                  marginLeft: extraGap(h),
-                  cursor: clickable ? 'pointer' : 'default',
-                  transition: 'transform 0.12s var(--ease)',
-                  position: 'relative',
-                }}
-                onMouseEnter={clickable ? (e) => {
-                  e.currentTarget.style.transform = 'scale(1.4)';
-                  e.currentTarget.style.outline = '2px solid var(--accent)';
-                  e.currentTarget.style.zIndex = '10';
-                } : undefined}
-                onMouseLeave={clickable ? (e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
-                  e.currentTarget.style.outline = 'none';
-                  e.currentTarget.style.zIndex = '';
-                } : undefined}
-              />
-            );
-          })}
+        <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-05)', marginBottom: gap }}>
+          <div style={{ width: 28, flexShrink: 0, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: d === 5 || d === 6 ? 700 : 500 }}>{labels[d]}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 'var(--sp-05)', flex: 1, minWidth: 0 }}>
+            {Array.from({ length: cols }).map((_, c) => {
+              const v = valueOf(d, c);
+              const clickable = !!onCellClick;
+              return (
+                <div key={c}
+                  role={clickable ? 'button' : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  aria-label={clickable ? `${labels[d]} ${hourLabel(c)}: ${v} menciones` : undefined}
+                  onClick={clickable ? () => onCellClick({ day: d, dayLabel: labels[d], hour: hourOf(c), hourEnd: hourOf(c) + bucket - 1, value: v }) : undefined}
+                  onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCellClick({ day: d, dayLabel: labels[d], hour: hourOf(c), hourEnd: hourOf(c) + bucket - 1, value: v }); } } : undefined}
+                  title={`${labels[d]} ${hourLabel(c)} — ${v} menciones`}
+                  className={clickable ? 'eco-heat-cell' : undefined}
+                  style={{
+                    aspectRatio: '1 / 1',
+                    // >=24px en ambos modos: es el mínimo de objetivo táctil de
+                    // WCAG 2.2 AA (SC 2.5.8), y aplica también con ratón.
+                    minHeight: 24,
+                    background: colorFn(v),
+                    borderRadius: 'var(--r-sm)',
+                    marginLeft: extraGap(c),
+                    cursor: clickable ? 'pointer' : 'default',
+                    position: 'relative',
+                  }}
+                />
+              );
+            })}
+          </div>
         </div>
       ))}
+      <ChartTable ids={ids}
+        caption={a11yTitle || 'Menciones por día de la semana y franja horaria'}
+        columns={tableCols} rows={tableRows} />
     </div>
   );
 }
@@ -728,6 +1201,13 @@ function Heatmap({ data, colorFn, cellSize = 16, gap = 2, hours = 24, days = 7, 
 // Puerto Rico map — tile-style mockup (Mapbox/Leaflet look)
 // Real map backed by Leaflet + OpenStreetMap tiles (no API key).
 // Falls back to the SVG mockup if Leaflet hasn't loaded yet.
+// Alto del mapa. Era 420px literal en cualquier viewport: en móvil la isla
+// ocupa 107 de esos 420 (25%) y el resto es basemap vacío, en la pantalla donde
+// el alto es el recurso escaso. Ahora sale del ancho con la proporción de la
+// isla (~2.6:1), con piso de 240 para que el encuadre no se quede sin sitio y
+// techo en los 420 de antes para no crecer en pantallas anchas.
+const MAP_HEIGHT = 'clamp(240px, 30vw, 420px)';
+
 function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
@@ -742,7 +1222,10 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const map = L.map(containerRef.current, {
         center: [18.22, -66.59],
         zoom: 9,
-        minZoom: 8,
+        // 7 y no 8: en móvil el fitBounds ya tocaba el piso de zoom (el control
+        // de alejar sale deshabilitado), así que la isla quedaba recortada y las
+        // etiquetas del basemap se encavalgaban con los marcadores.
+        minZoom: 7,
         maxZoom: 14,
         scrollWheelZoom: true,
         zoomControl: true,
@@ -799,31 +1282,47 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
     if (valid.length === 0) return;
     const max = Math.max(...valid.map(accessor), 1);
 
-    valid.forEach((m) => {
+    // De mayor a menor, para que con relleno opaco un municipio pequeño no
+    // desaparezca debajo de San Juan: el pequeño se pinta encima.
+    [...valid].sort((a, b) => accessor(b) - accessor(a)).forEach((m) => {
       const v = accessor(m);
-      const r = 8 + (v / max) * 22;
+      const r = mapMarkerRadius(v, max);
       const color = colorFn(m);
       const clickable = !!onMunicipalityClick;
+      // Leaflet recibe los colores como STRINGS en opciones JS, no como CSS, así
+      // que no puede resolver `var(--pos)`. Por eso van por ecoTokenValue(), que
+      // los resuelve con getComputedStyle en cada render — y por eso el modo
+      // CLARO estaba roto aquí: los marcadores y el tooltip llevaban hex de modo
+      // oscuro (#0E1620, #3FD47A, #FF6A3D, #8A94A1, #E6ECF3) escritos a mano.
+      const T = (t) => window.ecoTokenValue(t);
       const marker = L.circleMarker([m.lat, m.lon], {
         radius: r,
-        fillColor: color,
-        color: '#0E1620',
+        fillColor: color.startsWith('var(') ? T(color) : color,
+        color: T('var(--canvas)'),
         weight: 1.5,
-        fillOpacity: 0.78,
+        // El alpha vive en el TOKEN (--seq-* es una rampa de opacidad): un 0.78
+        // encima lo multiplicaba por segunda vez, así que el chip de la leyenda
+        // y el marcador del mismo dato no coincidían (−18% de luminancia) y el
+        // paso más bajo quedaba en alpha efectivo 0.06.
+        fillOpacity: 1,
         className: 'eco-map-marker',
       });
+      // Escala canónica del NSS (−100..100, #92): entero, sin decimal.
       const nssStr = (m.nss > 0 ? '+' : '') + Math.round(m.nss ?? 0);
-      const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
+      // El tooltip juzga el NSS con el MISMO umbral que el relleno del marcador
+      // y que la leyenda (ecoNssColor, banda ±20). Antes con >0/<0, así que el
+      // mismo municipio salía ámbar en el círculo y rojo en su tooltip.
+      const nssColor = T(window.ecoNssColor(m.nss));
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       // El tooltip siempre muestra el conteo real de menciones (m.count). En
       // modo "Sentimiento" el accessor devuelve |NSS|, que NO es un conteo, así
       // que nunca debe etiquetarse como "menciones".
       const cnt = (m.count ?? 0).toLocaleString('es-PR');
       marker.bindTooltip(
-        `<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;line-height:1.3;">
-          <div style="font-weight:700;color:#E6ECF3;margin-bottom:2px;">${label}</div>
-          <div style="color:#8A94A1;">${m.region}</div>
-          <div style="margin-top:4px;"><span style="color:#E6ECF3;font-weight:600;">${cnt}</span> menciones</div>
+        `<div style="font-family:${T('var(--ff-sans)')};font-size:12px;line-height:1.35;">
+          <div style="font-weight:700;color:${T('var(--text)')};margin-bottom:2px;">${label}</div>
+          <div style="color:${T('var(--text-2)')};">${m.region}</div>
+          <div style="margin-top:4px;"><span style="color:${T('var(--text)')};font-weight:600;">${cnt}</span> menciones</div>
           <div style="color:${nssColor};font-weight:600;">NSS ${nssStr}</div>
         </div>`,
         { direction: 'top', offset: [0, -4], opacity: 0.95, className: 'eco-map-tooltip' },
@@ -852,7 +1351,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   // If Leaflet hasn't loaded, show a lightweight placeholder (never the fake SVG).
   if (typeof window !== 'undefined' && !window.L) {
     return (
-      <div style={{ height: 420, borderRadius: 8, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div style={{ height: MAP_HEIGHT, borderRadius: 'var(--r-lg)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Cargando mapa…
       </div>
     );
@@ -862,8 +1361,8 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
     <div
       ref={containerRef}
       style={{
-        height: 420,
-        borderRadius: 8,
+        height: MAP_HEIGHT,
+        borderRadius: 'var(--r-lg)',
         overflow: 'hidden',
         border: '1px solid var(--hairline)',
         background: 'var(--canvas-2)',
@@ -872,7 +1371,31 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
   );
 }
 
+// Radio del marcador del mapa. El ojo lee el ÁREA del círculo, no el radio: con
+// el radio lineal en el dato (r = 8 + v/max*22) Bayamón —146 menciones, 42% de
+// San Juan— dibujaba un área del 33%, y TODOS los municipios medios salían ~20
+// puntos por debajo de su volumen real. Con la raíz el área ES el dato: 42% del
+// dato, 42% del área. El piso de 6px existe sólo como objetivo de click para un
+// municipio con 1-2 menciones (por debajo de ~4% del máximo el círculo
+// sobre-representa, que es el lado seguro del error).
+// Exportada porque la LEYENDA de tamaño tiene que medir con esta misma función:
+// leyenda y marca no pueden divergir (fue el hallazgo F6 en el eje del color).
+function mapMarkerRadius(v, max) {
+  const R_MAX = 30, R_MIN = 6;
+  const frac = max > 0 ? Math.max(0, Math.min(1, v / max)) : 0;
+  return Math.max(R_MIN, R_MAX * Math.sqrt(frac));
+}
+
 window.ECO_CHARTS = {
+  // useChartWidth se exporta porque el streamgraph y el mapa de Narrativas
+  // dibujan en un viewBox propio, y dentro de un viewBox escalado ningún
+  // `font-size` vale lo que dice el token: se multiplica por (ancho renderizado
+  // / ancho del viewBox). Medir el contenedor es la única forma de que --fs-*
+  // signifique píxeles también dentro de un SVG.
+  useChartWidth,
+  SeriesPanels,
+  BandScale,
   Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart,
-  Donut, HBarList, RadialGauge, Heatmap, PRMap
+  Donut, HBarList, RadialGauge, Heatmap, PRMap,
+  mapMarkerRadius,
 };

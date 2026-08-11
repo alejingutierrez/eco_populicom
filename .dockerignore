@@ -6,3 +6,6 @@ infra/node_modules
 *.md
 .env
 .claude
+# Harness de auditoría de diseño: sondas, fixtures y rig de captura. No hace
+# falta en la imagen de producción y arrastra los JSON de los fixtures.
+apps/web/tools

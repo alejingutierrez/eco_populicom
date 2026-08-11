@@ -131,15 +131,50 @@ class EcoErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.error) {
-      return React.createElement('div', {
-        style: { padding: 32, maxWidth: 640, margin: '80px auto', background: 'var(--canvas)', border: '1px solid var(--hairline-strong)', borderRadius: 12 },
+      // WS-A5: antes esto volcaba el stack trace crudo como contenido principal
+      // de la pantalla, a un usuario de gobierno. Ahora el stack va detrás de un
+      // <details> cerrado (para que soporte igual pueda pedirlo), el mensaje es
+      // humano, y la recuperación no usa location.href — que recarga toda la app
+      // y pierde el estado — sino que limpia el error y reintenta el render.
+      const h = React.createElement;
+      const err = this.state.error;
+      const detail = String((err && (err.stack || err.message)) || err);
+      return h('div', {
+        role: 'alert',
+        style: {
+          padding: 'var(--sp-8)', maxWidth: 620, margin: '10vh auto',
+          background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
+          borderRadius: 'var(--r-lg)',
+        },
       }, [
-        React.createElement('div', { key: 'eye', className: 'section-eyebrow', style: { color: 'var(--neg)' } }, 'Error de render'),
-        React.createElement('h2', { key: 'h', style: { marginTop: 8, fontFamily: 'var(--ff-display)', fontSize: 20 } }, 'Algo rompió la pantalla actual.'),
-        React.createElement('pre', { key: 'p', style: { marginTop: 12, padding: 12, background: 'var(--canvas-2)', borderRadius: 6, fontSize: 11, color: 'var(--text-2)', whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 180 } }, String(this.state.error && (this.state.error.stack || this.state.error.message))),
-        React.createElement('div', { key: 'btns', style: { marginTop: 16, display: 'flex', gap: 8 } }, [
-          React.createElement('button', { key: 'r', className: 'btn btn-primary', onClick: () => { this.setState({ error: null }); } }, 'Reintentar'),
-          React.createElement('button', { key: 'h2', className: 'btn', onClick: () => { location.href = '/dashboard'; } }, 'Volver al dashboard'),
+        h('div', { key: 'eye', className: 'section-eyebrow', style: { color: 'var(--neg)' } }, 'No se pudo mostrar esta pantalla'),
+        h('h2', { key: 'h', style: { margin: 'var(--sp-2) 0 0', fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-display-lg)', lineHeight: 1.2, color: 'var(--text)' } },
+          'Algo falló al dibujar esta vista'),
+        h('p', { key: 'p1', style: { marginTop: 'var(--sp-3)', fontSize: 'var(--fs-body)', lineHeight: 1.6, color: 'var(--text-2)' } },
+          'Tus datos están intactos: el fallo es al pintar la pantalla, no al leerlos. Puedes reintentar, y si vuelve a pasar, prueba otra sección del menú.'),
+        h('div', { key: 'btns', style: { marginTop: 'var(--sp-5)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' } }, [
+          h('button', {
+            key: 'r', className: 'btn btn-primary',
+            onClick: () => { this.setState({ error: null }); },
+          }, 'Reintentar'),
+          h('button', {
+            key: 'o', className: 'btn',
+            onClick: () => { try { localStorage.setItem('eco.active', 'overview'); } catch (_) {} this.setState({ error: null }); },
+          }, 'Ir al Overview'),
+        ]),
+        h('details', { key: 'd', style: { marginTop: 'var(--sp-5)' } }, [
+          h('summary', {
+            key: 's',
+            style: { fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)', cursor: 'pointer' },
+          }, 'Detalle técnico (para soporte)'),
+          h('pre', {
+            key: 'pre',
+            style: {
+              marginTop: 'var(--sp-2)', padding: 'var(--sp-3)', background: 'var(--surface-inset)',
+              borderRadius: 'var(--r-sm)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)',
+              whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 200, fontFamily: 'var(--ff-mono)',
+            },
+          }, detail),
         ]),
       ]);
     }
@@ -147,6 +182,9 @@ class EcoErrorBoundary extends React.Component {
   }
 }
 
+// `mando` es el único tema desde WS-F5 (costa y gaceta retirados). El atributo
+// data-theme se conserva en <html> por compatibilidad, pero tokens.css ya no
+// depende de él: los tokens viven en :root incondicional.
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
@@ -158,7 +196,7 @@ const SCREEN_META = {
   topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
-  settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
+  settings:  { label: 'Configuración', eyebrow: 'Usuarios y plantillas' },
   narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
   'exec-tabla': { label: 'Tabla de posiciones', eyebrow: 'Vista ejecutiva · ranking de salud digital' },
   'exec-sala':  { label: 'Sala de mando',       eyebrow: 'Vista ejecutiva · sala de mando multi-agencia' },
@@ -239,7 +277,9 @@ function App() {
     if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
     return (list[0] && list[0].key) || 'aaa';
   });
-  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '7D');
+  // Mismo default que pide el boot de index.html (window.ECO_DEFAULT_PERIOD),
+  // para que el chip iluminado y la ventana consultada nunca discrepen.
+  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D');
   const [cmdOpen, setCmdOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
@@ -316,6 +356,10 @@ function App() {
   }, [agency]);
 
   useEffect(() => {
+    // index.html ya pone data-theme/data-mode en <html> para que los tokens
+    // existan desde el primer byte (sin FOUC, y para que un crash de render no
+    // deje al error boundary sin sistema de diseño). Esto sólo los mantiene en
+    // sync cuando el usuario cambia de modo.
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-mode', mode);
     document.documentElement.setAttribute('data-density', density);
@@ -363,7 +407,7 @@ function App() {
         collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         onOpenCommand={() => setCmdOpen(true)}
-        theme={theme} mode={mode}
+        mode={mode}
       />
       {bp === 'mobile' && menuOpen && <div className="eco-menu-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="eco-main">

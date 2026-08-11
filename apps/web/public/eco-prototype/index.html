@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="mando" data-mode="dark">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,216 +7,28 @@
 <link rel="icon" type="image/svg+xml" href="/eco-prototype/icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,400..800;1,400..600&family=Krub:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<!-- Capa de tokens del sistema de diseño — fuente única de verdad.
+     Ver /design-system/index.html para el especimen vivo. -->
+<link rel="stylesheet" href="/eco-prototype/tokens.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
-  :root {
-    /* shared */
-    --r-sm: 6px;
-    --r: 10px;
-    --r-lg: 14px;
-    --r-xl: 20px;
-    --ff-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --ff-serif: 'Newsreader', 'Instrument Serif', Georgia, serif;
-    --ff-mono: 'IBM Plex Mono', ui-monospace, monospace;
-    --ff-display: 'Instrument Sans', -apple-system, sans-serif;
+  /* :root — tipografía, espaciado, radios y movimiento viven ahora en
+     tokens.css. No re-declares aquí: si falta un token, añádelo allá. */
 
-    --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  /* ============================================== */
-  /* THEME: COSTA (default, modern institutional)   */
-  /* ============================================== */
-  [data-theme="costa"][data-mode="light"] {
-    --bg: #F3F5F8;
-    --bg-2: #E9EDF2;
-    --canvas: #FFFFFF;
-    --canvas-2: #FAFBFD;
-    --hairline: #E6EAF0;
-    --hairline-strong: #D4DAE3;
-    --text: #0B1A26;
-    --text-2: #5B6B7B;
-    --text-3: #94A0AC;
-    --accent: #0B5F80;
-    --accent-2: #2A92B5;
-    --accent-fill: rgba(11,95,128,0.08);
-    --pos: #2E8B6A;
-    --pos-bg: #E8F5EE;
-    --neg: #C2412F;
-    --neg-bg: #FBECE8;
-    --warn: #B47410;
-    --warn-bg: #FBF2DC;
-    --info: #0B5F80;
-    --rail-bg: #0E1E2C;
-    --rail-fg: rgba(255,255,255,0.58);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,255,255,0.08);
-    --rail-border: rgba(255,255,255,0.06);
-    --shadow-sm: 0 1px 0 rgba(11,26,38,0.04), 0 1px 3px rgba(11,26,38,0.03);
-    --shadow: 0 1px 0 rgba(11,26,38,0.04), 0 6px 20px -8px rgba(11,26,38,0.08);
-    --ff-display: 'Instrument Sans', -apple-system, sans-serif;
-    --ff-numeric: 'Instrument Sans', -apple-system, sans-serif;
-    --letter-display: -0.02em;
-  }
-  [data-theme="costa"][data-mode="dark"] {
-    --bg: #0A1620;
-    --bg-2: #0F1E2B;
-    --canvas: #132332;
-    --canvas-2: #0F1E2B;
-    --hairline: rgba(255,255,255,0.07);
-    --hairline-strong: rgba(255,255,255,0.12);
-    --text: #E7EDF4;
-    --text-2: #8A9AAB;
-    --text-3: #5B6B7B;
-    --accent: #3FB5D8;
-    --accent-2: #68D5F2;
-    --accent-fill: rgba(63,181,216,0.14);
-    --pos: #53C189;
-    --pos-bg: rgba(83,193,137,0.12);
-    --neg: #EF6F5A;
-    --neg-bg: rgba(239,111,90,0.12);
-    --warn: #E9B15C;
-    --warn-bg: rgba(233,177,92,0.12);
-    --info: #3FB5D8;
-    --rail-bg: #081320;
-    --rail-fg: rgba(255,255,255,0.5);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(63,181,216,0.16);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.3);
-    --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
-  }
-
-  /* ============================================== */
-  /* THEME: GACETA (formal, print, government)      */
-  /* ============================================== */
-  [data-theme="gaceta"][data-mode="light"] {
-    --bg: #EFEAE0;
-    --bg-2: #E4DDCE;
-    --canvas: #F9F5EC;
-    --canvas-2: #F3EDDF;
-    --hairline: #D9D2BF;
-    --hairline-strong: #B9AF96;
-    --text: #1A1A1A;
-    --text-2: #5C554A;
-    --text-3: #8A8373;
-    --accent: #0F2949;
-    --accent-2: #1F4575;
-    --accent-fill: rgba(15,41,73,0.08);
-    --pos: #2C6B3C;
-    --pos-bg: rgba(44,107,60,0.10);
-    --neg: #8B1F1F;
-    --neg-bg: rgba(139,31,31,0.10);
-    --warn: #875A0D;
-    --warn-bg: rgba(135,90,13,0.12);
-    --info: #0F2949;
-    --rail-bg: #0F2949;
-    --rail-fg: rgba(255,255,255,0.58);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,255,255,0.10);
-    --rail-border: rgba(255,255,255,0.06);
-    --shadow-sm: 0 1px 0 rgba(26,26,26,0.05);
-    --shadow: 0 1px 0 rgba(26,26,26,0.05);
-    --ff-display: 'Newsreader', 'Instrument Serif', Georgia, serif;
-    --ff-numeric: 'Newsreader', Georgia, serif;
-    --letter-display: -0.01em;
-  }
-  [data-theme="gaceta"][data-mode="dark"] {
-    --bg: #14120D;
-    --bg-2: #1D1A13;
-    --canvas: #1F1C14;
-    --canvas-2: #161410;
-    --hairline: rgba(217,210,191,0.10);
-    --hairline-strong: rgba(217,210,191,0.22);
-    --text: #EFEAE0;
-    --text-2: #A59D88;
-    --text-3: #6F6959;
-    --accent: #C8A961;
-    --accent-2: #E2C283;
-    --accent-fill: rgba(200,169,97,0.12);
-    --pos: #6BB37A;
-    --pos-bg: rgba(107,179,122,0.10);
-    --neg: #D27266;
-    --neg-bg: rgba(210,114,102,0.12);
-    --warn: #E2B06A;
-    --warn-bg: rgba(226,176,106,0.12);
-    --info: #C8A961;
-    --rail-bg: #100E0A;
-    --rail-fg: rgba(239,234,224,0.45);
-    --rail-fg-active: #F2E4BD;
-    --rail-active-bg: rgba(200,169,97,0.10);
-    --rail-border: rgba(239,234,224,0.06);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.4);
-    --shadow: 0 1px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.7);
-  }
-
+    
+    
   /* ============================================== */
   /* THEME: MANDO (command center)                  */
   /* ============================================== */
-  [data-theme="mando"][data-mode="light"] {
-    --bg: #F5F6F7;
-    --bg-2: #E8EAED;
-    --canvas: #FFFFFF;
-    --canvas-2: #F5F6F7;
-    --hairline: #DFE2E6;
-    --hairline-strong: #BFC5CC;
-    --text: #0E1116;
-    --text-2: #525963;
-    --text-3: #8A909B;
-    --accent: #C83A1E;
-    --accent-2: #E85A3E;
-    --accent-fill: rgba(200,58,30,0.08);
-    --pos: #1D7F3C;
-    --pos-bg: rgba(29,127,60,0.10);
-    --neg: #C83A1E;
-    --neg-bg: rgba(200,58,30,0.10);
-    --warn: #B47410;
-    --warn-bg: rgba(180,116,16,0.12);
-    --info: #1F4575;
-    --rail-bg: #0A0F16;
-    --rail-fg: rgba(255,255,255,0.52);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(200,58,30,0.16);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(14,17,22,0.04);
-    --shadow: 0 1px 0 rgba(14,17,22,0.04), 0 6px 16px -10px rgba(14,17,22,0.1);
-    --ff-display: 'IBM Plex Sans', -apple-system, sans-serif;
-    --ff-numeric: 'IBM Plex Mono', ui-monospace, monospace;
-    --letter-display: -0.01em;
-  }
-  [data-theme="mando"][data-mode="dark"] {
-    --bg: #060A10;
-    --bg-2: #0A111A;
-    --canvas: #0E1620;
-    --canvas-2: #091018;
-    --hairline: rgba(255,255,255,0.06);
-    --hairline-strong: rgba(255,255,255,0.12);
-    --text: #E6ECF3;
-    --text-2: #8A94A1;
-    --text-3: #525B68;
-    --accent: #FF6A3D;
-    --accent-2: #FF8A63;
-    --accent-fill: rgba(255,106,61,0.14);
-    --pos: #3FD47A;
-    --pos-bg: rgba(63,212,122,0.10);
-    --neg: #FF6A3D;
-    --neg-bg: rgba(255,106,61,0.10);
-    --warn: #FFC043;
-    --warn-bg: rgba(255,192,67,0.10);
-    --info: #58A6FF;
-    --rail-bg: #030609;
-    --rail-fg: rgba(255,255,255,0.44);
-    --rail-fg-active: #FFFFFF;
-    --rail-active-bg: rgba(255,106,61,0.18);
-    --rail-border: rgba(255,255,255,0.05);
-    --shadow-sm: 0 1px 0 rgba(0,0,0,0.4);
-    --shadow: 0 1px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6);
-    --ff-display: 'IBM Plex Sans', -apple-system, sans-serif;
-    --ff-numeric: 'IBM Plex Mono', ui-monospace, monospace;
-  }
+  /* Tema MANDO (claro + oscuro) — definido en tokens.css, con las correcciones
+   de contraste AA (--text-3 2.65:1 → 5.00:1) y la separación --accent / --neg.
+   Los temas COSTA y GACETA de arriba siguen aquí porque no son alcanzables
+   por el usuario en producción (app.js fija mando/dark); el plan de
+   auditoría recomienda retirarlos. */
 
-  * { box-sizing: border-box; }
+* { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
@@ -227,10 +39,18 @@
     -moz-osx-font-smoothing: grayscale;
     transition: background 0.3s var(--ease), color 0.3s var(--ease);
   }
-  [data-theme="mando"] body { font-family: var(--ff-display); }
-  [data-theme="gaceta"] body { font-family: 'Instrument Sans', sans-serif; }
+  body { font-family: var(--ff-sans); }
 
-  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+  /* `font-size: inherit` cierra un hueco real: un <button> sin tamaño propio caía
+   * al default del navegador (13.333px en Chrome), un valor que no está en la
+   * escala y que nadie eligió. Heredar lo mete en la escala por defecto. */
+  button { font-family: inherit; font-size: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+
+  /* Cifras tabulares en TODA tabla. Sin esto los dígitos de Krub/Besley tienen
+   * anchos distintos (el 1 es más angosto que el 8), así que al cambiar de
+   * período las columnas de números se corren de fila en fila. Aquí es donde
+   * pertenecen las cifras de ancho fijo: 183 celdas numéricas no las tenían. */
+  table { font-variant-numeric: tabular-nums lining-nums; }
   input, select { font-family: inherit; color: inherit; }
   a { color: inherit; text-decoration: none; }
 
@@ -240,13 +60,66 @@
   ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 10px; border: 2px solid var(--bg); }
   ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
+  /* ===========================================================================
+     Objetivo mínimo de 24x24 (WCAG 2.2 AA, SC 2.5.8). Aplica con ratón también,
+     así que va SIN media query. `:where()` tiene especificidad cero: sube el
+     piso sin ganarle a ninguna regla existente.
+     Nota de umbrales: 44x44 es WCAG 2.1 AAA (SC 2.5.5), no AA — el objetivo
+     declarado del proyecto es AA, y en táctil se sube a 44 más abajo.
+     ======================================================================== */
+  :where(button, [role="button"], select, textarea, summary, .btn-chip) {
+    min-height: 24px;
+  }
+  /* Los enlaces de atribución de Leaflet son markup de terceros y salen a 14px.
+     Se suben al mínimo sin tocar su tamaño de letra. */
+  .leaflet-control-attribution a { display: inline-flex; align-items: center; min-height: 24px; }
+  /* Un input sin la clase .input (p.ej. un range) también necesita piso. */
+  :where(input:not([type="checkbox"]):not([type="radio"])) { min-height: 24px; }
+  input[type="range"] { min-height: 24px; }
+
+  /* Un <a> en flujo inline ignora min-height: necesita ser caja. */
+  :where(a.link, a[href].chip, a[href].btn) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+  }
+
+
+  /* ===========================================================================
+     Áreas táctiles (WS-A2). Se enganchan a `pointer: coarse`, NO al ancho: una
+     tablet de 1024px se toca con el dedo igual que un teléfono. Antes las
+     reglas vivían bajo `max-width: 768px` y apuntaban a 40/34px, por debajo del
+     mínimo de 44.
+     ======================================================================== */
+  @media (pointer: coarse) {
+    .btn, .chip, .btn-chip, .input, select, textarea, input[type="date"] { min-height: 44px; }
+    /* `.touch-target` expande el área SIN cambiar el tamaño visual: para los
+       controles densos (chips de serie, iconos de fila) donde estirar a 44px
+       rompería la retícula. */
+    .touch-target { position: relative; }
+    .touch-target::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+
+  /* Celda de heatmap: el hover con transform:scale(1.4) inline se movió a CSS
+     para tener también :focus-visible (era hover-only, inalcanzable sin ratón). */
+  .eco-heat-cell { transition: transform var(--dur-fast) var(--ease), outline-color var(--dur-fast) var(--ease); outline: 2px solid transparent; }
+  .eco-heat-cell:hover, .eco-heat-cell:focus-visible { transform: scale(1.4); outline-color: var(--accent); z-index: 10; }
+  @media (pointer: coarse) { .eco-heat-cell:active { transform: scale(1.25); outline-color: var(--accent); z-index: 10; } }
+
   /* utility */
-  .num { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums; letter-spacing: var(--letter-display, -0.01em); }
+  .num { font-family: var(--ff-numeric); font-variant-numeric: tabular-nums lining-nums; font-feature-settings: 'tnum' 1, 'lnum' 1; letter-spacing: var(--letter-display, -0.005em); }
   .mono { font-family: var(--ff-mono); }
   .kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 18px; height: 18px; padding: 0 5px;
-    font-family: var(--ff-mono); font-size: 10px; font-weight: 500;
+    font-family: var(--ff-mono); font-size: var(--fs-overline); font-weight: 500;
     background: var(--canvas-2); border: 1px solid var(--hairline);
     border-radius: 4px; color: var(--text-2);
   }
@@ -280,7 +153,7 @@
   }
 
   .eco-page {
-    padding: 20px 28px 48px;
+    padding: 20px var(--gutter-page) 48px;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -333,13 +206,14 @@
       box-shadow: 0 0 40px rgba(0,0,0,0.45);
     }
     .eco-app[data-menu-open="true"] .eco-sidebar { transform: translateX(0); }
-    .eco-page { padding: 14px 12px 36px; }
+    :root { --gutter-page: 12px; }
+    .eco-page { padding: 14px var(--gutter-page) 36px; }
     .show-mobile { display: inline-flex !important; }
     .hide-mobile { display: none !important; }
     /* Larger tap targets on touch screens. */
-    .btn { min-height: 40px; }
-    .chip { min-height: 34px; }
-    select, input[type="date"], .input { min-height: 40px; }
+    .btn { min-height: 44px; }
+    .chip { min-height: 44px; }
+    select, input[type="date"], .input, textarea { min-height: 44px; }
     /* Header date-range popover: pin to the viewport so it can't be clipped
        off-screen when the header controls wrap (the absolute right:0 anchor
        would otherwise hang past the left edge under overflow-x:hidden). */
@@ -354,6 +228,7 @@
 
   /* Card primitive */
   .card {
+    border-radius: 6px;
     background: var(--canvas);
     border: 1px solid var(--hairline);
     border-radius: var(--r-lg);
@@ -363,26 +238,40 @@
        otherwise lets wide inner content force horizontal overflow). */
     min-width: 0;
   }
-  [data-theme="gaceta"] .card { border-radius: 4px; }
-  [data-theme="mando"] .card { border-radius: 6px; }
 
   .card-hd {
     padding: 14px 16px 10px;
     display: flex;
     align-items: center;
+    /* `flex-wrap` es lo que impide que el título y los controles se peleen el
+       mismo renglón. Sin él, `.card-hd > div:first-child` (flex:1, min-width:0)
+       se comprimía a ~55px mientras los 6 chips de series no cedían nada: el
+       subtítulo de "Evolución multi-métrica" caía en once líneas de una palabra y
+       el punto del chip "NSS" quedaba ENCIMA de la palabra "hasta". Con wrap los
+       controles bajan enteros a su propia línea y el `gap` ya separa las dos. */
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 12px;
     border-bottom: 1px solid var(--hairline);
   }
   .card-hd > div:first-child { min-width: 0; flex: 1; }
-  .card-hd-title { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; }
-  [data-theme="gaceta"] .card-hd-title { font-family: var(--ff-serif); font-style: italic; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); }
-  .card-hd-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .card-hd-title { font-family: var(--ff-display); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); color: var(--text); text-transform: none; letter-spacing: var(--tracking-tight); }
+  /* 12px, no 11: --fs-overline sólo cubre eyebrows en mayúsculas y ticks de eje
+     (tokens.css §1) y este subtítulo es prosa en minúsculas — es justo donde vive
+     la metodología que el cliente pregunta en la reunión ("cada mención cuenta
+     una vez bajo su tópico de mayor confianza"). En móvil ocupa dos líneas. */
+  .card-hd-sub { font-size: var(--fs-caption); color: var(--text-3); margin-top: var(--sp-05); }
   .card-bd { padding: 16px; }
   .card-bd-flush { padding: 0; }
 
   /* Pill */
   .pill {
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+    padding: 4px 8px;
+    font-family: var(--ff-sans);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -393,8 +282,6 @@
     line-height: 1;
     white-space: nowrap;
   }
-  [data-theme="gaceta"] .pill { border-radius: 3px; font-weight: 500; padding: 4px 8px; }
-  [data-theme="mando"] .pill { border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; padding: 4px 8px; }
 
   .pill-pos { background: var(--pos-bg); color: var(--pos); }
   .pill-neg { background: var(--neg-bg); color: var(--neg); }
@@ -411,7 +298,13 @@
     border-color: color-mix(in oklab, var(--text-2) 45%, transparent);
   }
   .pill-warn { background: var(--warn-bg); color: var(--warn); }
-  .pill-info { background: var(--accent-fill); color: var(--accent); }
+  /* 'info' pintada con el naranja de marca era el bug: --accent-fill + --accent
+     es el tratamiento del ESTADO de interacción (chip activo, término
+     seleccionado, página actual, coincidencia de búsqueda). Una pill que informa
+     de un ATRIBUTO del dato ('nuevo', 'datos cacheados') compartía tratamiento
+     exacto con 'seleccionado' dentro del mismo componente. --info/--info-bg ya
+     existían y estaban libres (#58A6FF, 7.22:1 sobre --canvas). */
+  .pill-info { background: var(--info-bg); color: var(--info); }
   /* Fallback for unexpected sentiment values (should never hit in prod given
      the DB constraint, but surfaces gracefully if it does). */
   .pill-unknown {
@@ -422,63 +315,101 @@
 
   /* Chip button */
   .chip {
+    border-radius: 3px;
     display: inline-flex; align-items: center; gap: 6px;
     padding: 5px 10px; border-radius: 999px;
     font-size: 11px; font-weight: 500;
-    background: var(--canvas); border: 1px solid var(--hairline);
+    /* El chip se rellenaba con el MISMO color que la card que lo contiene, así
+       que los 8 chips de tópicos se leían como contornos fantasma a 1.15:1. */
+    background: var(--control-bg); border: 1px solid var(--hairline-strong);
     color: var(--text-2);
     transition: all 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .chip { border-radius: 3px; }
-  [data-theme="mando"] .chip { border-radius: 3px; }
   .chip:hover { border-color: var(--hairline-strong); color: var(--text); }
-  .chip.active { background: var(--text); color: var(--canvas); border-color: var(--text); }
-  [data-theme="gaceta"] .chip.active { background: var(--accent); border-color: var(--accent); color: #F9F5EC; }
-  [data-theme="mando"] .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* Un chip es un SELECTOR (filtro, modo, pestaña): en las 17 veces que aparece
+     `.chip.active` en screens.js no hay ni una acción primaria. Con el relleno
+     --accent y --on-accent era indistinguible de `.btn-primary`, y en el hero del
+     Scorecard "Señal del día" (chip activo) queda pegado a "Ver menciones" (botón
+     primario): dos primarios iguales, uno navega y otro selecciona. Seleccionado
+     = borde y texto del accent sobre relleno tenue (5.35:1 en oscuro, 4.58:1 en
+     claro). El relleno saturado queda para la acción, que es una por vista. */
+  .chip.active { background: var(--accent-fill); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+  /* Grupo de chips que forman UN control (criterio, vista, orden, sentimiento).
+     terms-cloud.js usaba la clase `.toggle-group` que NUNCA existió en el CSS:
+     sin regla el div no era flex y sus dos cápsulas de radio 999px quedaban a
+     0px, tocándose. El gap es el mismo --sp-15 que ViewToggle y los chips de
+     sentimiento ya escribían a mano; ahora los cuatro grupos de la pantalla lo
+     leen de un solo sitio en vez de declarar 0, 4 y 6px cada uno. */
+  .toggle-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-15);
+    flex-wrap: wrap;
+  }
 
   /* Button */
   .btn {
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: var(--ff-sans);
     display: inline-flex; align-items: center; gap: 8px;
     padding: 7px 14px;
+    /* min-height (no height) para que un botón con texto largo pueda crecer: la
+       altura de control sólo pone el PISO, que es lo que estaba desalineado —
+       el botón con texto medía 32 y el de sólo icono 30. */
+    min-height: var(--control-h);
     border-radius: var(--r);
     font-size: 13px; font-weight: 500;
+    min-height: var(--ctl-h);
     border: 1px solid var(--hairline);
-    background: var(--canvas);
+    background: var(--control-bg);
     color: var(--text);
     transition: all 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .btn { border-radius: 3px; }
-  [data-theme="mando"] .btn { border-radius: 4px; font-size: 12px; }
-  .btn:hover { border-color: var(--hairline-strong); background: var(--canvas-2); }
-  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* El hover tiene que ir hacia ARRIBA en la escala: con --canvas-2 (hundido)
+     pasar el ratón oscurecía el botón. */
+  .btn:hover { border-color: var(--hairline-strong); background: var(--control-bg-hover); }
+  /* Primer plano oscuro sobre relleno saturado: #fff sobre --accent da 2.85:1
+     (falla AA). Ver tokens.css §5 --on-*. */
+  .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
-  [data-theme="gaceta"] .btn-primary { color: #F9F5EC; }
 
   /* Input */
   .input {
     width: 100%;
     padding: 7px 12px;
+    /* height exacta, no min-height: `.input` sólo viste campos y selects de una
+       línea, y en una barra la altura tiene que ser IGUAL, no "al menos". */
+    height: var(--control-h);
+    min-height: var(--ctl-h);
     border-radius: var(--r);
     border: 1px solid var(--hairline);
-    background: var(--canvas);
+    background: var(--control-bg);
     color: var(--text);
     font-size: 13px;
     transition: border-color 0.15s var(--ease);
   }
-  [data-theme="gaceta"] .input { border-radius: 3px; }
   .input:hover { border-color: var(--hairline-strong); }
   .input:focus { outline: none; border-color: var(--accent); }
+  /* Un <select> con estilo inline tiene que medir lo mismo que un .input a su
+     lado: el piso de :where(select) son 24px (especificidad cero) y dejaba que
+     cada sitio inventara su alto con padding. */
+  select { min-height: var(--ctl-h); }
 
   /* Section title */
   .section-eyebrow {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text-3);
+    font-family: var(--ff-sans);
+    font-size: var(--fs-overline);
+    font-weight: var(--fw-semibold);
+    color: var(--text-2);
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin-bottom: 2px;
+    /* El token existe desde el día uno (tokens.css --tracking-overline: 0.09em) y
+       no lo usaba nadie más que el splash: aquí había 0.1em y en screens.js 16
+       divs con 0.08em a mano. Un solo valor para todos los overlines. */
+    letter-spacing: var(--tracking-overline);
+    margin-bottom: var(--sp-1);
   }
-  [data-theme="gaceta"] .section-eyebrow { font-family: var(--ff-serif); font-style: italic; font-weight: 400; text-transform: none; letter-spacing: 0.02em; font-size: 13px; }
 
   /* Loading shimmer */
   @keyframes shimmer {
@@ -513,8 +444,8 @@
   }
 
   /* Row hover */
-  .row-hover { transition: background 0.1s var(--ease); }
-  .row-hover:hover { background: var(--canvas-2); }
+  .row-hover { transition: background var(--dur-fast) var(--ease); min-height: 28px; }
+  .row-hover:hover, .row-hover:focus-visible { background: var(--canvas-2); }
 
   /* Spotlight / command palette */
   .spotlight-backdrop {
@@ -539,8 +470,6 @@
     animation: slideUp 0.22s var(--ease);
     overflow: hidden;
   }
-  [data-theme="gaceta"] .spotlight { border-radius: 4px; }
-  [data-theme="mando"] .spotlight { border-radius: 6px; }
 
   /* Drawer — z-index above Leaflet which goes up to 1000 */
   .drawer-backdrop {
@@ -615,7 +544,7 @@
   .chat-suggest {
     text-align: left; padding: 10px 12px; border-radius: 10px;
     border: 1px solid var(--hairline); background: var(--canvas-2);
-    color: var(--text-2); font-size: 12.5px; cursor: pointer; line-height: 1.4;
+    color: var(--text-2); font-size: var(--fs-body-sm); cursor: pointer; line-height: 1.4;
   }
   .chat-suggest:hover { background: var(--accent-fill); color: var(--text); border-color: var(--accent); }
   .chat-composer {
@@ -661,8 +590,6 @@
 
   /* Bar chart rows */
   .bar-track { background: var(--canvas-2); border-radius: 999px; overflow: hidden; }
-  [data-theme="gaceta"] .bar-track { border-radius: 1px; }
-  [data-theme="mando"] .bar-track { border-radius: 1px; }
 
   /* Status dot */
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
@@ -687,38 +614,49 @@
     animation: ringPulse 1.6s ease-out infinite;
   }
 
-  /* Leaflet theme overrides — match the Mando dark theme */
+  /* Leaflet: los estilos del contenedor y los controles SÍ pueden ser CSS, así
+     que van por token (los que Leaflet recibe como opciones JS van por
+     window.ecoTokenValue — ver la nota en charts.js PRMap). Antes esto tenía
+     los hex de modo oscuro escritos a mano, así que en modo claro el mapa
+     quedaba con tooltip oscuro y controles oscuros sobre un mapa claro. */
   .leaflet-container {
-    background: #0E1620;
+    background: var(--canvas);
     font-family: var(--ff-sans);
   }
   .leaflet-tooltip.eco-map-tooltip {
-    background: rgba(14, 22, 32, 0.95);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #E6ECF3;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-    padding: 6px 10px;
-    border-radius: 6px;
+    background: color-mix(in oklab, var(--surface-overlay) 95%, transparent);
+    border: 1px solid var(--hairline-strong);
+    color: var(--text);
+    box-shadow: var(--shadow-lg);
+    padding: var(--sp-15) var(--sp-3);
+    border-radius: var(--r-md);
+    font-size: var(--fs-caption);
   }
   .leaflet-tooltip.eco-map-tooltip::before { display: none; }
   .leaflet-control-zoom a,
   .leaflet-control-layers-toggle,
   .leaflet-control-layers-expanded {
-    background: rgba(14, 22, 32, 0.95) !important;
-    color: #E6ECF3 !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
+    background: color-mix(in oklab, var(--surface-overlay) 95%, transparent) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--hairline-strong) !important;
   }
   .leaflet-control-zoom a:hover,
-  .leaflet-control-layers-toggle:hover { background: rgba(255, 106, 61, 0.25) !important; }
+  .leaflet-control-layers-toggle:hover { background: var(--accent-fill) !important; }
   .leaflet-control-attribution {
-    background: rgba(14, 22, 32, 0.7) !important;
-    color: rgba(230, 236, 243, 0.55) !important;
-    font-size: 9px !important;
+    background: color-mix(in oklab, var(--canvas) 70%, transparent) !important;
+    color: var(--text-3) !important;
+    font-size: var(--fs-overline) !important;
   }
-  .leaflet-control-attribution a { color: rgba(63, 181, 216, 0.85) !important; }
-  .eco-map-marker { transition: stroke-width 0.15s var(--ease); cursor: pointer; }
+  /* --accent, no --info: `.link` del sistema es --accent y estos eran el único
+     azul de la pantalla. */
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+  /* Los tiles traen un gris neutro (#262626 en el agua) que no pertenece a la
+     rampa de superficies (#060A10…#1B2632): el bloque más grande de la pantalla
+     se lee como de otro sistema. El filtro los acerca sin tocar la imagen. Sólo
+     en oscuro; en claro los tiles ya conviven con --canvas. */
+  [data-mode="dark"] .leaflet-tile-pane { filter: saturate(0.75) brightness(0.82) contrast(1.05); }
+  .eco-map-marker { transition: stroke-width var(--dur-fast) var(--ease); cursor: pointer; }
   .eco-map-marker:hover { stroke-width: 3 !important; }
-  [data-mode="light"] .leaflet-container { background: #F5F6F7; }
 
   /* ============================================== */
   /* Narrativas — análisis con streamgraph + menu    */
@@ -726,7 +664,8 @@
   .narrative-screen {
     display: grid;
     grid-template-columns: 320px 1fr;
-    gap: 14px;
+    /* 14px no existe en la escala de espaciado (tokens.css §2). */
+    gap: var(--gap-grid);
     min-height: calc(100vh - 140px);
   }
   .narrative-menu {
@@ -760,40 +699,40 @@
     flex-wrap: wrap;
     gap: 4px;
   }
-  .btn-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--hairline-strong);
-    background: var(--canvas-2);
-    color: var(--text-2);
-    font-family: var(--ff-sans);
-    font-size: 10.5px;
-    cursor: pointer;
-    transition: all 0.12s var(--ease);
-  }
-  .btn-chip:hover:not(.disabled) { color: var(--text); border-color: var(--accent); }
-  .btn-chip.active {
-    background: var(--accent-fill);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .btn-chip.disabled,
-  .btn-chip:disabled {
+  /* .btn-chip era un SEGUNDO primitivo de chip con la representación de
+     "activo" INVERTIDA respecto de .chip (tinte contra relleno sólido) a 40px
+     de distancia en la misma pantalla. Los filtros de Narrativas usan ahora
+     .chip; lo único que .btn-chip aportaba y .chip no tenía era el estado
+     deshabilitado, que sube a la primitiva. */
+  .chip.disabled,
+  .chip:disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
+  /* Sobre el relleno sólido del chip activo, un punto de DATO queda a ~1.6:1;
+     el aro lo devuelve al primer plano sin tocar su hue. */
+  .chip.active .narrative-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
   .narrative-dot {
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: var(--r-circle);
     flex-shrink: 0;
     display: inline-block;
+    box-sizing: border-box;
+    background: var(--narr-tone, var(--text-3));
+  }
+  /* "Sin clasificar" NO puede ser un segundo gris: --narr-unknown y
+     --narr-dormant están a ΔE76 10.7 en oscuro y 6.0 en claro, indistinguibles
+     en un punto de 8px y en un trazo de sparkline de 1.2px. Se separan por
+     FORMA —anillo hueco— igual que .pill-unknown se separa por trama: una
+     narrativa muerta y una que el clasificador no supo etiquetar son cosas
+     distintas y son 3 de las 8 narrativas de la lista. */
+  .narrative-dot.is-unknown {
+    background: transparent;
+    border: 1.5px solid var(--narr-tone, var(--text-3));
   }
   .narrative-menu-count {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -827,7 +766,7 @@
   .narrative-item .narrative-dot { margin-top: 4px; align-self: flex-start; }
   .narrative-item-body { flex: 1; min-width: 0; }
   .narrative-item-name {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 600;
     color: var(--text);
     line-height: 1.3;
@@ -838,10 +777,10 @@
     -webkit-box-orient: vertical;
   }
   .narrative-item-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
-    gap: 5px;
+    gap: var(--sp-15);
     margin-top: 2px;
   }
   .narrative-sparkline {
@@ -857,11 +796,19 @@
     text-align: center;
   }
 
+  /* El inset vive en la CARD, no en uno de sus hijos. El conmutador
+     Detalle/Mapa, la card del grafo y el EmptyState de "elige una narrativa"
+     son HERMANOS de .narrative-analysis, así que con el padding puesto en el
+     hijo el pill saturado del conmutador arrancaba a 0px del borde de la card
+     (medido: borde en x=1164, relleno del pill en x=1166) mientras la píldora
+     de estado, el streamgraph y los seis paneles arrancaban a 20px. Un solo
+     padding alinea los cuatro hermanos. */
   .narrative-canvas {
     background: var(--canvas);
     border: 1px solid var(--hairline);
     border-radius: var(--r-lg);
     overflow: auto;
+    padding: var(--pad-card) var(--pad-card-lg) var(--sp-6);
   }
   .narrative-empty {
     padding: 80px 24px;
@@ -879,7 +826,7 @@
     text-align: center;
   }
 
-  .narrative-analysis { padding: 16px 20px 24px; }
+  .narrative-analysis { padding: 0; } /* el inset lo pone .narrative-canvas */
 
   .narrative-header {
     display: flex;
@@ -893,27 +840,42 @@
   .narrative-header-main { flex: 1; min-width: 0; }
   .narrative-header-row {
     display: flex;
-    align-items: center;
+    /* baseline, no center: cuando el título envuelve a dos líneas ("Apagones y
+       confianza en" / "LUMA" en 390px) `center` dejaba la píldora PICO flotando
+       entre las dos líneas, sin pertenecer a ninguna. Con baseline se apoya en
+       la línea base de la primera, que es la que lleva el nombre. */
+    align-items: baseline;
     gap: 10px;
     margin-bottom: 6px;
   }
+  /* Píldora TINTADA, no rellena. Antes era `color: white` sobre el color del
+     estado (2.38:1 con el naranja de "Pico"): el mismo defecto de blanco sobre
+     relleno saturado que tokens.css resuelve con --on-*. Tintada usa el color
+     del estado como TEXTO —los seis pasan AA sobre --canvas— y como fondo una
+     versión translúcida, igual que .pill-pos / .pill-neg. */
+  /* Hereda .pill (radio de píldora, padding, tamaño, nowrap): era el único
+     rectángulo de --r-sm rodeado de píldoras de --r-pill — en la captura PICO
+     sale cuadrado y apagón/LUMA/abonados ovalados. Aquí queda SÓLO el tono:
+     píldora tintada, no rellena, porque `color: white` sobre el color del
+     estado daba 2.38:1 con el naranja de "Pico". */
   .narrative-status-pill {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10px;
     font-weight: 600;
-    color: white;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    color: var(--narr-tone, var(--text-2));
+    background: color-mix(in oklab, var(--narr-tone, var(--text-2)) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--narr-tone, var(--text-2)) 32%, transparent);
   }
   .narrative-title {
     margin: 0;
     font-family: var(--ff-display);
-    font-size: 20px;
+    /* Token fluido: 20px fijos eran el mismo tamaño en 390px que en 1440px, y
+       el nombre de la narrativa es el objeto de toda la pantalla. */
+    font-size: var(--fs-display-lg);
+    line-height: var(--lh-display-lg);
     font-weight: 700;
     color: var(--text);
     letter-spacing: var(--letter-display);
-    line-height: 1.25;
   }
   .narrative-summary {
     color: var(--text-2);
@@ -925,7 +887,7 @@
   .narrative-keywords {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
+    gap: var(--sp-15);
     margin-top: 4px;
   }
   .narrative-tag {
@@ -933,7 +895,7 @@
     border-radius: 999px;
     background: var(--canvas-2);
     border: 1px solid var(--hairline-strong);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
   }
   .narrative-tag-mini {
@@ -941,35 +903,28 @@
     border-radius: 4px;
     background: var(--accent-fill);
     color: var(--accent);
-    font-size: 9.5px;
+    font-size: var(--fs-caption);
     margin-left: 4px;
   }
+  /* Las cifras las pinta <StatBox> (screens.js), el primitivo de KPI del
+     sistema; aquí sólo queda la caja que las alinea. Las tres reglas que había
+     (.narrative-metric / -label / -value) eran una copia a mano de StatBox con
+     18px en vez de 30px, otro peso y otro tracking: se borran para que no puedan
+     volver a divergir. `text-align: right` para que etiqueta y cifra compartan
+     el borde derecho del encabezado (en ≤980px pasa a rejilla a la izquierda).
+     18px tampoco existía en la escala de espaciado. */
   .narrative-header-metrics {
     display: flex;
-    gap: 18px;
+    gap: var(--sp-5);
     flex-shrink: 0;
-  }
-  .narrative-metric {
     text-align: right;
-  }
-  .narrative-metric-label {
-    font-size: 9.5px;
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .narrative-metric-value {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text);
-    font-family: var(--ff-numeric);
-    line-height: 1.2;
-    margin-top: 2px;
   }
 
   .narrative-stream-wrap {
-    margin-bottom: 16px;
-    padding: 12px;
+    /* Un solo medianil vertical en el panel: había 12px entre columnas, 14px
+       entre filas y 16px bajo el streamgraph. */
+    margin-bottom: var(--gap-grid);
+    padding: var(--sp-3);
     background: var(--canvas-2);
     border: 1px solid var(--hairline);
     border-radius: var(--r);
@@ -986,19 +941,20 @@
   .narrative-stream-key {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--sp-15);
   }
   .narrative-stream-key i {
     display: inline-block;
     width: 10px;
     height: 10px;
-    border-radius: 2px;
+    /* --r-sm: la misma curvatura que las demás muestras cuadradas de leyenda. */
+    border-radius: var(--r-sm);
   }
   .narrative-stream-hint {
     margin-left: auto;
     color: var(--text-3);
     font-style: italic;
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
   }
   .narrative-stream-svg {
     width: 100%;
@@ -1006,31 +962,42 @@
     max-height: 280px;
     display: block;
   }
-  .narrative-stream-day:hover rect { fill: rgba(63, 181, 216, 0.08); }
+  /* Un estado, un color. La banda del día seleccionado se pintaba con
+     rgba(63,181,216,…) —el azul del tema `costa`, ajeno a esta paleta, el mismo
+     defecto que tokens.css:349-352 documenta para HourActivityCard— mientras la
+     línea y el punto del MISMO día iban en --accent; y el hover usaba ese mismo
+     cian, así que hover y selección compartían hue. Ahora el hover es neutro y
+     sólo la selección usa el hue de selección de la app.
+     `.is-selected` va DESPUÉS del hover a propósito: misma especificidad, gana
+     la última, así que el cursor sobre el día ya elegido no lo apaga. */
+  .narrative-stream-day:hover rect { fill: var(--hairline); }
+  .narrative-stream-day.is-selected rect { fill: var(--accent-fill); }
 
+  /* Horizontal y vertical con el MISMO token: 12/14 mezclados hacían que la
+     retícula de paneles no cuadrara consigo misma, y 14 no está en la escala. */
   .narrative-grid-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--gap-grid);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--gap-grid);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-panel {
     background: var(--canvas-2);
     border: 1px solid var(--hairline);
     border-radius: var(--r);
-    padding: 12px;
-    margin-bottom: 14px;
+    padding: var(--sp-3);
+    margin-bottom: var(--gap-grid);
   }
   .narrative-grid-3 .narrative-panel,
   .narrative-grid-2 .narrative-panel { margin-bottom: 0; }
   .narrative-panel-label {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -1055,7 +1022,7 @@
   .narrative-sentiment-row > span {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--sp-15);
   }
   .narrative-sentiment-row i {
     display: inline-block;
@@ -1082,7 +1049,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: var(--fs-caption);
     color: var(--text);
   }
   .narrative-bar-name {
@@ -1154,13 +1121,13 @@
     border-radius: var(--r-sm);
   }
   .narrative-mention-title {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 500;
     color: var(--text);
     line-height: 1.35;
   }
   .narrative-mention-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
     flex-wrap: wrap;
@@ -1172,7 +1139,7 @@
   .narrative-sentiment-mini {
     padding: 1px 6px;
     border-radius: 4px;
-    font-size: 9.5px;
+    font-size: var(--fs-caption);
     text-transform: capitalize;
     background: var(--canvas-2);
   }
@@ -1210,14 +1177,14 @@
   }
   .narrative-related-name {
     flex: 1;
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .narrative-related-meta {
     color: var(--text-3);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     text-transform: lowercase;
   }
 
@@ -1262,7 +1229,7 @@
     border-bottom: 1px solid var(--hairline);
   }
   .narrative-day-eyebrow {
-    font-size: 10px;
+    font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -1313,7 +1280,7 @@
   .narrative-day-cluster-label em {
     font-style: normal;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: var(--fs-caption);
   }
   .narrative-day-mention {
     padding: 10px 12px;
@@ -1323,13 +1290,13 @@
     margin-bottom: 6px;
   }
   .narrative-day-mention-title {
-    font-size: 12.5px;
+    font-size: var(--fs-body-sm);
     font-weight: 500;
     color: var(--text);
     line-height: 1.4;
   }
   .narrative-day-mention-meta {
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     display: flex;
     flex-wrap: wrap;
@@ -1339,24 +1306,37 @@
   }
   .narrative-day-mention-meta strong { color: var(--text-2); font-weight: 600; }
   .narrative-day-mention-snippet {
-    font-size: 11.5px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
     margin-top: 6px;
     line-height: 1.45;
   }
 
   @media (max-width: 980px) {
-    .narrative-screen { grid-template-columns: 1fr; }
-    .narrative-menu { position: relative; height: auto; max-height: 400px; }
+    /* En una columna el grid ya no necesita el alto de la ventana: con
+       min-height y dos filas auto, el reparto del sobrante abría 125px de vacío
+       entre dos cards cuyo gap declarado es --gap-grid. */
+    .narrative-screen { grid-template-columns: 1fr; min-height: 0; align-content: start; }
+    /* El alto sale del viewport, no de un 400px fijo del que los chips a 44px
+       (pointer: coarse) se comían ~150px y dejaban 3 de 8 narrativas visibles.
+       El padding se iguala al inset de la card de análisis: apiladas, las dos
+       cards tenían un escalón de 8px (contenido en x=25 contra x=33). */
+    .narrative-menu { position: relative; height: auto; max-height: min(70vh, 520px); padding: var(--pad-card-lg); }
     .narrative-grid-3, .narrative-grid-2 { grid-template-columns: 1fr; }
     .narrative-header { flex-direction: column; }
-    .narrative-header-metrics { width: 100%; justify-content: space-between; }
+    /* Rejilla de 3 columnas iguales y texto a la izquierda: con space-between +
+       text-align:right cada cifra cerraba contra su propia celda y la fila de
+       tres KPI se leía sin eje común (la primera cifra colgaba 29px a la
+       derecha del borde izquierdo de su etiqueta). El selector va por hijos
+       para alinear igual con <StatBox> o con los divs antiguos. */
+    .narrative-header-metrics { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+    .narrative-header-metrics > * { text-align: left; }
   }
 </style>
 </head>
 <body>
 <div id="eco-root"></div>
-<div id="eco-boot" style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#8A94A1;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;background:#060A10;">Cargando · ECO Social Listening</div>
+<div id="eco-boot" style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-2);font-family:var(--ff-sans);font-size:var(--fs-overline);letter-spacing:var(--tracking-overline);text-transform:uppercase;background:var(--bg);">Cargando · ECO Social Listening</div>
 
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
@@ -1364,6 +1344,9 @@
 <script>
   // React hooks exposed as globals because each pre-compiled prototype file
   // destructures them at top level (`const { useState } = React`).
+  // Período por defecto del dashboard. Fuente única: la lee el boot de esta
+  // página y el estado inicial de `period` en app.js.
+  window.ECO_DEFAULT_PERIOD = '7D';
   window.useState = React.useState;
   window.useEffect = React.useEffect;
   window.useCallback = React.useCallback;
@@ -1380,17 +1363,17 @@
     banner.id = 'eco-api-banner';
     banner.style.cssText = [
       'position:fixed','top:0','left:0','right:0','z-index:3000',
-      'padding:10px 20px','font-family:-apple-system,sans-serif','font-size:12px','font-weight:600',
+      'padding:10px 20px','font-family:var(--ff-sans)','font-size:var(--fs-caption)','font-weight:600',
       'display:flex','gap:12px','align-items:center','justify-content:center',
-      'background:' + (kind === 'error' ? '#3a1411' : '#3a2e11'),
-      'color:' + (kind === 'error' ? '#ff8a63' : '#ffc043'),
-      'border-bottom:1px solid rgba(255,255,255,0.1)',
+      'background:' + (kind === 'error' ? 'var(--neg-bg)' : 'var(--warn-bg)'),
+      'color:' + (kind === 'error' ? 'var(--neg)' : 'var(--warn)'),
+      'border-bottom:1px solid var(--hairline-strong)',
     ].join(';');
     const msg = document.createElement('span');
     msg.textContent = message;
     const retry = document.createElement('button');
     retry.textContent = 'Reintentar';
-    retry.style.cssText = 'background:rgba(255,255,255,0.12);color:#E6ECF3;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
+    retry.style.cssText = 'background:var(--hairline-strong);color:var(--text);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
     retry.onclick = () => location.reload();
     banner.appendChild(msg);
     banner.appendChild(retry);
@@ -1414,7 +1397,12 @@
   (async function () {
     const params = new URLSearchParams(location.search);
     const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
-    const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
+    // ECO_DEFAULT_PERIOD: mismo default que usa el estado de la barra en
+    // app.js. Antes el boot pedía '1M' y el chip arrancaba en '7D', así que
+    // en cada sesión limpia —y `ecoSignOut` hace localStorage.clear(), o sea
+    // en cada login tras cerrar sesión— la barra decía 7D mientras los datos
+    // eran de 30 días.
+    const period = params.get('period') || localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD;
     // Rango personalizado: cuando period === 'custom', el OverviewFilterBar
     // habrá guardado eco.from y eco.to en localStorage. Se envían como query
     // params para que /api/eco-data sobrescriba la ventana derivada de period.
@@ -1470,11 +1458,11 @@
     // Babel-in-browser cost). Sequential to preserve global dependency order
     // (data -> icons -> charts -> shell -> screens -> app).
     const base = '/eco-prototype/dist';
-    const files = ['data.js', 'icons.js', 'charts.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
+    const files = ['data.js', 'icons.js', 'charts.js', 'terms-cloud.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc25';
+        s.src = base + '/' + f + '?v=prodc51';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
@@ -1484,7 +1472,7 @@
         document.body.appendChild(s);
       }).catch((e) => {
         const err = document.createElement('pre');
-        err.style.cssText = 'color:#ff6a3d;padding:24px;font-family:monospace;white-space:pre-wrap;';
+        err.style.cssText = 'color:var(--neg);padding:24px;font-family:var(--ff-mono);white-space:pre-wrap;';
         err.textContent = 'ECO boot error: ' + e.message;
         document.body.appendChild(err);
       });

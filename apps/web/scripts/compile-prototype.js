@@ -15,7 +15,7 @@ const babel = require('@babel/core');
 
 const SRC_DIR = path.resolve(__dirname, '..', 'public', 'eco-prototype');
 const OUT_DIR = path.resolve(SRC_DIR, 'dist');
-const FILES = ['data.js', 'icons.js', 'charts.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
+const FILES = ['data.js', 'icons.js', 'charts.js', 'terms-cloud.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 

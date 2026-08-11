@@ -195,11 +195,13 @@ export default function ReportsSettingsPage() {
     }
   }, [config, selectedAgencySlug, message, loadConfigAndHistory]);
 
-  // Cuando viene embebido (?embed=1), eliminamos el header de página y los
-  // paddings exteriores para que el AlertsScreen del prototype pueda
-  // contenerlo sin dobles bordes ni encabezados duplicados.
+  // Cuando viene embebido (?embed=1), eliminamos el header de página para que el
+  // AlertsScreen del prototype pueda contenerlo sin dobles bordes ni encabezados
+  // duplicados. El padding NO se elimina: se iguala a los 16 px de `.card-bd`,
+  // que es la caja que contiene el iframe. Con '12px 4px 4px 4px' el primer
+  // control arrancaba 12 px a la izquierda del título de la card.
   const layoutBg = isEmbedded ? 'transparent' : '#F4F7FA';
-  const contentPadding = isEmbedded ? '12px 4px 4px 4px' : '28px';
+  const contentPadding = isEmbedded ? '16px' : '28px';
   const contentMaxWidth = isEmbedded ? '100%' : 960;
 
   return (

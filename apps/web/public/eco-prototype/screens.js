@@ -1,6 +1,6 @@
 // Dashboard + screens
-const { Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
-const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
+const { Sparkline, AreaLineChart, MultiLineChart, SeriesPanels, BandScale, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap, useChartWidth } = window.ECO_CHARTS;
+const { EmptyState, Avatar, MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
@@ -31,11 +31,62 @@ function ecoBounceToSignIn() {
 // Fuente ÚNICA de la banda de Riesgo de Crisis (escala 0–1) para que el
 // veredicto NO difiera entre Overview y Scorecard. Cortes: NORMAL <0.25,
 // ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60 (mismos del backend/termómetro).
-const CRISIS_GRADIENT = 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, #E0662E 40%, #E0662E 60%, var(--neg) 60%, var(--neg) 100%)';
+// Bandas canónicas de cada métrica, con sus umbrales REALES. Antes cada gauge
+// repartía sus etiquetas en cuartos iguales con `justify-content: space-between`,
+// así que "ALERTA" quedaba impresa sobre la zona de CRISIS.
+// La rampa usa LOS MISMOS TOKENS QUE LA PALABRA. El titular se colorea con
+// BAND_TONE de @eco/shared/format (ALERTA → 'neg' → --neg) y el gradiente del
+// modal de shell.js también pinta 0.40–1 en --neg; sólo esta banda usaba
+// --accent, así que el MISMO estado salía rosa en la palabra y naranja en la
+// banda a 300px de distancia. Y --accent es identidad de marca (nav activa,
+// chip activo, tokens.css §5), no un nivel de severidad: en naranja la banda
+// se leía como "seleccionada". Los dos tramos de alarma comparten hue y se
+// separan por saliencia: 0.40–0.60 mezclado con el canvas (menos contraste),
+// ≥0.60 a plena saturación — así la escala sigue creciendo hacia la derecha
+// tanto en modo claro como en oscuro.
+const CRISIS_BANDS = [
+  { from: 0,    to: 0.25, label: 'Normal',  color: 'var(--pos)' },
+  { from: 0.25, to: 0.40, label: 'Elevado', color: 'var(--warn)' },
+  { from: 0.40, to: 0.60, label: 'Alerta',  color: 'color-mix(in oklab, var(--neg) 70%, var(--canvas))' },
+  { from: 0.60, to: 1,    label: 'Crisis',  color: 'var(--neg)' },
+];
+// BHI: cálculo interno 0-1, display 1-10 (1 + v*9). Los cortes 0.4/0.6/0.8
+// equivalen a 4.6/6.4/8.2 en la escala mostrada.
+// Colores de la rampa de VEREDICTO (tokens.css §6), aplicada al revés porque en
+// Brand Health lo bueno está a la DERECHA. 'Fuerte' iba en --info: el mejor tramo
+// saltaba fuera de la rampa a un token declarado para estados informativos (con
+// su par --info-bg/--on-info), y un azul junto al verde se lee como "otra
+// categoría", no como "mejor que verde". Así la rampa es monótona en hue:
+// rojo → ámbar → verde-amarillo → verde.
+const BHI_BANDS = [
+  { from: 0,   to: 0.4, label: 'Crítico', color: 'var(--verdict-4)' },
+  { from: 0.4, to: 0.6, label: 'Débil',   color: 'var(--verdict-2)' },
+  { from: 0.6, to: 0.8, label: 'Sano',    color: 'var(--verdict-1)' },
+  { from: 0.8, to: 1,   label: 'Fuerte',  color: 'var(--verdict-0)' },
+];
+// Polarización llega 0-100. Colores de la rampa de VEREDICTO (tokens.css §6):
+//  · 'Apática' iba en --text-3, un escalón de TEXTO usado como relleno de datos
+//    (para eso existe --neu);
+//  · 'Moderada' iba en --warn, el MISMO ámbar que 'Débil' de Brand Health en la
+//    card de al lado: un estado aceptable y un estado malo con el mismo color a
+//    200px de distancia. Pasa a --verdict-1, el paso "aceptable";
+//  · 'Alta' iba en --metric-polarization, que es el color de ESTA métrica en las
+//    series y en su icono, así que el violeta significaba a la vez "polarización"
+//    y "una de sus bandas".
+const POLARIZATION_BANDS = [
+  { from: 0,  to: 30,  label: 'Apática',  color: 'var(--neu)' },
+  { from: 30, to: 60,  label: 'Moderada', color: 'var(--verdict-1)' },
+  { from: 60, to: 85,  label: 'Alta',     color: 'var(--verdict-3)' },
+  { from: 85, to: 100, label: 'Extrema',  color: 'var(--verdict-4)' },
+];
+
 function crisisBand(score) {
   const s = score == null ? 0 : score;
   if (s >= 0.60) return { label: 'CRISIS', tone: 'neg', color: 'var(--neg)' };
-  if (s >= 0.40) return { label: 'ALERTA', tone: 'neg', color: '#E0662E' };
+  // ALERTA en --neg, no --accent: este fallback se usa cuando el payload no trae
+  // `display`, y con --accent el MISMO score pintaba el veredicto naranja o rosa
+  // según si la API había adjuntado el formato o no.
+  if (s >= 0.40) return { label: 'ALERTA', tone: 'neg', color: 'var(--neg)' };
   if (s >= 0.25) return { label: 'ELEVADO', tone: 'warn', color: 'var(--warn)' };
   return { label: 'NORMAL', tone: 'pos', color: 'var(--pos)' };
 }
@@ -43,17 +94,43 @@ function crisisBand(score) {
 // Badge de tendencia legible: usa el objeto DeltaDisplay del API
 // (@eco/shared/format). Distingue "estable" (cambio ≈ 0) de "sin base"
 // (falta período de comparación) — antes ambos salían como "0".
-function DeltaBadge({ info }) {
+// DeltaBadge — la única forma de pintar un delta (WS-F8).
+//
+// Acepta dos entradas:
+//   · `info`  — el objeto DeltaDisplay que ya calcula @eco/shared/format.
+//   · `value` + `metricKey` — para los sitios que sólo tienen el número. La
+//     dirección la resuelve `window.ecoDeltaColor`, que es la MISMA regla que
+//     usa el resto del producto (WS-F4): el volumen es neutro, la crisis es
+//     up-bad, el NSS es up-good. Antes había cuatro sitios dibujando ▲/▼ con su
+//     propio criterio de color, y uno de ellos pintaba toda subida de volumen
+//     como mala.
+function DeltaBadge({ info, value, metricKey = null, suffix = '%', decimals = 0 }) {
+  if (!info && value != null && Number.isFinite(Number(value))) {
+    const v = Number(value);
+    const color = window.ecoDeltaColor(metricKey || 'volume', v);
+    const arrow = window.ecoDeltaArrow(v);
+    return (
+      <span style={{ fontSize: 'var(--fs-overline)', color, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
+        {arrow} {Math.abs(v).toFixed(decimals)}{suffix}
+      </span>
+    );
+  }
   if (!info) return null;
-  const toneC = { pos: 'var(--pos)', neg: 'var(--neg)', neutral: 'var(--text-3)' }[info.tone] || 'var(--text-3)';
+  // El `tone` de DeltaDisplay lo calcula formatDelta en el backend, que no conoce
+  // métricas NEUTRAS: `totalMentions` va sin `invert`, así que toda bajada de
+  // volumen llega con tone 'neg' y se pinta roja — mientras Tópicos pinta de rojo
+  // la SUBIDA del mismo dato. La dirección declarada del producto manda.
+  const neutralMetric = (window.ECO_METRIC_DIRECTION || {})[metricKey] === 'neutral';
+  const toneC = neutralMetric ? 'var(--text-2)'
+    : ({ pos: 'var(--pos)', neg: 'var(--neg)', neutral: 'var(--text-3)' }[info.tone] || 'var(--text-3)');
   if (!info.hasBaseline) {
-    return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>— sin base</span>;
+    return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>— sin base</span>;
   }
   if (info.direction === 'flat') {
-    return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>· {info.word}</span>;
+    return <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600 }}>· {info.word}</span>;
   }
   return (
-    <span style={{ fontSize: 11, color: toneC, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+    <span style={{ fontSize: 'var(--fs-overline)', color: toneC, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
       {info.arrow} {info.value}
     </span>
   );
@@ -64,11 +141,16 @@ function DeltaBadge({ info }) {
 //    `value` como número de apoyo debajo. Para métricas 0–1 / con banda.
 //  • si no → modo número clásico (volumen, contadores).
 // `deltaInfo` (DeltaDisplay) reemplaza al `delta` numérico cuando está presente.
-function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, children, onClick }) {
+function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, metricKey, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
-  const TONE_C = { neg: 'var(--neg)', warn: 'var(--warn)', pos: 'var(--pos)', accent: 'var(--accent)', neutral: 'var(--text-3)' };
+  // 'neutral' no es un escalón de texto. Con 'var(--text-3)' (5.00:1 sobre
+  // --canvas, tokens.css §5) el titular "Neutral" del Net Sentiment Score salía
+  // tres veces más apagado que el "1.3K" de la card de al lado (15.30:1), y es la
+  // métrica que da nombre a la pantalla. Un veredicto neutro es AUSENCIA de
+  // juicio: se dice con el color de texto, no con un gris secundario.
+  const TONE_C = { neg: 'var(--neg)', warn: 'var(--warn)', pos: 'var(--pos)', accent: 'var(--accent)', neutral: 'var(--text)' };
   const wordMode = valueWord != null;
   return (
     <div
@@ -78,7 +160,11 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       style={{
-        padding: 18, position: 'relative', overflow: 'hidden',
+        padding: 'var(--sp-5)', position: 'relative', overflow: 'hidden',
+        // Columna flex para que el pie de la card pueda clavarse abajo con
+        // `marginTop:auto`: es lo que da una línea inferior común a las cinco
+        // cards de la fila, que hoy terminan a cuatro alturas distintas.
+        display: 'flex', flexDirection: 'column',
         borderTop: highlight ? `2px solid ${accent}` : undefined,
         cursor: clickable ? 'pointer' : 'default',
         transition: 'transform 0.12s var(--ease), box-shadow 0.12s var(--ease)',
@@ -86,24 +172,31 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.18)'; } : undefined}
       onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; } : undefined}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        {IconC && <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
-        {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{toneLabel || (tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal')}</span>}
-        {clickable && !tone && (
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            <I2.Sparkles size={10} /> Detalles
-          </span>
-        )}
+      {/* minWidth:0 en el label y flexShrink:0 en la acción: antes un label largo
+          ("POLARIZACIÓN") empujaba "Detalles" fuera del `overflow:hidden` de la
+          card y se leía "DETALLE". Ahora el que cede es el label, con ellipsis. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', minWidth: 0 }}>
+        {/* El relleno del chip se DERIVA del mismo accent del glifo. Con
+            `--accent-fill` fijo (naranja al 14%) un icono verde --pos y otro gris
+            --text-2 flotaban sobre un fondo naranja: dos colores peleando por un
+            solo indicador. */}
+        {IconC && <div style={{ width: 26, height: 26, borderRadius: 'var(--r-md)', background: `color-mix(in oklab, ${accent} 14%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
+        {/* El label envuelve por PALABRA, nunca por letra. `overflowWrap:'anywhere'`
+            resolvía el desborde partiendo el rótulo: en 390px se leía "RIESG/O DE/
+            CRISI/S" y en desktop "POLARIZ/ACIÓN". La causa real no era el label sino
+            la acción "Detalles", que competía por el mismo renglón y nunca cedía
+            (flexShrink:0); ahora vive en el pie de la card, así que aquí sobra ancho. */}
+        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em', minWidth: 0, overflowWrap: 'break-word', hyphens: 'none' }}>{label}</div>
+        {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto', flexShrink: 0 }}>{toneLabel || (tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal')}</span>}
       </div>
       {wordMode ? (
         <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 30, fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
-            {deltaInfo ? <DeltaBadge info={deltaInfo} /> : null}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : null}
           </div>
           {(value || sub) && (
-            <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600, marginTop: 3 }}>
+            <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>
               {value && <span className="num">{value}</span>}
               {sub && <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>{value ? ' · ' : ''}{sub}</span>}
             </div>
@@ -111,29 +204,40 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
         </div>
       ) : (
         <>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div className="num" style={{ fontSize: 30, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
-          {deltaInfo ? <DeltaBadge info={deltaInfo} /> : (delta != null && (
-            <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
+          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
+          {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : (delta != null && (
+            <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
               {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
               {Math.abs(delta)}
             </div>
           ))}
         </div>
-        {sub && <div style={{ fontSize: 13, color: 'var(--text-3)', fontWeight: 500, marginTop: 3 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)', fontWeight: 500, marginTop: 'var(--sp-05)' }}>{sub}</div>}
         </>
       )}
-      {trendData && <div style={{ marginTop: 10 }}><Sparkline data={trendData} width={200} height={30} color={accent} /></div>}
-      {children && <div style={{ marginTop: 10 }}>{children}</div>}
+      {trendData && <div style={{ marginTop: 'var(--sp-3)' }}><Sparkline data={trendData} width="auto" height={30} color={accent} /></div>}
+      {children && <div style={{ marginTop: 'var(--sp-3)' }}>{children}</div>}
+      {/* La pista de "esta card se abre" va al PIE. En la cabecera peleaba con el
+          rótulo por un renglón de 159px (desktop) o 133px (móvil) y lo partía a
+          mitad de palabra. Y `marginTop:auto` la clava contra el borde inferior:
+          las cinco cards de la fila terminaban a cuatro alturas distintas (88 /
+          85 / 84 / 52 / 20px de vacío medidos en la captura), ahora comparten
+          una sola línea de cierre. */}
+      {clickable && !tone && (
+        <div style={{ marginTop: 'auto', paddingTop: 'var(--sp-3)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-05)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+          <I2.Sparkles size={10} /> Detalles
+        </div>
+      )}
     </div>
   );
 }
 
+// Abreviador COMPARTIDO (data.js). Se conserva el nombre corto porque lo usan 30+
+// sitios de este archivo, pero la implementación —y la regla de cuándo abreviar—
+// vive en un solo lugar.
 function fmt(n) {
-  if (n == null) return '—';
-  if (Math.abs(n) >= 1_000_000) return (n/1_000_000).toFixed(1)+'M';
-  if (Math.abs(n) >= 1_000) return (n/1_000).toFixed(1)+'K';
-  return n.toLocaleString('es-PR');
+  return window.ecoFmtCompact ? window.ecoFmtCompact(n) : (n == null ? '—' : String(n));
 }
 
 /**
@@ -282,7 +386,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     { key: 'brandHealthIndex', label: 'Brand Health', color: 'var(--pos)' },
     { key: 'totalMentions', label: 'Menciones', color: 'var(--text-2)' },
     { key: 'crisisRiskScore', label: 'Crisis', color: 'var(--neg)' },
-    { key: 'polarizationIndex', label: 'Polarización', color: '#8B5CF6' },
+    { key: 'polarizationIndex', label: 'Polarización', color: window.ECO_METRIC_COLOR.polarizationIndex },
     { key: 'engagementRate', label: 'Engagement', color: 'var(--warn)' },
   ];
 
@@ -292,7 +396,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
     // Sin histogram: el "Volumen por hora" que se mostraba aquí era una
-    // senoide sintética, no datos (auditoría 2026-08). El datapoint del
+    // senoide sintética, no datos (auditoría 2026-08). Y no se puede rellenar
+    // con HOUR_HEATMAP: eso agrega por día-de-semana sobre TODO el período, no
+    // por fecha. Derivarlo de las 20 menciones del modal sería otro invento.
+    // Requiere una serie real por hora en el backend. El datapoint del
     // TIMELINE cuenta el universo pertinente — igual que el default del modal.
     setSlice({
       eyebrow: d.date,
@@ -306,7 +413,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
 
   function openSourceSlice(src) {
     const key = src.key;
-    const colors = { facebook: '#0A7EA4', twitter: 'var(--accent)', news: 'var(--pos)', instagram: '#8B5CF6', youtube: 'var(--neg)', blog: 'var(--warn)' };
+    // Paleta categórica, no semántica: antes "Noticias" era var(--pos) —verde—
+    // a 300px de barras donde el verde significa "positivo", así que la
+    // categoría se leía como un juicio.
+    const colors = window.ECO_SOURCE_COLOR;
     setSlice({
       eyebrow: 'Fuente',
       title: src.label,
@@ -329,7 +439,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   }
 
   function openTopicSlice(t) {
-    const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+    const palette = window.ECO_CAT;
     const slugIdx = {};
     D.TOPICS.forEach((tp, i) => { slugIdx[tp.slug] = i; });
     const accent = palette[slugIdx[t.slug] % palette.length] || 'var(--accent)';
@@ -380,79 +490,97 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 24, alignItems: 'stretch' }}>
+      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
         <div>
-          <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
             <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
             {activeBriefing && activeBriefing.source === 'ai' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
                 <Icons.Sparkles size={9} /> IA · {activeBriefing.generatedAtLabel || 'reciente'}
               </span>
             )}
             {activeBriefing && activeBriefing.source === 'rule' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
                 Resumen automatizado
               </span>
             )}
           </div>
           {/* Fuente reducida a 18px y line-height 1.45 (issue #1). Narrativas
               cap a 75 palabras desde el prompt. */}
-          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 18, fontWeight: 500, lineHeight: 1.45, letterSpacing: 'var(--letter-display)', marginTop: 10, color: 'var(--text)' }}>
+          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-title-lg)', fontWeight: 500, lineHeight: 1.45, letterSpacing: 'var(--letter-display)', marginTop: 'var(--sp-3)', color: 'var(--text)' }}>
             {activeBriefing ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} />
             ) : (
               <>Sin suficientes menciones en este período para generar un resumen.</>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 20, marginTop: 16, fontSize: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-5)', marginTop: 'var(--sp-4)', fontSize: 'var(--fs-caption)', flexWrap: 'wrap' }}>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
-              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
+              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
-              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
+              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Siguiente paso</div>
-              <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'accent'})`, fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Siguiente paso</div>
+              <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'text'})`, fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
             </div>
           </div>
-          <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={openBriefingSlice} style={{ fontSize: 12 }}>
+          <div style={{ marginTop: 'var(--sp-5)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="btn btn-primary" onClick={openBriefingSlice} style={{ fontSize: 'var(--fs-caption)' }}>
               <Icons.Eye size={13} /> Ver menciones
             </button>
-            <span style={{ width: 1, height: 16, background: 'var(--hairline)', margin: '0 4px' }} />
+            <span aria-hidden="true" style={{ width: 1, height: 16, background: 'var(--hairline)', margin: '0 var(--sp-1)' }} />
             <button className={`chip ${focus === 'signal' ? 'active' : ''}`} onClick={() => setFocus('signal')}>Señal del día</button>
             <button className={`chip ${focus === 'emerging' ? 'active' : ''}`} onClick={() => setFocus('emerging')}>Narrativas emergentes</button>
             <button className={`chip ${focus === 'crisis' ? 'active' : ''}`} onClick={() => setFocus('crisis')}>Vigilancia de crisis</button>
           </div>
         </div>
-        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pulso en vivo · últimas menciones</div>
+        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pulso en vivo · últimas menciones</div>
           {(D.PULSE || []).map((e, i) => (
             <button key={i} onClick={() => e.mention && onMentionClick(e.mention)}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)', background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
               className="row-hover">
-              <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2, width: 54, flexShrink: 0 }}>{e.time}</span>
-              <span className="dot" style={{ background: `var(--${e.dot})`, marginTop: 5, flexShrink: 0 }} />
+              {/* Sin `.mono`: tokens.css §1 reserva IBM Plex Mono para lo que es
+                  literalmente código/URL/ID, y "hace 3 h" es prosa. La misma marca
+                  temporal se compone en sans en la tabla de "Menciones destacadas"
+                  de más abajo: el mismo dato con dos familias tipográficas. */}
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', marginTop: 'var(--sp-05)', width: 54, flexShrink: 0 }}>{e.time}</span>
+              <span className="dot" style={{ background: `var(--${e.dot})`, marginTop: 'var(--sp-15)', flexShrink: 0 }} />
               <span style={{ flex: 1, color: 'var(--text)' }}>{e.text}</span>
-              <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{e.eng}</span>
+              {/* Mismo formateador que la tabla de abajo (fmt). El payload trae `eng`
+                  pre-formateado con su propia regla (K a partir de 1000, sin escalón
+                  M y sin separador de miles), así que la MISMA mención podía leerse
+                  "1500.0K" aquí y "1.5M" doce filas más abajo. Se reformatea desde el
+                  crudo, que viaja en `e.mention`; `e.eng` queda de respaldo. */}
+              <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>
+                {e.mention && Number.isFinite(Number(e.mention.engagement))
+                  ? (Number(e.mention.engagement) > 0 ? fmt(Number(e.mention.engagement)) : '—')
+                  : e.eng}
+              </span>
             </button>
           ))}
           {!(D.PULSE && D.PULSE.length > 0) && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sin actividad reciente en el período.</div>
+            <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Sin actividad reciente en el período.</div>
           )}
         </div>
       </div>
 
       {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.3fr 1.3fr 1fr 1fr 1fr', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
+      {/* Móvil en UNA columna, no dos. A 390px cada card de dos columnas deja ~133px
+          de content box: ahí no cabe el rótulo (se leía "VOLU/MEN ·/PERÍO/DO") ni la
+          serie (el sparkline de 200px se cortaba dentro del overflow:hidden). A una
+          columna el rótulo entra en un renglón y la gráfica mide lo que mide la card.
+          Cuesta scroll; es el intercambio correcto para cinco cifras que se leen. */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.3fr 1.3fr 1fr 1fr 1fr', '1fr', 'repeat(3, 1fr)'), gap: 'var(--sp-3)' }}>
         <KpiCard label="Net Sentiment Score" valueWord={m.display.nss.word} valueTone={m.display.nss.tone} value={m.display.nss.value} deltaInfo={m.deltaDisplay.nss} icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
           onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
-          <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: -4 }}>
             <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
@@ -464,15 +592,11 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               ELEVADO<0.40 / ALERTA<0.60 / CRISIS≥0.60 (mismos cortes que el
               termómetro de Overview y el bandFor del backend). */}
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: CRISIS_GRADIENT, position: 'relative' }}>
-              <div style={{ position: 'absolute', left: `${Math.min(((m.crisisRiskScore ?? 0))*100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${cb.color}`, transform: 'translateX(-50%)' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
-              <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
-            </div>
+            <BandScale bands={CRISIS_BANDS} value={m.crisisRiskScore} max={1}
+              valueLabel={m.display.crisis.short} ariaLabel="Riesgo de crisis" />
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} deltaInfo={m.deltaDisplay.totalMentions} sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+        <KpiCard label="Volumen · período" value={fmt(window.ecoPeriodMentionTotal())} deltaInfo={m.deltaDisplay.totalMentions} metricKey="totalMentions" sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
           onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
@@ -483,16 +607,18 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
-          onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
+          onClick={() => openMetric('polarization', 'Polarización', 'var(--metric-polarization)')}>
+          {/* UNA sola gráfica por KPI. Esta era la única card con sparkline Y banda:
+              dos escalas distintas para la misma cifra, y como la fila se alinea al
+              alto de la card más alta, esos ~42px extra son los que dejaban 88/85/84px
+              de vacío en las otras cuatro. Se queda la banda, que es la que dice dónde
+              cae el valor contra sus umbrales; la tendencia vive en "Evolución
+              multi-métrica" y en el modal de la métrica. */}
 
           <div style={{ marginTop: -2 }}>
-            <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)' }}>
-              <span>APÁTICA</span><span>MODERADA</span><span>ALTA</span><span>EXTREMA</span>
-            </div>
+            <BandScale bands={POLARIZATION_BANDS} value={m.polarizationIndex} max={100}
+              valueLabel={m.display.polarization.short} ariaLabel="Índice de polarización" />
           </div>
         </KpiCard>
       </div>
@@ -504,22 +630,22 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             <div className="card-hd-title">Evolución multi-métrica</div>
             <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-15)', flexWrap: 'wrap' }}>
             {seriesConfig.map((s) => {
               const on = activeMetrics.includes(s.key);
               return (
                 <button key={s.key} onClick={() => {
                   if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
                   else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
-                }} style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '4px 9px', borderRadius: 999,
-                  fontSize: 10, fontWeight: 600,
+                }} className="touch-target" style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--sp-15)',
+                  padding: '5px 10px', borderRadius: 'var(--r-pill)',
+                  fontSize: 'var(--fs-overline)', fontWeight: 600,
                   border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
                   background: on ? s.color : 'transparent',
-                  color: on ? '#fff' : 'var(--text-3)',
+                  color: on ? 'var(--on-accent)' : 'var(--text-2)',
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? 'currentColor' : s.color }} />
                   {s.label}
                 </button>
               );
@@ -533,26 +659,49 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       </div>
 
       {/* ── Row 3: Topics (emerging) + Sources + Heatmap ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr 1fr', '1fr'), gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
-            <button className="chip" onClick={() => setActive && setActive('topics')}>Ver todo</button>
+            {/* Una sola primitiva para "ir a la pantalla completa". En esta misma
+                vista convivían un chip ("Ver todo"), un link ("Ver todas (1.3K) →")
+                y un texto en --accent con flecha. El chip es para SELECCIONAR, no
+                para navegar: aquí va la misma primitiva que el header de
+                "Menciones destacadas". La base de `button` en index.html ya quita
+                borde, relleno y padding. */}
+            <button className="link" onClick={() => setActive && setActive('topics')} style={{ fontSize: 'var(--fs-caption)', flexShrink: 0 }}>Ver todo →</button>
           </div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {D.TOPICS.slice(0, 5).map((t) => (
-              <div key={t.slug} onClick={() => openTopicSlice(t)} className="row-hover" style={{ padding: '8px 10px', marginInline: -10, borderRadius: 6, cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{t.name}</div>
-                  <span className="num" style={{ fontSize: 12, fontWeight: 600 }}>{fmt(t.count)}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: t.delta > 0 ? 'var(--neg)' : 'var(--pos)', minWidth: 40, textAlign: 'right' }}>
-                    {t.delta > 0 ? '+' : ''}{t.delta}%
+          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {/* `top5` (3er argumento de map) da el máximo de la lista sin hoistear
+                una const: lo necesita la barra para escalar su ancho al conteo. */}
+            {D.TOPICS.slice(0, 5).map((t, _i, top5) => (
+              <div key={t.slug} onClick={() => openTopicSlice(t)} className="row-hover" style={{ padding: '8px 10px', marginInline: -10, borderRadius: 'var(--r-md)', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-15)' }}>
+                  <div style={{ flex: 1, fontSize: 'var(--fs-body-sm)', fontWeight: 500, color: 'var(--text)' }}>{t.name}</div>
+                  <span className="num" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>{fmt(t.count)}</span>
+                  {/* El crecimiento de un tópico es VOLUMEN. Aquí se pintaba toda
+                      SUBIDA en --neg mientras el KPI de Volumen pinta la BAJADA en
+                      --neg: el mismo dato con colores opuestos en la misma pantalla.
+                      DeltaBadge lo enruta por ECO_METRIC_DIRECTION, donde el volumen
+                      es neutro, y usa el mismo glifo que el resto del producto. */}
+                  <span style={{ minWidth: 40, textAlign: 'right', display: 'inline-block' }}>
+                    <DeltaBadge value={t.delta} metricKey="volume" suffix="%" />
                   </span>
                 </div>
-                <div style={{ display: 'flex', height: 4, borderRadius: 2, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-                  <div style={{ width: `${t.neutralPct}%`, background: 'var(--text-3)' }} />
-                  <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
+                {/* El ANCHO total mide el conteo; los segmentos, la composición.
+                    Antes la barra se normalizaba al 100% en las cinco filas, así que
+                    "Desarrollo económico" (253) y "Turismo y promoción" (133) tenían
+                    barras idénticas — y a 20px de distancia la barra de "Fuentes top"
+                    (misma familia visual, mismo alto, misma clase de track) sí mide
+                    volumen. El lector no tenía forma de saber cuál leía. Ahora la
+                    longitud significa lo mismo en las dos cards. El neutral pasa a
+                    --neu, el token de relleno neutro; --text-3 es un escalón de TEXTO. */}
+                <div className="bar-track" style={{ height: 4 }}>
+                  <div style={{ display: 'flex', height: '100%', width: `${Math.round(((t.count || 0) / Math.max(1, ...top5.map((x) => x.count || 0))) * 100)}%`, borderRadius: 'inherit', overflow: 'hidden' }}>
+                    <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
+                    <div style={{ width: `${t.neutralPct}%`, background: 'var(--neu)' }} />
+                    <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
+                  </div>
                 </div>
               </div>
             ))}
@@ -564,7 +713,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           <div className="card-bd">
             <HBarList
               items={D.TOP_SOURCES.map(s => ({ label: s.source, value: s.count, key: s.key }))}
-              colorFn={(it) => ({ facebook: '#0A7EA4', twitter: 'var(--accent)', news: 'var(--pos)', instagram: '#8B5CF6', youtube: 'var(--neg)', blog: 'var(--warn)' })[it.key] || 'var(--accent)'}
+              colorFn={(it) => window.ecoSourceColor(it.key)}
               onItemClick={openSourceSlice}
             />
           </div>
@@ -593,7 +742,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       <div className="card">
         <div className="card-hd">
           <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
-          <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(m.totalMentions)}) →</a>
+          <a href="#mentions" className="link" style={{ fontSize: 'var(--fs-caption)' }}>Ver todas ({fmt(window.ecoPeriodMentionTotal())}) →</a>
         </div>
         <div className="scroll-x">
           {D.MENTIONS.slice(0, 7).map((mn, idx) => {
@@ -604,19 +753,19 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', minWidth: 560, gap: 12,
+                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', minWidth: 560, gap: 'var(--sp-3)',
                   alignItems: 'center', padding: '10px 16px',
                   borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
-                  fontSize: 12, cursor: 'pointer',
+                  fontSize: 'var(--fs-caption)', cursor: 'pointer',
                 }}>
                 <SIcon size={14} color="var(--text-3)" />
                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
-                  <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
+                  <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
                 </div>
                 <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
                 <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
-                <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
+                <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
               </div>
             );
           })}
@@ -632,40 +781,58 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
 //     Segmentos (valor interno): Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1).
 //     Equivalente en escala 1-10: 1-4.6, 4.6-6.4, 6.4-8.2, 8.2-10.
 function BrandHealthMini({ value }) {
-  const segments = [
-    { from: 0, to: 0.4, color: 'var(--neg)' },
-    { from: 0.4, to: 0.6, color: 'var(--warn)' },
-    { from: 0.6, to: 0.8, color: 'var(--pos)' },
-    { from: 0.8, to: 1, color: 'var(--accent)' },
-  ];
+  // Antes: 4 segmentos con flex proporcional + 5 números repartidos con
+  // space-between. Los números marcaban los BORDES pero no decían qué significa
+  // cada tramo, y al subir la escala tipográfica se apretaban.
   return (
     <div style={{ marginTop: -2 }}>
-      <div style={{ display: 'flex', gap: 2, height: 8, borderRadius: 2, overflow: 'hidden' }}>
-        {segments.map((s, i) => {
-          const isActive = value >= s.from && value <= s.to;
-          return (
-            <div key={i} style={{
-              flex: s.to - s.from,
-              background: isActive ? s.color : `color-mix(in oklab, ${s.color} 18%, var(--canvas-2))`,
-              position: 'relative',
-            }}>
-              {isActive && (
-                <div style={{
-                  position: 'absolute',
-                  left: `${((value - s.from) / (s.to - s.from)) * 100}%`,
-                  top: -2, bottom: -2, width: 2,
-                  background: 'var(--text)', transform: 'translateX(-50%)',
-                }} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--ff-mono)' }}>
-        <span>1</span><span>4.6</span><span>6.4</span><span>8.2</span><span>10</span>
-      </div>
+      <BandScale bands={BHI_BANDS} value={value} max={1} height={8}
+        valueLabel={`${(1 + (value || 0) * 9).toFixed(1)} / 10`} ariaLabel="Brand Health" />
     </div>
   );
+}
+
+// Escala secuencial del heatmap y del mapa. Los 6 pasos viven en tokens.css
+// (--seq-0..5); aquí sólo está el orden, para que la LEYENDA y las CELDAS no
+// puedan divergir (era el hallazgo F6).
+const SEQ_STEPS = ['var(--seq-0)', 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
+function seqColor(intensity) {
+  const i = Math.round(Math.min(1, Math.max(0, intensity || 0)) * (SEQ_STEPS.length - 1));
+  return SEQ_STEPS[i];
+}
+
+// Variante ATADA A LA DISTRIBUCIÓN, para datos con cola larga. `seqColor`
+// normaliza v/max lineal, y con San Juan a 346 contra ocho municipios bajo 100
+// eso mete 8 de 12 en el MISMO paso y deja 3 de los 6 pasos sin dibujar nunca:
+// la leyenda promete una resolución que el mapa no tiene. Aquí los cortes salen
+// de los cuantiles de los valores presentes, así que cada paso lleva
+// municipios. Arranca en --seq-1 y no en --seq-0 porque --seq-0 mide 1.09:1
+// sobre --canvas: es "sin dato", no un dato bajo.
+function seqQuantileScale(values, steps = 5) {
+  const tokens = SEQ_STEPS.slice(SEQ_STEPS.length - steps);
+  const sorted = (values || []).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  const edges = [];
+  for (let i = 1; i < steps && sorted.length > 0; i++) {
+    edges.push(sorted[Math.min(sorted.length - 1, Math.floor((i / steps) * sorted.length))]);
+  }
+  function binOf(v) {
+    let i = 0;
+    while (i < edges.length && v >= edges[i]) i++;
+    return i;
+  }
+  return {
+    tokens,
+    edges,
+    colorOf: (v) => tokens[binOf(Number(v) || 0)],
+    // Rango numérico de cada paso, para que la leyenda pueda decirlo en vez de
+    // dejar el color sin unidad.
+    rangeOf: (i) => {
+      if (sorted.length === 0) return '';
+      const lo = i === 0 ? sorted[0] : edges[i - 1];
+      const hi = i < edges.length ? edges[i] - 1 : sorted[sorted.length - 1];
+      return lo >= hi ? `${lo}` : `${lo}–${hi}`;
+    },
+  };
 }
 
 // --- HourActivityCard: heatmap fed from window.ECO_DATA.HOUR_HEATMAP ---
@@ -688,29 +855,29 @@ function HourActivityCard({ onCellClick }) {
       <div className="card-hd">
         <div>
           <div className="card-hd-title">Actividad por hora</div>
-          <div className="card-hd-sub">Mapa de calor · {fmt(total)} menciones · click una franja</div>
+          <div className="card-hd-sub">Distribución por día y hora (TZ Puerto Rico) · click una franja</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)' }}>
+        {/* F6: la leyenda pintaba sus swatches con rgba(11,95,128,…) — el AZUL del
+            tema `costa` — mientras las celdas iban en el naranja de `mando`.
+            Leyenda y mapa no coincidían. Ahora ambos leen la MISMA escala
+            secuencial --seq-*. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           <span>menos</span>
-          <div style={{ display: 'flex', gap: 1 }}>
-            {[0.1, 0.3, 0.5, 0.7, 0.95].map((o, i) => (
-              <div key={i} style={{ width: 8, height: 8, background: `rgba(11, 95, 128, ${o})`, borderRadius: 1 }} />
+          <div style={{ display: 'flex', gap: 'var(--sp-05)' }}>
+            {SEQ_STEPS.map((t, i) => (
+              <div key={i} style={{ width: 10, height: 10, background: t, borderRadius: 'var(--r-sm)' }} />
             ))}
           </div>
           <span>más</span>
         </div>
       </div>
       <div className="card-bd">
-        <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 10, padding: '6px 10px', background: 'color-mix(in oklab, var(--accent) 6%, var(--canvas))', borderRadius: 4, borderLeft: '2px solid var(--accent)' }}>
+        <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', marginBottom: 'var(--sp-3)', padding: '6px 10px', background: 'color-mix(in oklab, var(--accent) 6%, var(--canvas))', borderRadius: 'var(--r-sm)', borderLeft: '2px solid var(--accent)' }}>
           Pico de actividad: <strong>{dayLabels[peakDay]} a las {peakHour}:00</strong>
         </div>
         <Heatmap
           data={data}
-          colorFn={(v) => {
-            const intensity = max > 0 ? Math.min(1, v / max) : 0;
-            return `rgba(255, 106, 61, ${0.08 + intensity * 0.85})`;
-          }}
-          cellSize={14}
+          colorFn={(v) => seqColor(max > 0 ? Math.min(1, v / max) : 0)}
           onCellClick={onCellClick}
         />
       </div>
@@ -726,6 +893,10 @@ function HourActivityCard({ onCellClick }) {
 // las 20-50 que vienen en el cargue inicial del dashboard.
 const PAGE_SIZE = 25;
 const VIRAL_THRESHOLD = 5000;
+// Un umbral es una REGLA, no una estimación: se escribe exacto y con el MISMO
+// texto en la etiqueta del KPI y en el título del drill-down que ese KPI abre.
+// Antes la etiqueta decía '≥ 5K' y el modal titulaba 'Engagement ≥ 5,000'.
+const VIRAL_THRESHOLD_LABEL = '≥ ' + VIRAL_THRESHOLD.toLocaleString('es-PR');
 
 // Opciones canónicas compartidas entre MentionsScreen y SearchScreen para que
 // no diverjan dos listas copiadas a mano (la auditoría encontró duplicación).
@@ -767,11 +938,11 @@ function SourceSelect({ value, onChange, style }) {
 
 function ViewToggle({ viewMode, setViewMode }) {
   return (
-    <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+    <div className="toggle-group" style={{ fontSize: 'var(--fs-overline)' }}>
       {VIEW_MODES.map((o) => {
         const IC = Icons[o.icon] || Icons.List;
         return (
-          <button key={o.k} onClick={() => setViewMode(o.k)} className={`chip ${viewMode === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <button key={o.k} onClick={() => setViewMode(o.k)} className={`chip ${viewMode === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
             <IC size={11} /> {o.l}
           </button>
         );
@@ -786,9 +957,9 @@ function ViewToggle({ viewMode, setViewMode }) {
 function SortChips({ sortBy, setSortBy, hasQuery }) {
   const effective = resolveSort(sortBy, hasQuery);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', marginLeft: 'auto' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'nowrap', marginLeft: 'auto' }}>
       <span className="section-eyebrow" style={{ margin: 0 }}>Ordenar</span>
-      <div style={{ display: 'flex', gap: 4 }}>
+      <div className="toggle-group">
         {SORT_OPTIONS.map((o) => {
           const disabled = o.needsQuery && !hasQuery;
           return (
@@ -812,6 +983,19 @@ function MentionsScreen({ onMentionClick }) {
   const [filters, setFilters] = useState({
     q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent',
   });
+  // Términos seleccionados en la nube. Se envían a /api/eco-mentions dentro de
+  // `q` porque el API ya hace AND entre tokens con tope de 8
+  // (eco-mentions/route.ts:226-236) — no se inventa un parámetro nuevo ni un
+  // conmutador AND/OR que el backend no soporta.
+  const [terms, setTerms] = useState([]);
+  const toggleTerm = React.useCallback((t) => {
+    setTerms((prev) => {
+      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      if (prev.length >= 8) return prev; // el API topa en 8
+      return [...prev, t];
+    });
+    setPage(1);
+  }, []);
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ mentions: [], total: 0 });
   const [loading, setLoading] = useState(false);
@@ -851,12 +1035,15 @@ function MentionsScreen({ onMentionClick }) {
       offset: String((page - 1) * PAGE_SIZE),
     });
     if (agency) params.set('agency', agency);
-    if (filters.q) params.set('q', filters.q);
+    // La q efectiva combina el buscador y los términos de la nube: un solo
+    // parámetro, un solo predicado, así la lista y la nube nunca discrepan.
+    const qEff = [filters.q, ...terms].filter(Boolean).join(' ').trim();
+    if (qEff) params.set('q', qEff);
     if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
     if (filters.source !== 'all') params.set('source', filters.source);
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
-    const sort = resolveSort(filters.sortBy, !!filters.q);
+    const sort = resolveSort(filters.sortBy, !!qEff);
     if (sort !== 'recent') params.set('sortBy', sort);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
@@ -867,7 +1054,7 @@ function MentionsScreen({ onMentionClick }) {
       })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [filters, page, reloadKey]);
+  }, [filters, terms, page, reloadKey]);
 
   // Conteo de "Virales": una consulta separada con limit=1 (solo nos
   // interesa `total`). Se recalcula cuando cambia el período/agency, pero
@@ -897,12 +1084,12 @@ function MentionsScreen({ onMentionClick }) {
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
 
   const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
-  const searchTerms = filters.q ? filters.q.trim().split(/\s+/).filter((t) => t.length >= 2) : [];
+  const searchTerms = [...(filters.q ? filters.q.trim().split(/\s+/) : []), ...terms].filter((t) => t.length >= 2);
 
   function openViralSlice() {
     setSlice({
       eyebrow: 'Menciones virales',
-      title: 'Engagement ≥ ' + VIRAL_THRESHOLD.toLocaleString('es-PR'),
+      title: 'Engagement ' + VIRAL_THRESHOLD_LABEL,
       accent: 'var(--neg)',
       _filter: { minEngagement: String(VIRAL_THRESHOLD) },
     });
@@ -910,14 +1097,14 @@ function MentionsScreen({ onMentionClick }) {
   const MentionsSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Filter bar */}
-      <div className="card" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="card" style={{ padding: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
           <Icons.Search size={14} color="var(--text-3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
           <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div className="toggle-group">
           {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
             <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
@@ -928,22 +1115,22 @@ function MentionsScreen({ onMentionClick }) {
         <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
         <div style={{ position: 'relative' }}>
           <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
-            <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
+            <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 'var(--fs-overline)' }}>·{activeMoreFiltersCount}</span>}
           </button>
           {moreOpen && (
-            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Tópico</div>
-              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 'var(--sp-3)', minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Tópico</div>
+              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                 <option value="">Todos los tópicos</option>
                 {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
               </select>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Región</div>
-              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Región</div>
+              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                 <option value="">Todas las regiones</option>
                 {regions.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Ordenar por</div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Ordenar por</div>
+              <div className="toggle-group">
                 {SORT_OPTIONS.map((o) => {
                   const disabled = o.needsQuery && !filters.q;
                   const effective = resolveSort(filters.sortBy, !!filters.q);
@@ -958,7 +1145,7 @@ function MentionsScreen({ onMentionClick }) {
                 })}
               </div>
               {activeMoreFiltersCount > 0 && (
-                <button className="chip" style={{ marginTop: 12 }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
+                <button className="chip" style={{ marginTop: 'var(--sp-3)' }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
                   Limpiar filtros
                 </button>
               )}
@@ -966,34 +1153,47 @@ function MentionsScreen({ onMentionClick }) {
           )}
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+        <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           {/* El feed es EN VIVO (ventana rolling que incluye hoy) — a
               diferencia de los agregados, que cierran en ayer. El rótulo lo
               hace explícito para que los dos totales de esta pantalla no
               parezcan contradictorios (auditoría 2026-08, P0-10). */}
-          {loading ? 'Cargando…' : `${data.total.toLocaleString('es-PR')} menciones · en vivo (incluye hoy)`}
+          {loading ? 'Cargando…' : `${window.ecoFmtCount(data.total)} menciones · en vivo (incluye hoy)`}
         </span>
       </div>
 
       {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
           período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
       <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
-        <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} sub="período · cierre de ayer" />
+        {/* Exacto, no '1.3K': es el mismo número que el contador de la barra de
+            filtros y el subtítulo de la lista imprimen a 40px y 200px de aquí. */}
+        <QuickMetric label="Total" value={window.ecoFmtCount(D.CURRENT_METRICS.totalMentions)} sub="período · cierre de ayer" />
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
-        <QuickMetric label="Engagement rate" value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate.word) || '—'} />
+        <MetricQuick label="Engagement rate" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate} />
+        <MetricQuick label="Velocidad" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity} note="vs período ant." />
         <QuickMetric
-          label="Velocidad"
-          value={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.word) || '—'}
-          sub={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.value) ? D.CURRENT_METRICS.display.velocity.value + ' vs período ant.' : ''}
-          valueColor={(D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity.color) || undefined}
-        />
-        <QuickMetric
-          label={`Virales (≥ ${(VIRAL_THRESHOLD / 1000)}K)`}
+          label={`Virales (${VIRAL_THRESHOLD_LABEL})`}
           value={viralCount == null ? '…' : fmt(viralCount)}
           tone="neg"
           onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
         />
       </div>
+
+      {/* Nube de palabras: va entre el resumen y la lista porque su función es
+          ORIENTAR antes de leer ("¿de qué se habla?") y su click filtra la lista
+          que está justo debajo. */}
+      {window.ECO_TERMS && (
+        <window.ECO_TERMS.TermsCloud
+          filters={{
+            sentiment: filters.sentiment, source: filters.source,
+            topic: filters.topic, q: filters.q,
+          }}
+          period={localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD}
+          agency={localStorage.getItem('eco.agency') || ''}
+          selected={terms}
+          onToggleTerm={toggleTerm}
+        />
+      )}
 
       {/* Mentions table */}
       <div className="card">
@@ -1004,20 +1204,20 @@ function MentionsScreen({ onMentionClick }) {
               {loading ? 'Cargando…' : error ? 'Error de conexión' : (
                 data.total === 0
                   ? 'Sin resultados'
-                  : `Página ${page} de ${totalPages} · ${data.total.toLocaleString('es-PR')} en total`
+                  : `Página ${page} de ${totalPages} · ${window.ecoFmtCount(data.total)} en total`
               )}
             </div>
           </div>
           <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
         </div>
         {!loading && error && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--neg)', fontSize: 13 }}>
+          <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--neg)', fontSize: 'var(--fs-body-sm)' }}>
             No se pudieron cargar las menciones.
             <button className="chip" style={{ marginLeft: 8 }} onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button>
           </div>
         )}
         {!loading && !error && data.mentions.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+          <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
             No se encontraron menciones con los filtros actuales.
           </div>
         )}
@@ -1040,7 +1240,7 @@ function MentionsScreen({ onMentionClick }) {
 function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
   const color = valueColor || (tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)');
   const baseStyle = {
-    padding: 16,
+    padding: 'var(--sp-4)',
     cursor: onClick ? 'pointer' : 'default',
     transition: 'background 0.15s ease',
   };
@@ -1055,14 +1255,37 @@ function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         {label}
         {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
       </div>
-      <div className="num" style={{ fontSize: 30, fontWeight: 600, color, marginTop: 8, fontFamily: 'var(--ff-display)' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginTop: 2 }}>{sub}</div>}
+      <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color, marginTop: 'var(--sp-2)', fontFamily: 'var(--ff-display)' }}>{value}</div>
+      {sub && <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{sub}</div>}
     </div>
   );
+}
+
+// Un MetricDisplay de @eco/shared (word/value/short/band/color) se pinta SIEMPRE
+// por aquí. Antes cada KPI lo desarmaba a su manera: 'Engagement rate' tomaba
+// sólo `.word` y 'Velocidad' concatenaba `.value + ' vs período ant.'` a mano,
+// así que el caso sin período de comparación (value === null) se quedaba sin la
+// explicación que el módulo ya trae en `.short` ('Sin base de comparación') y la
+// card mostraba un 'Sin base' huérfano. El signo y la unidad los pone el
+// formateador; el sitio de llamada sólo aporta la nota de comparación.
+function MetricQuick({ label, display, note, onClick }) {
+  const d = display || {};
+  const word = d.word || '—';
+  // `.value` va al sub sólo si aporta algo: para las métricas de % puro el
+  // formateador devuelve word === value ('3.4%') y repetirlo sería ruido.
+  const num = d.value != null && d.value !== word ? d.value : null;
+  const sub = num ? (note ? `${num} ${note}` : num)
+                  : (d.short && d.short !== word ? d.short : '');
+  // El color del tono sólo cuando dice algo: con banda (juicio cualitativo) o
+  // sin valor (—/sin base, que va atenuado). Las métricas de % puro son tono
+  // 'neutral' → --text-3, y bajar una cifra protagonista a --text-3 la lleva de
+  // 15.3:1 a 5.0:1 sin significar nada.
+  const tint = (d.band || d.value == null) ? d.color : undefined;
+  return <QuickMetric label={label} value={word} sub={sub} valueColor={tint} onClick={onClick} />;
 }
 
 function Pagination({ page, totalPages, onChange }) {
@@ -1090,15 +1313,15 @@ function Pagination({ page, totalPages, onChange }) {
     border: '1px solid ' + (active ? 'var(--accent)' : 'var(--hairline)'),
     background: active ? 'var(--accent-fill)' : 'var(--canvas)',
     color: disabled ? 'var(--text-3)' : (active ? 'var(--accent)' : 'var(--text-2)'),
-    borderRadius: 6,
-    fontSize: 12,
+    borderRadius: 'var(--r-md)',
+    fontSize: 'var(--fs-caption)',
     cursor: disabled ? 'not-allowed' : 'pointer',
     fontWeight: active ? 700 : 500,
     fontFamily: 'var(--ff-numeric)',
   });
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
       <button
         onClick={() => page > 1 && onChange(page - 1)}
         disabled={page <= 1}
@@ -1106,10 +1329,10 @@ function Pagination({ page, totalPages, onChange }) {
         aria-label="Página anterior"
       >
         <Icons.ChevronLeft size={12} style={{ verticalAlign: 'middle' }} />
-        <span style={{ marginLeft: 4, fontSize: 11 }}>Anterior</span>
+        <span style={{ marginLeft: 4, fontSize: 'var(--fs-overline)' }}>Anterior</span>
       </button>
       {out.map((item) => item.ellipsis ? (
-        <span key={item.key} style={{ padding: '6px 4px', color: 'var(--text-3)', fontSize: 12 }}>…</span>
+        <span key={item.key} style={{ padding: '6px 4px', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>…</span>
       ) : (
         <button
           key={item.key}
@@ -1126,7 +1349,7 @@ function Pagination({ page, totalPages, onChange }) {
         style={btnStyle(false, page >= totalPages)}
         aria-label="Página siguiente"
       >
-        <span style={{ marginRight: 4, fontSize: 11 }}>Siguiente</span>
+        <span style={{ marginRight: 4, fontSize: 'var(--fs-overline)' }}>Siguiente</span>
         <Icons.ChevronRight size={12} style={{ verticalAlign: 'middle' }} />
       </button>
     </div>
@@ -1147,7 +1370,7 @@ function HL({ text, terms }) {
   try { re = new RegExp('(' + escaped.join('|') + ')', 'ig'); } catch (_) { return text; }
   const parts = String(text).split(re);
   return parts.map((part, i) => (i % 2 === 1)
-    ? <mark key={i} style={{ background: 'var(--accent-fill)', color: 'var(--accent)', padding: '0 2px', borderRadius: 3, fontWeight: 600 }}>{part}</mark>
+    ? <mark key={i} style={{ background: 'var(--accent-fill)', color: 'var(--accent)', padding: '0 2px', borderRadius: 'var(--r-sm)', fontWeight: 600 }}>{part}</mark>
     : <React.Fragment key={i}>{part}</React.Fragment>);
 }
 
@@ -1155,7 +1378,7 @@ function HL({ text, terms }) {
 function MentionsList({ mentions, onMentionClick, highlight }) {
   return (
     <div className="scroll-x">
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
         <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
@@ -1164,22 +1387,22 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 'var(--sp-3)', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)', cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', overflow: 'hidden' }}>
               {(mn.image || mn.avatar) && (
                 <img src={mn.image || mn.avatar} alt="" loading="lazy"
                   onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  style={{ width: 30, height: 30, borderRadius: 5, objectFit: 'cover', flex: '0 0 auto', background: 'var(--canvas-2)' }} />
+                  style={{ width: 30, height: 30, borderRadius: 'var(--r-md)', objectFit: 'cover', flex: '0 0 auto', background: 'var(--canvas-2)' }} />
               )}
               <div style={{ overflow: 'hidden' }}>
                 <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HL text={mn.title} terms={highlight} /></div>
-                <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
+                <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
               </div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-            <span style={{ color: 'var(--text-2)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
-            <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
+            <span style={{ color: 'var(--text-2)', fontSize: 'var(--fs-overline)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
+            <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
           </div>
         );
@@ -1191,7 +1414,7 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
 // --- Mentions: Cards view (rich tiles, sin pill de pertinencia) ---
 function MentionsCards({ mentions, onMentionClick, highlight }) {
   return (
-    <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+    <div style={{ padding: 'var(--sp-4)', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 'var(--sp-3)' }}>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
         const SIcon = Icons[sourceIcon];
@@ -1199,23 +1422,23 @@ function MentionsCards({ mentions, onMentionClick, highlight }) {
         const accent = mn.sentiment === 'positivo' ? 'var(--pos)' : mn.sentiment === 'negativo' ? 'var(--neg)' : 'var(--warn)';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)}
-            style={{ background: 'var(--canvas)', border: '1px solid var(--hairline)', borderLeft: `3px solid ${accent}`, padding: 14, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 10 }}
+            style={{ background: 'var(--canvas)', border: '1px solid var(--hairline)', borderLeft: `3px solid ${accent}`, padding: 'var(--sp-4)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--canvas-2)'}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--canvas)'}>
             {mn.image && (
               <img src={mn.image} alt="" loading="lazy"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 6, background: 'var(--canvas-2)' }} />
+                style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 'var(--r-md)', background: 'var(--canvas-2)' }} />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
               <SIcon size={12} /> {mn.domain}
               <span>·</span>
               <span>{mn.publishedAt}</span>
               <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`}>{mn.sentiment}</span>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.title} terms={highlight} /></div>
-            {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.snippet} terms={highlight} /></div>}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+            <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.title} terms={highlight} /></div>
+            {mn.snippet && <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.snippet} terms={highlight} /></div>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
               {mn.avatar && <img src={mn.avatar} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover', flex: '0 0 auto' }} />}
               <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</span>
@@ -1232,11 +1455,11 @@ function MentionsTable({ mentions, onMentionClick, highlight }) {
   const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Subtópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-overline)' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--hairline-strong)', background: 'var(--canvas-2)' }}>
             {columns.map((c) => (
-              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{c}</th>
+              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{c}</th>
             ))}
           </tr>
         </thead>
@@ -1387,40 +1610,40 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Hero search */}
-      <div className="card" style={{ padding: 16 }}>
-        <div style={{ position: 'relative' }}>
-          <Icons.Search size={18} color="var(--text-3)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
-          <input
-            ref={inputRef} className="input" value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setQ(queryInput.trim()); setPage(1); } }}
-            placeholder="Buscar en todas las menciones — palabras clave, autor, tema…"
-            aria-label="Buscar en todas las menciones"
-            style={{ paddingLeft: 42, paddingRight: queryInput ? 40 : 14, fontSize: 16, height: 48, width: '100%' }}
-          />
-          {queryInput && (
+      <div className="card" style={{ padding: 'var(--sp-4)' }}>
+        {/* Mismo primitivo que el buscador del header, tamaño lg: un solo campo,
+            un solo placeholder. El 15px de aquí venía de --fs-title-md, un token
+            de TÍTULO puesto en el texto que se escribe. */}
+        <SearchField size="lg"
+          inputRef={inputRef}
+          value={queryInput}
+          onChange={(e) => setQueryInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { setQ(queryInput.trim()); setPage(1); } }}
+          ariaLabel="Buscar en todas las menciones"
+          trailingWidth={queryInput ? 40 : 14}
+          trailing={queryInput ? (
             <button onClick={() => { setQueryInput(''); if (inputRef.current) inputRef.current.focus(); }} title="Limpiar búsqueda" aria-label="Limpiar búsqueda"
-              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>×</button>
-          )}
-        </div>
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 'var(--fs-display-md)', lineHeight: 1 }}>×</button>
+          ) : null}
+        />
       </div>
 
       {/* Estado vacío: recientes + tópicos frecuentes */}
       {!hasCriteria && (
-        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 22 }}>
-          <div style={{ textAlign: 'center' }}>
-            <Icons.Search size={28} color="var(--text-3)" />
-            <div style={{ marginTop: 10, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Busca en todas las menciones</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>
-              Escribe una o más palabras clave para encontrar menciones por título o contenido. Combina términos para afinar y usa los filtros para acotar por sentimiento, fuente o tópico.
-            </div>
-          </div>
+        <div className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
+          {/* Mismo primitivo que las otras 9 pantallas (antes: icono, título y
+              detalle a mano, con el ancho de línea en px). size="lg" porque aquí
+              el vacío ES la pantalla, no un hueco dentro de una card; el padding
+              vertical lo pone el primitivo, por eso la card baja a --sp-4. */}
+          <EmptyState size="lg" reason="empty"
+            title="Busca en todas las menciones"
+            detail="Escribe una o más palabras clave para encontrar menciones por título o contenido. Combina términos para afinar y usa los filtros para acotar por sentimiento, fuente o tópico." />
           {recent.length > 0 && (
             <div>
               <div className="section-eyebrow">Búsquedas recientes</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)', marginTop: 'var(--sp-2)' }}>
                 {recent.map((s) => (
                   <button key={s} className="chip" onClick={() => { setQueryInput(s); setQ(s); setPage(1); }}>{s}</button>
                 ))}
@@ -1434,7 +1657,7 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
           {popularTopics.length > 0 && (
             <div>
               <div className="section-eyebrow">Tópicos frecuentes</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)', marginTop: 'var(--sp-2)' }}>
                 {popularTopics.map((t) => (
                   <button key={t.slug} className="chip" onClick={() => setFilters((f) => ({ ...f, topic: t.slug }))}>
                     <Icons.Hash size={11} /> {t.name || t.slug}
@@ -1449,8 +1672,8 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
       {/* Facet bar + resultados */}
       {hasCriteria && (
         <>
-          <div className="card" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 6 }}>
+          <div className="card" style={{ padding: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
               {sentChips.map((x) => (
                 <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
                   {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
@@ -1462,17 +1685,17 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
             <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
             <div style={{ position: 'relative' }}>
               <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
-                <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
+                <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 'var(--fs-overline)' }}>·{activeMoreFiltersCount}</span>}
               </button>
               {moreOpen && (
-                <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-                  <div className="section-eyebrow" style={{ marginBottom: 6 }}>Tópico</div>
-                  <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 'var(--sp-3)', minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-15)' }}>Tópico</div>
+                  <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                     <option value="">Todos los tópicos</option>
                     {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
                   </select>
-                  <div className="section-eyebrow" style={{ marginBottom: 6 }}>Región</div>
-                  <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-15)' }}>Región</div>
+                  <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                     <option value="">Todas las regiones</option>
                     {regions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
@@ -1505,23 +1728,26 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
               <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
             </div>
             {loading && data.mentions.length === 0 && (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Buscando…</div>
+              <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Buscando…</div>
             )}
             {!loading && error && (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--neg)', fontSize: 13 }}>
-                No se pudo completar la búsqueda.
-                <button className="chip" style={{ marginLeft: 8 }} onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button>
-              </div>
+              // reason="error" ya trae role="alert" y el botón de acción: el bloque
+              // a mano no anunciaba el fallo a lectores de pantalla y metía un
+              // `.chip` de 11px dentro de una línea de 13px.
+              <EmptyState reason="error"
+                title="No se pudo completar la búsqueda"
+                detail="Revisa la conexión y vuelve a intentar."
+                action={() => setReloadKey((k) => k + 1)} actionLabel="Reintentar" />
             )}
             {!loading && !error && data.total === 0 && (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-                No se encontraron menciones{q ? <> para «{q}»</> : ''}{filtersActive ? ' con los filtros actuales' : ''}.
-                {filtersActive && (
-                  <div style={{ marginTop: 12 }}>
-                    <button className="chip" onClick={() => setFilters({ sentiment: 'all', source: 'all', topic: '', region: '' })}>Quitar filtros</button>
-                  </div>
-                )}
-              </div>
+              // 'filtered' cuando hay filtros puestos y 'empty' cuando la consulta
+              // simplemente no trae nada: el mismo primitivo distingue las dos
+              // causas, que es la diferencia que el bloque plano no hacía.
+              <EmptyState reason={filtersActive ? 'filtered' : 'empty'}
+                title={q ? `Sin resultados para «${q}»` : 'Sin resultados'}
+                detail={filtersActive ? 'Ninguna mención coincide con los filtros actuales.' : 'Prueba con menos palabras o con sinónimos.'}
+                action={filtersActive ? () => setFilters({ sentiment: 'all', source: 'all', topic: '', region: '' }) : undefined}
+                actionLabel={filtersActive ? 'Quitar filtros' : undefined} />
             )}
             {!error && data.mentions.length > 0 && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
             {!error && data.mentions.length > 0 && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
@@ -1597,7 +1823,13 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   }
 
   function openEmotionSlice(e) {
-    const accent = `var(--${e.color})`;
+    // El acento del modal se resuelve por la MISMA función que pinta la barra.
+    // Antes usaba `e.color` del API, que es 'pos'/'neg'/'warn'/'neu'
+    // (eco-data/route.ts:875-882): la fila "Ira" se veía con su token --emo-ira
+    // y el modal que abría salía con --neg. Dos colores para el mismo dato a un
+    // click de distancia, y era el único camino por el que --neu llegaba a
+    // resolverse (construido por plantilla, nunca escrito literal).
+    const accent = emotionColor(e.emotion);
     setSlice({
       eyebrow: 'Emoción detectada',
       title: e.emotion,
@@ -1652,38 +1884,42 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 24, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
             className="row-hover"
             title="Ver insight del NSS para el periodo"
-            style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-            <div className="num" style={{ fontSize: 40, fontWeight: 600, color: (m.display && m.display.nss.color) || 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{(m.display && m.display.nss.word) || 'NSS'}</div>
-            <div className="num" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }}>{(m.display && m.display.nss.value) || ((m.nss > 0 ? '+' : '') + m.nss)}</div>
+            style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-4)', marginTop: 'var(--sp-2)', padding: '4px 8px', marginInline: -8, borderRadius: 'var(--r-md)', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            <div className="num" style={{ fontSize: 'var(--fs-num-2xl)', fontWeight: 600, color: (m.display && m.display.nss.color) || 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{(m.display && m.display.nss.word) || 'NSS'}</div>
+            {/* --fs-num-sm, no --fs-title-md: mismo 15px, pero --fs-title-md
+                está declarado en tokens.css:50 para .card-hd-title. Una cifra
+                dimensionada con el token de los títulos de tarjeta hace que
+                cualquier ajuste futuro de los títulos mueva este número. */}
+            <div className="num" style={{ fontSize: 'var(--fs-num-sm)', fontWeight: 600, color: 'var(--text-2)' }}>{(m.display && m.display.nss.value) || ((m.nss > 0 ? '+' : '') + m.nss)}</div>
             <Icons.ArrowRight size={14} color="var(--text-3)" />
             {m.deltaDisplay && m.deltaDisplay.nss && (
               m.deltaDisplay.nss.hasBaseline ? (
-                <div style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: m.deltaDisplay.nss.direction === 'flat' ? 'var(--text-3)' : (m.deltaDisplay.nss.tone === 'pos' ? 'var(--pos)' : m.deltaDisplay.nss.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
+                <div style={{ marginLeft: 8, fontSize: 'var(--fs-caption)', fontWeight: 600, color: m.deltaDisplay.nss.direction === 'flat' ? 'var(--text-3)' : (m.deltaDisplay.nss.tone === 'pos' ? 'var(--pos)' : m.deltaDisplay.nss.tone === 'neg' ? 'var(--neg)' : 'var(--text-3)') }}>
                   {m.deltaDisplay.nss.direction === 'flat' ? `· ${m.deltaDisplay.nss.word}` : `${m.deltaDisplay.nss.arrow} ${m.deltaDisplay.nss.value}`}
                   <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> vs período anterior</span>
                 </div>
               ) : (
-                <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
+                <div style={{ marginLeft: 8, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: 500 }}>— sin base de comparación</div>
               )
             )}
           </button>
-          <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 12, maxWidth: 640, lineHeight: 1.55 }}>
+          <div style={{ fontSize: 'var(--fs-body)', color: 'var(--text-2)', marginTop: 'var(--sp-3)', maxWidth: 640, lineHeight: 1.55 }}>
             Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
           <div>
             <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
             {D.SENTIMENT_BREAKDOWN.map((s) => {
               // El % debe normalizarse sobre la suma del propio breakdown (no
               // sobre m.totalMentions): SENTIMENT_BREAKDOWN y totalMentions son
@@ -1696,8 +1932,8 @@ function SentimentScreen({ onMentionClick, period, agency }) {
                 <button key={s.name} onClick={() => openSentimentSlice(s.name)}
                   className="row-hover"
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 8, background: 'transparent',
-                    border: 'none', padding: '4px 6px', marginInline: -6, borderRadius: 6,
+                    display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', background: 'transparent',
+                    border: 'none', padding: '4px 6px', marginInline: -6, borderRadius: 'var(--r-md)',
                     cursor: 'pointer', textAlign: 'left', minWidth: 160,
                   }}>
                   <span className="dot" style={{ background: c }} />
@@ -1712,7 +1948,12 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       </div>
 
       {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.5fr 1fr', '1fr'), gap: 12 }}>
+      {/* alignItems:'start': con el stretch por defecto la tarjeta del chart se
+          estiraba hasta el alto de EmotionsCard y quedaban 216px de canvas
+          vacío dentro de ella (el 41% de su cuerpo), porque el chart tiene alto
+          fijo y su hermana crece con las filas. El alto del chart sube a 340 en
+          la línea del StackedAreaChart. */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.5fr 1fr', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Sentimiento en el tiempo</div><div className="card-hd-sub">Volumen apilado · click un día para ver menciones</div></div>
@@ -1721,10 +1962,10 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
               labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
               colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
-            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 12 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo</span>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)', justifyContent: 'center', marginTop: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo</span>
             </div>
           </div>
         </div>
@@ -1733,20 +1974,20 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       </div>
 
       <div className="card">
-        <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <div>
             <div className="card-hd-title">Sentimiento por {activeGroup.l.toLowerCase()}</div>
             <div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div>
           </div>
           {/* Toggle de dimensión: fuente / tópico / subtópico / región.
               Mismo patrón visual que GeographyScreen (Volumen/Sentimiento). */}
-          <div style={{ display: 'flex', gap: 4, background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-1)', background: 'var(--canvas-2)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline)' }}>
             {GROUP_BY_OPTIONS.map((o) => (
               <button key={o.k}
                 onClick={() => setGroupBy(o.k)}
                 style={{
-                  padding: '4px 10px', fontSize: 11, fontWeight: 600,
-                  borderRadius: 999, border: 'none', cursor: 'pointer',
+                  padding: '4px 10px', fontSize: 'var(--fs-overline)', fontWeight: 600,
+                  borderRadius: 'var(--r-pill)', border: 'none', cursor: 'pointer',
                   background: groupBy === o.k ? 'var(--canvas)' : 'transparent',
                   color: groupBy === o.k ? 'var(--text)' : 'var(--text-3)',
                   boxShadow: groupBy === o.k ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
@@ -1754,9 +1995,9 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             ))}
           </div>
         </div>
-        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 18 }}>
+        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 'var(--sp-5)' }}>
           {groupRows.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)', padding: '20px 0' }}>
               Sin datos para esta dimensión en el periodo.
             </div>
           )}
@@ -1767,22 +2008,33 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             const neg = Math.max(0, 100 - pos - neu);
             return (
               <div key={`${groupBy}-${s.label}-${idx}`}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-caption)', marginBottom: 'var(--sp-1)' }}>
                   <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)' }}>{s.label}</span>
                   <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(total)}</span>
                 </div>
-                <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <button onClick={() => openGroupSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
+                {/* 24px de alto: mínimo de objetivo de WCAG 2.2 AA. Antes eran 12px. */}
+                <div style={{ display: 'flex', height: 24, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--canvas-2)' }}>
+                  <button onClick={() => openGroupSlice(s, 'positivo')} aria-label={`${s.label}: ${pos}% positivo, ver menciones`} title={`${pos}% positivo — click para ver menciones`}
                     style={{ width: `${pos}%`, background: 'var(--pos)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'neutral')} aria-label={`${s.label}: ${neu}% neutral, ver menciones`} title={`${neu}% neutral — click para ver menciones`}
                     style={{ width: `${neu}%`, background: 'var(--text-3)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'negativo')} aria-label={`${s.label}: ${neg}% negativo, ver menciones`} title={`${neg}% negativo — click para ver menciones`}
                     style={{ width: `${neg}%`, background: 'var(--neg)', border: 'none', cursor: 'pointer', padding: 0 }} />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>
-                  <span style={{ color: 'var(--pos)' }}>{pos}% pos</span>
-                  <span>{neu}% neu</span>
-                  <span style={{ color: 'var(--neg)' }}>{neg}% neg</span>
+                {/* Pie en ORDEN DE LECTURA, no repartido por la fila. Con
+                    justifyContent:'space-between' el "40% neu" quedaba en el
+                    centro de la FILA, no del segmento neutral, y coincidía sólo
+                    porque el reparto de las seis filas era 30/40/30; con un
+                    5/10/85 el rótulo del neutral habría caído sobre el segmento
+                    negativo. Anclar cada rótulo a su segmento tampoco sirve: a
+                    5% de ancho el span mide 17px y el texto 40px, y se solapan.
+                    Un pie fijo no puede desalinearse porque no afirma
+                    alineación. --fs-caption y no --fs-overline: son cifras de
+                    lectura, no un eyebrow en mayúsculas (tokens.css:63). */}
+                <div style={{ display: 'flex', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-1)' }}>
+                  <span><span className="num" style={{ color: 'var(--pos)', fontWeight: 600 }}>{pos}%</span> pos</span>
+                  <span><span className="num" style={{ fontWeight: 600 }}>{neu}%</span> neu</span>
+                  <span><span className="num" style={{ color: 'var(--neg)', fontWeight: 600 }}>{neg}%</span> neg</span>
                 </div>
               </div>
             );
@@ -1801,26 +2053,13 @@ function SentimentScreen({ onMentionClick, period, agency }) {
 // indiferencia" a `color: 'neu'`, pero `--neu` no existe como CSS var, así
 // que `background: var(--neu)` resolvía vacío y la barra quedaba invisible.
 //
-// Fix: paleta auto-contenida en frontend, mapeada por NOMBRE de emoción (no
-// confía en `e.color` del backend). Cada emoción del set definido por el
-// prompt del processor tiene un color distinto y semántico:
-//   - enojo / frustración  → rojo (var(--neg))
-//   - preocupación         → ámbar (var(--warn))
-//   - sarcasmo             → púrpura (#8C5BA8)
-//   - indiferencia         → gris cálido (#7B8794)
-//   - gratitud / esperanza / alegría / aprobación → verde (var(--pos))
-//   - alivio               → teal (#5FA98A)
-//   - confusión            → gris (#7B8794)
-//   - fallback             → gris (#7B8794)
+// Fix: mapeo por NOMBRE de emoción (no confía en `e.color` del backend),
+// resuelto contra los tokens --emo-* de tokens.css.
 function emotionColor(emotion) {
-  const e = (emotion || '').toLowerCase();
-  if (e === 'enojo' || e === 'frustración' || e === 'frustracion') return 'var(--neg)';
-  if (e === 'preocupación' || e === 'preocupacion') return 'var(--warn)';
-  if (e === 'sarcasmo') return '#8C5BA8';
-  if (e === 'indiferencia' || e === 'confusión' || e === 'confusion') return '#7B8794';
-  if (e === 'gratitud' || e === 'esperanza' || e === 'alegría' || e === 'alegria' || e === 'aprobación' || e === 'aprobacion') return 'var(--pos)';
-  if (e === 'alivio') return '#5FA98A';
-  return '#7B8794';
+  // Delegado a window.ecoEmotionColor (data.js), que mapea a los tokens
+  // --emo-*. Antes esta función tenía 7 hex escritos a mano y un gris de
+  // fallback (#7B8794) que no pertenecía a ninguna paleta del sistema.
+  return window.ecoEmotionColor(emotion);
 }
 
 function EmotionsCard({ emotions, onEmotionClick }) {
@@ -1839,7 +2078,7 @@ function EmotionsCard({ emotions, onEmotionClick }) {
           <Icons.Heart size={14} color="var(--text-3)" />
         </div>
         <div className="card-bd">
-          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)', padding: '20px 0' }}>
             Sin emociones clasificadas en el periodo.
           </div>
         </div>
@@ -1858,15 +2097,22 @@ function EmotionsCard({ emotions, onEmotionClick }) {
         </div>
         <Icons.Heart size={14} color="var(--text-3)" />
       </div>
-      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
         {/* Emoción dominante (hero) */}
         <button onClick={() => onEmotionClick(top)}
           className="row-hover"
           style={{
-            display: 'flex', alignItems: 'center', gap: 14,
-            padding: '12px 14px', borderRadius: 8,
-            background: `color-mix(in oklab, ${topColor} 8%, var(--canvas))`,
-            border: `1px solid color-mix(in oklab, ${topColor} 25%, var(--hairline))`,
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-4)',
+            padding: '12px 14px', borderRadius: 'var(--r-lg)',
+            // Cromo NEUTRO a propósito. Antes el fondo y el borde se mezclaban
+            // con el color de la emoción dominante, así que con "Sorpresa"
+            // (--emo-sorpresa era --warn) el card salía ámbar y era
+            // indistinguible de una tarjeta de advertencia — el mismo --warn de
+            // la banda "ELEVADO" del riesgo de crisis. El dato es un conteo: no
+            // tiene severidad que el cromo pueda codificar. El color de la
+            // emoción sigue presente donde sí identifica (halo + disco).
+            background: 'var(--canvas-2)',
+            border: '1px solid var(--hairline)',
             cursor: 'pointer', textAlign: 'left', width: '100%',
           }}>
           <div style={{
@@ -1878,37 +2124,66 @@ function EmotionsCard({ emotions, onEmotionClick }) {
             <div style={{ width: 22, height: 22, borderRadius: '50%', background: topColor }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: topColor }}>Emoción dominante</div>
-            <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', marginTop: 2 }}>{top.emotion}</div>
+            {/* .section-eyebrow es la receta de eyebrow del producto (42 usos).
+                Esta línea tenía la tercera receta inline (11px/700/0.08em) y
+                además la pintaba con el color del dato, que convertía un rótulo
+                en un indicador de estado. */}
+            <div className="section-eyebrow" style={{ marginBottom: 0 }}>Emoción dominante</div>
+            <div style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', marginTop: 'var(--sp-05)' }}>{top.emotion}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{fmt(top.count)}</div>
-            <div className="num" style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>{Math.round((top.count / total) * 100)}% del total</div>
+            {/* --fs-num-lg, no --fs-display-lg: es un conteo, no un título.
+                Además --fs-display-lg es clamp(20px,2vw,24px), así que en móvil
+                este número bajaba a 20px mientras las cifras de las filas de
+                abajo (--fs-caption, fijo) no se movían y la jerarquía del card
+                se aplanaba justo donde hay menos sitio. */}
+            <div className="num" style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{fmt(top.count)}</div>
+            <div className="num" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-1)' }}>{Math.round((top.count / total) * 100)}% del total</div>
           </div>
           <Icons.ArrowRight size={14} color="var(--text-3)" />
         </button>
 
         {/* Ranking de emociones — todas pintadas por nombre (no por e.color del
-            backend que podía ser 'neu' sin var CSS). Bar 8px, ancho mínimo 2%
-            para que las menores no desaparezcan visualmente. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            backend que podía ser 'neu' sin var CSS).
+
+            La barra se normaliza al MÁXIMO DE LA SERIE, no al 100%. Con 7
+            categorías que suman 100% el techo real ronda el 30%, así que en una
+            pista 0–100% el 70% quedaba vacío por construcción: la barra más
+            larga medía 47px de 161 y "Esperanza" (20.9%) y "Tristeza" (16.6%)
+            se separaban 7px. El gráfico decía "todas las emociones son bajas"
+            en vez de compararlas, que es para lo que existe la tarjeta. El
+            share absoluto no se pierde: va impreso en cada fila.
+
+            El piso artificial del 2% se va con la normalización: falseaba el
+            extremo bajo (3.0% y 0.5% dibujaban barras casi iguales) y ya no
+            hace falta porque el mínimo pasa a ser count/maxCount de la serie. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
           {sorted.map((e, i) => {
             const pct = total > 0 ? (e.count / total) * 100 : 0;
+            const maxCount = sorted[0].count || 1;
             const color = emotionColor(e.emotion);
-            const widthPct = pct > 0 ? Math.max(2, pct) : 0; // 2% piso visual cuando hay datos
+            const widthPct = e.count > 0 ? (e.count / maxCount) * 100 : 0;
             return (
               <button key={e.emotion} onClick={() => onEmotionClick(e)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '22px 120px 1fr 64px 12px',
-                  gap: 12, alignItems: 'center',
-                  padding: '8px 10px', marginInline: -10, borderRadius: 6,
+                  // En móvil las columnas de TEXTO son proporcionales y el cromo
+                  // fijo baja de 266px a 114px. Con la rejilla de desktop
+                  // (22+120+64+12 fijos + 4 gaps de 12) la barra se quedaba con
+                  // ~66px de los 161 de desktop —el 59% menos— mientras la
+                  // etiqueta y las cifras no cedían un píxel. La barra es el
+                  // único elemento cuantitativo de la fila: debe ser la que más
+                  // crece, no la que más se comprime.
+                  display: 'grid',
+                  gridTemplateColumns: window.ecoCols('22px 120px 1fr 64px 12px', '20px minmax(0, 1.1fr) minmax(0, 2fr) 52px 10px'),
+                  gap: window.ecoCols('var(--sp-3)', 'var(--sp-2)'), alignItems: 'center',
+                  padding: '8px 10px', marginInline: -10, borderRadius: 'var(--r-md)',
                   background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
-                  fontSize: 12,
+                  fontSize: 'var(--fs-caption)',
                 }}>
-                <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
+                <span className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
                 <span style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.emotion}</span>
-                <div style={{ height: 8, borderRadius: 4, background: 'var(--canvas-2)', overflow: 'hidden', position: 'relative' }}>
+                <div style={{ height: 8, borderRadius: 'var(--r-sm)', background: 'var(--canvas-2)', overflow: 'hidden', position: 'relative' }}>
                   <div style={{
                     height: '100%',
                     width: `${widthPct}%`,
@@ -1918,8 +2193,8 @@ function EmotionsCard({ emotions, onEmotionClick }) {
                   }} />
                 </div>
                 <span style={{ textAlign: 'right' }}>
-                  <span className="num" style={{ display: 'block', color: 'var(--text-2)', fontWeight: 600, fontSize: 12, lineHeight: 1.1 }}>{fmt(e.count)}</span>
-                  <span className="num" style={{ display: 'block', color: 'var(--text-3)', fontSize: 9, marginTop: 1 }}>{pct.toFixed(1)}%</span>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-2)', fontWeight: 600, fontSize: 'var(--fs-caption)', lineHeight: 1.1 }}>{fmt(e.count)}</span>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-3)', fontSize: 'var(--fs-overline)', marginTop: 'var(--sp-05)' }}>{pct.toFixed(1)}%</span>
                 </span>
                 <Icons.ArrowRight size={11} color="var(--text-3)" />
               </button>
@@ -2002,12 +2277,12 @@ function TopicsScreen({ onMentionClick }) {
   if (sel) return <TopicDetail topic={sel} subs={subs} onBack={closeTopic} onMentionClick={onMentionClick} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Panorámica con view toggle */}
       <div className="card">
         <div className="card-hd">
           <div><div className="card-hd-title">Tópicos · vista panorámica</div><div className="card-hd-sub">Haz clic en un tópico para ver sus subtópicos</div></div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {[
               { k: 'treemap', l: 'Treemap', icon: 'Grid' },
               { k: 'bubbles', l: 'Burbujas', icon: 'Circle' },
@@ -2015,7 +2290,7 @@ function TopicsScreen({ onMentionClick }) {
             ].map(o => {
               const IC = Icons[o.icon];
               return (
-                <button key={o.k} onClick={() => setView(o.k)} className={`chip ${view === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <button key={o.k} onClick={() => setView(o.k)} className={`chip ${view === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                   <IC size={11} /> {o.l}
                 </button>
               );
@@ -2026,6 +2301,10 @@ function TopicsScreen({ onMentionClick }) {
           {view === 'treemap' && <TopicTreemap topics={D.TOPICS} onSelect={openTopic} />}
           {view === 'bubbles' && <TopicBubbles topics={D.TOPICS} onSelect={openTopic} />}
           {view === 'list' &&    <TopicList topics={D.TOPICS} onSelect={openTopic} />}
+          {/* La leyenda vive en la card, no dentro de una vista: los tres modos
+              codifican el estado con la misma familia de color y el treemap
+              (vista por defecto) no explicaba la suya. */}
+          <TopicSentimentLegend />
         </div>
       </div>
 
@@ -2033,7 +2312,7 @@ function TopicsScreen({ onMentionClick }) {
       <TopicCalendar data={calendarData} onSelect={openTopic} onDayClick={setDayModal} />
 
       {dayModal && (() => {
-        const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+        const palette = window.ECO_CAT;
         const slugIdx = {};
         D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
         const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
@@ -2066,8 +2345,8 @@ function TopicsScreen({ onMentionClick }) {
           y el Overview (top-confidence). Si una mención toca varios tópicos,
           cuenta una vez en su tópico principal — el "+N también lo tocan"
           señala las menciones donde ese tópico es secundario. */}
-      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+      <div style={{ padding: '12px 16px', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 'var(--sp-05)' }} />
         <span>
           Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
           criterio del correo y del Overview). El "+N también lo tocan"
@@ -2082,31 +2361,57 @@ function TopicsScreen({ onMentionClick }) {
 
 // --- Treemap variant (existing style, with click drill-in) ---
 function TopicTreemap({ topics, onSelect }) {
+  // La fila crece con su contenido. Con `gridAutoRows: '76px'` fijo el tile
+  // sumaba ~109px de contenido (32 de padding + nombre + cifra + "+N también lo
+  // tocan" + barra) y, sin recorte, el sobrante se pintaba ENCIMA del tile de la
+  // fila siguiente: la barra de distribución y el delta de un tópico quedaban
+  // rotulados dentro de OTRO tópico. Eso es misatribución de dato, no sólo
+  // desborde. En móvil el nombre envuelve a 2-3 líneas, así que el mínimo sube.
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gridAutoRows: '76px', gap: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gridAutoRows: window.ecoCols('minmax(76px, auto)', 'minmax(96px, auto)'), gap: 'var(--sp-1)' }}>
       {topics.map((t, i) => {
-        const color = t.dominantSentiment === 'positivo' ? 'var(--pos)' : t.dominantSentiment === 'negativo' ? 'var(--neg)' : t.dominantSentiment === 'mixed' ? 'var(--warn)' : 'var(--text-3)';
-        const bg = t.dominantSentiment === 'positivo' ? 'var(--pos-bg)' : t.dominantSentiment === 'negativo' ? 'var(--neg-bg)' : 'var(--canvas-2)';
-        const span = i < 2 ? 2 : 1;
-        const rowSpan = i < 2 ? 2 : 1;
+        // Rótulo y tinte del tile, de la MISMA familia. El tinte de 'mixed'
+        // caía en --canvas-2, un token de SUPERFICIE inset (más oscuro que la
+        // card), así que los tópicos sin dominancia se leían como agujeros en la
+        // rejilla mientras su rótulo iba en ámbar. Ahora los tres estados son
+        // overlays al 10% sobre la card. 'mixed' va a la familia NEUTRA y no a
+        // --warn: el ámbar es el color de RIESGO del producto (escala de crisis,
+        // alertas) y "ninguna polaridad domina" no es un riesgo; además el
+        // calendario ya pinta en gris ese mismo estado, así que un solo hue para
+        // un solo concepto.
+        const color = window.ecoSentimentColor(t.dominantSentiment);
+        const bg = t.dominantSentiment === 'positivo' ? 'var(--pos-bg)' : t.dominantSentiment === 'negativo' ? 'var(--neg-bg)' : 'var(--neu-bg)';
+        // Tiles UNIFORMES. `span = i < 2 ? 2 : 1` daba 4 celdas a los dos
+        // primeros tópicos por su POSICIÓN en el array, no por su valor: con los
+        // datos de julio, Empleo (173) ocupaba la CUARTA PARTE del área de
+        // Permisos (213) — 19% menos dato, 75% menos área — y la MISMA área que
+        // Agricultura (53), que vale 3.3x menos. En una rejilla de celdas fijas
+        // el área no puede ser fiel al dato, así que se retira como canal: el
+        // volumen lo dicen la cifra impresa y el orden de lectura (el endpoint
+        // devuelve los tópicos por primary_count DESC).
         return (
           <button key={t.slug} onClick={() => onSelect(t.slug)}
             style={{
-              gridColumn: `span ${span}`, gridRow: `span ${rowSpan}`,
-              padding: 14, textAlign: 'left',
-              background: bg, borderRadius: 8,
+              padding: 'var(--sp-4)', textAlign: 'left',
+              background: bg, borderRadius: 'var(--r-lg)',
               border: '1.5px solid transparent',
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+              // Guarda: si el contenido volviera a exceder la fila, se recorta
+              // DENTRO de su tile en vez de atribuirse al tópico vecino.
+              overflow: 'hidden',
               cursor: 'pointer', transition: 'all 0.2s var(--ease)',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = color; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
           >
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.name}</div>
-              <div className="num" style={{ fontSize: i < 2 ? 30 : 18, fontWeight: 600, color: 'var(--text)', marginTop: 4, fontFamily: 'var(--ff-display)' }}>{fmt(t.count)}</div>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.name}</div>
+              {/* Una sola talla, y desde la escala: 30 vs 18 por índice era
+                  1.67x de talla tipográfica para 1.46x de dato (253 vs 173), y
+                  premiaba la posición en el array, no el valor. */}
+              <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: 'var(--text)', marginTop: 'var(--sp-1)', fontFamily: 'var(--ff-display)' }}>{fmt(t.count)}</div>
               {t.secondaryCount > 0 && (
-                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>+{t.secondaryCount} también lo tocan</div>
+                <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500, marginTop: 'var(--sp-05)' }}>+{t.secondaryCount} también lo tocan</div>
               )}
             </div>
             {/* Barra de distribución de sentimiento: ahora ocupa todo el ancho
@@ -2128,18 +2433,22 @@ function TopicTreemap({ topics, onSelect }) {
 function SentimentBar({ t }) {
   const deltaStr = t.delta == null
     ? '—'
-    : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`;
-  const deltaColor = t.delta == null
-    ? 'var(--text-3)'
-    : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
+    : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`;
+  // El volumen de un tópico es NEUTRO: que "Turismo y promoción" suba no es
+  // malo. Antes esto pintaba toda subida en --neg y toda bajada en --pos, y el
+  // Scorecard hacía justo lo contrario con el mismo dato.
+  const deltaColor = window.ecoDeltaColor('volume', t.delta);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)', minWidth: 40 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginTop: 'var(--sp-15)' }}>
+      {/* La pista es relleno de dato neutro (--neu-bg), no una superficie
+          inset: con --canvas-2 tenía contraste CERO contra el fondo de un tile
+          'mixed', que era ese mismo token. */}
+      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--neu-bg)', minWidth: 40 }}>
         <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
-        <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--text-3)' }} />
+        <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--neu)' }} />
         <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
       </div>
-      <span style={{ fontSize: 10, fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 40, textAlign: 'right' }}>
+      <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 40, textAlign: 'right' }}>
         {deltaStr}
       </span>
     </div>
@@ -2183,7 +2492,8 @@ function TopicBubbles({ topics, onSelect }) {
     <div style={{ position: 'relative', width: '100%' }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 360, display: 'block' }}>
         {positioned.map((t) => {
-          const color = t.dominantSentiment === 'positivo' ? 'var(--pos)' : t.dominantSentiment === 'negativo' ? 'var(--neg)' : t.dominantSentiment === 'mixed' ? 'var(--warn)' : 'var(--text-3)';
+          // Mismo mapa que el treemap y que la leyenda (un solo hue por estado).
+          const color = window.ecoSentimentColor(t.dominantSentiment);
           return (
             <g key={t.slug} style={{ cursor: 'pointer' }} onClick={() => onSelect(t.slug)}>
               <circle cx={t.x} cy={t.y} r={t.r} fill={color} fillOpacity="0.18" stroke={color} strokeWidth="1.5" />
@@ -2193,21 +2503,35 @@ function TopicBubbles({ topics, onSelect }) {
               <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
-              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9"
-                fill={t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)'}
+              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="var(--fs-overline)"
+                fill={window.ecoDeltaColor('volume', t.delta)}
                 fontWeight="700" style={{ pointerEvents: 'none' }}>
-                {t.delta == null ? '—' : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`}
+                {t.delta == null ? '—' : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`}
               </text>
             </g>
           );
         })}
       </svg>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo dominante</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo dominante</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--warn)' }} /> Mixto</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
-      </div>
+      {/* La leyenda ya la pone la card (TopicSentimentLegend), común a las tres
+          vistas y sin la entrada "Neutral" que el endpoint no emite. */}
+    </div>
+  );
+}
+
+// Leyenda ÚNICA del estado de sentimiento de un tópico, compartida por las tres
+// vistas de la panorámica. El treemap —la vista por DEFECTO— no tenía ninguna:
+// sus tintes quedaban sin explicar. La de burbujas, además, listaba una cuarta
+// entrada ("Neutral") que el endpoint no puede emitir para un tópico (sólo
+// positivo | negativo | mixed), o sea prometía un estado inalcanzable. Aquí se
+// escribe también la DEFINICIÓN de mixto, que no estaba en ninguna parte.
+function TopicSentimentLegend() {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-3)' }}>
+      {[['positivo', 'Positivo dominante'], ['negativo', 'Negativo dominante'], ['mixed', 'Mixto · ningún lado domina (≤ 8 pp)']].map(([k, l]) => (
+        <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+          <span className="dot" style={{ background: window.ecoSentimentColor(k) }} /> {l}
+        </span>
+      ))}
     </div>
   );
 }
@@ -2215,40 +2539,54 @@ function TopicBubbles({ topics, onSelect }) {
 // --- List variant ---
 function TopicList({ topics, onSelect }) {
   const sorted = [...topics].sort((a, b) => b.count - a.count);
-  const max = Math.max(...sorted.map(t => t.count));
   return (
     <div className="scroll-x">
-      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', padding: '8px 12px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Δ</span><span />
       </div>
       {sorted.map((t, i) => (
         <button key={t.slug} onClick={() => onSelect(t.slug)} className="row-hover"
           style={{
-            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, alignItems: 'center',
-            padding: '10px 12px', fontSize: 12, textAlign: 'left', cursor: 'pointer',
+            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', alignItems: 'center',
+            padding: '10px 12px', fontSize: 'var(--fs-caption)', textAlign: 'left', cursor: 'pointer',
             borderTop: i > 0 ? '1px solid var(--hairline)' : '1px solid var(--hairline)',
             width: '100%',
           }}>
-          <span className="mono" style={{ color: 'var(--text-3)', fontSize: 11 }}>{String(i+1).padStart(2,'0')}</span>
+          <span className="mono" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{String(i+1).padStart(2,'0')}</span>
           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
             {t.secondaryCount > 0 && (
-              <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>+{t.secondaryCount} también lo tocan</span>
+              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>+{t.secondaryCount} también lo tocan</span>
             )}
           </span>
           <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(t.count)}</span>
-          <span className={`pill ${t.dominantSentiment === 'positivo' ? 'pill-pos' : t.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn'}`} style={{ justifySelf: 'start' }}>{t.dominantSentiment}</span>
+          {/* Nunca el enum: con .pill en mayúsculas esto imprimía "MIXED".
+              Y la clase pasa a pill-neu, que index.html define justo para
+              "clasificado, no vacío" — pill-warn es el ámbar de riesgo. */}
+          <span className={`pill ${t.dominantSentiment === 'positivo' ? 'pill-pos' : t.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{window.ecoSentimentLabel(t.dominantSentiment)}</span>
+          {/* "Distribución" es COMPOSICIÓN: la pista mide lo mismo en todas las
+              filas y las bandas son porcentaje de ese largo — la misma
+              codificación que el treemap. Antes el largo total codificaba
+              VOLUMEN (count/max) con las bandas dentro, así que un tópico 60%
+              negativo y poco volumen mostraba una banda roja diminuta aquí y una
+              banda roja larga en el treemap, bajo el mismo rótulo. El volumen ya
+              está impreso, exacto, en la columna "Menciones". */}
           <div style={{ position: 'relative', height: 14 }}>
-            <div style={{ position: 'absolute', inset: '3px 0', background: 'var(--canvas-2)', borderRadius: 3 }} />
-            <div style={{ position: 'absolute', inset: '3px 0', width: `${(t.count/max)*100}%`, borderRadius: 3, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', inset: '3px 0', borderRadius: 'var(--r-sm)', display: 'flex', overflow: 'hidden', background: 'var(--neu-bg)' }}>
               <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-              <div style={{ width: `${t.neutralPct}%`, background: 'var(--text-3)' }} />
+              <div style={{ width: `${t.neutralPct}%`, background: 'var(--neu)' }} />
               <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
             </div>
           </div>
-          <span style={{ textAlign: 'right', fontSize: 11, fontWeight: 600,
-            color: t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
-            {t.delta == null ? '—' : `${t.delta > 0 ? '+' : ''}${t.delta}%`}
+          {/* El delta de VOLUMEN es neutro (ECO_METRIC_DIRECTION, data.js):
+              aquí salía rojo al subir y verde al bajar, el contrato OPUESTO al
+              del treemap, que ya pasa por ecoDeltaColor. El mismo −8% de
+              "Permisos y trámites" se leía gris en una vista y verde en la otra,
+              a un clic de distancia. La flecha también sale del helper para que
+              las tres vistas escriban el delta igual. */}
+          <span style={{ textAlign: 'right', fontSize: 'var(--fs-overline)', fontWeight: 600,
+            color: window.ecoDeltaColor('volume', t.delta) }}>
+            {t.delta == null ? '—' : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`}
           </span>
           <Icons.ChevronRight size={14} color="var(--text-3)" />
         </button>
@@ -2259,7 +2597,8 @@ function TopicList({ topics, onSelect }) {
 
 // --- Drill-in: topic detail with subtopics + back ---
 function TopicDetail({ topic, subs, onBack, onMentionClick }) {
-  const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
+  // pill-neu (no pill-warn): el ámbar del producto significa riesgo.
+  const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
   const subMax = Math.max(1, ...subs.map(s => s.count));
 
   // --- (5) Descripción IA cacheada por periodo ----------------------
@@ -2274,7 +2613,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
     let cancelled = false;
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     const customFrom = localStorage.getItem('eco.from');
     const customTo = localStorage.getItem('eco.to');
     if (agency) params.set('agency', agency);
@@ -2319,29 +2658,32 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   }, [topic.slug, page]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Breadcrumb + back */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
         <button className="btn" onClick={onBack}>
           <Icons.ArrowLeft size={13} /> Volver a todos los tópicos
         </button>
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+        <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
           Tópicos / <span style={{ color: 'var(--text)', fontWeight: 600 }}>{topic.name}</span>
         </div>
       </div>
 
       {/* Hero stats */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 20, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 'var(--sp-5)', alignItems: 'center' }}>
         <div>
-          <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópico</div>
-          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span className={`pill ${sentPill}`}>{topic.dominantSentiment}</span>
-            <span style={{ fontSize: 12, fontWeight: 600,
-              color: topic.delta == null ? 'var(--text-3)' : topic.delta > 0 ? 'var(--neg)' : topic.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
+          <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Tópico</div>
+          <div style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
+          <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+            <span className={`pill ${sentPill}`}>{window.ecoSentimentLabel(topic.dominantSentiment)}</span>
+            {/* Mismo contrato que la panorámica: el volumen del tópico no es
+                bueno ni malo por subir. Este sitio seguía pintando toda subida
+                en rojo. */}
+            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600,
+              color: window.ecoDeltaColor('volume', topic.delta) }}>
               {topic.delta == null
                 ? 'Sin base de comparación'
-                : `${topic.delta > 0 ? '↑' : topic.delta < 0 ? '↓' : '↔'} ${Math.abs(topic.delta)}% vs. período anterior`}
+                : `${window.ecoDeltaArrow(topic.delta)} ${Math.abs(topic.delta)}% vs. período anterior`}
             </span>
           </div>
         </div>
@@ -2353,25 +2695,25 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       {/* Descripción IA: cargada del endpoint cacheado por (topic_id,
           period_start, period_end). loading → muestra placeholder; ready →
           texto; empty → mensaje neutral; error → bloque oculto. */}
-      <div className="card" style={{ padding: 18 }}>
-        <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="card" style={{ padding: 'var(--sp-5)' }}>
+        <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
           <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA · período seleccionado
         </div>
         {desc.status === 'loading' && (
-          <div style={{ fontSize: 13, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, animation: 'pulse 1.4s ease-in-out infinite' }}>
+          <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', animation: 'pulse 1.4s ease-in-out infinite' }}>
             Generando descripción para este periodo…
           </div>
         )}
         {desc.status === 'ready' && (
-          <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--text)' }}>{desc.text}</div>
+          <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.55, color: 'var(--text)' }}>{desc.text}</div>
         )}
         {desc.status === 'empty' && (
-          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+          <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>
             No hay menciones de este tópico en el periodo seleccionado, así que no se puede describir.
           </div>
         )}
         {desc.status === 'error' && (
-          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+          <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>
             No fue posible generar la descripción. Intenta más tarde.
           </div>
         )}
@@ -2385,30 +2727,30 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
           <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · cluster del periodo seleccionado</div></div>
         </div>
         <div className="scroll-x">
-          {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados en este periodo</div>}
+          {subs.length === 0 && <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Sin subtópicos detectados en este periodo</div>}
           {subs.map((s, i) => {
-            const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
+            const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
             return (
               <div key={s.slug || s.name} className="row-hover" style={{
-                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', minWidth: 640, gap: 12, alignItems: 'center',
-                padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 13,
+                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', minWidth: 640, gap: 'var(--sp-3)', alignItems: 'center',
+                padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-body-sm)',
               }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
+                <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
                   {s.description && (
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{s.description}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-1)', lineHeight: 1.4 }}>{s.description}</div>
                   )}
                 </div>
                 <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
-                <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{s.dominantSentiment || 'mixed'}</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--canvas-2)' }}>
+                <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{window.ecoSentimentLabel(s.dominantSentiment || 'mixed')}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--neu-bg)' }}>
                     <div style={{ flexGrow: Math.max(0, s.positivePct || 0), background: 'var(--pos)' }} />
-                    <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--text-3)' }} />
+                    <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--neu)' }} />
                     <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--text-3)', display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', justifyContent: 'space-between' }}>
                     <span>{s.positivePct || 0}% pos</span>
                     <span>{s.negativePct || 0}% neg</span>
                   </div>
@@ -2426,7 +2768,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
           {(topic.evolution && topic.evolution.length > 0) ? (
             <AreaLineChart data={topic.evolution} accessor={(d) => d.count} height={200} color="var(--accent)" />
           ) : (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
               Sin menciones registradas para este tópico en este periodo.
             </div>
           )}
@@ -2447,10 +2789,10 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
         </div>
         <div>
           {mentionsState.loading && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Cargando menciones…</div>
+            <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Cargando menciones…</div>
           )}
           {!mentionsState.loading && mentionsState.mentions.length === 0 && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
               Sin menciones para este tópico en el periodo seleccionado.
             </div>
           )}
@@ -2459,7 +2801,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
           )}
         </div>
         {!mentionsState.loading && mentionsState.total > pageSize && (
-          <div style={{ padding: 12, borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ padding: 'var(--sp-3)', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
             <Pagination
               page={page}
               totalPages={Math.max(1, Math.ceil(mentionsState.total / pageSize))}
@@ -2475,8 +2817,8 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
 function StatBox({ label, value, tone }) {
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
-      <div className="num" style={{ fontSize: 30, fontWeight: 600, color: tone ? `var(--${tone})` : 'var(--text)', marginTop: 4, fontFamily: 'var(--ff-display)' }}>{value}</div>
+      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+      <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: tone ? `var(--${tone})` : 'var(--text)', marginTop: 'var(--sp-1)', fontFamily: 'var(--ff-display)' }}>{value}</div>
     </div>
   );
 }
@@ -2484,21 +2826,34 @@ function StatBox({ label, value, tone }) {
 // --- Calendar of "main topic of the day" ---
 function TopicCalendar({ data, onSelect, onDayClick }) {
   // Color per topic slug — consistent hues
-  const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+  const palette = window.ECO_CAT;
   const slugIdx = {};
   D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
   const colorFor = (slug) => palette[slugIdx[slug] % palette.length];
   // Semáforo de sentimiento: el color del día = su sentimiento dominante
   // (verde positivo / rojo negativo / gris neutral). La opacidad = volumen.
-  const SENT_HEX = { positivo: '#2E8B6A', negativo: '#C2412F', neutral: '#7C8698' };
+  // Antes: { positivo:'#2E8B6A', negativo:'#C2412F', neutral:'#7C8698' } — el
+  // verde y el rojo del tema `costa` dentro de `mando`, lo que producía 40 de
+  // los 44 fallos de contraste que quedaban (texto de --mando sobre celdas de
+  // --costa, 1.82:1 en el peor caso).
+  const SENT_HEX = {
+    positivo: window.ecoSentimentColor('positivo'),
+    negativo: window.ecoSentimentColor('negativo'),
+    neutral: window.ecoSentimentColor('neutral'),
+  };
   const sentColor = (s) => SENT_HEX[s] || SENT_HEX.neutral;
-  const sentLabel = (s) => (s === 'positivo' ? 'Positivo' : s === 'negativo' ? 'Negativo' : 'Neutral');
+  // Un día sin dominancia llega del endpoint como 'neutral', que es EL MISMO
+  // estado que el treemap llama 'mixed': ningún lado domina. Se muestra con la
+  // misma palabra para no sostener dos vocabularios a 200px de distancia. (Un
+  // sentimiento 'neutral' de MENCIÓN es otra cosa —veredicto del clasificador— y
+  // conserva su palabra en las otras pantallas.)
+  const sentLabel = (s) => window.ecoSentimentLabel(s === 'neutral' ? 'mixed' : s);
 
   if (!data || data.length === 0) {
     return (
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Calendario de tópicos</div><div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div></div></div>
-        <div className="card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        <div className="card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
           Sin actividad de tópicos en este periodo.
         </div>
       </div>
@@ -2524,8 +2879,17 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
     weeks.push(cells.slice(i, i + 7));
   }
 
-  // Volume scale
+  // Volume scale. UN solo sitio calcula el tinte —celdas y leyenda— para que la
+  // leyenda no pueda volver a prometer una rampa que las celdas no alcanzan.
+  // El piso baja de 0.3 a 0.12: con 0.3 la rampa efectiva iba de 19% a 50% de
+  // mezcla (2.6x) para un rango de dato de 8x (6 a 48 menciones/día), así que
+  // días de 15 y de 25 menciones eran indistinguibles y sólo destacaban los
+  // picos. El tope se queda en 50% porque por encima --text deja de pasar AA.
   const maxV = Math.max(...parsed.map(d => d.volume));
+  const tintPct = (v) => Math.round(Math.min(0.12 + (v / maxV) * 0.88, 1) * 50);
+  // Tres muestras REALES del período (mín · mediana · máx) para la leyenda.
+  const volsSorted = parsed.map(d => d.volume).sort((a, b) => a - b);
+  const volRamp = [volsSorted[0], volsSorted[Math.floor(volsSorted.length / 2)], volsSorted[volsSorted.length - 1]];
 
   // Legend = unique topics present in calendar
   const uniqueTopics = [...new Set(parsed.map(d => d.topicSlug))].map(s => D.TOPICS.find(t => t.slug === s)).filter(Boolean);
@@ -2543,17 +2907,21 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
           <div className="card-hd-title">Calendario de tópicos</div>
           <div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <Icons.CalendarDays size={14} color="var(--text-3)" />
-          <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{headerLabel}</span>
+          <span style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', textTransform: 'capitalize' }}>{headerLabel}</span>
         </div>
       </div>
-      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 200px', '1fr'), gap: 20 }}>
+      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 200px', '1fr'), gap: 'var(--sp-5)' }}>
         {/* Grid */}
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
             {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
-              <div key={d} style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'center', paddingBottom: 4 }}>{d}</div>
+              // El rótulo se alinea con el NÚMERO de día de su columna, que va a
+              // la izquierda dentro de una celda con 1px de borde y padding
+              // var(--sp-15). Centrado, con celdas de ~130px, "MAR" quedaba a
+              // ~88px de su propio "30" y se leía sobre el hueco entre celdas.
+              <div key={d} style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left', paddingLeft: 'calc(var(--sp-15) + 1px)', paddingBottom: 4 }}>{d}</div>
             ))}
           </div>
           {weeks.map((week, wIdx) => {
@@ -2571,31 +2939,50 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               <React.Fragment key={`w${wIdx}`}>
                 {showHeader && (
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    marginTop: wIdx === 0 ? 0 : 10, marginBottom: 4,
-                    fontSize: 10, fontWeight: 700, color: 'var(--text-2)',
+                    display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+                    marginTop: wIdx === 0 ? 0 : 10, marginBottom: 'var(--sp-1)',
+                    fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-2)',
                     textTransform: 'uppercase', letterSpacing: '0.08em',
                   }}>
                     <span style={{ flex: '0 0 auto' }}>{monthName}</span>
                     <span style={{ flex: 1, height: 1, background: 'var(--hairline)' }} />
                   </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)' }}>
                   {week.map((c, i) => {
                     if (!c) return <div key={`e${wIdx}-${i}`} />;
                     const color = sentColor(c.sentiment);
-                    const intensity = 0.3 + (c.volume / maxV) * 0.7;
                     const dayNum = c.dt.getDate();
                     const isFirstOfMonth = dayNum === 1;
+                    // El nombre se corta MÁS en móvil: la celda mide ~41px de
+                    // ancho (~29 útiles), así que 14 caracteres se parten en 4
+                    // líneas y empujan el volumen fuera de la celda. Con 8 el
+                    // corte queda marcado con puntos suspensivos y el nombre
+                    // completo sigue en el tooltip y en el modal del día.
+                    const nameLimit = window.ecoIsMobile() ? 8 : 14;
+                    const nameShort = c.topicName.length > nameLimit ? c.topicName.slice(0, nameLimit - 1) + '…' : c.topicName;
                     return (
                       <button key={c.date} onClick={() => onDayClick(c)}
                         title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${sentLabel(c.sentiment)} · ${fmt(c.volume)} menciones`}
                         style={{
                           position: 'relative',
-                          aspectRatio: '1 / 1', minHeight: 62,
-                          padding: 6,
-                          borderRadius: 6,
-                          background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
+                          // En móvil la celda mide ~41px de ancho: con
+                          // aspectRatio 1/1 el alto se quedaba en los 62px del
+                          // minHeight mientras el contenido (día + nombre
+                          // envuelto + volumen) suma ~88px, y `overflow:hidden`
+                          // recortaba justo la última línea — el VOLUMEN, que es
+                          // la segunda variable que promete el subtítulo. Sin
+                          // aspect-ratio la celda crece a su contenido.
+                          aspectRatio: window.ecoIsMobile() ? 'auto' : '1 / 1',
+                          minHeight: window.ecoIsMobile() ? 78 : 62,
+                          padding: 'var(--sp-15)',
+                          borderRadius: 'var(--r-md)',
+                          // Tinte por intensidad con color-mix, no concatenando una
+                          // opacidad hex al color: con tokens (`var(--pos)e6`) eso era CSS
+                          // inválido y la celda quedaba transparente.
+                          // Tope 50%: por encima de eso `--text` deja de pasar AA sobre el
+                          // verde (3.71:1 al 60%).
+                          background: `color-mix(in oklab, ${color} ${tintPct(c.volume)}%, var(--canvas))`,
                           // Borde más marcado en el primer día del mes para
                           // reforzar el cambio cuando ocurre mid-week.
                           border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
@@ -2604,12 +2991,17 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           overflow: 'hidden',
                         }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
+                          <span className="mono" style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)' }}>{dayNum}</span>
+                          {/* Cierra la correspondencia con la leyenda "Tópicos
+                              del período": el hue por tópico ya existía en el
+                              producto (el modal del día lo usa desde ECO_CAT),
+                              pero no aparecía en ninguna celda. */}
+                          <span title={c.topicName} style={{ width: 6, height: 6, borderRadius: '50%', background: colorFor(c.topicSlug), flex: '0 0 auto', marginTop: 'var(--sp-05)' }} />
                         </div>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-                          {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
+                        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                          {nameShort}
                         </div>
-                        <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
+                        <div className="num" style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>{fmt(c.volume)}</div>
                       </button>
                     );
                   })}
@@ -2620,40 +3012,54 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
         </div>
 
         {/* Legend */}
-        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           <div>
             <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Sentimiento del día</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: 'var(--text-2)' }}>
-              {[['positivo', 'Positivo'], ['negativo', 'Negativo'], ['neutral', 'Neutral']].map(([k, l]) => (
-                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: SENT_HEX[k] }} />
-                  <span>{l}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>
+              {['positivo', 'negativo', 'neutral'].map((k) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                  {/* La muestra usa el tinte de un día de volumen MEDIANO, no
+                      el 50% del día de MÁS volumen: al tope de la rampa, las
+                      celdas normales parecían sin clasificar al lado de la
+                      leyenda. */}
+                  <span style={{ width: 12, height: 12, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, ${SENT_HEX[k]} ${tintPct(volRamp[1])}%, var(--canvas))`, border: `1px solid ${SENT_HEX[k]}` }} />
+                  <span>{sentLabel(k)}</span>
                 </div>
               ))}
             </div>
           </div>
           <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10 }}>
             <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Tópicos del período</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 168, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', maxHeight: 168, overflowY: 'auto' }}>
               {uniqueTopics.map(t => (
-                <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, textAlign: 'left', cursor: 'pointer' }} className="row-hover">
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)', flex: '0 0 auto' }} />
-                  <span style={{ fontSize: 11, color: 'var(--text)', flex: 1 }}>{t.name}</span>
+                <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', padding: '4px 6px', borderRadius: 'var(--r-md)', textAlign: 'left', cursor: 'pointer' }} className="row-hover">
+                  {/* El punto lleva el HUE del tópico (ECO_CAT, vía colorFor):
+                      antes las seis entradas iban en el mismo gris justo debajo
+                      de una leyenda que SÍ codifica color, así que se leía como
+                      clave de color y no correspondía a nada de la rejilla. */}
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colorFor(t.slug), flex: '0 0 auto' }} />
+                  <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text)', flex: 1 }}>{t.name}</span>
                 </button>
               ))}
             </div>
           </div>
-          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 10, color: 'var(--text-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ display: 'flex', gap: 2 }}>
-                <span style={{ width: 8, height: 8, background: '#7C86984D' }} />
-                <span style={{ width: 8, height: 8, background: '#7C869999' }} />
-                <span style={{ width: 8, height: 8, background: '#7C8698FF' }} />
+          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+              {/* La rampa se dibuja con la MISMA función que las celdas y con
+                  los volúmenes reales del período. Antes eran tres cuadros al
+                  30/60/100% de --text-3: una rampa que duplicaba el máximo real
+                  (50%) y en un gris que no era el de ninguna celda, así que la
+                  leyenda prometía intensidades inalcanzables. Los números la
+                  hacen verificable. */}
+              <span style={{ display: 'flex', gap: 'var(--sp-05)', alignItems: 'center' }}>
+                {volRamp.map((v, i) => (
+                  <span key={i} title={`${fmt(v)} menciones`} style={{ width: 8, height: 8, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, var(--neu) ${tintPct(v)}%, var(--canvas))`, border: '1px solid var(--hairline)' }} />
+                ))}
               </span>
-              Opacidad = volumen del día
+              Volumen del día · {fmt(volRamp[0])} → {fmt(volRamp[2])} menciones
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 2 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+              <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 'var(--r-sm)' }} />
               Primer día del mes
             </div>
           </div>
@@ -2697,6 +3103,33 @@ function fetchSliceMentions(filter) {
     .catch(() => ({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }));
 }
 
+
+// Leyenda de TAMAÑO del mapa. El área del marcador codifica el volumen (ver
+// mapMarkerRadius en charts.js) y la leyenda sólo explicaba el COLOR, así que no
+// había forma de convertir un área en un número: el mapa se leía como
+// "grande/pequeño" y nada más. Los radios salen de la misma función que dibuja
+// los marcadores para que no puedan divergir. Los círculos van sin relleno
+// porque el color ya significa otra cosa en los dos modos.
+function MapSizeLegend({ max }) {
+  const radiusOf = window.ECO_CHARTS && window.ECO_CHARTS.mapMarkerRadius;
+  if (!max || max <= 0 || !radiusOf) return null;
+  const stops = [...new Set([Math.max(1, Math.round(max * 0.1)), Math.round(max * 0.4), max])];
+  const box = radiusOf(max, max) * 2;
+  return (
+    <span style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-3)' }}>
+      {stops.map((v) => (
+        <span key={v} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--sp-05)' }}>
+          <span style={{ height: box, display: 'flex', alignItems: 'flex-end' }}>
+            <span style={{ width: radiusOf(v, max) * 2, height: radiusOf(v, max) * 2, borderRadius: '50%', border: '1px solid var(--text-3)' }} />
+          </span>
+          <span className="num">{v.toLocaleString('es-PR')}</span>
+        </span>
+      ))}
+      <span style={{ paddingBottom: 'var(--sp-05)' }}>menciones</span>
+    </span>
+  );
+}
+
 // =============== GEOGRAPHY ===============
 function GeographyScreen({ onMentionClick }) {
   const [metric, setMetric] = useState('count');
@@ -2718,12 +3151,23 @@ function GeographyScreen({ onMentionClick }) {
   }, [filters]);
   const hasFilters = !!(contentFilter.source || contentFilter.topic || contentFilter.subtopic);
 
+  // `.input` trae width:100%, así que un minWidth no impide que el select se
+  // estire: los tres filtros salían a 1114px cada uno, apilados, y desktop se
+  // veía igual que móvil. En móvil el ancho completo SÍ es lo correcto (objetivo
+  // de toque), así que el ancho se decide por breakpoint con el mismo helper que
+  // las rejillas. En desktop la fuente repite los 160 de Menciones/Búsqueda —es
+  // el MISMO control— y tópico/subtópico piden 200 porque "Subtópico (elige
+  // tópico)" no cabe en 160.
+  const filtersStacked = window.ecoIsMobile();
+  const srcWidth = filtersStacked ? '100%' : 160;
+  const topicWidth = filtersStacked ? '100%' : 200;
+
   // Re-consulta la agregación por municipio cuando cambian los filtros.
   React.useEffect(() => {
     let cancelled = false;
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
-    const period = localStorage.getItem('eco.period') || '1M';
+    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (agency) params.set('agency', agency);
     if (period === 'custom') {
       const from = localStorage.getItem('eco.from');
@@ -2743,9 +3187,18 @@ function GeographyScreen({ onMentionClick }) {
     return () => { cancelled = true; };
   }, [contentFilter]);
 
+  // Máximo de volumen del período, para la escala secuencial del mapa.
+  const maxMuniCount = React.useMemo(() => munis.reduce((mx, m) => Math.max(mx, m.count || 0), 0), [munis]);
+  // Cortes de color por cuantiles de los municipios del período: con v/max
+  // lineal, 8 de 12 caían en --seq-1 (1.45:1 sobre --canvas, invisible) y tres
+  // pasos de la rampa no se usaban nunca. Ver seqQuantileScale.
+  const seqScale = React.useMemo(() => seqQuantileScale(munis.map((m) => m.count || 0)), [munis]);
+
   function openMuniSlice(m) {
-    // NSS municipal ahora en escala canónica −100..100 (antes −10..10).
-    const accent = m.nss > 20 ? 'var(--pos)' : m.nss < -20 ? 'var(--neg)' : 'var(--warn)';
+    // ecoNssColor: la banda neutra del NSS iba en --warn (ámbar), el color de
+    // severidad, así que un municipio en 0.0 se leía como advertencia. El umbral
+    // vive en UN solo sitio (data.js) y ya está en la escala canónica ±20 de #92.
+    const accent = window.ecoNssColor(m.nss);
     // Desglose REAL del payload (eco-geo y eco-data lo traen por municipio).
     // Antes se fabricaba con splitSentiment y ratios fijos 55/25/20 — el
     // header del modal mostraba números inventados mientras cargaba
@@ -2801,56 +3254,90 @@ function GeographyScreen({ onMentionClick }) {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">78 municipios monitoreados · click un municipio para ver menciones</div></div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período` : 'Sin menciones georreferenciadas en el período'} · click un municipio para ver menciones</div></div>
+          <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {[{ k: 'count', l: 'Volumen' }, { k: 'nss', l: 'Sentimiento' }].map((o) => (
               <button key={o.k} onClick={() => setMetric(o.k)} className={`chip ${metric === o.k ? 'active' : ''}`}>{o.l}</button>
             ))}
           </div>
         </div>
-        <div className="card-bd" style={{ padding: 24 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-            <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ minWidth: 150 }} />
-            <select className="input" value={filters.topic} style={{ minWidth: 160 }}
+        <div className="card-bd">
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+            <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: srcWidth }} />
+            <select className="input" value={filters.topic} style={{ width: topicWidth }}
               onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value, subtopic: '' }))}>
               <option value="">Todos los tópicos</option>
               {(D.TOPICS || []).filter((t) => t && t.slug).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
             </select>
             <select className="input" value={filters.subtopic} disabled={!filters.topic}
-              style={{ minWidth: 170, opacity: filters.topic ? 1 : 0.5 }}
+              style={{ width: topicWidth, opacity: filters.topic ? 1 : 0.5 }}
               onChange={(e) => setFilters((f) => ({ ...f, subtopic: e.target.value }))}>
               <option value="">{filters.topic ? 'Todos los subtópicos' : 'Subtópico (elige tópico)'}</option>
               {filters.topic && (((D.SUBTOPICS || {})[filters.topic]) || []).map((st) => <option key={st.slug || st.name} value={st.name}>{st.name}</option>)}
             </select>
             {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
-            {loadingGeo && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Actualizando…</span>}
+            {loadingGeo && <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>Actualizando…</span>}
           </div>
+          {/* En modo Volumen la MAGNITUD va en la escala secuencial, no en el
+              acento: pintar los municipios con var(--accent) cubría Puerto Rico
+              de burbujas del color de alarma. */}
           <PRMap
             municipalities={munis}
-            accessor={(m) => metric === 'count' ? m.count : Math.abs(m.nss)}
-            colorFn={(m) => metric === 'nss' ? (m.nss > 20 ? 'var(--pos)' : m.nss < -20 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
+            // El TAMAÑO es siempre el volumen. Con |NSS| el círculo más grande
+            // del mapa era el municipio con el sentimiento más extremo, que
+            // puede tener 3 menciones: "donde está el problema" señalaba ruido.
+            // Y al alternar de modo la geometría no cambiaba de aspecto pero sí
+            // de significado, sin leyenda que lo dijera. Ahora el toggle cambia
+            // sólo el color; el tamaño es la referencia estable.
+            accessor={(m) => m.count}
+            colorFn={(m) => metric === 'nss'
+              ? window.ecoNssColor(m.nss)
+              : seqScale.colorOf(m.count || 0)}
             onMunicipalityClick={openMuniSlice}
           />
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 20, fontSize: 11, color: 'var(--text-2)', marginTop: 16 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: metric === 'nss' ? 'var(--pos)' : 'var(--accent)' }} /> {metric === 'nss' ? 'Positivo (>+2)' : 'Volumen'}</span>
+          {/* El tamaño del marcador es el volumen en los DOS modos, así que su
+              leyenda va fuera del condicional: es la referencia estable. */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', flexWrap: 'wrap', gap: 'var(--sp-5)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)', marginTop: 'var(--sp-4)' }}>
+            <MapSizeLegend max={maxMuniCount} />
+            {metric === 'nss' ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo (&gt;+2)</span>
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                menos
+                <span style={{ display: 'flex', gap: 'var(--sp-05)' }}>
+                  {/* Los chips son los pasos que el mapa DIBUJA (no los 6 de la
+                      rampa) y cada uno dice su rango de menciones. */}
+                  {seqScale.tokens.map((t, i) => <span key={i} title={`${seqScale.rangeOf(i)} menciones`} style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: t }} />)}
+                </span>
+                más · volumen de menciones
+              </span>
+            )}
             {metric === 'nss' && <>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--warn)' }} /> Neutral</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo (&lt;-2)</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neu)' }} /> Neutral (−2 a +2)</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo (&lt;-2)</span>
             </>}
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 12 }}>
+      {/* `start` y no el stretch por defecto: las dos listas no tienen la misma
+          cantidad de contenido (8 filas de municipio contra 6 de región), y con
+          stretch la card corta se estiraba hasta la altura de la larga y dejaba
+          ~170px de fondo vacío bajo la última fila. */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
           <div className="card-bd">
             <HBarList
               items={[...munis].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
-              colorFn={() => 'var(--accent)'}
+              // La misma escala que el mapa. Con --accent (token de marca y de
+              // acción: chip activo, rail, `.link`) el volumen se codificaba de
+              // dos maneras a 40px de distancia, y contra la advertencia de
+              // tokens.css §6.
+              colorFn={(it) => seqScale.colorOf(it.value)}
               onItemClick={(it) => openMuniSlice(it._muni)}
             />
           </div>
@@ -2858,8 +3345,26 @@ function GeographyScreen({ onMentionClick }) {
 
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Sentimiento por región</div><div className="card-hd-sub">NSS agregado</div></div></div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[...new Set((munis || []).map((m) => m.region).filter(Boolean))].map((r, i) => {
+          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {[...new Set((munis || []).map((m) => m.region).filter(Boolean))]
+              // El orden era el de inserción del API, así que la columna de
+              // cifras alineada a la derecha zigzagueaba y no servía para
+              // comparar (la card hermana sí ordena). Ascendente por NSS: lo más
+              // negativo primero, que es lo que se va a atender.
+              .map((r) => ({ r, rows: munis.filter((m) => m.region === r) }))
+              .filter((g) => g.rows.length > 0)
+              // Ordena por el MISMO número que se imprime: ponderado por volumen.
+              // Con media simple el orden y la cifra mostrada discrepaban, así que
+              // la columna alineada a la derecha volvía a zigzaguear — justo lo
+              // que este orden venía a arreglar.
+              .map(({ r, rows }) => {
+                const tot = rows.reduce((s, m) => s + (m.count || 0), 0);
+                return { r, rows, avg: tot > 0
+                  ? rows.reduce((s, m) => s + m.nss * (m.count || 0), 0) / tot
+                  : 0 };
+              })
+              .sort((a, b) => a.avg - b.avg)
+              .map(({ r }, i) => {
               const regionMunis = munis.filter(m => m.region === r);
               if (regionMunis.length === 0) return null;
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
@@ -2869,14 +3374,20 @@ function GeographyScreen({ onMentionClick }) {
               const avgNss = total > 0
                 ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
                 : 0;
-              const pct = Math.max(-1, Math.min(1, avgNss / 100));
+              // El DOMINIO es ±30, no ±100. Con el rango teórico del NSS la región
+              // más negativa llenaba ~10% de la pista y las seis se leían "planas
+              // en cero" mientras la cifra al lado decía −21. ±30 es el umbral de
+              // decisión del mapa (±20, escala canónica de #92) más holgura, así
+              // que la barra y el color hablan de la misma escala.
+              const NSS_DOMAIN = 30;
+              const pct = Math.max(-1, Math.min(1, avgNss / NSS_DOMAIN));
               return (
                 <button key={r}
                   onClick={() => {
                     setSlice({
                       eyebrow: `Región · ${r}`,
                       title: `Sentimiento en ${r}`,
-                      accent: avgNss > 0 ? 'var(--pos)' : 'var(--neg)',
+                      accent: window.ecoNssColor(avgNss),
                       mentions: [],
                       _filter: {
                         ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
@@ -2887,19 +3398,42 @@ function GeographyScreen({ onMentionClick }) {
                     });
                   }}
                   className="row-hover"
-                  style={{ padding: '10px 12px', background: 'var(--canvas-2)', borderRadius: 8, border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                  // El padding en px crudos (10 no está en la escala base-4)
+                  // metía el texto de la fila 12px a la derecha del título de su
+                  // propia card y del listado hermano. Con marginInline negativo
+                  // —el mismo truco de HBarList— el texto cae sobre el eje del
+                  // título y el área de click sigue llegando al borde. Fondo
+                  // transparente: la elevación la da `.row-hover` al pasar, como
+                  // en la card hermana, no un --canvas-2 permanente.
+                  style={{ padding: 'var(--sp-2) var(--sp-3)', marginInline: 'calc(-1 * var(--sp-3))', background: 'transparent', borderRadius: 'var(--r-md)', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-2)' }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{regionMunis.length} municipios · {fmt(total)} menciones</div>
+                      {/* 13/12 y no 12/11: dos niveles separados por 1px se
+                          leían como uno. */}
+                      <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600 }}>{r}</div>
+                      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{regionMunis.length} municipios · {fmt(total)} menciones</div>
                     </div>
-                    <div className="num" style={{ fontSize: 16, fontWeight: 600, color: avgNss > 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                    {/* La cifra en la escala NUMÉRICA. Con --fs-title-md salía
+                        idéntica en tamaño, familia y peso al título de la card
+                        ("Sentimiento por región"), así que el KPI de la fila no
+                        dominaba ni a su propia etiqueta. */}
+                    <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: window.ecoNssColor(avgNss) }}>
                       {avgNss > 0 ? '+' : ''}{avgNss.toFixed(1)}
                     </div>
                   </div>
-                  <div style={{ position: 'relative', height: 4, background: 'var(--hairline)' }}>
-                    <div style={{ position: 'absolute', left: '50%', top: -2, bottom: -2, width: 1, background: 'var(--text-3)' }} />
-                    <div style={{ position: 'absolute', left: pct > 0 ? '50%' : `${50 + pct*50}%`, width: `${Math.abs(pct)*50}%`, height: '100%', background: pct > 0 ? 'var(--pos)' : 'var(--neg)' }} />
+                  {/* Misma pista que HBarList: `.bar-track`, 6px sobre
+                      --canvas-2. La de antes era propia, de 4px sobre
+                      --hairline —el token de DIVISORES— así que dos listas
+                      hermanas que abren el mismo modal tenían dos barras
+                      distintas. Las marcas en ±2 son el umbral con el que el
+                      mapa decide el color: la barra dice dónde empieza a
+                      importar. */}
+                  <div className="bar-track" style={{ position: 'relative', height: 6 }}>
+                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--text-3)' }} />
+                    {[-1, 1].map((s) => (
+                      <div key={s} style={{ position: 'absolute', left: `${50 + s * Math.min(1, window.ECO_NSS_NEUTRAL_BAND / NSS_DOMAIN) * 50}%`, top: 0, bottom: 0, width: 1, background: 'var(--hairline-strong)' }} />
+                    ))}
+                    <div style={{ position: 'absolute', left: pct > 0 ? '50%' : `${50 + pct * 50}%`, width: `${Math.abs(pct) * 50}%`, height: '100%', background: window.ecoNssColor(avgNss), borderRadius: 'inherit' }} />
                   </div>
                 </button>
               );
@@ -2949,12 +3483,12 @@ function CrisisAlertsTab() {
   const cooldownHours = config?.cooldownHours ?? 12;
   const recipientsCount = config?.notifyEmails?.length ?? 0;
   const lastFire = history[0] || null;
-  const lastFireLabel = lastFire ? new Date(lastFire.triggeredAt).toLocaleString('es-PR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  const lastFireLabel = window.ecoFmtDate(lastFire && lastFire.triggeredAt);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* KPIs operativos */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 'var(--sp-3)' }}>
         <KpiCard
           label="Estado del disparador"
           valueWord={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
@@ -2980,7 +3514,7 @@ function CrisisAlertsTab() {
         <KpiCard
           label="Destinatarios"
           value={loading ? '…' : String(recipientsCount)}
-          sub={lastFire ? `último: ${lastFireLabel.split(',')[0]}` : 'sin envíos aún'}
+          sub={lastFire ? `último: ${lastFireLabel}` : 'sin envíos aún'}
           icon="Mail"
           accent="var(--text-2)"
         />
@@ -3069,15 +3603,15 @@ function ReportsTab() {
   }, [config]);
 
   const lastSend = history[0] || null;
-  const lastSendLabel = lastSend ? new Date(lastSend.sentAt).toLocaleString('es-PR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  const lastSendLabel = lastSend ? window.ecoFmtDate(lastSend.sentAt) : '—';
   const lastSendStatus = lastSend ? lastSend.status : null;
   const recipientsCount = config?.recipients?.length ?? 0;
   const tzLabel = config?.timezone === 'America/Puerto_Rico' ? 'San Juan (AST)' : (config?.timezone ?? '—');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* KPI strip propio del tab */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 'var(--sp-3)' }}>
         <KpiCard
           label="Estado del envío"
           value={loading ? '…' : (config?.isActive ? 'Activo' : 'Pausado')}
@@ -3101,7 +3635,7 @@ function ReportsTab() {
         />
         <KpiCard
           label="Último envío"
-          value={lastSend ? lastSendLabel.split(',')[0] : '—'}
+          value={lastSendLabel}
           sub={lastSendStatus ? `estado: ${lastSendStatus}` : 'sin envíos aún'}
           icon="Eye"
           accent={lastSendStatus === 'sent' ? 'var(--pos)' : (lastSendStatus === 'failed' ? 'var(--neg)' : 'var(--text-3)')}
@@ -3152,20 +3686,41 @@ function AlertsScreen({ onMentionClick }) {
   });
 
   // KPIs reales (antes eran literales 6/4/7/8m). Reglas/activas salen de D.ALERTS;
-  // disparadas-24h y última-alerta de /api/alerts/history (1 día).
-  const [fireStats, setFireStats] = useState({ fired24h: null, lastFired: null });
+  // activaciones y última-alerta de /api/alerts/history.
+  //
+  // VENTANA ÚNICA: la del selector global del header, la misma que consultan el
+  // historial y el histograma de abajo. Antes este KPI pedía `period=1D` y se
+  // rotulaba "· 24h" mientras las cards de la misma pantalla contaban 7 días, así
+  // que el mismo dígito (11) aparecía dos veces a 60 px de distancia significando
+  // un día y una semana. Cambiar de período recarga la página (app.js), así que
+  // basta leerlo una vez por montaje.
+  const [fireStats, setFireStats] = useState({ fired: null, lastFired: null });
+  const firePeriod = (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams().period : '7D';
   React.useEffect(() => {
     const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
-    fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&period=1D&limit=200`, { credentials: 'same-origin', cache: 'no-store' })
+    const qs = new URLSearchParams(Object.assign(
+      { agency: ag, agencySlug: ag, limit: '200' },
+      (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams() : { period: '7D' },
+    ));
+    fetch(`/api/alerts/history?${qs.toString()}`, { credentials: 'same-origin', cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { history: [] }))
-      .then((j) => { const h = j.history || []; setFireStats({ fired24h: h.length, lastFired: h[0] ? h[0].triggeredAt : null }); })
+      .then((j) => { const h = j.history || []; setFireStats({ fired: h.length, lastFired: h[0] ? h[0].triggeredAt : null }); })
       .catch(() => {});
   }, []);
   const rulesTotal = (D.ALERTS || []).length;
   const rulesActive = (D.ALERTS || []).filter((a) => a.active).length;
-  const lastFiredLabel = fireStats.lastFired
-    ? new Date(fireStats.lastFired).toLocaleString('es-PR', { dateStyle: 'short', timeStyle: 'short' })
-    : '—';
+  // Sin `timeZone` esto rendía la hora del navegador: el MISMO evento salía 9:00
+  // en este KPI y 10:00 en la fila del historial. Helper único (data.js).
+  const lastFiredLabel = window.ecoFmtDateTime(fireStats.lastFired);
+  // "Última alerta" era la única de las cuatro KPI cuyo valor no es un conteo: la
+  // cadena de fecha en --fs-num-xl (30 px, lineHeight 1) envolvía a dos líneas,
+  // rompía el eje inferior de la fila y dejaba 2,7 px de aire entre renglones. Y
+  // una fecha no se compara con un 11: el valor pasa a ser la magnitud
+  // (antigüedad) y el instante exacto baja a `sub`, que es texto y no cifra.
+  const lastFiredAgeDays = fireStats.lastFired
+    ? Math.max(0, Math.floor((Date.now() - new Date(fireStats.lastFired).getTime()) / 86400000))
+    : null;
+  const lastFiredAge = lastFiredAgeDays == null ? '—' : (lastFiredAgeDays === 0 ? 'hoy' : `hace ${lastFiredAgeDays} d`);
   const canRules = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_alert_rules') : true;
   const canTemplates = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_templates') : true;
 
@@ -3175,21 +3730,21 @@ function AlertsScreen({ onMentionClick }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 'var(--sp-3)' }}>
         <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
-        <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--accent)" />
-        <KpiCard label="Activaciones · 24h" value={fireStats.fired24h == null ? '—' : String(fireStats.fired24h)} icon="Zap" accent="var(--neg)" />
-        <KpiCard label="Última alerta" value={lastFiredLabel} icon="Activity" accent="var(--pos)" />
+        <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--text-2)" />
+        <KpiCard label={`Activaciones · ${firePeriod}`} value={fireStats.fired == null ? '—' : String(fireStats.fired)} icon="Zap" accent="var(--text-2)" />
+        <KpiCard label="Última alerta" value={lastFiredAge} sub={lastFiredLabel} icon="Activity" accent="var(--text-2)" />
       </div>
 
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 'var(--sp-15)', alignItems: 'center', flexWrap: 'wrap' }}>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
         {(canRules || canTemplates) && (
           <>
             <span aria-hidden style={{ width: 1, height: 18, background: 'var(--hairline-strong)', margin: '0 6px' }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Configuración</span>
+            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Configuración</span>
             {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
             {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
           </>
@@ -3202,29 +3757,36 @@ function AlertsScreen({ onMentionClick }) {
 
       {tab === 'rules' && (
         <div className="card scroll-x">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
-            <span>Regla</span><span>Prioridad</span><span style={{ textAlign: 'right' }}>Activaciones 30d</span><span>Estado</span><span>Canales</span><span>Último</span><span />
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', padding: '10px 16px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+            {/* "Activaciones 30d" prometía una ventana de 30 días para un número
+                que el API devuelve SIEMPRE 0 (eco-data/route.ts: triggered: 0), y
+                era la tercera ventana distinta de la pantalla. Y el campo se llama
+                "Prioridad" aquí y "Severidad" en el historial: un solo término. */}
+            <span>Regla</span><span>Severidad</span><span style={{ textAlign: 'right' }}>Activaciones</span><span>Estado</span><span>Canales</span><span>Último</span><span />
           </div>
           {D.ALERTS.map((a) => (
-            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
+            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)' }}>
               <span style={{ fontWeight: 500 }}>{a.name}</span>
               <span className={`pill ${a.priority === 'alta' ? 'pill-neg' : a.priority === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{a.priority}</span>
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered}</span>
+              {/* a.triggered viene hardcodeado a 0 del API (eco-data/route.ts), así
+                  que un "0" aquí no significa "cero activaciones" sino "sin dato":
+                  se rinde como raya hasta que el endpoint lo calcule. */}
+              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered ? a.triggered : '—'}</span>
               <label
                 onClick={() => setRuleActive((s) => ({ ...s, [a.id]: !s[a.id] }))}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
-                <div style={{ width: 28, height: 16, borderRadius: 10, background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
-                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'all 0.2s' }} />
+                style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', cursor: 'pointer' }}>
+                <div style={{ width: 28, height: 16, borderRadius: 'var(--r-lg)', background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
+                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
                 </div>
                 <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
               </label>
-              <div style={{ display: 'flex', gap: 4 }}>
+              <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
                 {a.channels.map((c) => {
                   const IconC = { email: Icons.Mail, slack: Icons.Slack, sms: Icons.Phone }[c];
-                  return <span key={c} title={c} style={{ width: 24, height: 24, borderRadius: 4, background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IconC size={11} color="var(--text-2)" /></span>;
+                  return <span key={c} title={c} style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IconC size={11} color="var(--text-2)" /></span>;
                 })}
               </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{a.lastFired}</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{a.lastFired}</span>
               <Icons.More size={14} color="var(--text-3)" />
             </div>
           ))}
@@ -3251,9 +3813,9 @@ function AlertsScreen({ onMentionClick }) {
           position: 'fixed', bottom: 24, right: 24, zIndex: 2200,
           background: toast.kind === 'err' ? 'var(--neg-bg)' : 'var(--pos-bg)',
           color: toast.kind === 'err' ? 'var(--neg)' : 'var(--pos)',
-          padding: '10px 16px', borderRadius: 8, border: '1px solid var(--hairline)',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontSize: 12, fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px', borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontSize: 'var(--fs-caption)', fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
         }}>
           <span className="dot" style={{ background: 'currentColor' }} />
           {toast.text}
@@ -3332,58 +3894,58 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto',
         background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
-        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        borderRadius: 'var(--r-xl)', boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
         zIndex: 2001, display: 'flex', flexDirection: 'column',
       }}>
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <div style={{ flex: 1 }}>
             <div className="section-eyebrow">Nueva regla</div>
-            <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', marginTop: 4 }}>Configurar condiciones y notificación</div>
+            <div style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, fontFamily: 'var(--ff-display)', marginTop: 'var(--sp-1)' }}>Configurar condiciones y notificación</div>
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
-        <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Nombre</span>
+        <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Nombre</span>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Pico de negativos en infraestructura" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Descripción (opcional)</span>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Descripción (opcional)</span>
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
+          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
               <select className="input" value={metric} onChange={(e) => onMetricChange(e.target.value)}>
                 {Object.entries(METRIC_DEFAULTS).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}
               </select>
-              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{METRIC_DEFAULTS[metric] && METRIC_DEFAULTS[metric].hint}</span>
+              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{METRIC_DEFAULTS[metric] && METRIC_DEFAULTS[metric].hint}</span>
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Condición</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Condición</span>
               <select className="input" value={comparator} onChange={(e) => setComparator(e.target.value)}>
                 <option value="gte">Mayor o igual que (≥)</option>
                 <option value="lte">Menor o igual que (≤)</option>
               </select>
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Umbral</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Umbral</span>
               <input className="input" type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre activaciones · horas</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre activaciones · horas</span>
               <input className="input" type="number" min="1" max="168" value={cooldownHours} onChange={(e) => setCooldownHours(e.target.value)} />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Correos a notificar (separados por coma)</span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Correos a notificar (separados por coma)</span>
               <input className="input" value={emailsText} onChange={(e) => setEmailsText(e.target.value)} placeholder="equipo@agencia.pr.gov" />
             </label>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
             Se evalúa sobre el snapshot diario de la agencia (cron de métricas). Al cruzar el umbral envía un correo a los destinatarios y respeta el cooldown.
           </div>
         </div>
-        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
           <button className="btn" onClick={onClose}>Cancelar</button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
             {saving ? 'Guardando…' : 'Crear regla'}
@@ -3398,17 +3960,24 @@ function AlertsHistory({ onMentionClick }) {
   const [rows, setRows] = React.useState(null); // null = loading
   React.useEffect(() => {
     const agency = localStorage.getItem('eco.agency') || '';
-    const period = localStorage.getItem('eco.period') || '1M';
-    fetch('/api/alerts/history?' + new URLSearchParams({ agency, period }).toString(), { credentials: 'same-origin' })
+    // Misma ventana que el resto del producto, INCLUIDO el rango personalizado:
+    // con `period=custom` y sin from/to el endpoint cae a 30 días por defecto
+    // (api/alerts/history: `PERIOD_DAYS[periodKey] ?? 30`), así que la tabla y el
+    // histograma mostraban un mes mientras el header decía otra cosa.
+    const qs = new URLSearchParams(Object.assign(
+      { agency },
+      (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams() : { period: localStorage.getItem('eco.period') || '7D' },
+    ));
+    fetch('/api/alerts/history?' + qs.toString(), { credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { history: [] })
       .then((j) => setRows(j.history || []))
       .catch(() => setRows([]));
   }, []);
   if (rows === null) {
-    return <div className="card card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Cargando historial…</div>;
+    return <div className="card card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Cargando historial…</div>;
   }
   if (rows.length === 0) {
-    return <div className="card card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin alertas disparadas en el período.</div>;
+    return <div className="card card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Sin alertas disparadas en el período.</div>;
   }
   // Aggregate by day for a mini bar chart
   const byDay = {};
@@ -3418,7 +3987,17 @@ function AlertsHistory({ onMentionClick }) {
     byDay[day] = (byDay[day] || 0) + 1;
   });
   const days = Object.keys(byDay).sort();
-  const max = Math.max(1, ...Object.values(byDay));
+  // Dominio DECLARADO, con piso. Normalizar contra el propio máximo con un rango
+  // de 1-2 eventos pintaba "2 eventos" como una columna de 110 px que llenaba la
+  // card: la misma tinta que tendría una crisis, y 14x la que recibe un 4 en la
+  // card de severidad de al lado. Con piso 4 la proporción se conserva (1 sigue
+  // siendo la mitad de 2) a una altura acorde a la magnitud, y el subtítulo
+  // publica la escala para que el lector sepa qué significa "columna llena".
+  const yMax = Math.max(4, ...Object.values(byDay));
+  // Densidad de rótulos como en AreaLineChart: una etiqueta por columna mientras
+  // caben, una de cada N cuando el período es largo (30D/3M).
+  const tickEvery = Math.max(1, Math.ceil(days.length / 7));
+  const showValues = days.length <= 10;
   // Analítica derivada del mismo historial (sin backend nuevo): mezcla de
   // severidad + ranking de reglas por número de activaciones.
   const sev = { alta: 0, media: 0, baja: 0 };
@@ -3426,51 +4005,68 @@ function AlertsHistory({ onMentionClick }) {
   const byRule = {};
   rows.forEach((r) => { const n = r.ruleName || r.rule || 'Regla'; byRule[n] = (byRule[n] || 0) + 1; });
   const ruleRank = Object.entries(byRule).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const ruleMax = Math.max(1, ...ruleRank.map((x) => x[1]));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-4)' }}>
         <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Mezcla de severidad</div><div className="card-hd-sub">{rows.length} activaciones</div></div></div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[['alta', 'var(--neg)'], ['media', 'var(--warn)'], ['baja', 'var(--text-3)']].map(([k, c]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 54, fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{k}</span>
-                <div style={{ flex: 1, height: 8, background: 'var(--canvas-2)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ width: `${(sev[k] / Math.max(1, rows.length)) * 100}%`, height: '100%', background: c }} />
-                </div>
-                <span className="num" style={{ width: 32, textAlign: 'right', fontWeight: 600, fontSize: 12 }}>{sev[k]}</span>
-              </div>
-            ))}
+          <div className="card-hd"><div><div className="card-hd-title">Mezcla de severidad</div><div className="card-hd-sub">Barra = % de {rows.length} activaciones</div></div></div>
+          <div className="card-bd">
+            {/* UN denominador para las DOS listas de esta fila (el total de
+                activaciones del período) y UNA geometría (HBarList). Antes esta
+                card normalizaba al total y la de al lado al máximo del ranking
+                sobre una pista 4,8x más corta: el mismo valor 3 medía 117 px aquí
+                y 89 px allí, y "barra llena" significaba 11 a la izquierda y 3 a
+                la derecha. Ahora una barra llena significa lo mismo en las dos y
+                el subtítulo declara el denominador. Sin `trackHeight`: la pista
+                hereda los 6 px de HBarList, que es la altura que usan las listas
+                de barras del resto del producto (Overview, Geografía). */}
+            <HBarList
+              items={[['Alta', 'var(--neg)'], ['Media', 'var(--warn)'], ['Baja', 'var(--text-3)']].map(([label, color]) => ({ label, color, value: sev[label.toLowerCase()] }))}
+              max={Math.max(1, rows.length)}
+              colorFn={(it) => it.color}
+            />
           </div>
         </div>
         <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Reglas más activas</div><div className="card-hd-sub">Top {ruleRank.length} por activaciones</div></div></div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {ruleRank.map(([name, n]) => (
-              <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                <div style={{ width: 90, height: 8, background: 'var(--canvas-2)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ width: `${(n / ruleMax) * 100}%`, height: '100%', background: 'var(--accent)' }} />
-                </div>
-                <span className="num" style={{ width: 24, textAlign: 'right', fontWeight: 600, fontSize: 12 }}>{n}</span>
-              </div>
-            ))}
+          <div className="card-hd"><div><div className="card-hd-title">Reglas más activas</div><div className="card-hd-sub">Top {ruleRank.length} · barra = % de {rows.length} activaciones</div></div></div>
+          <div className="card-bd">
+            <HBarList
+              items={ruleRank.map(([label, value]) => ({ label, value }))}
+              max={Math.max(1, rows.length)}
+            />
           </div>
         </div>
       </div>
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Activaciones por día</div><div className="card-hd-sub">{rows.length} eventos en el período</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">Activaciones por día</div><div className="card-hd-sub">{rows.length} eventos · escala 0–{yMax}</div></div></div>
         <div className="card-bd">
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 2, height: 110, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', height: 88, alignItems: 'end' }}>
             {days.map((d) => (
               <div key={d} title={`${d} · ${byDay[d]} eventos`} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
-                <div style={{ width: '100%', height: `${(byDay[d] / max) * 100}%`, background: 'var(--accent)', opacity: 0.85, borderRadius: '2px 2px 0 0', minHeight: 2 }} />
+                <div style={{ width: '100%', height: `${(byDay[d] / yMax) * 100}%`, background: 'var(--accent)', borderRadius: 'var(--r-sm) var(--r-sm) 0 0', minHeight: 2 }} />
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)' }}>
-            <span>{days[0]}</span><span>{days[days.length - 1]}</span>
+          {/* Eje real: valor y fecha DEBAJO de cada columna, en la misma rejilla.
+              Antes sólo se rotulaban el primer y el último día — los cinco del
+              medio no eran identificables — y no había ni cero ni valores, así
+              que la altura era la única pista de magnitud. El `opacity: 0.85` de
+              las columnas se elimina: producía un segundo naranja para la MISMA
+              métrica que las barras de la card de al lado. */}
+          {showValues && (
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
+              {days.map((d) => (
+                <span key={d} className="num" style={{ textAlign: 'center', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>{byDay[d]}</span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', marginTop: 'var(--sp-05)', fontSize: 'var(--fs-overline)', color: 'var(--chart-axis)' }}>
+            {/* `d` es 'YYYY-MM-DD' tal como lo agrupa el backend: se corta como
+                cadena y no con new Date(), porque esa forma se parsea como
+                medianoche UTC y en AST (UTC-4) el rótulo saldría un día antes. */}
+            {days.map((d, i) => (
+              <span key={d} className="num" style={{ textAlign: 'center' }}>{i % tickEvery === 0 ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : ''}</span>
+            ))}
           </div>
         </div>
       </div>
@@ -3478,9 +4074,26 @@ function AlertsHistory({ onMentionClick }) {
         <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
         <div className="scroll-x">
           {rows.slice(0, 40).map((r, i) => (
-            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', minWidth: 560, gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
-              <span className="mono" style={{ color: 'var(--text-3)' }}>{r.triggeredAt ? new Date(r.triggeredAt).toLocaleString('es-PR', { timeZone: 'America/Puerto_Rico' }) : '—'}</span>
-              <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`}>{r.severity || 'media'}</span>
+            /* En móvil la fila se pliega a dos líneas en vez de mantener columnas
+               fijas: con '120px 140px 1fr 90px' la marca de tiempo y una píldora de
+               cuatro letras se comían 260 de los ~350 px visibles (74%), al nombre
+               de la regla le quedaban 77 px y el conteo caía fuera del viewport.
+               Con '1fr auto' los cuatro hijos se auto-colocan en dos filas
+               (tiempo | severidad / regla | conteo) sin reordenar el marcado, y sin
+               minWidth no hace falta scroll horizontal para leer el dato principal.
+               168 px en la primera columna es lo que mide "20 jul 26, 10:00 a. m."
+               en IBM Plex Mono 12 px: hoy la cadena es más larga que su columna de
+               120 px y envuelve a dos renglones dentro de la fila. */
+            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: window.ecoCols('168px 96px 1fr 72px', '1fr auto'), minWidth: window.ecoIsMobile() ? 0 : 560, gap: window.ecoCols('var(--sp-3)', 'var(--sp-1) var(--sp-3)'), padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 'var(--fs-caption)', alignItems: 'center' }}>
+              {/* toLocaleString sin componentes rendía "07/20/2026, 10:00:00 a. m.":
+                  año de cuatro cifras y segundos que nadie audita, en una columna
+                  de 120 px donde no caben. */}
+              <span className="mono" style={{ color: 'var(--text-3)' }}>{window.ecoFmtDateTime(r.triggeredAt)}</span>
+              {/* justifySelf: la píldora es inline-flex, pero como hija de grid se
+                  blockifica y llenaba los 140 px de su columna — ~100 px de relleno
+                  vacío que hacían leer "ALTA" como una barra de progreso. En la
+                  tabla de Reglas el mismo componente ya llevaba justifySelf. */}
+              <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{r.severity || 'media'}</span>
               <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
               <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.mentionIds?.length || 0}</span>
             </div>
@@ -3509,23 +4122,23 @@ function SettingsScreen() {
 
   if (sections.length === 0) {
     return (
-      <div className="card"><div className="card-bd" style={{ color: 'var(--text-3)', fontSize: 13, padding: 20 }}>
+      <div className="card"><div className="card-bd" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)', padding: 'var(--sp-5)' }}>
         No tienes permisos para gestionar la configuración.
       </div></div>
     );
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('220px 1fr', '1fr'), gap: 20, minWidth: 0 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('220px 1fr', '1fr'), gap: 'var(--sp-5)', minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)', minWidth: 0 }}>
         {sections.map((s) => {
           const IconC = Icons[s.icon];
           return (
             <button key={s.k} onClick={() => setSection(s.k)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '9px 12px', borderRadius: 8,
-                fontSize: 13, fontWeight: section === s.k ? 600 : 500,
+                display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
+                padding: '9px 12px', borderRadius: 'var(--r-lg)',
+                fontSize: 'var(--fs-body-sm)', fontWeight: section === s.k ? 600 : 500,
                 background: section === s.k ? 'var(--accent-fill)' : 'transparent',
                 color: section === s.k ? 'var(--accent)' : 'var(--text-2)',
                 textAlign: 'left',
@@ -3566,23 +4179,23 @@ function TemplatesAdmin() {
         <div className="card-hd-title">Plantillas de correo</div>
         <div className="card-hd-sub">Previsualiza los correos como los reciben los destinatarios</div>
       </div></div>
-      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Reporte semanal</div>
-            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Resumen ejecutivo semanal. Destinatarios y hora en Alertas → Reportes por correo.</div>
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', padding: 'var(--sp-4)' }}>
+            <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600 }}>Reporte semanal</div>
+            <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', margin: '4px 0 10px' }}>Resumen ejecutivo semanal. Destinatarios y hora en Alertas → Reportes por correo.</div>
             <button className="btn btn-primary" onClick={loadWeekly} disabled={loading || !agency}>{loading ? 'Generando…' : 'Previsualizar'}</button>
           </div>
-          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Alerta de crisis</div>
-            <div style={{ fontSize: 11, color: 'var(--text-2)', margin: '4px 0 10px' }}>Editorial que se envía al cruzar el umbral de crisis. Configúrala en Alertas → Alertas de crisis.</div>
-            <span className="pill pill-neu" style={{ fontSize: 10 }}>Vista previa al dispararse</span>
+          <div style={{ flex: '1 1 240px', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', padding: 'var(--sp-4)' }}>
+            <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600 }}>Alerta de crisis</div>
+            <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', margin: '4px 0 10px' }}>Editorial que se envía al cruzar el umbral de crisis. Configúrala en Alertas → Alertas de crisis.</div>
+            <span className="pill pill-neu" style={{ fontSize: 'var(--fs-overline)' }}>Vista previa al dispararse</span>
           </div>
         </div>
-        {err && <div style={{ fontSize: 12, color: 'var(--neg)' }}>No se pudo generar la vista previa: {err}</div>}
+        {err && <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)' }}>No se pudo generar la vista previa: {err}</div>}
         {html != null && (
           <iframe title="Vista previa del correo" srcDoc={html}
-            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 10, background: '#fff' }} />
+            style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', background: '#fff' /* el correo ES un documento blanco: no es un token que falte */ }} />
         )}
       </div>
     </div>
@@ -3590,14 +4203,6 @@ function TemplatesAdmin() {
 }
 
 // --- Users admin module ---
-const SEED_USERS = [
-  { id: 'u1', name: 'María Santos', email: 'maria.santos@dtop.pr.gov', role: 'admin',   agency: 'DTOP', status: 'activo',   lastSeen: 'hace 5 min',  avatar: '#E1767B' },
-  { id: 'u2', name: 'Carlos Vega',  email: 'carlos.vega@dtop.pr.gov',  role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 1 h',    avatar: '#4A7FB5' },
-  { id: 'u3', name: 'Lucía Rivera', email: 'lucia.rivera@daco.pr.gov', role: 'analista', agency: 'DACo', status: 'activo',   lastSeen: 'hace 3 h',    avatar: '#6B9E7F' },
-  { id: 'u4', name: 'Pedro Morales',email: 'pedro.morales@salud.pr.gov',role: 'viewer',  agency: 'Salud',status: 'invitado', lastSeen: '—',           avatar: '#C08457' },
-  { id: 'u5', name: 'Ana Figueroa', email: 'ana.f@ama.pr.gov',          role: 'editor',  agency: 'AMA',  status: 'suspendido',lastSeen: 'hace 12 d',  avatar: '#8B6BB0' },
-  { id: 'u6', name: 'Rafael Ortiz', email: 'rafael.ortiz@dtop.pr.gov', role: 'analista', agency: 'DTOP', status: 'activo',   lastSeen: 'hace 30 min', avatar: '#4A7FB5' },
-];
 
 // Las claves coinciden con el enum del backend (admin/editor/analyst/viewer)
 // para que la etiqueta de la tabla, el filtro y los radios del drawer cuadren.
@@ -3607,6 +4212,27 @@ const ROLES = [
   { k: 'analyst', l: 'Analista',      desc: 'Ve dashboards y exporta; sin edición de plantillas/reglas/usuarios',     perms: ['Exportar'] },
   { k: 'viewer',  l: 'Solo lectura',  desc: 'Vista de dashboards sin exportar ni editar',                             perms: [] },
 ];
+
+// Diccionario único de estados de cuenta: lo consumen el resumen del encabezado,
+// el filtro, la pill de la tabla y el select del drawer. El mismo estado se
+// llamaba «invitación pendiente» (resumen), «Invitado» (filtro y pill) e
+// «Invitado (pendiente)» (drawer) — cuatro nombres para una cosa. Las claves son
+// los valores que produce fromApi(). `plural` es para los contadores, que no
+// pluralizaban («2 invitación pendiente»). `tone` es deliberadamente
+// neutro/informativo: pos/warn/neg están tomados por sentimiento y severidad
+// (pill-warn ES la banda de crisis ELEVADO, ver crisisBandPill), así que una
+// invitación pendiente —tramitación normal— no puede compartir ese ámbar.
+const USER_STATUS = {
+  activo:     { label: 'Activo',               plural: 'Activos',                 tone: 'neu' },
+  invitado:   { label: 'Invitación pendiente', plural: 'Invitaciones pendientes', tone: 'info' },
+  suspendido: { label: 'Suspendido',           plural: 'Suspendidos',             tone: 'neu' },
+};
+
+// Columnas de la rejilla de «Roles disponibles». Vive fuera del render porque de
+// ella se derivan los filetes de cada celda (ver el map): decidirlos por índice
+// del array (`i < ROLES.length - 1`) es una regla escrita para 4 columnas, y en
+// el 2×2 de móvil pintaba un borde encima del borde del card.
+const roleGridCols = () => (window.ecoIsMobile() ? 2 : 4);
 
 // Páginas del menú para el control de visibilidad por-usuario (allowed_pages).
 // Las claves coinciden con NAV/SYSTEM_NAV en shell.js.
@@ -3653,7 +4279,10 @@ function UsersAdmin() {
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
     lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
-    avatar: '#4A7FB5',
+    // Sin campo `avatar`: el color ya no depende del correo. La paleta
+    // categórica se asigna EN ORDEN (data.js) y su último token es el gris de
+    // «resto/otros», así que repartirla por hash del correo hacía que un
+    // administrador saliera con el color de «otros». Ver <Avatar> en shell.js.
   });
 
   // Las claves de ROLES ya coinciden con el enum del backend; solo validamos.
@@ -3743,39 +4372,54 @@ function UsersAdmin() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Header */}
       <div className="card">
-        <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)' }}>
-              Usuarios y roles
+            <div style={{ fontSize: 'var(--fs-title-md)', fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)' }}>
+              Equipo
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-              {stats.total} usuarios · {stats.activos} activos · {stats.invitados} invitación pendiente · {stats.suspendidos} suspendidos
+            {/* «Cuántas cuentas y en qué estado» son los únicos números de la
+                pantalla, y estaban en el texto más chico y más apagado de la
+                vista, leyéndose como pie de foto. Van como cifras (.num +
+                --fs-num-md en --text) con el rótulo en el overline, igual que
+                QuickMetric. Los segmentos en cero no se imprimen: «0
+                suspendidos» pesaba lo mismo que un estado que sí existe. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-5)', marginTop: 'var(--sp-2)' }}>
+              {[['Total', stats.total, true],
+                [USER_STATUS.activo.plural, stats.activos, false],
+                [USER_STATUS.invitado.plural, stats.invitados, false],
+                [USER_STATUS.suspendido.plural, stats.suspendidos, false]]
+                .filter(([, n, always]) => always || n > 0)
+                .map(([l, n]) => (
+                  <div key={l}>
+                    <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>{n}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{l}</div>
+                  </div>
+                ))}
             </div>
           </div>
           <button className="btn btn-primary" onClick={() => setDrawer({ mode: 'create', user: { name: '', email: '', role: 'analista', allAgencies: false, agencySlugs: [], status: 'invitado', notify: true } })}>
             <Icons.Plus size={13} /> Invitar usuario
           </button>
         </div>
-        <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', border: '1px solid var(--hairline)', borderRadius: 8, flex: '1 1 260px', background: 'var(--canvas)' }}>
-            <Icons.Search size={14} color="var(--text-3)" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por nombre o correo…"
-              style={{ border: 'none', outline: 'none', background: 'none', flex: 1, fontSize: 13, color: 'var(--text)' }} />
+        <div style={{ borderTop: '1px solid var(--hairline)', padding: '12px 18px', display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Mismo patrón que el buscador de Menciones (icono absoluto + .input,
+              ver más arriba en este archivo): el <input> desnudo dentro de un div
+              a mano no lo alcanzaba el piso táctil de 44px, porque el media query
+              apunta a la clase .input y no al elemento input. */}
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0 }}>
+            <Icons.Search size={14} color="var(--text-3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+            <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por nombre o correo…" style={{ paddingLeft: 34 }} />
           </div>
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
-            style={{ padding: '7px 10px', fontSize: 12, border: '1px solid var(--hairline)', borderRadius: 8, background: 'var(--canvas)' }}>
+          <select className="input" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} style={{ width: 170 }}>
             <option value="all">Todos los roles</option>
             {ROLES.map(r => <option key={r.k} value={r.k}>{r.l}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 10px', fontSize: 12, border: '1px solid var(--hairline)', borderRadius: 8, background: 'var(--canvas)' }}>
+          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 170 }}>
             <option value="all">Todos los estados</option>
-            <option value="activo">Activo</option>
-            <option value="invitado">Invitado</option>
-            <option value="suspendido">Suspendido</option>
+            {Object.keys(USER_STATUS).map((k) => <option key={k} value={k}>{USER_STATUS[k].label}</option>)}
           </select>
         </div>
       </div>
@@ -3783,17 +4427,27 @@ function UsersAdmin() {
       {/* Roles at a glance */}
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Roles disponibles</div><div className="card-hd-sub">Permisos configurados a nivel de plataforma</div></div></div>
-        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 0, borderTop: '1px solid var(--hairline)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${roleGridCols()}, 1fr)`, gap: 0, borderTop: '1px solid var(--hairline)' }}>
           {ROLES.map((r, i) => (
-            <div key={r.k} style={{ padding: 16, borderRight: i < ROLES.length - 1 ? '1px solid var(--hairline)' : 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div key={r.k} style={{
+              padding: 'var(--sp-4)',
+              // Los filetes se derivan de la POSICIÓN en la rejilla, no del
+              // índice del array: la última celda de cada fila no lleva borde
+              // derecho (antes duplicaba el borde del card en el 2×2 de móvil) y
+              // las filas se separan con borderBottom (antes las cuatro celdas se
+              // leían como dos columnas de texto corrido).
+              borderRight: (i + 1) % roleGridCols() !== 0 ? '1px solid var(--hairline)' : 'none',
+              borderBottom: i < ROLES.length - roleGridCols() ? '1px solid var(--hairline)' : 'none',
+              display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)',
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{r.count}</div>
+                <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
+                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{r.count}</div>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.45 }}>{r.desc}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+              <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', lineHeight: 1.45 }}>{r.desc}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
                 {r.perms.map(p => (
-                  <span key={p} className="pill" style={{ fontSize: 9, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>
+                  <span key={p} className="pill" style={{ fontSize: 'var(--fs-overline)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>
                 ))}
               </div>
             </div>
@@ -3805,49 +4459,70 @@ function UsersAdmin() {
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Usuarios</div><div className="card-hd-sub">{filtered.length} resultados</div></div></div>
         <div className="scroll-x">
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
+          {/* El encabezado de la rejilla no se pinta en móvil: allí las filas se
+              renderizan apiladas (UserRowCard) y esta banda de 740px sólo habría
+              mostrado «USUARIO AGENCIA…» sin las columnas correspondientes. */}
+          <div className="hide-mobile" style={{
+            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 'var(--sp-3)',
             padding: '10px 18px', borderTop: '1px solid var(--hairline)',
-            fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em',
+            // Mismo eje vertical que las filas de datos (que sí llevan
+            // alignItems): sin esto, el rótulo de dos líneas estiraba la banda a
+            // 49px y las otras cuatro etiquetas quedaban pegadas arriba con ~24px
+            // de vacío debajo — en móvil, además, la columna que provocaba el
+            // salto de línea estaba fuera de pantalla y la banda alta parecía un
+            // error de render.
+            alignItems: 'center',
+            fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em',
             background: 'var(--canvas-2)',
           }}>
-            <div>Usuario</div><div>Agencia</div><div>Rol</div><div>Estado</div><div>Última actividad</div><div></div>
+            {/* Rol y Estado son pills: su texto arranca 9px dentro de la celda
+                (1px de borde + los 8px de padding de .pill), así que sus
+                encabezados llevan el mismo desplazamiento — si no, el eje se
+                rompe en dos de cinco columnas. «Actividad» en vez de «Última
+                actividad» para que la banda no salte a dos líneas en 110px. */}
+            <div>Usuario</div><div>Agencia</div><div style={{ paddingLeft: 9 }}>Rol</div><div style={{ paddingLeft: 9 }}>Estado</div><div title="Última actividad registrada">Actividad</div><div></div>
           </div>
           {filtered.map((u, idx) => {
             const roleMeta = ROLES.find(r => r.k === u.role);
-            const stTone = u.status === 'activo' ? 'pos' : u.status === 'invitado' ? 'warn' : 'neg';
+            // En un teléfono la rejilla de 740px sólo cabe al 44% (~329px útiles)
+            // y ESTADO queda fuera del scroll-x, así que la misma información se
+            // apila. Mismo corte (768px) que las media queries de index.html.
+            if (window.ecoIsMobile()) return <UserRowCard key={u.id} u={u} roleMeta={roleMeta} onOpen={() => setDrawer({ mode: 'edit', user: u })} />;
+            // Los estados de cuenta NO son severidad: en este producto pill-warn
+            // es a la vez sentimiento neutral y la banda de crisis ELEVADO, y
+            // pill-neg es prioridad alta. Una invitación pendiente es tramitación
+            // normal. El nombre y el tono (neu/info) salen de USER_STATUS.
+            const st = USER_STATUS[u.status] || { label: u.status, tone: 'neu' };
             return (
               <div key={u.id}
                 onClick={() => setDrawer({ mode: 'edit', user: u })}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
+                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 'var(--sp-3)',
                   padding: '12px 18px', alignItems: 'center', cursor: 'pointer',
                   borderTop: '1px solid var(--hairline)',
                 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: u.avatar, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                    {u.name.split(' ').map(p => p[0]).slice(0,2).join('')}
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', minWidth: 0 }}>
+                  <Avatar name={u.name} size={30} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                    <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
                   </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{u.agency}</div>
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)' }}>{u.agency}</div>
                 <div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', padding: '3px 8px', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 999 }}>
+                  <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text)', padding: '3px 8px', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 'var(--r-pill)' }}>
                     {roleMeta?.l || u.role}
                   </span>
                 </div>
-                <div><span className={`pill pill-${stTone}`} style={{ textTransform: 'capitalize' }}>{u.status}</span></div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{u.lastSeen}</div>
+                <div><span className={`pill pill-${st.tone} pill-name`}>{u.status === 'suspendido' && <span className="dot" style={{ background: 'var(--neg)' }} />}{st.label}</span></div>
+                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{u.lastSeen}</div>
                 <Icons.ChevronRight size={14} color="var(--text-3)" />
               </div>
             );
           })}
           {filtered.length === 0 && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13, borderTop: '1px solid var(--hairline)' }}>
+            <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)', borderTop: '1px solid var(--hairline)' }}>
               Sin resultados · ajusta los filtros o <button onClick={() => { setQuery(''); setRoleFilter('all'); setStatusFilter('all'); }} style={{ color: 'var(--accent)', fontWeight: 600 }}>limpiar filtros</button>
             </div>
           )}
@@ -3855,6 +4530,40 @@ function UsersAdmin() {
       </div>
 
       {drawer && <UserDrawer drawer={drawer} agencyOptions={agencyOptions} onSave={saveUser} onDelete={deleteUser} onClose={() => setDrawer(null)} />}
+    </div>
+  );
+}
+
+// Fila de usuario en móvil. La tabla de arriba declara minWidth 740 y en un
+// teléfono sólo hay ~329px útiles: ESTADO y ÚLTIMA ACTIVIDAD quedaban fuera del
+// scroll-x, o sea que un admin no podía ver desde el móvil quién está
+// suspendido. Aquí el estado viaja junto al nombre —es el dato operativo— y
+// Agencia/Rol/Actividad bajan a pares etiqueta-valor.
+function UserRowCard({ u, roleMeta, onOpen }) {
+  const st = USER_STATUS[u.status] || { label: u.status, tone: 'neu' };
+  return (
+    <div className="row-hover" onClick={onOpen} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', padding: '12px 18px', borderTop: '1px solid var(--hairline)', cursor: 'pointer' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', minWidth: 0 }}>
+        <Avatar name={u.name} size={30} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
+          <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+        </div>
+        <span className={`pill pill-${st.tone} pill-name`} style={{ flexShrink: 0 }}>
+          {u.status === 'suspendido' && <span className="dot" style={{ background: 'var(--neg)' }} />}
+          {st.label}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--sp-1) var(--sp-3)', paddingLeft: 42 }}>
+        {[['Agencia', u.agency], ['Rol', roleMeta?.l || u.role], ['Actividad', u.lastSeen]].map(([l, v]) => (
+          <div key={l} style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{l}</div>
+            <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3882,36 +4591,34 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
     <>
       <div className="drawer-backdrop" onClick={onClose} />
       <div className="drawer">
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <div style={{ flex: 1 }}>
             <div className="section-eyebrow" style={{ margin: 0 }}>{isCreate ? 'Invitar usuario' : 'Editar usuario'}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', marginTop: 2 }}>
+            <div style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', marginTop: 'var(--sp-05)' }}>
               {isCreate ? 'Nuevo miembro del equipo' : form.name}
             </div>
           </div>
-          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+          <button aria-label="Cerrar" className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
-        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           {/* Identity */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Identidad</div>
-            <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Identidad</div>
+            <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
               <Field label="Nombre completo" required>
                 <input value={form.name} onChange={(e) => setField('name', e.target.value)}
                   placeholder="María Santos"
-                  style={inputStyle} />
+                  className="input" />
               </Field>
               <Field label="Correo institucional" required>
                 <input value={form.email} onChange={(e) => setField('email', e.target.value)}
                   placeholder="nombre@agencia.pr.gov"
-                  style={inputStyle} />
+                  className="input" />
               </Field>
               <Field label="Estado">
-                <select value={form.status} onChange={(e) => setField('status', e.target.value)} style={inputStyle}>
-                  <option value="activo">Activo</option>
-                  <option value="invitado">Invitado (pendiente)</option>
-                  <option value="suspendido">Suspendido</option>
+                <select className="input" value={form.status} onChange={(e) => setField('status', e.target.value)}>
+                  {Object.keys(USER_STATUS).map((k) => <option key={k} value={k}>{USER_STATUS[k].label}</option>)}
                 </select>
               </Field>
             </div>
@@ -3919,28 +4626,28 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
 
           {/* Agencies the user can switch between */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Agencias visibles</div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Agencias visibles</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', cursor: 'pointer' }}>
               <input type="checkbox" checked={!!form.allAgencies}
                 onChange={(e) => setField('allAgencies', e.target.checked)} />
-              <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las agencias <span style={{ color: 'var(--text-3)' }}>(staff Populicom)</span></span>
+              <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)' }}>Todas las agencias <span style={{ color: 'var(--text-3)' }}>(staff Populicom)</span></span>
             </label>
             {!form.allAgencies && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 2 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', paddingLeft: 2 }}>
                 {agencyOptions.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No hay agencias disponibles para asignar.</div>
+                  <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>No hay agencias disponibles para asignar.</div>
                 )}
                 {agencyOptions.map((a) => {
                   const checked = (form.agencySlugs || []).includes(a.slug);
                   return (
-                    <label key={a.slug} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <label key={a.slug} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={checked}
                         onChange={(e) => {
                           const cur = new Set(form.agencySlugs || []);
                           if (e.target.checked) cur.add(a.slug); else cur.delete(a.slug);
                           setField('agencySlugs', [...cur]);
                         }} />
-                      <span style={{ fontSize: 13, color: 'var(--text)' }}>{a.name} <span style={{ color: 'var(--text-3)', fontSize: 11 }}>({a.slug})</span></span>
+                      <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)' }}>{a.name} <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>({a.slug})</span></span>
                     </label>
                   );
                 })}
@@ -3950,27 +4657,27 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
 
           {/* Role picker */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Rol y permisos</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Rol y permisos</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
               {ROLES.map(r => {
                 const selected = form.role === r.k;
                 return (
                   <label key={r.k} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 12,
-                    padding: 12, borderRadius: 10,
+                    display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)',
+                    padding: 'var(--sp-3)', borderRadius: 'var(--r-lg)',
                     border: `1px solid ${selected ? 'var(--accent)' : 'var(--hairline)'}`,
                     background: selected ? 'var(--accent-fill)' : 'var(--canvas)',
                     cursor: 'pointer',
                   }}>
-                    <input type="radio" name="role" checked={selected} onChange={() => setField('role', r.k)} style={{ marginTop: 3 }} />
+                    <input type="radio" name="role" checked={selected} onChange={() => setField('role', r.k)} style={{ marginTop: 'var(--sp-05)' }} />
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          {r.perms.map(p => <span key={p} className="pill" style={{ fontSize: 9, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                        <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
+                        <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
+                          {r.perms.map(p => <span key={p} className="pill" style={{ fontSize: 'var(--fs-overline)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>)}
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{r.desc}</div>
+                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', marginTop: 'var(--sp-1)', lineHeight: 1.5 }}>{r.desc}</div>
                     </div>
                   </label>
                 );
@@ -3982,19 +4689,19 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
               Reemplaza el mockup "Alcance de datos" (checkboxes muertos con
               agencias ficticias) por el control real de mostrar/esconder páginas. */}
           <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Páginas visibles</div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+            <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Páginas visibles</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.allowedPages == null}
                 onChange={(e) => setField('allowedPages', e.target.checked ? null : PAGE_OPTIONS.map((p) => p.k))} />
-              <span style={{ fontSize: 13, color: 'var(--text)' }}>Todas las páginas <span style={{ color: 'var(--text-3)' }}>(según su rol)</span></span>
+              <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)' }}>Todas las páginas <span style={{ color: 'var(--text-3)' }}>(según su rol)</span></span>
             </label>
             {form.allowedPages != null && (
-              <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 8 }}>
+              <div style={{ padding: 'var(--sp-3)', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 'var(--sp-2)' }}>
                 {PAGE_OPTIONS.map((p) => {
                   const locked = p.k === 'overview'; // overview siempre visible (landing)
                   const checked = locked || (form.allowedPages || []).includes(p.k);
                   return (
-                    <label key={p.k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)', opacity: locked ? 0.6 : 1 }}>
+                    <label key={p.k} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)', color: 'var(--text)', opacity: locked ? 0.6 : 1 }}>
                       <input type="checkbox" checked={checked} disabled={locked}
                         onChange={(e) => {
                           const cur = new Set(form.allowedPages || []);
@@ -4007,32 +4714,16 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
                 })}
               </div>
             )}
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Controla qué páginas ve este usuario en el menú. "Todas" = sin restricción (su rol decide). Overview siempre visible. Las páginas de Configuración además requieren el permiso del rol.</div>
+            <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-15)' }}>Controla qué páginas ve este usuario en el menú. "Todas" = sin restricción (su rol decide). Overview siempre visible. Las páginas de Configuración además requieren el permiso del rol.</div>
           </div>
 
-          {/* Activity — only on edit */}
-          {!isCreate && (
-            <div>
-              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Actividad reciente</div>
-              <div style={{ border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden' }}>
-                {[
-                  { ts: 'hace 5 min',  a: 'Inició sesión',             ip: '10.24.1.18' },
-                  { ts: 'hace 1 h',    a: 'Exportó reporte semanal',   ip: '10.24.1.18' },
-                  { ts: 'hace 4 h',    a: 'Editó regla de alerta #R-12', ip: '10.24.1.18' },
-                  { ts: 'hace 1 d',    a: 'Cambió rol a analista',     ip: '—' },
-                ].map((a, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 120px', gap: 8, padding: '10px 12px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12 }}>
-                    <div className="mono" style={{ color: 'var(--text-3)' }}>{a.ts}</div>
-                    <div style={{ color: 'var(--text)' }}>{a.a}</div>
-                    <div className="mono" style={{ color: 'var(--text-3)', textAlign: 'right' }}>{a.ip}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Sin "Actividad reciente": el bloque que estaba aquí mostraba un
+              registro de auditoría INVENTADO (cuatro entradas fijas con la IP
+              10.24.1.18), idéntico para todos los usuarios. No existe tabla de
+              auditoría; cuando exista, se reconstruye leyéndola. */}
 
           {/* Actions */}
-          <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
             <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={submit} disabled={!valid}>
               <Icons.Check size={13} /> {isCreate ? 'Enviar invitación' : 'Guardar cambios'}
             </button>
@@ -4049,17 +4740,14 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
   );
 }
 
-const inputStyle = {
-  width: '100%', padding: '8px 10px', fontSize: 13,
-  border: '1px solid var(--hairline)', borderRadius: 8,
-  background: 'var(--canvas)', color: 'var(--text)',
-  outline: 'none', fontFamily: 'inherit',
-};
+// `inputStyle` se eliminó: era .input copiado en un objeto inline, y por no ser
+// la clase se le escapaba el piso táctil de 44px (el media query apunta a
+// .input), así que los campos del drawer quedaban a 34px junto a un select de 44.
 
 function Field({ label, required, children }) {
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>
+      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>
         {label} {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </div>
       {children}
@@ -4110,15 +4798,15 @@ function OverviewScreen({ period, agency, onMentionClick }) {
 
   if (error) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-        <div className="section-eyebrow" style={{ color: 'var(--neg)', marginBottom: 6 }}>Error</div>
-        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No se pudo cargar el Overview: {error}</div>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+        <div className="section-eyebrow" style={{ color: 'var(--neg)', marginBottom: 'var(--sp-15)' }}>Error</div>
+        <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>No se pudo cargar el Overview: {error}</div>
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)' }}>
         Cargando…
       </div>
     );
@@ -4189,7 +4877,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
@@ -4203,7 +4891,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
           // (matchea correo) que solo expone el name; resolvemos el slug aquí.
           const topic = (D.TOPICS || []).find((t) => t.name === row.topic);
           if (!topic) return;
-          const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+          const palette = window.ECO_CAT;
           const slugIdx = {};
           (D.TOPICS || []).forEach((tp, i) => { slugIdx[tp.slug] = i; });
           const accent = palette[(slugIdx[topic.slug] || 0) % palette.length] || 'var(--accent)';
@@ -4236,15 +4924,20 @@ function OverviewHero({ data }) {
           calendar icon) y la palabra "Overview" ya está en el header / sidebar.
           Repetirlas aquí era ruido (instrucción explícita del usuario). */}
       <h1 style={{
-        fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
+        fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-display-lg)', fontWeight: 600,
         lineHeight: 1.2, margin: '0 0 4px', letterSpacing: 'var(--letter-display)',
         color: 'var(--text)',
       }}>
         Conversación pública de los últimos {data.dailySeries.length} días
       </h1>
-      <div style={{ color: 'var(--text-2)', fontSize: 13 }}>
+      <div style={{ color: 'var(--text-2)', fontSize: 'var(--fs-body-sm)' }}>
+        {/* `periodLabel` es el rótulo canónico del periodo (formatPeriodLabel en
+            @eco/shared, el mismo que imprime el correo): "21 – 27 jul 2026". La
+            API ya lo enviaba y aquí se imprimían las dos fechas ISO crudas, así
+            que la pantalla tenía tres vocabularios de fecha (ISO en el hero,
+            "mié 21" en el eje, el rótulo en el modal). */}
         {total > 0
-          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {data.periodStart} → {data.periodEnd}</>
+          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {data.periodLabel || (data.periodStart + ' → ' + data.periodEnd)}</>
           : <>Sin menciones registradas en la ventana seleccionada.</>}
       </div>
     </div>
@@ -4252,26 +4945,27 @@ function OverviewHero({ data }) {
 }
 
 function OverviewTermometro({ totals, deltas, onSliceClick }) {
-  const t = totals.total || 1;
+  // Defensa contra payload incompleto: `totals` ausente tumbaba TODA la pantalla
+  // principal al error boundary. Un hipo del endpoint no debe dejar al usuario
+  // sin Overview; sin datos la tarjeta se dibuja en cero y lo dice.
+  const T = totals || {};
+  const D = deltas || {};
+  const t = T.total || 1;
   const cards = [
-    { name: 'Negativo', sentKey: 'negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
-    { name: 'Neutral',  sentKey: 'neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
-    { name: 'Positivo', sentKey: 'positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
+    { name: 'Negativo', sentKey: 'negativo', value: T.negative, delta: D.negative, accent: 'var(--neg)', deltaMetric: 'negativeCount' },
+    { name: 'Neutral',  sentKey: 'neutral',  value: T.neutral,  delta: D.neutral,  accent: 'var(--neu)', invert: false },
+    { name: 'Positivo', sentKey: 'positivo', value: T.positive, delta: D.positive, accent: 'var(--pos)', deltaMetric: 'positiveCount' },
   ];
   return (
     <div>
-      <div className="section-eyebrow" style={{ marginBottom: 8 }}>01 · Termómetro · vs ventana previa</div>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>01 · Termómetro · vs ventana previa</div>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
         {cards.map((c) => {
-          const pct = totals.total > 0 ? Math.round((c.value / t) * 100) : 0;
-          // Negativo: subir es malo (rojo); bajar es bueno (verde).
-          // Positivo: subir es bueno (verde); bajar es malo (rojo).
-          // Neutral: sin color especial.
-          const dColor = c.name === 'Neutral'
-            ? 'var(--text-3)'
-            : c.invert
-              ? (c.delta > 0 ? 'var(--neg)' : c.delta < 0 ? 'var(--pos)' : 'var(--text-3)')
-              : (c.delta > 0 ? 'var(--pos)' : c.delta < 0 ? 'var(--neg)' : 'var(--text-3)');
+          const pct = T.total > 0 ? Math.round(((c.value || 0) / t) * 100) : 0;
+          // La dirección del delta la decide ECO_METRIC_DIRECTION vía DeltaBadge
+          // (negativeCount = up-bad, positiveCount = up-good, volumen = neutro).
+          // Esta card recalculaba el color con su propio criterio y el resultado
+          // se pisaba con el del badge: dos reglas para el mismo átomo.
           // Las cards del termómetro abren MentionsSliceModal con el sentimiento
           // correspondiente. Usar <button> para teclado/aria; padding/estilos
           // imitan el card. Sin underline o cursor pointer por defecto del btn.
@@ -4280,26 +4974,34 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
               onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
               className="card row-hover"
               style={{
-                padding: 16, textAlign: 'left',
+                padding: 'var(--sp-4)', textAlign: 'left',
                 cursor: 'pointer', border: '1px solid var(--hairline)',
                 background: 'var(--canvas)',
               }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {/* .t-overline es la clase declarada para esto (tokens.css §7):
+                    11px, mayúsculas, --tracking-overline. Antes cada eyebrow
+                    repetía los cinco estilos inline con su propio tracking. */}
+                <div className="t-overline">
                   {c.name}
                 </div>
                 <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <div className="num" style={{ fontSize: 30, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
+                <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                   {fmt(c.value)}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</div>
+                {/* Cifra de apoyo del titular: --fs-body-sm/--text-2, igual que
+                    KpiCard (156) y que la card 02 (4333). Antes iba 12px/--text-3
+                    aquí y 13px/--text-2 allá, mismo rol en cards contiguas. */}
+                <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{pct}%</div>
               </div>
-              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: dColor, display: 'flex', alignItems: 'center', gap: 4 }}>
-                {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
-                {c.delta === 0 ? 'estable' : `${c.delta > 0 ? '+' : ''}${Math.round(c.delta)}%`}
+              {/* El color y el tamaño del delta los decide DeltaBadge (WS-F8);
+                  este contenedor sólo coloca. Fijar aquí `color: dColor` era una
+                  segunda política de color sobre el mismo átomo. */}
+              <div style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+                <DeltaBadge value={c.delta} metricKey={c.deltaMetric || 'volume'} />
               </div>
             </button>
           );
@@ -4337,34 +5039,46 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
       onClick={() => onOpenInsight && onOpenInsight('crisis', valueLabel, 'var(--neg)')}
       className="card row-hover"
       style={{
-        padding: 16,
-        display: 'grid', gridTemplateColumns: window.ecoCols('160px 1fr', '1fr'), gap: 16, alignItems: 'center',
+        padding: 'var(--sp-4)',
+        display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-4)', alignItems: 'stretch',
         cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
         textAlign: 'left', width: '100%',
       }}
       title="Ver insight del riesgo de crisis para el periodo">
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-15)' }}>
           <Icons.Shield size={14} color="var(--neg)" />
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {/* 02, 03 y 04 son UNA card cada una y llevan el mismo rótulo de card
+              (.card-hd-title, serif 15px). 01 y 05 rotulan GRUPOS de tres cards
+              y por eso viven fuera, en .section-eyebrow. Antes 02 usaba un
+              eyebrow de 11px en mayúsculas y parecía de otra familia que sus dos
+              pares, con el mismo patrón de información (número · nombre). */}
+          <div className="card-hd-title">
             02 · Riesgo de crisis
           </div>
           <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div className="num" style={{ fontSize: 30, fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
+          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
             {word}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>{valueLabel}</div>
+          <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{valueLabel}</div>
         </div>
       </div>
-      <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
-        <div style={{ height: 6, borderRadius: 3, background: CRISIS_GRADIENT, position: 'relative' }}>
-          <div style={{ position: 'absolute', left: `${Math.min(score * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor}`, transform: 'translateX(-50%)' }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)', letterSpacing: '0.04em' }}>
-          <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
-        </div>
+      {/* El divisor es vertical en 2 columnas y horizontal cuando la rejilla
+          colapsa en móvil: un borde izquierdo en una sola columna no separa nada. */}
+      {/* La escala ocupa las dos últimas columnas de las tres, así el divisor cae
+          en el tercio de la rejilla y no a media card. En móvil la rejilla es de
+          una columna y el divisor pasa a horizontal (un borde izquierdo en una
+          sola columna no separa nada). El flex + justifyContent centra la escala
+          verticalmente mientras el borde recorre la card COMPLETA: con
+          alignItems:'center' en la rejilla el borde medía 25px dentro de una card
+          de 101px y separaba aire de aire. */}
+      <div style={window.ecoIsMobile()
+        ? { paddingTop: 'var(--sp-3)', borderTop: '1px solid var(--hairline)' }
+        : { gridColumn: '2 / span 2', paddingLeft: 'var(--sp-4)', borderLeft: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <BandScale bands={CRISIS_BANDS} value={score} max={1}
+          valueLabel={valueLabel} ariaLabel="Riesgo de crisis" />
       </div>
     </button>
   );
@@ -4384,13 +5098,14 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
   }));
   const series = [
     { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
-    { key: 'neutral',  label: 'Neutral',  color: 'var(--text-3)' },
+    { key: 'neutral',  label: 'Neutral',  color: 'var(--neu)' },
     { key: 'positive', label: 'Positivo', color: 'var(--pos)' },
   ];
   if (chartData.length === 0) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-        Sin datos de tendencia en el periodo.
+      <div className="card">
+        <EmptyState reason="empty" title="Sin datos de tendencia"
+          detail="No hay menciones con fecha en el período seleccionado." />
       </div>
     );
   }
@@ -4403,12 +5118,17 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
         </div>
       </div>
       <div className="card-bd">
-        {/* Per-series normalization (cada línea con su propio min/max) +
-            smooth bezier — petición explícita del usuario: "me gustaba más
-            como se veía antes... me gustaban las líneas suavizadas". Con
-            shared-scale, los picos grandes (ej. neg=203) comprimían las
-            variaciones diarias normales en una banda plana al fondo. */}
-        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} smooth={true} />
+        {/* WS-C2 (arreglo de F2). Antes: MultiLineChart con normalización POR
+            SERIE, que dibujaba positivo=33 un ~40% más arriba que negativo=35
+            — el lector concluía lo contrario de lo que dicen los números.
+            Activar `sharedScale` en el gráfico superpuesto tampoco servía:
+            con un pico grande (neg=203 en un día de crisis) la variación diaria
+            normal se comprime en una banda plana al fondo, que es justo la
+            queja que originó la normalización por serie.
+            SeriesPanels separa las series en franjas que COMPARTEN el eje: cada
+            una conserva su forma y su curva suave (petición explícita del
+            usuario) y las alturas sí son comparables. */}
+        <SeriesPanels data={chartData} series={series} panelHeight={72} onPointClick={onDayClick} />
       </div>
     </div>
   );
@@ -4417,23 +5137,33 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
 function OverviewTopicos({ rows, totals, onTopicClick }) {
   if (!rows || rows.length === 0) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
         Sin tópicos clasificados en el periodo.
       </div>
     );
   }
   const universe = totals.total || 1;
 
-  function DistributionBar({ neg, neu, pos, t }) {
+  // `scale` = qué fracción del PERIODO representa la fila (0–1). Sin él la barra
+  // era siempre el 100% de la columna, porque cada fila se normalizaba a su
+  // propio total: nueve barras del mismo largo para 253 y para 80 menciones, y
+  // como las mezclas se parecen (~16/34/50) el proyector mostraba ocho barras
+  // idénticas. Ahora el LARGO dice el volumen y el RELLENO dice la mezcla.
+  function DistributionBar({ neg, neu, pos, t, scale = 1 }) {
     const td = t || 1;
-    const negPct = (neg / td) * 100;
+    // Orden canónico del producto: positivo → neutral → negativo. Es el de
+    // SentimentBar (2146-2148) y el de las cinco leyendas y demás barras
+    // apiladas; esta era la única espejada, así que al hacer click en una fila y
+    // aterrizar en Tópicos el rojo saltaba de lado sin que ninguna de las dos
+    // tenga leyenda. El último tramo absorbe el redondeo para que sumen 100%.
+    const posPct = (pos / td) * 100;
     const neuPct = (neu / td) * 100;
-    const posPct = Math.max(0, 100 - negPct - neuPct);
+    const negPct = Math.max(0, 100 - posPct - neuPct);
     return (
-      <div style={{ display: 'flex', height: 8, borderRadius: 2, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-        <div title={`negativo · ${neg}`} style={{ width: `${negPct}%`, background: 'var(--neg)' }} />
-        <div title={`neutral · ${neu}`}  style={{ width: `${neuPct}%`, background: 'var(--text-3)' }} />
+      <div style={{ display: 'flex', height: 8, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--canvas-2)', width: `${Math.max(2, scale * 100)}%` }}>
         <div title={`positivo · ${pos}`} style={{ width: `${posPct}%`, background: 'var(--pos)' }} />
+        <div title={`neutral · ${neu}`}  style={{ width: `${neuPct}%`, background: 'var(--neu)' }} />
+        <div title={`negativo · ${neg}`} style={{ width: `${negPct}%`, background: 'var(--neg)' }} />
       </div>
     );
   }
@@ -4459,7 +5189,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
               onClick={clickable ? () => onTopicClick(row) : undefined}
               className={clickable ? 'row-hover' : undefined}
               style={{
-                display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
+                display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 'var(--sp-4)',
                 padding: '14px 16px', alignItems: 'center',
                 borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                 opacity: muted ? 0.78 : 1,
@@ -4467,11 +5197,11 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
               }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{
-                  fontSize: 13.5, fontWeight: muted ? 500 : 600,
+                  fontSize: 'var(--fs-body-sm)', fontWeight: muted ? 500 : 600,
                   color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>{row.topic}</div>
                 {(row.subtopics || row.secondaryCount > 0) && (
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3, fontStyle: row.isUnclassified ? 'italic' : 'normal' }}>
+                  <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-05)', fontStyle: row.isUnclassified ? 'italic' : 'normal' }}>
                     {row.subtopics}
                     {row.subtopics && row.secondaryCount > 0 ? ' · ' : ''}
                     {row.secondaryCount > 0 && (
@@ -4481,33 +5211,45 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
                 )}
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div className="num" style={{ fontSize: 14, fontWeight: muted ? 600 : 700, color: 'var(--text)' }}>
+                {/* --fs-num-md (18px) es el escalón que faltaba: la MISMA unidad
+                    (menciones) salía a 30px en el termómetro y a 14px aquí, un
+                    salto de 2.1x sin nada en medio y a 1px del nombre del tópico,
+                    que es texto y no cifra. Este número es el ranking que el
+                    cliente lee en la reunión. */}
+                <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: muted ? 600 : 700, color: 'var(--text)' }}>
                   {fmt(row.total)}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>{pctOfTotal}%</div>
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', fontWeight: 500, marginTop: 'var(--sp-05)' }}>{pctOfTotal}%</div>
               </div>
-              <DistributionBar neg={row.negative} neu={row.neutral} pos={row.positive} t={row.total} />
+              <DistributionBar neg={row.negative} neu={row.neutral} pos={row.positive} t={row.total} scale={row.total / universe} />
             </div>
           );
         })}
         {/* Footer "Total del periodo" — debe cuadrar con el termómetro */}
         <div style={{
-          display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
+          display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 'var(--sp-4)',
           padding: '14px 16px', alignItems: 'center',
           borderTop: '1px solid var(--hairline-strong)',
           background: 'var(--canvas-2)',
         }}>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          <div className="t-overline" style={{ color: 'var(--text-3)' }}>
             Total del periodo
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{fmt(totals.total)}</div>
+            {/* Sin abreviar: `fmt` sacaba "1.3K" para el MISMO número que el hero
+                imprime "1,331", y en esta columna las ocho filas de arriba ya van
+                sin abreviar (253, 213, …). Regla: titulares y totales completos,
+                `fmt` sólo donde el ancho no da. Aquí da. */}
+            <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 700, color: 'var(--text)' }}>{totals.total.toLocaleString('es-PR')}</div>
           </div>
-          <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} />
+          {/* La fila TOTAL es la regla de medir: su barra ocupa la pista completa
+              y las de arriba son su fracción real del periodo. Por eso scale=1
+              explícito y no un cálculo: es el 100% por definición. */}
+          <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} scale={1} />
         </div>
       </div>
-      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+      <div style={{ padding: '12px 16px', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 'var(--sp-05)' }} />
         <span>
           Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
           criterio del correo diario). El "+N también lo tocan" indica
@@ -4583,16 +5325,16 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
   }, [periodStart, periodEnd, agency]);
 
   const eyebrow = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
       <div className="section-eyebrow" style={{ marginBottom: 0 }}>05 · Insights · análisis IA del periodo</div>
       {state.phase === 'computing' && (
-        <span style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
           <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
           GENERANDO…
         </span>
       )}
       {state.phase === 'ready' && state.data?.stale && (
-        <span className="pill pill-info" style={{ fontSize: 9 }} title="Datos cacheados; el lambda está recomputando en background">
+        <span className="pill pill-info" style={{ fontSize: 'var(--fs-overline)' }} title="Datos cacheados; el lambda está recomputando en background">
           Actualizando…
         </span>
       )}
@@ -4603,7 +5345,7 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
     return (
       <div>
         {eyebrow}
-        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+        <div className="card" style={{ padding: 'var(--sp-4)', textAlign: 'center', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
           No fue posible cargar los insights del periodo: {state.error}
         </div>
       </div>
@@ -4622,32 +5364,33 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
     <div>
       {eyebrow}
       {allEmpty ? (
-        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
-          Sin suficiente señal en el periodo seleccionado para generar insights.
+        <div className="card">
+          <EmptyState reason="pending" title="Todavía no hay suficiente señal"
+            detail="Los insights necesitan más menciones en el período para decir algo con fundamento. Prueba una ventana más amplia." />
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
           {cols.map((col) => (
-            <div key={col.key} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${col.accent}` }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{col.title}</div>
+            <div key={col.key} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', borderTop: `2px solid ${col.accent}` }}>
+              <div className="t-overline">{col.title}</div>
               {isLoading ? (
                 <>
-                  <div className="skeleton" style={{ height: 14, marginBottom: 6 }} />
-                  <div className="skeleton" style={{ height: 14, marginBottom: 6, width: '92%' }} />
+                  <div className="skeleton" style={{ height: 14, marginBottom: 'var(--sp-15)' }} />
+                  <div className="skeleton" style={{ height: 14, marginBottom: 'var(--sp-15)', width: '92%' }} />
                   <div className="skeleton" style={{ height: 14, width: '78%' }} />
                 </>
               ) : col.items.length === 0 ? (
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
                   Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
                 </div>
               ) : col.key === 'general' ? (
-                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', lineHeight: 1.5 }}
                   dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(col.items[0]) }} />
               ) : (
-                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
                   {col.items.map((it, i) => (
-                    <li key={i} style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 8 }}>
-                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 6 }} />
+                    <li key={i} style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 'var(--sp-2)' }}>
+                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 'var(--sp-15)' }} />
                       <span>{it}</span>
                     </li>
                   ))}
@@ -4665,13 +5408,15 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
 // NarrativeScreen — análisis de UNA narrativa en timeline (streamgraph)
 // ============================================================
 const NARRATIVE_STATUS_ORDER = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
+// Colores desde tokens.css (--narr-*). Antes eran hex de Ant Design incrustados
+// aquí; `peaking` (#FA8C16) con texto blanco daba 2.38:1 y fallaba AA.
 const NARRATIVE_STATUS_COLORS = {
-  peaking: '#FA8C16',
-  active: '#52C41A',
-  emerging: '#13C2C2',
-  revived: '#EB2F96',
-  declining: '#FAAD14',
-  dormant: '#8C8C8C',
+  peaking: 'var(--narr-peaking)',
+  active: 'var(--narr-active)',
+  emerging: 'var(--narr-emerging)',
+  revived: 'var(--narr-revived)',
+  declining: 'var(--narr-declining)',
+  dormant: 'var(--narr-dormant)',
 };
 const NARRATIVE_STATUS_LABELS = {
   peaking: 'Pico',
@@ -4681,6 +5426,39 @@ const NARRATIVE_STATUS_LABELS = {
   declining: 'Decae',
   dormant: 'Dormida',
 };
+// La columna `status` de la DB puede traer valores fuera de este enum (el
+// lambda evoluciona más rápido que la SPA). Antes eso se renderizaba en INGLÉS
+// CRUDO, sin punto de color, y ningún chip lo contaba: se veía "Todas (8)" con
+// chips que sumaban 5 y tres narrativas invisibles al filtrado.
+// La fuerza de la arista puede llegar nula desde /api/narrative/edges. Antes
+// `(r.strength * 100).toFixed(0)` producía la cadena "NaN" y la UI mostraba
+// literalmente "· nan%" al usuario.
+function strengthPct(v) {
+  if (v == null || !Number.isFinite(Number(v))) return null;
+  return `${(Number(v) * 100).toFixed(0)}%`;
+}
+const NARRATIVE_STATUS_UNKNOWN = 'unknown';
+function narrativeStatusKey(status) {
+  return NARRATIVE_STATUS_ORDER.includes(status) ? status : NARRATIVE_STATUS_UNKNOWN;
+}
+function narrativeStatusLabel(status) {
+  return NARRATIVE_STATUS_LABELS[status] || 'Sin clasificar';
+}
+function narrativeStatusColor(status) {
+  return NARRATIVE_STATUS_COLORS[status] || 'var(--narr-unknown)';
+}
+// Un solo punto de estado para las tres listas (chips de filtro, narrativas y
+// relacionadas). Antes cada sitio repetía el mismo `style={{ background: … }}`,
+// así que la distinción de `unknown` habría habido que recordarla tres veces.
+function NarrativeStatusDot({ status }) {
+  const key = narrativeStatusKey(status);
+  return (
+    <span
+      className={`narrative-dot ${key === NARRATIVE_STATUS_UNKNOWN ? 'is-unknown' : ''}`}
+      style={{ '--narr-tone': narrativeStatusColor(status) }}
+    />
+  );
+}
 
 // Etiquetas amigables para claves crudas de plataforma / tipo de arista
 // (antes se mostraban "facebook_public", "co_occurrence", etc. al usuario).
@@ -4726,15 +5504,25 @@ function smoothPath(points) {
   return d;
 }
 
-function NarrativeSparkline({ data, color }) {
+function NarrativeSparkline({ data, color, max }) {
   if (!data || data.length === 0) return null;
-  const w = 64;
+  // 56×18 = el tamaño REAL en CSS (.narrative-sparkline). El viewBox de 64 con
+  // preserveAspectRatio="none" comprimía la forma un 12.5% SÓLO en X y
+  // adelgazaba el trazo en un único eje.
+  const w = 56;
   const h = 18;
-  const max = Math.max(...data, 1);
+  // Escala COMPARTIDA por la lista visible. Normalizar por fila hacía que la
+  // altura de tinta fuera (1 - min/max)·16px, o sea INVERSA al volumen: Cierres
+  // (38 menciones) dibujaba una onda 2.4× más alta que Apagones (214),
+  // contradiciendo el número que está 20px a su izquierda. Con el máximo de la
+  // lista la altura vuelve a ser proporcional al volumen, y la base pintada en
+  // cero permite leer el NIVEL además de la forma.
+  const top = Math.max(Number(max) || 0, ...data, 1);
   const stepX = w / Math.max(data.length - 1, 1);
-  const points = data.map((v, i) => ({ x: i * stepX, y: h - (v / max) * (h - 2) - 1 }));
+  const points = data.map((v, i) => ({ x: i * stepX, y: h - 1 - (v / top) * (h - 2) }));
   return (
-    <svg className="narrative-sparkline" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+    <svg className="narrative-sparkline" viewBox={`0 0 ${w} ${h}`} aria-hidden="true" focusable="false">
+      <line x1="0" y1={h - 1} x2={w} y2={h - 1} stroke="var(--hairline-strong)" strokeWidth="0.75" />
       <path d={smoothPath(points)} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
@@ -4746,6 +5534,12 @@ function NarrativeSparkline({ data, color }) {
 // paleta de estado. La simulación corre una sola vez por dataset (useMemo).
 function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
   const W = 900, H = 560;
+  // El grafo SÍ se queda en un viewBox: la simulación de fuerzas se resuelve una
+  // vez en un espacio fijo (O(n²)·220 iteraciones) y recalcularla en cada resize
+  // costaría frames. Lo que se compensa es el TEXTO, que dentro de un viewBox
+  // escalado se multiplica por la escala de render: --fs-overline (11px) rendía
+  // 9.6px en desktop y 3.7px a 390px de viewport.
+  const [svgRef, svgW] = useChartWidth(W);
   const layout = React.useMemo(() => {
     const inEdge = new Set();
     (edges || []).forEach((e) => { inEdge.add(e.source); inEdge.add(e.target); });
@@ -4799,9 +5593,15 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
 
   const { nodes, pos, links, idIdx, bounds } = layout;
   const [hovered, setHovered] = React.useState(null);
-  if (!nodes.length) return <div className="narrative-empty">Sin narrativas suficientes para graficar.</div>;
+  if (!nodes.length) return <EmptyState reason="empty" title="Sin narrativas suficientes para el mapa" detail="Hacen falta al menos dos narrativas con relación entre ellas." />;
   const pad = 44;
-  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${(bounds.maxX - bounds.minX) + pad * 2} ${(bounds.maxY - bounds.minY) + pad * 2}`;
+  const vbW = (bounds.maxX - bounds.minX) + pad * 2;
+  const vbH = (bounds.maxY - bounds.minY) + pad * 2;
+  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${vbW} ${vbH}`;
+  // Con preserveAspectRatio="meet" (el default) la escala real es la MENOR de
+  // las dos relaciones, así que el factor que devuelve el texto a sus píxeles
+  // nominales es la MAYOR de las inversas.
+  const labelScale = Math.max(vbW / Math.max(1, svgW), vbH / H);
   const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
   // Nodo activo (hover o foco): resalta sus conexiones y atenúa el resto para
   // que las relaciones se lean claramente en vez de ser una maraña uniforme.
@@ -4826,7 +5626,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
         <div className="card-hd-title">Mapa de conexiones</div>
         <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · pasa el cursor para ver relaciones, click para abrir</div>
       </div></div>
-      <svg viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
+      <svg ref={svgRef} viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
         {links.map((e, i) => {
           const a = pos[idIdx.get(e.source)], b = pos[idIdx.get(e.target)];
           const on = active && (e.source === active || e.target === active);
@@ -4849,13 +5649,14 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
               onMouseEnter={() => setHovered(n.id)}
               onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}>
               <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es-PR')} menc · ${n.status}`}</title>
-              <circle cx={p.x} cy={p.y} r={r} fill={NARRATIVE_STATUS_COLORS[n.status] || 'var(--accent)'}
+              <circle cx={p.x} cy={p.y} r={r} fill={narrativeStatusColor(n.status)}
                 fillOpacity={dim ? 0.18 : 0.9}
                 stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
               {showLabel && (
-                <text x={p.x} y={p.y - r - 4} textAnchor="middle" fontSize={10}
+                <text x={p.x} y={p.y - r - 4} textAnchor="middle"
                   fill="var(--text)" stroke="var(--canvas)" strokeWidth={3} paintOrder="stroke"
-                  style={{ pointerEvents: 'none', fontWeight: isActive || isFocus ? 700 : 500 }}>
+                  style={{ pointerEvents: 'none', fontWeight: isActive || isFocus ? 700 : 500,
+                    fontSize: `calc(var(--fs-overline) * ${labelScale.toFixed(3)})` }}>
                   {(n.name || '').slice(0, 28)}
                 </text>
               )}
@@ -4917,14 +5718,19 @@ function NarrativeScreen({ agency }) {
   }, [agency]);
 
   const statusCounts = React.useMemo(() => {
+    // Se cuenta por la clave NORMALIZADA, así que todo status fuera del enum cae
+    // en 'unknown' y la suma de los chips cuadra con "Todas".
     const c = { all: narratives.length };
-    for (const n of narratives) c[n.status] = (c[n.status] || 0) + 1;
+    for (const n of narratives) {
+      const k = narrativeStatusKey(n.status);
+      c[k] = (c[k] || 0) + 1;
+    }
     return c;
   }, [narratives]);
 
   const filteredNarratives = React.useMemo(() => {
     const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
-    let list = narratives.filter((n) => statusFilter === 'all' || n.status === statusFilter);
+    let list = narratives.filter((n) => statusFilter === 'all' || narrativeStatusKey(n.status) === statusFilter);
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -4944,6 +5750,14 @@ function NarrativeScreen({ agency }) {
 
   const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
 
+  // Máximo diario de la lista VISIBLE: los sparklines de la lista se comparan
+  // entre sí, así que tienen que compartir escala. Se recalcula con el filtro
+  // para que la comparación sea siempre entre las filas que se están viendo.
+  const sparkMax = React.useMemo(
+    () => filteredNarratives.reduce((m, n) => (n.sparkline && n.sparkline.length ? Math.max(m, ...n.sparkline) : m), 1),
+    [filteredNarratives]
+  );
+
   return (
     <div className="narrative-screen">
       <aside className="narrative-menu">
@@ -4955,23 +5769,27 @@ function NarrativeScreen({ agency }) {
         />
         <div className="narrative-status-filters">
           <button
-            className={`btn-chip ${statusFilter === 'all' ? 'active' : ''}`}
+            className={`chip ${statusFilter === 'all' ? 'active' : ''}`}
             onClick={() => setStatusFilter('all')}
           >
             Todas ({statusCounts.all || 0})
           </button>
-          {NARRATIVE_STATUS_ORDER.map((s) => {
+          {/* Se incluye el bucket 'unknown' cuando tiene elementos, para que la
+              suma de los chips SIEMPRE cuadre con "Todas". */}
+          {NARRATIVE_STATUS_ORDER.concat(
+            (statusCounts[NARRATIVE_STATUS_UNKNOWN] || 0) > 0 ? [NARRATIVE_STATUS_UNKNOWN] : []
+          ).map((s) => {
             const count = statusCounts[s] || 0;
             return (
               <button
                 key={s}
-                className={`btn-chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
+                className={`chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
                 onClick={() => count > 0 && setStatusFilter(s)}
                 disabled={count === 0}
-                title={`${NARRATIVE_STATUS_LABELS[s]} (${count})`}
+                title={`${narrativeStatusLabel(s)} (${count})`}
               >
-                <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
-                {NARRATIVE_STATUS_LABELS[s]} ({count})
+                <NarrativeStatusDot status={s} />
+                {narrativeStatusLabel(s)} ({count})
               </button>
             );
           })}
@@ -4986,22 +5804,22 @@ function NarrativeScreen({ agency }) {
               className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
               onClick={() => { setFocusedId(n.id); setSelectedDay(null); }}
             >
-              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[n.status] }} />
+              <NarrativeStatusDot status={n.status} />
               <div className="narrative-item-body">
                 <div className="narrative-item-name">{n.name}</div>
                 <div className="narrative-item-meta">
-                  <span>{n.mentionCount.toLocaleString('es-PR')} menc</span>
+                  <span>{(n.mentionCount || 0).toLocaleString('es-PR')} menc</span>
                   <span>·</span>
-                  <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
+                  <span>{narrativeStatusLabel(n.status)}</span>
                 </div>
               </div>
               {n.sparkline && (
-                <NarrativeSparkline data={n.sparkline} color={NARRATIVE_STATUS_COLORS[n.status]} />
+                <NarrativeSparkline data={n.sparkline} color={narrativeStatusColor(n.status)} max={sparkMax} />
               )}
             </li>
           ))}
           {filteredNarratives.length === 0 && !loading && (
-            <li className="narrative-empty-li">Sin resultados</li>
+            <li><EmptyState reason="filtered" title="Sin resultados" detail="Ninguna narrativa coincide con la búsqueda." compact /></li>
           )}
         </ul>
       </aside>
@@ -5010,10 +5828,10 @@ function NarrativeScreen({ agency }) {
         {loading ? (
           <div className="narrative-empty">Cargando…</div>
         ) : error ? (
-          <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
+          <EmptyState reason="error" title="No se pudieron cargar las narrativas" detail={String(error)} />
         ) : (
           <>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-15)', marginBottom: 'var(--sp-3)' }}>
               <button className={`chip ${view === 'detail' ? 'active' : ''}`} onClick={() => setView('detail')}>Detalle</button>
               <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Mapa de conexiones</button>
             </div>
@@ -5025,7 +5843,7 @@ function NarrativeScreen({ agency }) {
                 onSelect={(id) => { setFocusedId(id); setView('detail'); setSelectedDay(null); }}
               />
             ) : !focused ? (
-              <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
+              <EmptyState reason="empty" title="Elige una narrativa" detail="Selecciónala en la lista de la izquierda para ver su análisis." />
             ) : (
               <NarrativeAnalysis
                 narrative={focused}
@@ -5104,13 +5922,24 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
   const init = narrative.initiatorFirst;
   const inf = narrative.initiatorInfluencer;
 
+  // Cuando el detalle viene vacío, las cinco secciones de desglose se
+  // convertían en cinco cajas idénticas diciendo "Sin datos" — el peor caso del
+  // panel, y el que más se ve, porque una narrativa recién detectada todavía no
+  // tiene desglose. Cinco huecos no informan más que uno: informan menos,
+  // porque hay que leerlos todos para descubrir que ninguno dice nada.
+  const hasBreakdown = sentimentTotals.total > 0 || topAuthors.length > 0
+    || platforms.length > 0 || !!init || !!inf;
+
   return (
     <div className="narrative-analysis">
       <div className="narrative-header">
         <div className="narrative-header-main">
           <div className="narrative-header-row">
-            <span className="narrative-status-pill" style={{ background: NARRATIVE_STATUS_COLORS[narrative.status] }}>
-              {NARRATIVE_STATUS_LABELS[narrative.status] || narrative.status}
+            <span className="pill narrative-status-pill" style={{ '--narr-tone': narrativeStatusColor(narrative.status) }}>
+              {/* Misma función que la lista y los chips: leer el mapa a mano
+                  dejaba escapar el status crudo de la DB —en inglés— cuando el
+                  lambda manda un estado que la SPA todavía no conoce. */}
+              {narrativeStatusLabel(narrative.status)}
             </span>
             <h2 className="narrative-title">{narrative.name}</h2>
           </div>
@@ -5123,19 +5952,15 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
             </div>
           )}
         </div>
+        {/* <StatBox>, no un KPI a mano: el mismo concepto (etiqueta overline +
+            cifra) medía 30px en Overview/Scorecard y 18px aquí, con otro peso y
+            otro tracking en la etiqueta. Una cifra de KPI mide lo mismo en las
+            cinco pantallas o no hay sistema. StatBox además trae la clase .num
+            (tabular + lining), que es lo que este bloque replicaba a mano. */}
         <div className="narrative-header-metrics">
-          <div className="narrative-metric">
-            <div className="narrative-metric-label">Menciones</div>
-            <div className="narrative-metric-value">{narrative.mentionCount.toLocaleString('es-PR')}</div>
-          </div>
-          <div className="narrative-metric">
-            <div className="narrative-metric-label">Vel. 24h</div>
-            <div className="narrative-metric-value">{Number(narrative.velocity24h || 0).toFixed(1)}</div>
-          </div>
-          <div className="narrative-metric">
-            <div className="narrative-metric-label">Engagement</div>
-            <div className="narrative-metric-value">{Number(narrative.totalEngagement || 0).toLocaleString('es-PR')}</div>
-          </div>
+          <StatBox label="Menciones" value={narrative.mentionCount.toLocaleString('es-PR')} />
+          <StatBox label="Vel. 24h" value={Number(narrative.velocity24h || 0).toFixed(1)} />
+          <StatBox label="Engagement" value={Number(narrative.totalEngagement || 0).toLocaleString('es-PR')} />
         </div>
       </div>
 
@@ -5146,6 +5971,14 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
         onSelectDay={onSelectDay}
       />
 
+      {!hasBreakdown && !detailLoading ? (
+        <EmptyState
+          reason="empty"
+          title="Esta narrativa todavía no tiene desglose"
+          detail={`El cluster agrupa ${narrative.mentionCount.toLocaleString('es-PR')} menciones, pero ninguna trae aún los campos de autor, plataforma y sentimiento que este panel necesita. Aparecen cuando el procesador las enriquece.`}
+        />
+      ) : (
+      <>
       <div className="narrative-grid-3">
         <div className="narrative-panel">
           <div className="narrative-panel-label">Sentimiento</div>
@@ -5166,7 +5999,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5184,7 +6017,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5208,7 +6041,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           ) : detailLoading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
       </div>
@@ -5233,7 +6066,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               )}
             </div>
           ) : (
-            <div className="narrative-empty-small">Sin datos</div>
+            <EmptyState reason="empty" title="Sin datos" compact />
           )}
         </div>
 
@@ -5254,14 +6087,22 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               )}
             </div>
           ) : (
-            <div className="narrative-empty-small">Aún sin datos (requiere ≥24h)</div>
+            <EmptyState reason="pending" title="Aún no se puede calcular" detail="Requiere al menos 24 h de historia." compact />
           )}
         </div>
       </div>
+      </>
+      )}
 
-      {recent.length > 0 && (
+      {/* El módulo se RENDERIZA vacío en vez de desaparecer: un panel ausente se
+          lee como "esta narrativa no tiene esa sección", no como "todavía no hay
+          datos". Se omite sólo cuando la narrativa entera no tiene desglose,
+          porque ahí ya lo explica un único EmptyState arriba y volveríamos a
+          apilar cajas vacías idénticas. */}
+      {(recent.length > 0 || hasBreakdown) && (
         <div className="narrative-panel">
           <div className="narrative-panel-label">Menciones recientes</div>
+          {recent.length === 0 ? <EmptyState reason="empty" title="Sin datos" compact /> : (
           <div className="narrative-mentions-list">
             {recent.slice(0, 5).map((m) => (
               <div key={m.id} className="narrative-mention-row">
@@ -5276,12 +6117,14 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
-      {related.length > 0 && (
+      {(related.length > 0 || hasBreakdown) && (
         <div className="narrative-panel">
           <div className="narrative-panel-label">Narrativas relacionadas</div>
+          {related.length === 0 ? <EmptyState reason="empty" title="Sin datos" compact /> : (
           <ul className="narrative-related-list">
             {related.map((r) => (
               <li key={r.id}>
@@ -5289,15 +6132,16 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                   type="button"
                   className="narrative-related-btn"
                   onClick={() => onSelectNarrative(r.id)}
-                  title={`${edgeTypeLabel(r.edgeType)} (${(r.strength * 100).toFixed(0)}%)`}
+                  title={`${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` (${strengthPct(r.strength)})` : ''}`}
                 >
-                  <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[r.status] }} />
+                  <NarrativeStatusDot status={r.status} />
                   <span className="narrative-related-name">{r.name}</span>
-                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)} · {(r.strength * 100).toFixed(0)}%</span>
+                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)}{strengthPct(r.strength) ? ` · ${strengthPct(r.strength)}` : ''}</span>
                 </button>
               </li>
             ))}
           </ul>
+          )}
         </div>
       )}
     </div>
@@ -5305,15 +6149,43 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
 }
 
 function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
-  const w = 1080;
+  // Coordenadas en PÍXELES reales, no en un viewBox de 1080 escalado: dentro de
+  // un viewBox el font-size de los rótulos se multiplica por la escala de
+  // render, así que --fs-overline (11px) salía a 7.8px en desktop y a 3.1px a
+  // 390px de viewport — el piso tipográfico de tokens.css:61-63 no llega ahí.
+  // Es el patrón del resto de las gráficas (charts.js:174-177): 1 unidad = 1
+  // píxel, y de paso desaparece el letterboxing de `meet` en pantallas anchas.
+  const [wrapRef, w] = useChartWidth(760);
   const h = 240;
   const margin = { top: 20, right: 24, bottom: 32, left: 24 };
   const innerW = w - margin.left - margin.right;
   const innerH = h - margin.top - margin.bottom;
 
-  if (loading) return <div className="narrative-stream-wrap narrative-empty-small">Cargando timeline…</div>;
+  // El div de medición existe en las TRES ramas y en la misma posición: React
+  // reusa el nodo al pasar de "cargando" a "con datos", así que la medición del
+  // ancho sobrevive el cambio de rama (useChartWidth mide al montar).
+  if (loading) {
+    return (
+      <div className="narrative-stream-wrap">
+        <div ref={wrapRef} className="narrative-empty-small">Cargando timeline…</div>
+      </div>
+    );
+  }
   if (!timeline || timeline.length === 0) {
-    return <div className="narrative-stream-wrap narrative-empty-small">Sin datos temporales todavía.</div>;
+    // `pending`, no `empty`: no es que la serie valga cero, es que una narrativa
+    // con menciones de un solo día no tiene evolución que dibujar todavía.
+    return (
+      <div className="narrative-stream-wrap">
+        <div ref={wrapRef}>
+        <EmptyState
+          reason="pending"
+          title="Sin evolución que dibujar todavía"
+          detail="Hacen falta menciones en más de un día para trazar la serie."
+          compact
+        />
+        </div>
+      </div>
+    );
   }
 
   const times = timeline.map((d) => new Date(d.day).getTime());
@@ -5324,7 +6196,13 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
 
   const maxTotal = Math.max(...timeline.map((d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0)), 1);
   const yCenter = margin.top + innerH / 2;
-  const yScale = (v) => yCenter - (v / maxTotal) * (innerH / 2) * 0.92;
+  // El apilado va de -total/2 a +total/2: el valor absoluto máximo es
+  // maxTotal/2, NO maxTotal. Dividiendo por maxTotal el día pico ocupaba
+  // 0.46·innerH y la mitad del lienzo quedaba vacía siempre, así que un día
+  // récord se dibujaba como un día mediano. La escala sigue siendo lineal y
+  // pasando por cero —las proporciones entre días no cambian—: lo único que
+  // deja de hacer es tirar la mitad de la resolución disponible.
+  const yScale = (v) => yCenter - (v / (maxTotal / 2)) * (innerH / 2) * 0.92;
 
   const stackedPoints = timeline.map((d) => {
     const x = xScale(d.day);
@@ -5358,28 +6236,49 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
     { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'), color: 'var(--pos)' },
   ];
 
-  const months = [];
-  const cursor = new Date(minT);
-  cursor.setDate(1);
-  cursor.setHours(0, 0, 0, 0);
-  while (cursor.getTime() <= maxT) {
-    months.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
+  // Granularidad del eje según el span. Con marcas SÓLO mensuales, una
+  // narrativa de días o semanas producía 0-1 ticks y `setDate(1)` caía ANTES de
+  // minT, con lo que el único tick se dibujaba en x < margin.left —fuera del
+  // área de trazado— y la serie quedaba sin escala temporal legible. Ahora los
+  // ticks se construyen dentro de [minT, maxT] por definición.
+  const DAY_MS = 86400000;
+  const spanDays = span / DAY_MS;
+  const stepDays = spanDays <= 10 ? 1 : spanDays <= 24 ? 2 : spanDays <= 70 ? 7 : 0;
+  const ticks = [];
+  if (stepDays === 0) {
+    const cursor = new Date(minT);
+    cursor.setDate(1);
+    cursor.setHours(0, 0, 0, 0);
+    while (cursor.getTime() <= maxT) {
+      if (cursor.getTime() >= minT) ticks.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  } else {
+    // Se arranca un paso DESPUÉS de minT porque el borde izquierdo ya lo rotula
+    // el marcador "▸ inicio" con su fecha.
+    for (let t = minT + stepDays * DAY_MS; t <= maxT; t += stepDays * DAY_MS) ticks.push(new Date(t));
   }
-  const monthEvery = months.length > 12 ? Math.ceil(months.length / 10) : 1;
+  const tickEvery = ticks.length > 12 ? Math.ceil(ticks.length / 10) : 1;
+  const tickFormat = stepDays === 0
+    ? { month: 'short', year: '2-digit' }
+    : { day: 'numeric', month: 'short' };
 
   const peak = timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
   const peakX = xScale(peak.day);
 
   return (
     <div className="narrative-stream-wrap">
+      {/* Div sin estilos cuyo ancho ES el área de trazado (el wrap tiene padding
+          y borde, que getBoundingClientRect incluiría). Mismo idioma que las
+          gráficas de charts.js. */}
+      <div ref={wrapRef}>
       <div className="narrative-stream-legend">
         <span className="narrative-stream-key"><i style={{ background: 'var(--pos)' }} /> Positivo</span>
         <span className="narrative-stream-key"><i style={{ background: 'var(--text-3)' }} /> Neutral</span>
         <span className="narrative-stream-key"><i style={{ background: 'var(--neg)' }} /> Negativo</span>
         <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
       </div>
-      <svg className="narrative-stream-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+      <svg className="narrative-stream-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
         {layers.map((L) => (
           <path key={L.key} d={L.d} fill={L.color} opacity={0.78} />
         ))}
@@ -5392,13 +6291,13 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           const x1 = next ? (p.x + next.x) / 2 : p.x + 2;
           const isSelected = selectedDay === p.day;
           return (
-            <g key={p.day} className="narrative-stream-day" style={{ cursor: 'pointer' }}>
+            <g key={p.day} className={`narrative-stream-day ${isSelected ? 'is-selected' : ''}`} style={{ cursor: 'pointer' }}>
               <rect
                 x={x0}
                 y={margin.top}
                 width={Math.max(1, x1 - x0)}
                 height={innerH}
-                fill={isSelected ? 'rgba(63, 181, 216, 0.18)' : 'transparent'}
+                fill="transparent"
                 onClick={() => onSelectDay(p.day)}
               />
               {isSelected && (
@@ -5424,7 +6323,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
         {peak && (
           <g style={{ pointerEvents: 'none' }}>
             <line x1={peakX} y1={margin.top} x2={peakX} y2={margin.top + innerH} stroke="var(--accent)" strokeWidth="0.5" opacity={0.4} />
-            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="10" fontWeight="600">
+            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="var(--fs-overline)" fontWeight="600">
               ✕ pico
             </text>
           </g>
@@ -5436,24 +6335,25 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
             entendía. */}
         <g style={{ pointerEvents: 'none' }}>
           <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerH} stroke="var(--pos)" strokeWidth="1.5" opacity={0.85} />
-          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="10" fontWeight="700">
+          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="var(--fs-overline)" fontWeight="700">
             ▸ inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
           </text>
         </g>
 
-        {months.map((d, i) => {
-          if (i % monthEvery !== 0) return null;
+        {ticks.map((d, i) => {
+          if (i % tickEvery !== 0) return null;
           const x = xScale(d);
           return (
             <g key={i} style={{ pointerEvents: 'none' }}>
               <line x1={x} y1={margin.top + innerH} x2={x} y2={margin.top + innerH + 4} stroke="var(--hairline-strong)" />
-              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="10">
-                {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
+              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-overline)">
+                {d.toLocaleDateString('es', tickFormat)}
               </text>
             </g>
           );
         })}
       </svg>
+      </div>
     </div>
   );
 }
@@ -5497,7 +6397,7 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
           {loading ? (
             <div className="narrative-empty-small">Cargando…</div>
           ) : !data || data.totalMentions === 0 ? (
-            <div className="narrative-empty-small">No hay menciones registradas en este día.</div>
+            <EmptyState reason="empty" title="Sin menciones este día" detail="La narrativa no registró actividad en la fecha seleccionada." compact />
           ) : (
             ['positivo', 'neutral', 'negativo', 'sin_clasificar'].map((kind) => {
               const items = (data.clusters && data.clusters[kind]) || [];
@@ -5587,7 +6487,7 @@ function useExecOverview(period) {
 function ExecStateWrap({ loading, error, data, empty, children }) {
   if (loading) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)' }}>
         Cargando vista ejecutiva…
       </div>
     );
@@ -5595,11 +6495,11 @@ function ExecStateWrap({ loading, error, data, empty, children }) {
   if (error) {
     const forbidden = error.code === 403;
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-        <div className="section-eyebrow" style={{ color: forbidden ? 'var(--warn)' : 'var(--neg)', marginBottom: 6 }}>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+        <div className="section-eyebrow" style={{ color: forbidden ? 'var(--warn)' : 'var(--neg)', marginBottom: 'var(--sp-15)' }}>
           {forbidden ? 'Acceso restringido' : 'Error'}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+        <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
           {forbidden
             ? 'La vista ejecutiva multi-agencia solo está disponible para usuarios con acceso a todas las agencias.'
             : `No se pudo cargar la vista ejecutiva: ${error.message || error}`}
@@ -5609,7 +6509,7 @@ function ExecStateWrap({ loading, error, data, empty, children }) {
   }
   if (!data || empty) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)' }}>
         Sin datos para el período seleccionado.
       </div>
     );
@@ -5645,11 +6545,9 @@ function SentimentSplitBar({ pos, neu, neg, height = 6 }) {
 }
 
 // Delta de posición (rankDelta: + = subió puestos). null = sin base previa.
+// Delegado a DeltaBadge: antes tenía su propio ▲/▼ y su propio criterio de color.
 function RankDelta({ delta }) {
-  if (delta == null) return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
-  if (delta > 0) return <span style={{ fontSize: 11, color: 'var(--pos)', fontWeight: 700 }}>▲ {delta}</span>;
-  if (delta < 0) return <span style={{ fontSize: 11, color: 'var(--neg)', fontWeight: 700 }}>▼ {Math.abs(delta)}</span>;
-  return <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>—</span>;
+  return <DeltaBadge value={delta} metricKey="volume" />;
 }
 
 // Strip superior de KPIs del composite gobierno — compartido por Tabla y Sala.
@@ -5659,7 +6557,7 @@ function ExecCompositeStrip({ composite, agencyCount }) {
   const c = composite;
   const inCrisis = null; // se calcula fuera si se necesita; aquí solo el compuesto
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--sp-3)' }}>
       <KpiCard
         label="Índice de salud" icon="Activity" accent="var(--accent)"
         valueWord={c.display.bhi.word} valueTone={c.display.bhi.tone}
@@ -5704,16 +6602,16 @@ function TablaScreen({ period }) {
           return Math.min(100, Math.max(0, (raw10 / 10) * 100));
         };
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
             <ExecCompositeStrip composite={data.composite} agencyCount={rows.length} />
 
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
                 <span>Ranking de salud digital · {rows.length} agencias · {data.periodLabel}</span>
-                <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--pos)' }} /> Positivo</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--text-3)' }} /> Neutral</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 3, background: 'var(--neg)' }} /> Negativo</span>
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 'var(--sp-3)', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 'var(--r-sm)', background: 'var(--pos)' }} /> Positivo</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 'var(--r-sm)', background: 'var(--text-3)' }} /> Neutral</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}><span style={{ width: 14, height: 8, borderRadius: 'var(--r-sm)', background: 'var(--neg)' }} /> Negativo</span>
                 </span>
               </div>
 
@@ -5723,13 +6621,13 @@ function TablaScreen({ period }) {
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: '52px 1.5fr 1.5fr 1.3fr 108px 74px 88px',
-                    gap: 14, alignItems: 'center',
+                    gap: 'var(--sp-4)', alignItems: 'center',
                     padding: '11px 20px', background: 'var(--canvas-2)',
                     borderBottom: '1px solid var(--hairline-strong)',
                   }}>
                     {['Pos', 'Agencia', 'Índice de salud ▾', 'Sentimiento', 'Riesgo', 'Velocidad', 'Alcance'].map((h, i) => (
                       <span key={h} style={{
-                        fontSize: 10, fontWeight: 700, color: i === 2 ? 'var(--accent)' : 'var(--text-3)',
+                        fontSize: 'var(--fs-overline)', fontWeight: 700, color: i === 2 ? 'var(--accent)' : 'var(--text-3)',
                         textTransform: 'uppercase', letterSpacing: '0.08em',
                         textAlign: i >= 4 ? (i === 5 ? 'center' : 'right') : 'left',
                       }}>{h}</span>
@@ -5746,60 +6644,60 @@ function TablaScreen({ period }) {
                       <div key={a.slug} className="row-hover" style={{
                         display: 'grid',
                         gridTemplateColumns: '52px 1.5fr 1.5fr 1.3fr 108px 74px 88px',
-                        gap: 14, alignItems: 'center',
+                        gap: 'var(--sp-4)', alignItems: 'center',
                         padding: '10px 20px', minHeight: 54,
                         borderTop: idx === 0 ? 'none' : '1px solid var(--hairline)',
                       }}>
                         {/* Pos */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span className="num" style={{ fontSize: 16, fontWeight: 700, minWidth: 16, textAlign: 'right' }}>{a.rank}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                          <span className="num" style={{ fontSize: 'var(--fs-title-md)', fontWeight: 700, minWidth: 16, textAlign: 'right' }}>{a.rank}</span>
                           <RankDelta delta={a.rankDelta} />
                         </div>
                         {/* Agencia */}
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                             <span style={{ width: 8, height: 8, borderRadius: '50%', background: cb.color, flex: 'none' }} />
-                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
                           </div>
-                          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 16 }}>{a.slug}</div>
+                          <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', paddingLeft: 16 }}>{a.slug}</div>
                         </div>
                         {/* Índice de salud */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                            <span className="num" style={{ fontSize: 20, fontWeight: 600, color: bb.color, lineHeight: 1 }}>{a.display.bhi.value || '—'}</span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: bb.color }}>{a.display.bhi.word}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
+                            <span className="num" style={{ fontSize: 'var(--fs-display-md)', fontWeight: 600, color: bb.color, lineHeight: 1 }}>{a.display.bhi.value || '—'}</span>
+                            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: bb.color }}>{a.display.bhi.word}</span>
                             <DeltaBadge info={a.deltaDisplay.bhi} />
                           </div>
                           {markPct != null && (
                             <div style={{ position: 'relative', height: 5 }}>
-                              <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'color-mix(in oklab, var(--text-3) 20%, transparent)' }} />
-                              <div style={{ position: 'absolute', top: 0, left: 0, width: `${markPct}%`, height: 5, borderRadius: 2, background: bb.color, opacity: 0.85 }} />
+                              <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--r-sm)', background: 'color-mix(in oklab, var(--text-3) 20%, transparent)' }} />
+                              <div style={{ position: 'absolute', top: 0, left: 0, width: `${markPct}%`, height: 5, borderRadius: 'var(--r-sm)', background: bb.color, opacity: 0.85 }} />
                             </div>
                           )}
                         </div>
                         {/* Sentimiento */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                            <span className="num" style={{ fontSize: 13, fontWeight: 700, color: nssColor }}>{a.display.nss.value || '—'}</span>
-                            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>{a.pos}/{a.neu}/{a.neg}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-2)' }}>
+                            <span className="num" style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 700, color: nssColor }}>{a.display.nss.value || '—'}</span>
+                            <span className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{a.pos}/{a.neu}/{a.neg}</span>
                           </div>
                           <SentimentSplitBar pos={a.pos} neu={a.neu} neg={a.neg} />
                         </div>
                         {/* Riesgo */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-                          <span className="num" style={{ fontSize: 15, fontWeight: 600, color: cb.color }}>{a.display.crisis.value || '—'}</span>
-                          <span className={`pill ${cb.cls}`} style={{ fontSize: 9, padding: '2px 6px' }}>{cb.label}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 'var(--sp-15)' }}>
+                          <span className="num" style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, color: cb.color }}>{a.display.crisis.value || '—'}</span>
+                          <span className={`pill ${cb.cls}`} style={{ fontSize: 'var(--fs-overline)', padding: '2px 6px' }}>{cb.label}</span>
                         </div>
                         {/* Velocidad (Δ% menciones vs período previo) */}
                         <div style={{ textAlign: 'center' }}>
                           {velInfo && velInfo.hasBaseline
-                            ? <span className="num" style={{ fontSize: 13, fontWeight: 600, color: execToneColor(velInfo.tone) }}>{velInfo.arrow} {velInfo.value}</span>
-                            : <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>sin base</span>}
+                            ? <span className="num" style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: execToneColor(velInfo.tone) }}>{velInfo.arrow} {velInfo.value}</span>
+                            : <span className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>sin base</span>}
                         </div>
                         {/* Alcance */}
                         <div style={{ textAlign: 'right' }}>
-                          <div className="num" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fmt(a.totalReach)}</div>
-                          <div className="num" style={{ fontSize: 9.5, color: 'var(--text-3)' }}>{fmt(a.totalMentions)} menc.</div>
+                          <div className="num" style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{fmt(a.totalReach)}</div>
+                          <div className="num" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{fmt(a.totalMentions)} menc.</div>
                         </div>
                       </div>
                     );
@@ -5827,14 +6725,14 @@ function SalaScreen({ period }) {
         const feed = data.crisisFeed || [];
         const sevPill = (sev) => sev === 'alta' ? 'pill-neg' : sev === 'media' ? 'pill-warn' : 'pill-neu';
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
             <ExecCompositeStrip composite={data.composite} agencyCount={tiles.length} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)', gap: 16, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)', gap: 'var(--sp-4)', alignItems: 'start' }}>
               {/* Muro de tiles */}
               <div>
-                <div className="section-eyebrow" style={{ marginBottom: 8 }}>El muro · {tiles.length} agencias · orden por riesgo</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>El muro · {tiles.length} agencias · orden por riesgo</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--sp-3)' }}>
                   {tiles.map((a) => {
                     const cb = crisisBandPill(a.crisisBand);
                     const isCrisis = cb.cls === 'pill-neg';
@@ -5842,26 +6740,26 @@ function SalaScreen({ period }) {
                     const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-3)';
                     return (
                       <div key={a.slug} className="card" style={{
-                        padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10,
+                        padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
                         borderLeft: `3px solid ${cb.color}`,
                         background: isCrisis ? 'linear-gradient(180deg, var(--neg-bg), transparent 60%), var(--canvas)' : 'var(--canvas)',
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
-                          <span className={`pill ${cb.cls}`} style={{ marginLeft: 'auto', fontSize: 9, padding: '2px 6px' }}>{cb.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                          <span style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                          <span className={`pill ${cb.cls}`} style={{ marginLeft: 'auto', fontSize: 'var(--fs-overline)', padding: '2px 6px' }}>{cb.label}</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-3)' }}>
                           <div>
-                            <div className="num" style={{ fontSize: 26, fontWeight: 600, color: bhiColor, lineHeight: 0.95 }}>{a.display.bhi.value || '—'}</div>
-                            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>Salud · {a.display.bhi.word}</div>
+                            <div className="num" style={{ fontSize: 'var(--fs-display-lg)', fontWeight: 600, color: bhiColor, lineHeight: 0.95 }}>{a.display.bhi.value || '—'}</div>
+                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 'var(--sp-05)' }}>Salud · {a.display.bhi.word}</div>
                           </div>
                           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                            <div className="num" style={{ fontSize: 15, fontWeight: 600, color: nssColor, lineHeight: 1 }}>{a.display.nss.value || '—'}</div>
-                            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>Sent. neto</div>
+                            <div className="num" style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, color: nssColor, lineHeight: 1 }}>{a.display.nss.value || '—'}</div>
+                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 'var(--sp-05)' }}>Sent. neto</div>
                           </div>
                         </div>
                         <SentimentSplitBar pos={a.pos} neu={a.neu} neg={a.neg} height={5} />
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-2)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>
                           <span style={{ color: cb.color, fontWeight: 600 }}>Riesgo {a.display.crisis.value || '—'}</span>
                           <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(a.totalMentions)} menc.</span>
                         </div>
@@ -5873,25 +6771,25 @@ function SalaScreen({ period }) {
 
               {/* Actividad — crisisFeed */}
               <div>
-                <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                   <I2.Zap size={12} color="var(--accent)" /> Actividad · escalamientos
                 </div>
                 <div className="card" style={{ padding: 0, maxHeight: 620, overflowY: 'auto' }}>
                   {feed.length === 0 ? (
-                    <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
+                    <div style={{ padding: 'var(--sp-5)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
                   ) : feed.map((f, i) => (
                     <div key={i} style={{
-                      padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4,
+                      padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)',
                       borderTop: i === 0 ? 'none' : '1px solid var(--hairline)',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 9, padding: '2px 6px' }}>{f.band || f.severity}</span>
-                        <span className="mono" style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--text-3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 'var(--fs-overline)', padding: '2px 6px' }}>{f.band || f.severity}</span>
+                        <span className="mono" style={{ marginLeft: 'auto', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
                           {(() => { try { return new Date(f.triggeredAt).toLocaleString('es-PR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; } })()}
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{f.ruleName}</div>
+                      <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
+                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>{f.ruleName}</div>
                     </div>
                   ))}
                 </div>
@@ -5925,21 +6823,21 @@ function RadarScreen({ period }) {
         }
         const waveGroups = Object.entries(wavesByAgency);
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(0, 1.4fr) minmax(240px, 1fr)', gap: 16, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(0, 1.4fr) minmax(240px, 1fr)', gap: 'var(--sp-4)', alignItems: 'start' }}>
             {/* Columna izquierda — ranking por crisis */}
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Riesgo por agencia ▾</div>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Riesgo por agencia ▾</div>
               <div className="card" style={{ padding: '6px 0' }}>
                 {ranked.map((a) => {
                   const cb = crisisBandPill(a.crisisBand);
                   const w = Math.max(6, ((a.crisis || 0) / maxCrisis) * 100);
                   return (
-                    <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1.2fr auto', '1fr'), gap: 8, alignItems: 'center', padding: '8px 14px' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
-                      <div style={{ height: 6, borderRadius: 3, background: 'color-mix(in oklab, var(--text-3) 16%, transparent)', overflow: 'hidden' }}>
-                        <div style={{ width: `${w.toFixed(1)}%`, height: '100%', borderRadius: 3, background: cb.color }} />
+                    <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1.2fr auto', '1fr'), gap: 'var(--sp-2)', alignItems: 'center', padding: '8px 14px' }}>
+                      <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>{a.name}</span>
+                      <div style={{ height: 6, borderRadius: 'var(--r-sm)', background: 'color-mix(in oklab, var(--text-3) 16%, transparent)', overflow: 'hidden' }}>
+                        <div style={{ width: `${w.toFixed(1)}%`, height: '100%', borderRadius: 'var(--r-sm)', background: cb.color }} />
                       </div>
-                      <span className="num" style={{ fontSize: 12, fontWeight: 600, color: cb.color, minWidth: 34, textAlign: 'right' }}>{a.display.crisis.value || '—'}</span>
+                      <span className="num" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: cb.color, minWidth: 34, textAlign: 'right' }}>{a.display.crisis.value || '—'}</span>
                     </div>
                   );
                 })}
@@ -5948,31 +6846,31 @@ function RadarScreen({ period }) {
 
             {/* Columna central — feed en vivo */}
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                 <I2.Radio size={12} color="var(--neg)" /> Escalamientos · orden por severidad
               </div>
               <div className="card" style={{ padding: 0, maxHeight: 640, overflowY: 'auto' }}>
                 {feed.length === 0 ? (
-                  <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
+                  <div style={{ padding: 'var(--sp-5)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textAlign: 'center' }}>Sin escalamientos en el período.</div>
                 ) : feed.map((f, i) => {
                   const cb = crisisBandPill(f.band || (f.severity === 'alta' ? 'ALERTA' : f.severity === 'media' ? 'ELEVADO' : 'NORMAL'));
                   return (
                     <div key={i} className="row-hover" style={{
-                      display: 'grid', gridTemplateColumns: '64px auto 1fr', gap: 10, alignItems: 'start',
+                      display: 'grid', gridTemplateColumns: '64px auto 1fr', gap: 'var(--sp-3)', alignItems: 'start',
                       padding: '11px 14px', borderTop: i === 0 ? 'none' : '1px solid var(--hairline)',
                     }}>
-                      <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', paddingTop: 2 }}>
+                      <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', paddingTop: 2 }}>
                         {(() => { try { return new Date(f.triggeredAt).toLocaleString('es-PR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; } })()}
                       </div>
                       <div>
-                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 9, padding: '2px 6px' }}>
+                        <span className={`pill ${sevPill(f.severity)}`} style={{ fontSize: 'var(--fs-overline)', padding: '2px 6px' }}>
                           <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: cb.color, marginRight: 4 }} />
                           {f.band || f.severity}
                         </span>
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{f.ruleName}</div>
+                        <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--text)' }}>{f.agencyName || f.agencySlug}</div>
+                        <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>{f.ruleName}</div>
                       </div>
                     </div>
                   );
@@ -5982,30 +6880,30 @@ function RadarScreen({ period }) {
 
             {/* Columna derecha — olas temáticas por agencia */}
             <div>
-              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Olas temáticas · vol ▾</div>
+              <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Olas temáticas · vol ▾</div>
               <div style={{
-                fontSize: 10, color: 'var(--text-3)', marginBottom: 8, lineHeight: 1.5,
-                padding: '8px 10px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)',
+                fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-2)', lineHeight: 1.5,
+                padding: '8px 10px', background: 'var(--canvas-2)', borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)',
               }}>
                 Los tópicos están definidos por agencia — no existe (aún) una taxonomía cross-agencia unificada, así que las olas se agrupan por agencia.
               </div>
               <div className="card" style={{ padding: 0, maxHeight: 560, overflowY: 'auto' }}>
                 {waveGroups.length === 0 ? (
-                  <div style={{ padding: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>Sin tópicos destacados en el período.</div>
+                  <div style={{ padding: 'var(--sp-5)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textAlign: 'center' }}>Sin tópicos destacados en el período.</div>
                 ) : waveGroups.map(([agencyName, waves], gi) => (
                   <div key={agencyName} style={{ borderTop: gi === 0 ? 'none' : '1px solid var(--hairline)' }}>
-                    <div className="mono" style={{ padding: '9px 14px 4px', fontSize: 9.5, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{agencyName}</div>
+                    <div className="mono" style={{ padding: '9px 14px 4px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{agencyName}</div>
                     {waves.map((w, wi) => {
                       const nssColor = w.nss == null ? 'var(--text-3)' : w.nss > 0 ? 'var(--pos)' : w.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
                       const dArrow = w.volumeDelta > 0 ? '▲' : w.volumeDelta < 0 ? '▼' : '·';
                       const dColor = w.volumeDelta > 0 ? 'var(--pos)' : w.volumeDelta < 0 ? 'var(--neg)' : 'var(--text-3)';
                       return (
-                        <div key={w.topicSlug + wi} style={{ padding: '4px 14px 9px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.topicSlug}</span>
-                            <span className="num" style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>{fmt(w.volume)}</span>
+                        <div key={w.topicSlug + wi} style={{ padding: '4px 14px 9px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.topicSlug}</span>
+                            <span className="num" style={{ marginLeft: 'auto', fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>{fmt(w.volume)}</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)' }}>
                             <span style={{ color: dColor, fontWeight: 600 }}>{dArrow} {w.volumeDelta === 0 ? 'estable' : fmt(Math.abs(w.volumeDelta))}</span>
                             <span className="num" style={{ color: nssColor, fontWeight: 600 }}>NSS {w.nss == null ? '—' : (w.nss > 0 ? '+' : '') + w.nss}</span>
                           </div>

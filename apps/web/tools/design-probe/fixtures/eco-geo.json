@@ -1,0 +1,68 @@
+{
+ "municipalities": [
+  {
+   "name": "San Juan",
+   "region": "Norte",
+   "count": 346,
+   "nss": -31,
+   "lat": 18.4655,
+   "lon": -66.1057
+  },
+  {
+   "name": "Bayamón",
+   "region": "Norte",
+   "count": 146,
+   "nss": -24,
+   "lat": 18.3985,
+   "lon": -66.1614
+  },
+  {
+   "name": "Carolina",
+   "region": "Norte",
+   "count": 120,
+   "nss": -18,
+   "lat": 18.3809,
+   "lon": -65.9574
+  },
+  {
+   "name": "Ponce",
+   "region": "Sur",
+   "count": 106,
+   "nss": 0,
+   "lat": 18.0111,
+   "lon": -66.6141
+  },
+  {
+   "name": "Caguas",
+   "region": "Este",
+   "count": 93,
+   "nss": -12,
+   "lat": 18.2341,
+   "lon": -66.0485
+  },
+  {
+   "name": "Mayagüez",
+   "region": "Oeste",
+   "count": 80,
+   "nss": 0,
+   "lat": 18.2013,
+   "lon": -67.1397
+  },
+  {
+   "name": "Arecibo",
+   "region": "Norte",
+   "count": 67,
+   "nss": 14,
+   "lat": 18.4725,
+   "lon": -66.7156
+  },
+  {
+   "name": "Guaynabo",
+   "region": "Norte",
+   "count": 67,
+   "nss": -9,
+   "lat": 18.3574,
+   "lon": -66.111
+  }
+ ]
+}

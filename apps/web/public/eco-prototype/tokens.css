@@ -1,0 +1,621 @@
+/* =============================================================================
+   ECO · Capa de tokens del sistema de diseño
+   -----------------------------------------------------------------------------
+   FUENTE ÚNICA DE VERDAD para tipografía, espaciado, radios, elevación,
+   movimiento y color semántico. La consumen:
+     - la SPA del dashboard  → eco-prototype/index.html (@import)
+     - el especimen vivo     → /design-system/index.html (@import)
+     - (pendiente) Next.js   → src/app/globals.css + src/theme/eco-theme.ts
+
+   REGLA: ningún valor de color, tamaño de letra, espaciado o radio se escribe
+   a mano en screens.js / shell.js / charts.js. Si falta un token, se añade
+   AQUÍ y se usa por nombre. Cada excepción es deuda.
+
+   Sembrado: 2026-07-28. Ver docs/auditoria-diseno-2026-07.md para el plan de
+   migración y el mapa valor-viejo → token-nuevo.
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · TIPOGRAFÍA
+   Besley (serif de contraste alto, variable) para títulos y cifras.
+   Krub (sans humanista) para todo el texto de interfaz.
+   IBM Plex Mono sólo para lo que es literalmente código/URL/ID.
+   ======================================================================== */
+:root {
+  --ff-display: 'Besley', 'Iowan Old Style', Georgia, serif;
+  --ff-sans: 'Krub', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ff-numeric: 'Besley', Georgia, serif;
+  --ff-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  /* Alias heredado: `--ff-serif` apuntaba a Newsreader. Se mantiene para no
+     romper los ~6 sitios que lo usan hasta que migren a --ff-display. */
+  --ff-serif: var(--ff-display);
+
+  /* --- Escala tipográfica ---------------------------------------------------
+     12 pasos. El piso de texto legible es 12px (--fs-caption) y sólo el
+     overline baja a 11px. Antes había 16 tamaños distintos dominados por
+     9-11px, que es lo que producía los 471 casos de bajo contraste percibido
+     y la sensación de "letra chiquita" en monitores de oficina.
+     Los valores fluidos usan clamp() para que móvil no herede el desktop. */
+  --fs-display-2xl: clamp(30px, 3.6vw, 40px);
+  --lh-display-2xl: 1.08;
+  --fs-display-xl: clamp(24px, 2.6vw, 32px);
+  --lh-display-xl: 1.14;
+  --fs-display-lg: clamp(20px, 2vw, 24px);
+  --lh-display-lg: 1.22;
+  --fs-display-md: 20px;
+  --lh-display-md: 1.3;
+
+  --fs-title-lg: 17px;
+  --lh-title-lg: 1.35;
+  --fs-title-md: 15px;   /* .card-hd-title */
+  --lh-title-md: 1.4;
+
+  --fs-body-lg: 15px;
+  --lh-body-lg: 1.55;
+  --fs-body: 14px;       /* texto por defecto de la interfaz */
+  --lh-body: 1.5;
+  --fs-body-sm: 13px;    /* filas densas, texto secundario */
+  --lh-body-sm: 1.45;
+  --fs-label: 13px;      /* labels de formulario, botones, chips */
+  --lh-label: 1.2;
+  --fs-caption: 12px;    /* PISO del texto corrido: metadatos, marcas de tiempo */
+  --lh-caption: 1.35;
+  /* Bajo 12px sólo dos casos, ambos porque el glifo NO se lee como prosa:
+   *   1. eyebrows en mayúsculas (etiqueta de sección, no contenido);
+   *   2. ticks de eje en gráficas densas, donde 12px hace chocar las etiquetas.
+   * Nada más. Antes había una escala paralela en medios píxeles (9.5 / 10 / 10.5
+   * / 11.5 / 12.5) en el panel de narrativas y ticks de eje a 9px — es decir,
+   * números de eje ilegibles en el gráfico que sostiene la decisión. */
+  --fs-overline: 11px;
+  --lh-overline: 1.3;
+
+  /* Cifras. Besley tiene tabular + lining; se fuerzan por si el subset falla. */
+  --fs-num-2xl: clamp(28px, 3.2vw, 38px);
+  /* Fluido, no fijo: este slot no sólo lleva cifras cortas ('1.3K'), también
+     las PALABRAS del formateador de métricas ('Acelerada', 'Desacelerada' —
+     @eco/shared/format). A 30px fijos 'Acelerada' se salía 13px del padding de
+     una QuickMetric de media columna en móvil y 'Desacelerada' cruzaba el borde
+     de la card, que no recorta. */
+  --fs-num-xl: clamp(22px, 2.4vw, 30px);
+  --fs-num-lg: 24px;
+  --fs-num-md: 18px;
+  --fs-num-sm: 15px;
+
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-display: -0.015em;
+  --tracking-tight: -0.005em;
+  --tracking-normal: 0;
+  --tracking-overline: 0.09em;
+}
+
+/* ===========================================================================
+   2 · ESPACIADO — base 4px
+   Mapa de migración de los 17 valores de `gap` que había inline:
+     0→0 · 1,2,3→--sp-05(2px) o --sp-1(4px) · 4→--sp-1 · 5,6→--sp-15(6px)
+     8→--sp-2 · 10,11,12→--sp-3 · 14,16→--sp-4 · 18,20→--sp-5 · 22,24→--sp-6
+   ======================================================================== */
+:root {
+  --sp-0: 0;
+  --sp-05: 2px;
+  --sp-1: 4px;
+  --sp-15: 6px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Ritmo de página. `--gap-section` es la separación entre bloques numerados
+     del Overview; `--gap-grid` la de las rejillas de cards. */
+  --gap-grid: var(--sp-3);
+  /* Altura EXTERIOR única de cualquier control de barra (botón, input, select,
+     pastilla, bolsa de período). Existe porque los seis controles del header
+     medían 26/30/32/34/38: sus centros coincidían, pero los bordes quedaban
+     escalonados. --control-h-sm es el chip que vive DENTRO de una bolsa: la
+     bolsa aporta 2px de padding + 1px de borde por lado, así que 32 - 6 = 26 y
+     el conjunto vuelve a medir --control-h. */
+  --control-h: 32px;
+  --control-h-sm: 26px;
+  --gap-section: var(--sp-6);
+  --pad-card: var(--sp-4);
+  --pad-card-lg: var(--sp-5);
+  --pad-page: clamp(var(--sp-4), 2vw, var(--sp-8));
+  /* Canaleta horizontal ÚNICA de header y página: el borde izquierdo del bloque
+     de título y el de las cards tienen que caer en el mismo eje. Antes el header
+     llevaba 28px inline y `.eco-page` bajaba a 12px en móvil, así que en móvil
+     había dos bordes izquierdos distintos a la vez. Se sobreescribe a 12px bajo
+     768px (index.html, bloque móvil). */
+  --gutter-page: 28px;
+}
+
+/* ===========================================================================
+   3 · RADIOS
+   Mapa: 1,2,3→--r-sm(4px) · 4,5,6→--r-md(6px) · 8,10→--r-lg(10px)
+         12→--r-xl(14px) · 999→--r-pill
+   Se conservan los alias viejos (--r-sm/--r/--r-lg/--r-xl) apuntando a los
+   nuevos para no romper el CSS existente de index.html.
+   ======================================================================== */
+:root {
+  --r-none: 0;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-pill: 999px;
+  --r-circle: 50%;
+  --r: var(--r-md);
+}
+
+/* ===========================================================================
+   3b · ALTURA DE CONTROL
+   Un solo alto para los controles que comparten fila (botón, select, input).
+   Existe porque en la fila de filtros de Configuración convivían 33px (.btn),
+   34px (select con padding inline) y 38px (buscador armado a mano) con el mismo
+   centro vertical: tres alturas para tres controles del mismo rango. En táctil
+   sube a 44px, y así la relación no se invierte entre desktop y móvil (antes el
+   buscador era el MÁS alto en desktop y el MÁS bajo en el teléfono, además del
+   único control que no llegaba al objetivo táctil).
+   ======================================================================== */
+:root { --ctl-h: 34px; }
+@media (pointer: coarse) { :root { --ctl-h: 44px; } }
+
+/* ===========================================================================
+   4 · MOVIMIENTO
+   ======================================================================== */
+:root {
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur: 220ms;
+  --dur-slow: 340ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+
+/* ===========================================================================
+   5 · COLOR — modo oscuro por defecto (`:root`), claro como override
+   ---------------------------------------------------------------------------
+   Van en `:root` INCONDICIONAL, no tras `[data-theme=...]`. Eso importa: antes
+   los tokens sólo existían si un useEffect de App había puesto el atributo en
+   <html>, así que un crash en el primer render dejaba al error boundary sin
+   NINGUNA custom property — blanco sobre blanco. Con `:root` la paleta existe
+   aunque React nunca monte.
+   ---------------------------------------------------------------------------
+   Correcciones respecto de la paleta anterior, todas medidas con WCAG 2.1
+   sobre `--canvas` #0E1620:
+
+     --text-2  #8A94A1 → #A2ACBA   5.92:1 → 7.92:1
+     --text-3  #525B68 → #7C8798   2.65:1 → 5.00:1  (antes FALLABA AA)
+     --neg     #FF6A3D → #FF5470   deja de ser idéntico a --accent
+                                   (Δhue 24°, 5.85:1)
+
+   El par --accent === --neg era la causa raíz de que "VELOCIDAD: Acelerada"
+   se leyera como una alarma y de que un chip activo fuera indistinguible de
+   un indicador negativo. El naranja se queda como identidad de marca
+   (--accent); lo negativo pasa a un rojo-magenta separable.
+
+   --on-*: el color de PRIMER PLANO sobre cada relleno saturado. Blanco sobre
+   estos rellenos falla AA sin excepción (#fff sobre --accent 2.85:1, sobre
+   --pos 1.92:1, sobre --warn 1.63:1). El texto sobre relleno brillante es
+   SIEMPRE oscuro. Esto reemplaza los 12 `#fff` hardcodeados.
+   ======================================================================== */
+:root {
+  /* superficies — en oscuro, más elevación = más CLARO */
+  --bg: #060A10;
+  --bg-2: #0A111A;
+  --surface-inset: #070C13;
+  --canvas: #0E1620;
+  --canvas-2: #091018;
+  --surface-raised: #16202C;
+  --surface-overlay: #1B2632;
+  --scrim: rgba(3, 6, 9, 0.72);
+
+  --hairline: rgba(255, 255, 255, 0.06);
+  --hairline-strong: rgba(255, 255, 255, 0.12);
+
+  /* Relleno de CONTROL (chip, botón, input, pastilla y bolsa del header). No es
+     lo mismo que "superficie elevada": el control tiene que ser más CLARO que su
+     soporte en oscuro y más OSCURO en claro, así que ningún token de elevación
+     sirve para los dos modos (--surface-raised es #FFFFFF en claro, igual que
+     --canvas). Antes los controles usaban --canvas-2, que en oscuro es más
+     oscuro que --canvas: 1.05:1 sobre el header, un control que sólo existía
+     por su hairline. Con esto el relleno sube a 1.13:1 y el contorno a 1.38:1. */
+  --control-bg: #16202C;
+  --control-bg-hover: #1B2632;
+
+  /* texto — escalera 15.3 / 7.9 / 5.0, los tres pasan AA */
+  --text: #E6ECF3;
+  --text-2: #A2ACBA;
+  --text-3: #7C8798;
+  --text-disabled: #525B68; /* SÓLO para deshabilitado (exento de AA) */
+
+  /* semántico */
+  --accent: #FF6A3D;
+  --accent-2: #FF8A63;
+  --accent-fill: rgba(255, 106, 61, 0.14);
+  --pos: #3FD47A;
+  --pos-bg: rgba(63, 212, 122, 0.10);
+  --neg: #FF5470;
+  --neg-bg: rgba(255, 84, 112, 0.10);
+  --warn: #FFC043;
+  --warn-bg: rgba(255, 192, 67, 0.10);
+  --info: #58A6FF;
+  --info-bg: rgba(88, 166, 255, 0.10);
+  /* --neu es el gris del DATO neutral; --text-3 es el del TEXTO. Eran el mismo
+     valor y --text-3 es además --chart-axis, así que la serie "Neutral" del
+     gráfico salía idéntica a los ticks y a los rótulos del eje: el 36% del
+     volumen indistinguible del cromo. Mismo valor que --cat-8 (gris categórico,
+     ≥6.6:1 sobre --canvas) porque el neutral es una categoría, no un juicio. */
+  --neu: #94A3B8;
+  --neu-bg: rgba(148, 163, 184, 0.10);
+
+  /* primer plano sobre relleno saturado */
+  --on-accent: #1A0A04;
+  --on-pos: #04140A;
+  --on-neg: #1A0409;
+  --on-warn: #1A1204;
+  --on-info: #04101A;
+  --on-neu: #FFFFFF;
+
+  /* rail de navegación */
+  --rail-bg: #030609;
+  --rail-fg: rgba(255, 255, 255, 0.62);
+  /* El rail tenía SIETE alfas de blanco escritas a mano (0.28…0.85) y las cuatro
+     más bajas quedaban en 2.32-4.47:1, es decir texto de 11px por debajo de AA
+     en el menú que estructura toda la app. Un único nivel "atenuado" con
+     luminancia declarada: 6.5:1 sobre --rail-bg (6.3:1 en modo claro, cuyo rail
+     también es oscuro), así que no necesita variante por modo. */
+  --rail-fg-muted: #8A93A0;
+  --rail-fg-active: #FFFFFF;
+  --rail-active-bg: rgba(255, 106, 61, 0.18);
+  --rail-border: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 64px -24px rgba(0, 0, 0, 0.8);
+
+  --letter-display: var(--tracking-tight);
+}
+
+/* --- tema MANDO, modo CLARO ---------------------------------------------- */
+:root[data-mode="light"] {
+  --bg: #F5F6F7;
+  --bg-2: #E8EAED;
+  --surface-inset: #EDEFF2;
+  --canvas: #FFFFFF;
+  --canvas-2: #F5F6F7;
+  --surface-raised: #FFFFFF;
+  --surface-overlay: #FFFFFF;
+  --scrim: rgba(14, 17, 22, 0.45);
+
+  --hairline: #DFE2E6;
+  --hairline-strong: #BFC5CC;
+
+  /* En claro el control va un paso más OSCURO que la superficie que lo sostiene
+     (que es blanca): es el mismo concepto invertido, no otro token. */
+  --control-bg: #F5F6F7;
+  --control-bg-hover: #E8EAED;
+
+  --text: #0E1116;
+  --text-2: #4A515B;
+  --text-3: #6B7280;
+  --text-disabled: #A0A6AF;
+
+  --accent: #C83A1E;
+  --accent-2: #E85A3E;
+  --accent-fill: rgba(200, 58, 30, 0.08);
+  --pos: #14722F;
+  --pos-bg: rgba(20, 114, 47, 0.10);
+  --neg: #C2183F;
+  --neg-bg: rgba(194, 24, 63, 0.10);
+  --warn: #96600B;
+  --warn-bg: rgba(150, 96, 11, 0.12);
+  --info: #1F4575;
+  --info-bg: rgba(31, 69, 117, 0.10);
+  /* En claro la paleta categórica es oscura: mismo valor que --cat-8. */
+  --neu: #52525B;
+  --neu-bg: rgba(82, 82, 91, 0.10);
+
+  --on-accent: #FFFFFF;
+  --on-pos: #FFFFFF;
+  --on-neg: #FFFFFF;
+  --on-warn: #FFFFFF;
+  --on-info: #FFFFFF;
+  --on-neu: #FFFFFF;
+
+  --rail-bg: #0A0F16;
+  --rail-fg: rgba(255, 255, 255, 0.62);
+  --rail-fg-active: #FFFFFF;
+  --rail-active-bg: rgba(200, 58, 30, 0.16);
+  --rail-border: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 0 rgba(14, 17, 22, 0.04);
+  --shadow: 0 1px 0 rgba(14, 17, 22, 0.04), 0 6px 16px -10px rgba(14, 17, 22, 0.1);
+  --shadow-lg: 0 24px 64px -24px rgba(14, 17, 22, 0.22);
+
+  --letter-display: var(--tracking-tight);
+}
+
+/* ===========================================================================
+   6 · PALETAS DE DATOS
+   ---------------------------------------------------------------------------
+   Estas escalas reemplazan los ~103 hex hardcodeados en screens.js/charts.js.
+
+   REGLA CRÍTICA: la paleta categórica NO reutiliza los hues de --pos/--neg/
+   --warn. Hoy "Noticias" se pinta verde en Fuentes Top, y en un dashboard de
+   sentimiento el verde ya significa "positivo" — la categoría se lee como un
+   juicio. Categórico y semántico son espacios de color disjuntos.
+   ======================================================================== */
+:root {
+  /* categórica — 8 hues, todos ≥6.6:1 sobre --canvas, sin verde/rojo/ámbar
+     semánticos. Asignar EN ORDEN, nunca al azar ni por hash del nombre. */
+  --cat-1: #5B9DF9;   /* azul     6.61:1 */
+  --cat-2: #A78BFA;   /* violeta  6.69:1 */
+  --cat-3: #2DD4BF;   /* teal     9.77:1 */
+  --cat-4: #F472B6;   /* rosa     6.87:1 */
+  --cat-5: #38BDF8;   /* cian     8.49:1 */
+  --cat-6: #C4B5FD;   /* lavanda            */
+  --cat-7: #7DD3FC;   /* celeste            */
+  --cat-8: #94A3B8;   /* gris (resto/otros) */
+
+  /* Métricas compuestas con color propio en las series de gráfica.
+     Antes la polarización era `#8B5CF6` escrito a mano en 10 sitios. */
+  --metric-polarization: #A78BFA;
+
+  /* Primer plano sobre cualquier --cat-*. En oscuro la paleta categórica es
+     clara, así que el texto va oscuro (6.6:1 el peor caso). */
+  --on-cat: #0E1620;
+  /* Piezas de control que son "físicas" y no texto (la perilla de un switch). */
+  --knob: #FFFFFF;
+
+  /* Marca: el gradiente del mosaico del logotipo. Antes eran dos hex escritos
+     a mano en shell.js (#1A2838 / #0B111A). */
+  --logo-from: #1A2838;
+  --logo-to: #0B111A;
+  --logo-border: rgba(125, 183, 172, 0.18);
+
+  /* emociones — 7 valores de la taxonomía NLP.
+   *
+   * INVARIANTE: ningún --emo-* puede igualar ni acercarse a --pos / --neg /
+   * --warn / --accent / --accent-2. Antes ira ERA --neg, alegría ERA --pos y
+   * sorpresa ERA --warn: en la pantalla de Sentimiento la barra de "Ira" y la
+   * banda "Negativo" del chart de al lado salían con el mismo hex, así que el
+   * lector deducía un mapeo emoción→sentimiento que sólo se cumplía en 3 de 7
+   * filas (tristeza, negativa, era azul; esperanza, positiva, era teal). Una
+   * marca de emoción es un CONTEO, no un juicio de severidad.
+   *
+   * Sí se aceptan vecindades con --cat-*: el sector azul/teal ya está ocupado
+   * por --cat-1/3/5/7 + --info y no queda hueco, pero un hue categórico no
+   * afirma severidad, que es el error que había que quitar.
+   *
+   * Verificado: CR 6.13–11.33:1 sobre --canvas; ΔE76 mínimo entre pares 44.4
+   * (antes 27.6 entre miedo y tristeza, filas contiguas del ranking a 8px). */
+  --emo-ira: #EC7096;          /* rosa-rojo  6.35:1  ΔE 24 de --neg */
+  --emo-frustracion: #F48B38;  /* naranja    7.45:1  ΔE 20 de --accent-2 */
+  --emo-miedo: #D484EF;        /* orquídea   7.23:1 */
+  --emo-tristeza: #65A9F8;     /* azul cielo 7.44:1 */
+  --emo-alegria: #4FA93E;      /* verde      6.13:1  ΔE 22 de --pos */
+  --emo-esperanza: #30CCAF;    /* teal       8.99:1 */
+  --emo-sorpresa: #D9CE7D;     /* arena     11.33:1  ΔE 33 de --warn */
+
+  /* estados de narrativa — 6 del ciclo de vida + fallback obligatorio para
+     un status desconocido (hoy se renderiza sin color y en inglés crudo). */
+  --narr-emerging: #2DD4BF;
+  /* Azul, no #3FD47A: `active` era idéntico a --pos, que en ESTA pantalla es
+     "Positivo" en la leyenda del streamgraph, en la barra de sentimiento y en el
+     marcador "▸ inicio". El punto verde de "Récord de visitantes" se leía como
+     un juicio de sentimiento y no como una fase del ciclo de vida. */
+  --narr-active: #5B9DF9;      /* --cat-1, 6.61:1 */
+  /* Violeta, NO el naranja de marca. `peaking` valía exactamente --accent, así
+     que un mismo hex significaba marca, vista seleccionada, filtro
+     seleccionado, fila seleccionada y fase del ciclo de vida en un solo
+     viewport: el chip "Pico (1)" se leía como un segundo filtro encendido junto
+     a "Todas (8)". Un token de DATOS no puede igualar --accent — misma
+     corrección que se le hizo a --neg arriba. */
+  --narr-peaking: #A78BFA;   /* --cat-2, 6.69:1 sobre --canvas */
+  /* Ámbar fuera: `declining` era idéntico a --warn y el punto de "Ferias de
+     empleo regionales" se leía como una advertencia cuando el dato sólo dice
+     que la narrativa decae —que para una oficina de comunicaciones suele ser
+     buena noticia. Se toma rosa (--cat-4) porque es el hue libre más lejano de
+     violeta/azul/teal; `revived` baja a lavanda (--cat-6), vecina de violeta:
+     confundir "revivida" con "pico" cuesta mucho menos que confundir "pico"
+     con "decae", y las dos etiquetas van escritas al lado del punto. */
+  --narr-declining: #F472B6;   /* --cat-4, 6.87:1 */
+  --narr-revived: #C4B5FD;     /* --cat-6 */
+  --narr-dormant: #7C8798;
+  --narr-unknown: #94A3B8;   /* 7.10:1 — legible como texto */
+
+  /* secuencial (heatmap, mapa de PR). 6 pasos derivados del accent.
+     ⚠️ La leyenda DEBE usar estos mismos tokens: hoy HourActivityCard pinta
+     los swatches con rgba(11,95,128,…) — el azul del tema `costa` — mientras
+     las celdas van en naranja. */
+  --seq-0: rgba(255, 106, 61, 0.08);
+  /* Los pasos 1..5 se redistribuyeron: --seq-1 a 0.24 medía 1.45:1 sobre
+     --canvas, o sea el paso más usado del mapa era invisible. Ahora
+     1.77 / 2.47 / 3.37 / 4.3 / 6.2 : 1. --seq-0 se queda abajo a propósito,
+     porque en el heatmap significa "sin dato" y no debe leerse como dato. */
+  --seq-1: rgba(255, 106, 61, 0.34);
+  --seq-2: rgba(255, 106, 61, 0.50);
+  --seq-3: rgba(255, 106, 61, 0.65);
+  --seq-4: rgba(255, 106, 61, 0.80);
+  --seq-5: rgba(255, 106, 61, 0.95);
+
+  /* divergente (delta vs periodo anterior: negativo ← neutro → positivo) */
+  --div-neg-2: #FF5470;
+  --div-neg-1: #FF9BAC;
+  --div-mid: #4A515B;
+  --div-pos-1: #8FE5B0;
+  --div-pos-2: #3FD47A;
+
+  /* rejilla y ejes de gráfica */
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: var(--text-3);
+  --chart-crosshair: var(--text-2);
+  --chart-void: rgba(255, 255, 255, 0.03); /* hueco de datos ≠ cero real */
+
+  /* Nube de palabras: polaridad del término como TEXTO. No se reutiliza la
+     escala --div-* porque está diseñada para rellenos: --div-mid #4A515B da
+     2.27:1 sobre --canvas y sería ilegible. Aquí la extremidad se codifica en
+     saturación, no en luminosidad, así que los cinco pasos pasan AA. */
+  --wc-neg-2: #FF5470;
+  --wc-neg-1: #FF9BAC;
+  --wc-neu:   #A2ACBA;
+  --wc-pos-1: #8FE5B0;
+  --wc-pos-2: #3FD47A;
+}
+
+:root[data-mode="light"] {
+  --cat-1: #1D4ED8;
+  --cat-2: #6D28D9;
+  --cat-3: #0F766E;
+  --cat-4: #BE185D;
+  --cat-5: #0369A1;
+  --cat-6: #7C3AED;
+  --cat-7: #0E7490;
+  --cat-8: #52525B;
+  --metric-polarization: #6D28D9;
+  --on-cat: #FFFFFF;   /* en claro la paleta es oscura: 5.4:1 el peor caso */
+  --knob: #FFFFFF;
+
+  /* Mismo invariante que en oscuro. En claro sobrevivían tres coincidencias
+     con la paleta semántica (ira==--neg, alegría==--pos, sorpresa==--warn) y
+     una cuarta que el barrido no había visto: miedo == --metric-polarization
+     #6D28D9, o sea la serie de Polarización y la emoción "Miedo" pintadas del
+     mismo violeta. Verificado: CR 4.63–6.48:1 sobre blanco, ΔE76 mínimo entre
+     pares 45.0, ΔE >= 17 de los cinco tokens de severidad. */
+  --emo-ira: #A33C62;
+  --emo-frustracion: #C15400;
+  --emo-miedo: #A23EB8;
+  --emo-tristeza: #2765A8;
+  --emo-alegria: #267B04;
+  --emo-esperanza: #00735E;
+  --emo-sorpresa: #6E5D18;
+
+  --narr-emerging: #0F766E;
+  --narr-active: #1D4ED8;      /* --cat-1 claro; era idéntico a --pos */
+  --narr-peaking: #6D28D9;   /* --cat-2 claro; era idéntico a --accent */
+  --narr-declining: #BE185D;   /* --cat-4 claro; era idéntico a --warn */
+  --narr-revived: #7C3AED;     /* --cat-6 claro */
+  --narr-dormant: #6B7280;
+  --narr-unknown: #64748B;   /* 4.76:1 sobre blanco */
+
+  --seq-0: rgba(200, 58, 30, 0.06);
+  /* Mismo piso que en oscuro, medido sobre --canvas #FFFFFF: 0.20 daba
+     1.34:1, 0.34 da 1.64:1. */
+  --seq-1: rgba(200, 58, 30, 0.34);
+  --seq-2: rgba(200, 58, 30, 0.48);
+  --seq-3: rgba(200, 58, 30, 0.62);
+  --seq-4: rgba(200, 58, 30, 0.77);
+  --seq-5: rgba(200, 58, 30, 0.92);
+
+  --div-neg-2: #C2183F;
+  --div-neg-1: #E8859A;
+  --div-mid: #A0A6AF;
+  --div-pos-1: #7CBE92;
+  --div-pos-2: #14722F;
+
+  --chart-grid: rgba(14, 17, 22, 0.08);
+  --chart-axis: var(--text-3);
+  --chart-crosshair: var(--text-2);
+  --chart-void: rgba(14, 17, 22, 0.04);
+
+  --wc-neg-2: #C2183F;
+  --wc-neg-1: #A05A6A;
+  --wc-neu:   #4A515B;
+  --wc-pos-1: #4F7A5E;
+  --wc-pos-2: #14722F;
+}
+
+/* ===========================================================================
+   7 · CLASES TIPOGRÁFICAS UTILITARIAS
+   ---------------------------------------------------------------------------
+   La SPA escribe el layout inline (no hay bundler ni Tailwind), así que la vía
+   práctica para retirar los cientos de `fontSize: 11` es aplicar una clase.
+   `window.ECO_T` (definido en tokens.js) expone los mismos valores para los
+   casos donde hace falta el objeto de estilo.
+   ======================================================================== */
+.t-display-2xl { font-family: var(--ff-display); font-size: var(--fs-display-2xl); line-height: var(--lh-display-2xl); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-display); }
+.t-display-xl  { font-family: var(--ff-display); font-size: var(--fs-display-xl);  line-height: var(--lh-display-xl);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-display); }
+.t-display-lg  { font-family: var(--ff-display); font-size: var(--fs-display-lg);  line-height: var(--lh-display-lg);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-display-md  { font-family: var(--ff-display); font-size: var(--fs-display-md);  line-height: var(--lh-display-md);  font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-title-lg    { font-family: var(--ff-display); font-size: var(--fs-title-lg);    line-height: var(--lh-title-lg);    font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-title-md    { font-family: var(--ff-display); font-size: var(--fs-title-md);    line-height: var(--lh-title-md);    font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+.t-body-lg     { font-family: var(--ff-sans); font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); font-weight: var(--fw-regular); }
+.t-body        { font-family: var(--ff-sans); font-size: var(--fs-body);    line-height: var(--lh-body);    font-weight: var(--fw-regular); }
+.t-body-sm     { font-family: var(--ff-sans); font-size: var(--fs-body-sm); line-height: var(--lh-body-sm); font-weight: var(--fw-regular); }
+.t-label       { font-family: var(--ff-sans); font-size: var(--fs-label);   line-height: var(--lh-label);   font-weight: var(--fw-semibold); }
+.t-caption     { font-family: var(--ff-sans); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: var(--fw-regular); color: var(--text-3); }
+.t-overline    { font-family: var(--ff-sans); font-size: var(--fs-overline); line-height: var(--lh-overline); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-2); }
+
+/* Cifras — tabular SIEMPRE, para que las columnas de números no bailen.
+ * Incluye el texto de las gráficas: la etiqueta de último valor y los ticks del
+ * eje cambian de número al mover el período, y con dígitos de ancho variable
+ * saltaban de sitio en cada actualización. */
+svg text { font-variant-numeric: tabular-nums lining-nums; }
+.t-num, .num {
+  font-family: var(--ff-numeric);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+  letter-spacing: var(--tracking-tight);
+}
+.t-num-2xl { font-size: var(--fs-num-2xl); line-height: 1; font-weight: var(--fw-semibold); }
+.t-num-xl  { font-size: var(--fs-num-xl);  line-height: 1; font-weight: var(--fw-semibold); }
+.t-num-lg  { font-size: var(--fs-num-lg);  line-height: 1.1; font-weight: var(--fw-semibold); }
+.t-num-md  { font-size: var(--fs-num-md);  line-height: 1.2; font-weight: var(--fw-semibold); }
+.t-num-sm  { font-size: var(--fs-num-sm);  line-height: 1.3; font-weight: var(--fw-medium); }
+
+/* SÓLO familia. Con `font-size` aquí, la clase pisaba el token que el elemento
+   contenedor declaraba (un `--fs-overline` en el padre salía 12px en el hijo
+   `.mono`), así que el mismo micro-rótulo medía 11 o 12 según si el tamaño se
+   había escrito inline sobre el propio span. El tamaño es decisión del sitio
+   que usa el mono, no de la familia tipográfica. */
+.mono { font-family: var(--ff-mono); }
+
+/* ===========================================================================
+   8 · UTILIDADES DE ACCESIBILIDAD
+   ======================================================================== */
+/* Área táctil mínima 44×44 sin alterar el tamaño visual del control. */
+.touch-target { position: relative; }
+.touch-target::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: max(100%, 44px); height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+@media (pointer: coarse) {
+  /* Con dedo el piso de 44px es LA altura del control, no una excepción: si sólo
+     se eleva `.btn/.input` (index.html:96) los controles con estilo inline se
+     quedan en 26-34 y la dispersión de alturas del header llega a 2.2×. */
+  :root { --control-h: 44px; --control-h-sm: 38px; }
+  .touch-target-strict { min-width: 44px; min-height: 44px; }
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}

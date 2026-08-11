@@ -1,0 +1,196 @@
+{
+ "periodLabel": "Últimos 7 días cerrados",
+ "periodStart": "2026-07-28",
+ "periodEnd": "2026-08-03",
+ "totals": {
+  "total": 1331,
+  "positive": 373,
+  "neutral": 513,
+  "negative": 445
+ },
+ "deltaVsPrev": {
+  "total": 12.4,
+  "positive": -3.1,
+  "neutral": 0,
+  "negative": 18.7,
+  "nss": -4,
+  "crisis": null
+ },
+ "currentMetrics": {
+  "totalMentions": 1331,
+  "nss": -22,
+  "bhi": 41,
+  "crisisScore": 0.18,
+  "polarizationIndex": null,
+  "engagementVelocity": 1.3,
+  "totalEngagement": 36581
+ },
+ "dailySeries": [
+  {
+   "day": "2026-07-28",
+   "mentions": 106,
+   "positive": 34,
+   "neutral": 36,
+   "negative": 36,
+   "nss": -22
+  },
+  {
+   "day": "2026-07-29",
+   "mentions": 89,
+   "positive": 28,
+   "neutral": 30,
+   "negative": 30,
+   "nss": -14
+  },
+  {
+   "day": "2026-07-30",
+   "mentions": 21,
+   "positive": 7,
+   "neutral": 7,
+   "negative": 7,
+   "nss": -9
+  },
+  {
+   "day": "2026-07-31",
+   "mentions": 67,
+   "positive": 21,
+   "neutral": 23,
+   "negative": 23,
+   "nss": -8
+  },
+  {
+   "day": "2026-07-32",
+   "mentions": 56,
+   "positive": 18,
+   "neutral": 19,
+   "negative": 19,
+   "nss": -12
+  },
+  {
+   "day": "2026-07-33",
+   "mentions": 148,
+   "positive": 47,
+   "neutral": 50,
+   "negative": 50,
+   "nss": -19
+  },
+  {
+   "day": "2026-07-34",
+   "mentions": 171,
+   "positive": 55,
+   "neutral": 58,
+   "negative": 58,
+   "nss": -27
+  }
+ ],
+ "topicsTable": [
+  {
+   "topic": "Energía e infraestructura",
+   "slug": "energia",
+   "total": 253,
+   "positive": 42,
+   "neutral": 86,
+   "negative": 125,
+   "positivePct": 17,
+   "neutralPct": 34,
+   "negativePct": 49,
+   "delta": 12
+  },
+  {
+   "topic": "Permisos y trámites",
+   "slug": "permisos",
+   "total": 213,
+   "positive": 31,
+   "neutral": 74,
+   "negative": 108,
+   "positivePct": 15,
+   "neutralPct": 35,
+   "negativePct": 51,
+   "delta": -3
+  },
+  {
+   "topic": "Empleo y adiestramiento",
+   "slug": "empleo",
+   "total": 173,
+   "positive": 58,
+   "neutral": 71,
+   "negative": 44,
+   "positivePct": 34,
+   "neutralPct": 41,
+   "negativePct": 25,
+   "delta": 18
+  },
+  {
+   "topic": "Transparencia y fondos",
+   "slug": "transparencia",
+   "total": 160,
+   "positive": 18,
+   "neutral": 66,
+   "negative": 76,
+   "positivePct": 11,
+   "neutralPct": 41,
+   "negativePct": 48,
+   "delta": 0
+  },
+  {
+   "topic": "Incentivos contributivos",
+   "slug": "incentivos",
+   "total": 133,
+   "positive": 49,
+   "neutral": 58,
+   "negative": 26,
+   "positivePct": 37,
+   "neutralPct": 44,
+   "negativePct": 20,
+   "delta": -7
+  },
+  {
+   "topic": "PyMEs y comercio local",
+   "slug": "pymes",
+   "total": 120,
+   "positive": 52,
+   "neutral": 49,
+   "negative": 19,
+   "positivePct": 43,
+   "neutralPct": 41,
+   "negativePct": 16,
+   "delta": 4
+  },
+  {
+   "topic": "Turismo",
+   "slug": "turismo",
+   "total": 106,
+   "positive": 61,
+   "neutral": 35,
+   "negative": 10,
+   "positivePct": 58,
+   "neutralPct": 33,
+   "negativePct": 9,
+   "delta": 9
+  },
+  {
+   "topic": "Agricultura",
+   "slug": "agricultura",
+   "total": 93,
+   "positive": 40,
+   "neutral": 41,
+   "negative": 12,
+   "positivePct": 43,
+   "neutralPct": 44,
+   "negativePct": 13,
+   "delta": -2
+  },
+  {
+   "topic": "Atención ciudadana",
+   "slug": "atencion",
+   "total": 80,
+   "positive": 22,
+   "neutral": 33,
+   "negative": 25,
+   "positivePct": 28,
+   "neutralPct": 41,
+   "negativePct": 31,
+   "delta": 18
+  }
+ ]
+}
