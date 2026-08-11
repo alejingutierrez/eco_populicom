@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
 import {
   buildSentimentReport,
-  closedWindowYmdInTZ,
+  resolveWindow,
+  PERIOD_DAYS,
   formatPeriodLabel,
   loadMetricsForWindow,
   formatMetric,
@@ -17,66 +18,10 @@ export const dynamic = 'force-dynamic';
 
 const TZ = 'America/Puerto_Rico';
 
-/**
- * Periodos soportados por /api/overview. Cada uno se traduce a una ventana
- * cerrada en TZ Puerto Rico terminando AYER (no incluye hoy parcial) — la
- * misma semántica que el correo eco-weekly-report. El default es 7D
- * (replica exactamente el correo).
- *
- * Para rangos personalizados, el frontend envía `period=custom&from=YYYY-MM-DD
- * &to=YYYY-MM-DD` y el handler salta el PERIOD_DAYS lookup.
- */
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1,
-  '5D': 5,
-  '7D': 7,
-  '30D': 30,
-  '90D': 90,
-  '1M': 30,
-  '3M': 90,
-  '6M': 180,
-  '1A': 365,
-  'Max': 730,
-};
-
-/**
- * Parse y validación de rango personalizado from/to. Acepta YYYY-MM-DD en
- * AST (TZ Puerto Rico). Como la ventana del correo termina AYER cerrado, el
- * usuario puede pedir hasta `to=ayer`. Acepta `to=hoy` igual — el backfill
- * solo devolverá datos disponibles. Retorna null si los parámetros son
- * inválidos, faltantes, o `from > to`.
- *
- * Equivale a la salida de closedWindowYmdInTZ pero con startYmd/endYmd
- * explícitos. La "ventana previa" se calcula con la misma duración terminando
- * justo antes de startYmd.
- */
-function parseCustomRange(
-  fromParam: string | null,
-  toParam: string | null,
-): null | {
-  startYmd: string;
-  endYmd: string;
-  prevStartYmd: string;
-  prevEndYmd: string;
-} {
-  if (!fromParam || !toParam) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromParam) || !/^\d{4}-\d{2}-\d{2}$/.test(toParam)) return null;
-  if (fromParam > toParam) return null;
-  // Calculamos prevStart/prevEnd con la misma duración en días.
-  const fromDate = new Date(`${fromParam}T00:00:00Z`);
-  const toDate = new Date(`${toParam}T00:00:00Z`);
-  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return null;
-  const days = Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1;
-  const prevEnd = new Date(fromDate.getTime() - 86400000);
-  const prevStart = new Date(prevEnd.getTime() - (days - 1) * 86400000);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return {
-    startYmd: fromParam,
-    endYmd: toParam,
-    prevStartYmd: fmt(prevStart),
-    prevEndYmd: fmt(prevEnd),
-  };
-}
+// Ventana: resolveWindow de @eco/shared — período cerrado terminando AYER en
+// TZ Puerto Rico (misma semántica que el correo eco-weekly-report) o rango
+// custom from/to en días AST inclusivos. El mapa de períodos válidos es el
+// PERIOD_DAYS canónico del paquete compartido.
 
 interface OverviewResponse {
   periodLabel: string;
@@ -126,9 +71,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const start = Date.now();
   const { searchParams } = new URL(request.url);
   const periodKey = searchParams.get('period') ?? '7D';
-  const customRange = parseCustomRange(searchParams.get('from'), searchParams.get('to'));
-  const daysBack = customRange ? null : PERIOD_DAYS[periodKey];
-  if (!customRange && !daysBack) {
+  const window = resolveWindow({
+    period: periodKey,
+    from: searchParams.get('from'),
+    to: searchParams.get('to'),
+    timeZone: TZ,
+  });
+  if (!window) {
     return NextResponse.json(
       { error: `Unsupported period: ${periodKey}. Valid: ${Object.keys(PERIOD_DAYS).join(', ')}, or pass from/to.` },
       { status: 400 },
@@ -141,9 +90,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const window = customRange
-      ? customRange
-      : closedWindowYmdInTZ(daysBack as number, new Date(), TZ);
     const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
     // pg.Pool implementa PgClientLike (mismo shape que pg.Client del lambda).
@@ -161,14 +107,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // reciente, lo que producía valores idénticos para todos los periods
     // (Crisis ayer = 0.185 para 1D/7D/1M/3M/6M/1A) — inconsistencia visible
     // contra el Scorecard que sí recalculaba (0.588 para 7D).
-    const [winCur, winPrev] = await Promise.all([
-      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
-      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
-    ]);
+    const winCur = await loadMetricsForWindow(pool, agencyId, startYmd, endYmd);
 
-    const totalMentionsDelta = winPrev.totals.total > 0
-      ? Number((((winCur.totals.total - winPrev.totals.total) / winPrev.totals.total) * 100).toFixed(1))
-      : (winCur.totals.total > 0 ? 100 : 0);
+    // Volumen y su delta salen del MISMO report que el hero/termómetro/tabla
+    // (universo pertinente) — antes venían de loadMetricsForWindow (universo
+    // completo) y el payload traía DOS totales distintos (auditoría 2026-08,
+    // P0-16). Las métricas compuestas (NSS/crisis/BHI) siguen saliendo de
+    // loadMetricsForWindow: su universo está calibrado por backtest y no se
+    // toca — son índices, no conteos.
+    const totalMentionsDelta = report.prevTotals.total > 0
+      ? Number((((report.totals.total - report.prevTotals.total) / report.prevTotals.total) * 100).toFixed(1))
+      : (report.totals.total > 0 ? 100 : 0);
 
     const response: OverviewResponse = {
       periodLabel: formatPeriodLabel(startYmd, endYmd),
@@ -187,7 +136,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         crisisRiskScore: winCur.crisisRiskScore,
         brandHealthIndex: winCur.brandHealthIndex,
         engagementRate: winCur.engagementRate,
-        totalMentions: winCur.totals.total,
+        totalMentions: report.totals.total,
         totalReach: winCur.totalReach,
         totalMentionsDelta,
         display: {
@@ -195,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           crisis: formatMetric('crisis', winCur.crisisRiskScore),
           brandHealth: formatMetric('bhi', winCur.brandHealthIndex),
         },
-        totalMentionsDeltaDisplay: formatDelta(winCur.totals.total, winPrev.totals.total, { kind: 'percent', decimals: 0 }),
+        totalMentionsDeltaDisplay: formatDelta(report.totals.total, report.prevTotals.total, { kind: 'percent', decimals: 0 }),
       },
     };
 
@@ -211,8 +160,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } finally {
     log.info('overview', 'request complete', {
       latencyMs: Date.now() - start,
-      period: customRange ? 'custom' : periodKey,
-      ...(customRange ? { from: customRange.startYmd, to: customRange.endYmd } : {}),
+      period: window.custom ? 'custom' : periodKey,
+      ...(window.custom ? { from: window.startYmd, to: window.endYmd } : {}),
     });
   }
 }

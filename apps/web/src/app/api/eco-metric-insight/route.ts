@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, metricInsightsCache } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone } from '@eco/shared';
+import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -20,10 +20,8 @@ const TZ = 'America/Puerto_Rico';
 const AI_TASKS_FUNCTION_NAME = process.env.AI_TASKS_FUNCTION_NAME ?? 'eco-ai-tasks';
 const VALID_METRICS = new Set(['crisis', 'polarization', 'nss', 'bhi', 'volume']);
 
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
-  '1M': 30, '3M': 90, '6M': 180, '1A': 365,
-};
+// PERIOD_DAYS: mapa canónico de @eco/shared. El local anterior no tenía
+// 'Max' y el chip Max devolvía 400 al abrir insights (auditoría 2026-08).
 
 function parseCustomRange(
   fromParam: string | null,

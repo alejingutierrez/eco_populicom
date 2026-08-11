@@ -17,6 +17,8 @@ import {
   closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
   formatMetric, formatDelta, formatVelocity,
   sourceKey, sourceLabel,
+  loadSentimentTotals,
+  loadDailySentimentSeries,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -159,19 +161,14 @@ export async function GET(request: NextRequest) {
 
   const db = getDb();
 
-  // Resolve agency — fall back to the first active agency if the requested
-  // one doesn't exist (so a stale localStorage slug from testing doesn't 404).
-  let agencyId = await resolveAgencyId(searchParams);
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya maneja el
+  // slug stale del switcher (cae a la agencia primaria DENTRO del set
+  // permitido) y devuelve null solo cuando el usuario no tiene ninguna
+  // agencia concedida — servirle otra era un leak de tenant (auditoría
+  // 2026-08, P1-1). El boot del SPA muestra su banner de error con el 404.
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
-  if (!agencyId) {
-    return NextResponse.json({ error: 'No active agencies configured' }, { status: 404 });
+    return NextResponse.json({ error: 'No agency resolved for this user' }, { status: 404 });
   }
 
   // Ventana cerrada en TZ Puerto Rico — termina ayer (no incluye hoy parcial),
@@ -204,9 +201,15 @@ export async function GET(request: NextRequest) {
   // métricas windowed (winCur), que ya excluyen duplicados. Sin esto, el dot
   // del mapa contaba duplicados mientras el total del modal (eco-mentions) los
   // excluía → "la modal muestra mal los datos".
+  // Universo pertinente (decisión D2, auditoría 2026-08): TODOS los conteos
+  // del dashboard excluyen nlp_pertinence='baja' — misma base que el
+  // Overview, los correos y el default de /api/eco-mentions (las modales).
+  // Las métricas compuestas (loadMetricsForWindow) conservan su universo
+  // calibrado; esto gobierna solo conteos visibles.
   const baseWhere = and(
     eq(mentions.agencyId, agencyId),
     eq(mentions.isDuplicate, false),
+    sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`,
     gte(mentions.publishedAt, since),
     lte(mentions.publishedAt, until),
   );
@@ -239,7 +242,15 @@ export async function GET(request: NextRequest) {
       AGENCIES_FULL.unshift({ key: '__all__', name: 'TODAS', long: 'Todas las agencias' });
     }
 
-    // ---- TIMELINE from snapshots (un punto por día dentro de la ventana) ----
+    // ---- TIMELINE: conteos VIVOS + métricas de snapshots ----
+    // Los conteos diarios (volumen, pos/neu/neg) salen de la MISMA query que
+    // el Overview y el correo (loadDailySentimentSeries: universo pertinente,
+    // días AST) — antes venían de daily_metric_snapshots: otra fuente con otro
+    // universo, y el Σ del chart podía no cuadrar con el KPI de al lado
+    // (auditoría 2026-08, P1-11). Las series de MÉTRICAS (nss, bhi, crisis,
+    // polarización, engagement) siguen saliendo del snapshot del día: son la
+    // capa calibrada.
+    const poolForCounts = getPool() as unknown as PgClientLike;
     const snapshots = await db
       .select()
       .from(dailyMetricSnapshots)
@@ -249,21 +260,24 @@ export async function GET(request: NextRequest) {
         lte(dailyMetricSnapshots.date, endYmd),
       ))
       .orderBy(dailyMetricSnapshots.date);
+    const snapByDate = new Map(snapshots.map((s) => [String(s.date), s]));
 
-    const TIMELINE: TimelineRow[] = snapshots.map((s) => {
-      const iso = new Date(s.date).toISOString();
+    const dailyCounts = await loadDailySentimentSeries(poolForCounts, agencyId, startYmd, endYmd);
+    const TIMELINE: TimelineRow[] = dailyCounts.map((d) => {
+      const s = snapByDate.get(d.date);
+      const iso = `${d.date}T00:00:00.000Z`;
       return {
         date: esShortDate(iso),
         fullDate: iso,
-        nss: Number(s.nss ?? 0),
-        brandHealthIndex: Number(s.brandHealthIndex ?? 0),
-        totalMentions: Number(s.totalMentions ?? 0),
-        crisisRiskScore: Number(s.crisisRiskScore ?? 0),
-        engagementRate: Number(s.engagementRate ?? 0),
-        polarizationIndex: s.polarizationIndex != null ? Number(s.polarizationIndex) : null,
-        positivo: Number(s.positiveCount ?? 0),
-        neutral: Number(s.neutralCount ?? 0),
-        negativo: Number(s.negativeCount ?? 0),
+        nss: Number(s?.nss ?? 0),
+        brandHealthIndex: Number(s?.brandHealthIndex ?? 0),
+        totalMentions: d.negative + d.neutral + d.positive,
+        crisisRiskScore: Number(s?.crisisRiskScore ?? 0),
+        engagementRate: Number(s?.engagementRate ?? 0),
+        polarizationIndex: s?.polarizationIndex != null ? Number(s.polarizationIndex) : null,
+        positivo: d.positive,
+        neutral: d.neutral,
+        negativo: d.negative,
       };
     });
 
@@ -273,9 +287,14 @@ export async function GET(request: NextRequest) {
     // (single source of truth: @eco/shared/metrics:loadMetricsForWindow).
     // Eso hace que cambiar 1D → 1M → 1A cambie también las compuestas.
     const pool = getPool() as unknown as PgClientLike;
-    const [winCur, winPrev] = await Promise.all([
+    const [winCur, winPrev, volCur, volPrev] = await Promise.all([
       loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
       loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+      // Totales de CONTEO en el universo pertinente — la misma query que el
+      // Overview/correo. Gobiernan todo "N menciones" visible; las métricas
+      // compuestas de winCur/winPrev conservan su universo calibrado.
+      loadSentimentTotals(pool, agencyId, startYmd, endYmd),
+      loadSentimentTotals(pool, agencyId, prevStartYmd, prevEndYmd),
     ]);
 
     // Deltas vs ventana previa de igual duración.
@@ -290,7 +309,7 @@ export async function GET(request: NextRequest) {
       nssDelta: safeDelta(winCur.nss, winPrev.nss, 1),
       brandHealthDelta: safeDelta(winCur.brandHealthIndex, winPrev.brandHealthIndex, 2),
       crisisDelta: safeDelta(winCur.crisisRiskScore, winPrev.crisisRiskScore, 2),
-      totalMentionsDelta: pctDelta(winCur.totals.total, winPrev.totals.total),
+      totalMentionsDelta: pctDelta(volCur.total, volPrev.total),
       engagementDelta: safeDelta(winCur.engagementRate, winPrev.engagementRate, 2),
     };
 
@@ -333,7 +352,7 @@ export async function GET(request: NextRequest) {
       brandHealthDelta: snapDeltas.brandHealthDelta,
       crisisRiskScore: winCur.crisisRiskScore,
       crisisDelta: snapDeltas.crisisDelta,
-      totalMentions: winCur.totals.total,
+      totalMentions: volCur.total,
       totalMentionsDelta: snapDeltas.totalMentionsDelta,
       totalReach: winCur.totalReach,
       engagementRate: winCur.engagementRate ?? 0,
@@ -344,9 +363,9 @@ export async function GET(request: NextRequest) {
       engagementVelocity: winCur.engagementVelocity,
       volumeAnomalyZscore: winCur.volumeAnomalyZscore,
       polarizationIndex: winCur.polarizationIndex,
-      positiveCount: winCur.totals.positive,
-      neutralCount: winCur.totals.neutral,
-      negativeCount: winCur.totals.negative,
+      positiveCount: volCur.positive,
+      neutralCount: volCur.neutral,
+      negativeCount: volCur.negative,
       highPertinenceCount: Number(engAgg?.hiPert ?? 0),
 
       // ---- Formato legible-para-el-público (single source: @eco/shared/format) ----
@@ -366,7 +385,7 @@ export async function GET(request: NextRequest) {
         // menciones vs el período anterior de igual duración. Basada en volumen
         // (no en engagement social) para que NO colapse a 0 en periodos
         // noticiosos, donde hay prensa/alcance pero pocos likes/comentarios.
-        velocity: formatVelocity(winCur.totals.total, winPrev.totals.total),
+        velocity: formatVelocity(volCur.total, volPrev.total),
       },
       // Tendencias vs período anterior, con palabra y distinguiendo
       // "estable" (cambio ≈ 0) de "sin base de comparación" (sin período previo).
@@ -383,7 +402,7 @@ export async function GET(request: NextRequest) {
           { kind: 'absolute', decimals: 0, suffix: ' pts', invert: true },
         ),
         engagementRate: formatDelta(winCur.engagementRate, winPrev.engagementRate, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
-        totalMentions: formatDelta(winCur.totals.total, winPrev.totals.total, { kind: 'percent', decimals: 0 }),
+        totalMentions: formatDelta(volCur.total, volPrev.total, { kind: 'percent', decimals: 0 }),
         polarization: formatDelta(winCur.polarizationIndex, winPrev.polarizationIndex, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
       },
     };
@@ -440,6 +459,7 @@ export async function GET(request: NextRequest) {
              FROM mentions m
             WHERE m.agency_id = $1
               AND m.is_duplicate = false
+              AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -470,6 +490,7 @@ export async function GET(request: NextRequest) {
              FROM mentions m
             WHERE m.agency_id = $1
               AND m.is_duplicate = false
+              AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -519,6 +540,7 @@ export async function GET(request: NextRequest) {
                FROM mentions m
               WHERE m.agency_id = $1
                 AND m.is_duplicate = false
+                AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
                 AND m.published_at >= $2
                 AND m.published_at <= $3
            ) pt
@@ -532,6 +554,7 @@ export async function GET(request: NextRequest) {
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
             AND m.is_duplicate = false
+            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
             AND m.published_at >= $2
             AND m.published_at <= $3
           GROUP BY mt.topic_id
@@ -612,6 +635,7 @@ export async function GET(request: NextRequest) {
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
           AND m.is_duplicate = false
+          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
           AND m.published_at >= $2
           AND m.published_at <= $3
         GROUP BY t.slug, s.slug, s.name, s.description`,
@@ -669,17 +693,27 @@ export async function GET(request: NextRequest) {
     // incluir mentions del día parcial actual y dejar el delta inestable.
     const evolutionDays = Math.max(35, 2 * days);
     const evolutionStartYmd = addDaysYmd(endYmd, -(evolutionDays - 1));
+    // Atribución PRIMARIA (top-confidence) + universo pertinente — la MISMA
+    // base que TOPICS.count. Antes esta serie era multi-clasificación: la
+    // flecha de tendencia describía otra métrica que el número al lado
+    // (auditoría 2026-08, P0-8).
     const topicEvolutionRows = await db.execute<{ slug: string; day: string; c: number | string }>(sql`
       SELECT t.slug AS slug,
-             (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day,
+             (pm.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day,
              COUNT(*) AS c
-        FROM mentions m
-        JOIN mention_topics mt ON mt.mention_id = m.id
-        JOIN topics t ON t.id = mt.topic_id
-       WHERE m.agency_id = ${agencyId}
-         AND m.is_duplicate = false
-         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
-         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
+        FROM (
+          SELECT m.id, m.published_at,
+                 (SELECT topic_id FROM mention_topics
+                    WHERE mention_id = m.id
+                    ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+            FROM mentions m
+           WHERE m.agency_id = ${agencyId}
+             AND m.is_duplicate = false
+             AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
+             AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
+        ) pm
+        JOIN topics t ON t.id = pm.topic_id
        GROUP BY t.slug, day
        ORDER BY t.slug, day
     `);
@@ -698,17 +732,22 @@ export async function GET(request: NextRequest) {
       evolutionByTopic.set(r.slug, arr);
     }
 
-    // Cálculo de `delta`: comparamos los últimos `halfWindow` días contra los
-    // `halfWindow` anteriores DENTRO de la evolución del tópico. Devolvemos
-    // `null` cuando no hay base de comparación (period anterior vacío) o
-    // cuando el tópico no tuvo actividad en ninguna mitad — eso evita el
-    // mensaje confuso "↓ 0%" cuando lo correcto es "sin dato comparable".
-    const halfWindow = Math.max(3, Math.floor(days / 2));
+    // Cálculo de `delta`: ventana del usuario vs ventana PREVIA de igual
+    // duración (misma semántica que deltaVsPrev del termómetro/Overview),
+    // sobre días calendario — no sobre "últimos N elementos con datos", que
+    // para tópicos esporádicos comparaba rangos de duración arbitraria.
+    // `recent` es por construcción igual a TOPICS.count (misma base primaria
+    // + pertinente + ventana). `null` cuando no hay base de comparación.
+    const inRange = (day: string, a: string, b: string) => day >= a && day <= b;
     for (const t of TOPICS) {
       const evo = evolutionByTopic.get(t.slug) ?? [];
       t.evolution = evo;
-      const recent = evo.slice(-halfWindow).reduce((s, e) => s + e.count, 0);
-      const previous = evo.slice(-2 * halfWindow, -halfWindow).reduce((s, e) => s + e.count, 0);
+      const recent = evo
+        .filter((e) => inRange(e.fullDate.slice(0, 10), startYmd, endYmd))
+        .reduce((s, e) => s + e.count, 0);
+      const previous = evo
+        .filter((e) => inRange(e.fullDate.slice(0, 10), prevStartYmd, prevEndYmd))
+        .reduce((s, e) => s + e.count, 0);
       if (previous === 0) {
         // Sin base de comparación: distinguimos "tópico no existía" (recent=0) de
         // "tópico apareció en este periodo" (recent>0). En ambos casos el delta
@@ -745,6 +784,7 @@ export async function GET(request: NextRequest) {
           JOIN topics t ON t.id = mt.topic_id
          WHERE m.agency_id = ${agencyId}
            AND m.is_duplicate = false
+           AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
          GROUP BY day, t.slug, t.name
@@ -857,6 +897,7 @@ export async function GET(request: NextRequest) {
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
         AND m.is_duplicate = false
+        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
         AND m.published_at >= ${since.toISOString()}
         AND m.published_at <= ${until.toISOString()}
       GROUP BY emotion
@@ -1261,7 +1302,18 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.json({
       AGENCIES_FULL,
       USER_AGENCY_SLUG,
-      TIMELINE: TIMELINE.length > 0 ? TIMELINE : null,
+      // Ventana efectiva de TODOS los agregados de este payload (días AST
+      // inclusivos, cerrada terminando ayer). El SPA la propaga a los
+      // drill-downs (`_filter.from/to` → /api/eco-mentions) para que la modal
+      // consulte EXACTAMENTE la misma ventana que la card que la abrió.
+      PERIOD: {
+        key: customRange ? 'custom' : periodKey,
+        startYmd,
+        endYmd,
+        prevStartYmd,
+        prevEndYmd,
+      },
+      TIMELINE: TIMELINE.some((t) => t.totalMentions > 0) ? TIMELINE : null,
       CURRENT_METRICS,
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
       TOP_SOURCES: TOP_SOURCES.length > 0 ? TOP_SOURCES : null,

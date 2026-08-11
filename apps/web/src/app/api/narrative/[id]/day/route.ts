@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool, agencies } from '@eco/database';
-import { eq } from 'drizzle-orm';
+import { getPool } from '@eco/database';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -29,16 +28,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     return NextResponse.json({ error: 'Invalid date (expected YYYY-MM-DD)' }, { status: 400 });
   }
 
-  const db = getDb();
-  let agencyId = await resolveAgencyId(searchParams);
-  if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
+  // Sin fallback a "primera agencia activa" (leak de tenant — auditoría
+  // 2026-08, P1-1): null = usuario sin agencias concedidas → 404.
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) return NextResponse.json({ error: 'No agency' }, { status: 404 });
 
   // Verificar que la narrativa pertenece a la agencia (defensa)

@@ -63,7 +63,12 @@ window.ecoIsMobile = function () { return window.ecoBp() === 'mobile'; };
  */
 function getPeriodParams() {
   try {
-    const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
+      // Default '7D': el MISMO que usa app.js para el estado inicial. Antes era
+      // '1M' y el estado React arrancaba en '7D' — dos defaults distintos para
+      // el mismo concepto (auditoría consistencia 2026-08). `ECO_DEFAULT_PERIOD`
+      // es esa fuente única —la fija el boot de index.html y la lee app.js—, así
+      // que aquí se consulta en vez de repetir el literal en un tercer sitio.
+      const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (period === 'custom') {
       const from = localStorage.getItem('eco.from') || '';
       const to = localStorage.getItem('eco.to') || '';
@@ -71,10 +76,50 @@ function getPeriodParams() {
     }
     return { period };
   } catch (_) {
-    return { period: '1M' };
+    return { period: '7D' };
   }
 }
 window.ecoGetPeriodParams = getPeriodParams;
+
+// Espejo client-side del PERIOD_DAYS canónico de @eco/shared/dates.ts. Si se
+// añade un chip de período nuevo, actualizar AMBOS.
+const ECO_PERIOD_DAYS = {
+  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
+};
+
+/**
+ * Ventana efectiva del dashboard como { from, to } (YYYY-MM-DD, días AST
+ * inclusivos). Custom → lo guardado por el FilterBar; preset → la MISMA
+ * ventana cerrada terminando AYER que calculan /api/eco-data, /api/overview
+ * y los correos (closedWindowYmdInTZ). Los drill-downs la usan para mandar
+ * bordes explícitos a /api/eco-mentions en vez de dejar que el endpoint
+ * derive una ventana rolling distinta — la causa #1 de "el número de la
+ * modal no cuadra con la card" (auditoría consistencia 2026-08).
+ *
+ * AST es UTC-4 fijo (Puerto Rico no tiene DST), así que "hoy en AST" es el
+ * reloj UTC corrido 4 horas — sin depender de la TZ del navegador.
+ */
+function ecoResolvedWindow() {
+  try {
+    const period = localStorage.getItem('eco.period') || '7D';
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from') || '';
+      const to = localStorage.getItem('eco.to') || '';
+      if (from && to) return { from, to };
+    }
+    const days = ECO_PERIOD_DAYS[period] || 7;
+    const cursor = new Date(Date.now() - 4 * 3600 * 1000); // reloj AST
+    cursor.setUTCDate(cursor.getUTCDate() - 1);            // ayer (día cerrado)
+    const to = cursor.toISOString().slice(0, 10);
+    cursor.setUTCDate(cursor.getUTCDate() - (days - 1));
+    const from = cursor.toISOString().slice(0, 10);
+    return { from, to };
+  } catch (_) {
+    return null;
+  }
+}
+window.ecoResolvedWindow = ecoResolvedWindow;
 
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
@@ -1328,12 +1373,15 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   }, [onClose]);
 
   // Cuando el slice filtra por tópico, default a "primary" (top-confidence) —
-  // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Toggle
-  // permite incluir secundarias y ver el total multi-clasificación.
+  // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Las
+  // cards cuyo número de origen es multi-clasificación (p.ej. el calendario
+  // de tópicos) pasan `_filter.topicMode: 'all'` para que el modal abra en la
+  // MISMA base de conteo. El toggle sigue disponible en ambos casos.
   const hasTopicFilter = !!(slice && slice._filter && slice._filter.topic);
-  const [topicMode, setTopicMode] = React.useState('primary');
+  const initialTopicMode = (slice && slice._filter && slice._filter.topicMode) || 'primary';
+  const [topicMode, setTopicMode] = React.useState(initialTopicMode);
   // Reset cuando cambia el slice (otro tópico, otro filtro).
-  React.useEffect(() => { setTopicMode('primary'); }, [slice]);
+  React.useEffect(() => { setTopicMode(initialTopicMode); }, [slice]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // If a slice carries a structured filter, fetch real matching mentions from
   // /api/eco-mentions and replace the placeholder list + counts. The slice
@@ -1342,13 +1390,22 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
     if (!slice || !slice._filter) { setLiveSlice(null); return; }
     setLoading(true);
     const filter = { ...slice._filter };
-    // Solo enviamos topicMode cuando hay filtro de tópico — para otros filtros
-    // (heatmap, source, day) el parámetro no aplica.
+    // topicMode viaja siempre que haya filtro de tópico; refleja el estado
+    // del toggle (inicializado con el modo de la card de origen).
     if (filter.topic) filter.topicMode = topicMode;
+    // Ventana SIEMPRE explícita: la de la card de origen (filter.from/to) o,
+    // si la card no la trae, la ventana cerrada global. Nunca dejamos que
+    // /api/eco-mentions derive su rolling window del `period` — era la causa
+    // #1 de "el número de la modal no cuadra con la card" (auditoría 2026-08).
+    // Con `day` presente el endpoint acota a ese día y los bordes from/to
+    // sobran, pero enviarlos es inocuo.
+    if (!filter.from || !filter.to) {
+      const w = ecoResolvedWindow();
+      if (w) { filter.from = w.from; filter.to = w.to; }
+    }
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
-        ...getPeriodParams(),
         limit: '20',
         ...filter,
       }).filter(([, v]) => v != null && v !== '')
@@ -1399,6 +1456,30 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body)' }}>{volume.toLocaleString('es-PR')}</span> menciones
               </div>
             )}
+            {slice._filter && (() => {
+              // Ventana y universo REALES de la consulta de este modal,
+              // visibles para que el número sea auditable contra la card de
+              // origen (auditoría consistencia 2026-08: antes el modal usaba
+              // una ventana rolling implícita distinta a la de toda card).
+              const f = slice._filter;
+              const w = f.day ? { from: f.day, to: f.day }
+                : (f.from && f.to) ? { from: f.from, to: f.to }
+                : ecoResolvedWindow();
+              if (!w) return null;
+              const fmtYmd = (ymd) => {
+                const [y, m, d] = String(ymd).split('-').map(Number);
+                if (!y || !m || !d) return ymd;
+                return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+              };
+              const range = w.from === w.to ? fmtYmd(w.from) : `${fmtYmd(w.from)} – ${fmtYmd(w.to)}`;
+              const universo = f.pertinence ? `pertinencia ${f.pertinence}`
+                : (f.includeLow === '1' ? 'todas las pertinencias' : 'sin pertinencia baja');
+              return (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)' }}>
+                  {range} · {universo}
+                </div>
+              );
+            })()}
             {(pos || neu || neg) && (
               <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)', flexWrap: 'wrap' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
@@ -1679,13 +1760,21 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
     // invalida cachés generados antes del backfill V3 (crisis sin gate +
     // BHI escala 1-10), que se quedaban pegados en sessionStorage del
     // tab y mostraban valores stale aún tras redeploy.
-    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}`;
+    // Rango personalizado: mandar from/to explícitos (el endpoint ya los
+    // acepta vía resolveWindow) e incluirlos en la clave del caché — antes
+    // period='custom' devolvía 400 y, peor, cambiar el rango manteniendo
+    // 'custom' servía el insight stale del rango anterior (auditoría
+    // 2026-08, P0-7).
+    const w = (period === 'custom' && window.ecoResolvedWindow) ? window.ecoResolvedWindow() : null;
+    const winSuffix = w && w.from && w.to ? `.${w.from}.${w.to}` : '';
+    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}${winSuffix}`;
     try {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) { setData(JSON.parse(cached)); return; }
     } catch (_) {}
     const ctrl = new AbortController();
     const params = new URLSearchParams({ metric: metricKey, period: period || '7D' });
+    if (w && w.from && w.to) { params.set('from', w.from); params.set('to', w.to); }
     if (agency) params.set('agency', agency);
     fetch(`/api/ai/metric-insight?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))

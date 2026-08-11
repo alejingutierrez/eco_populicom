@@ -241,6 +241,22 @@ function fmt(n) {
 }
 
 /**
+ * Ventana efectiva de los agregados de eco-data (D.PERIOD, expuesto por
+ * /api/eco-data) como { from, to } — días AST inclusivos, cerrada terminando
+ * ayer. Fallback a la ventana global calculada client-side cuando el payload
+ * aún no la trae (boot viejo cacheado). Los drill-downs la pasan en
+ * `_filter` para que la modal consulte la MISMA ventana que la card que la
+ * abrió (auditoría consistencia 2026-08).
+ */
+function ecoDataWindow() {
+  const data = window.ECO_DATA || {};
+  if (data.PERIOD && data.PERIOD.startYmd && data.PERIOD.endYmd) {
+    return { from: data.PERIOD.startYmd, to: data.PERIOD.endYmd };
+  }
+  return (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+}
+
+/**
  * Helper compartido para abrir un MetricInsightModal desde cualquier pantalla.
  * Construye el slice inicial con headlineValue + subcomponents + skeleton de
  * insight, lo aplica vía setSlice, y dispara un fetch (con polling) al
@@ -261,7 +277,12 @@ function openMetricInsightShared(setSlice, opts) {
     subcomponents: opts.subcomponents || [],
     insightText: '__loading__',
     mentions: [],
-    _filter: opts.filter || {},
+    // La ventana del dato de origen viaja en el _filter para que la lista de
+    // menciones del modal consulte el MISMO rango que el valor de la métrica.
+    _filter: {
+      ...(opts.periodStart && opts.periodEnd ? { from: opts.periodStart, to: opts.periodEnd } : {}),
+      ...(opts.filter || {}),
+    },
   });
 
   const params = new URLSearchParams({ metric: opts.metric });
@@ -373,13 +394,13 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     const total = Math.round((d.totalMentions || d.positivo + d.neutral + d.negativo) || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
-    // Sin histograma por hora: no existe la serie. El bloque que estaba aquí
-    // sintetizaba 24 barras con Math.sin() y las rotulaba "Volumen por hora"
-    // como si fueran medidas. HOUR_HEATMAP no sirve para rellenarlo porque
-    // agrega por día-de-semana sobre todo el período, no por fecha; y el modal
-    // sólo trae 20 menciones, así que derivarlo de la muestra sería otro
-    // invento. Requiere una serie real por hora en el backend (WS-C/M).
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
+    // Sin histogram: el "Volumen por hora" que se mostraba aquí era una
+    // senoide sintética, no datos (auditoría 2026-08). Y no se puede rellenar
+    // con HOUR_HEATMAP: eso agrega por día-de-semana sobre TODO el período, no
+    // por fecha. Derivarlo de las 20 menciones del modal sería otro invento.
+    // Requiere una serie real por hora en el backend. El datapoint del
+    // TIMELINE cuenta el universo pertinente — igual que el default del modal.
     setSlice({
       eyebrow: d.date,
       title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
@@ -401,7 +422,9 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       title: src.label,
       accent: colors[key] || 'var(--accent)',
       mentions: [],
-      _filter: { source: key },
+      // TOP_SOURCES cuenta la ventana cerrada de eco-data en el universo
+      // pertinente — el mismo default del modal; solo viaja la ventana.
+      _filter: { ...ecoDataWindow(), source: key },
     });
   }
 
@@ -411,7 +434,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       title: 'Franja horaria',
       accent: 'var(--accent)',
       mentions: [],
-      _filter: { dow: cell.day, hour: cell.hour },
+      _filter: { ...ecoDataWindow(), dow: cell.day, hour: cell.hour },
     });
   }
 
@@ -425,7 +448,9 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
       title: t.name,
       accent,
       mentions: [],
-      _filter: { topic: t.slug },
+      // TOPICS.count es primario (default del modal) sobre la ventana de
+      // eco-data en el universo pertinente (default del endpoint).
+      _filter: { ...ecoDataWindow(), topic: t.slug },
     });
   }
 
@@ -706,7 +731,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           label={metricModal.label}
           accent={metricModal.accent}
           period={period}
-          agency={(window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || (localStorage.getItem('eco.agency') || '')}
+          agency={localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || ''}
           onClose={() => setMetricModal(null)}
         />
       )}
@@ -1037,8 +1062,13 @@ function MentionsScreen({ onMentionClick }) {
   React.useEffect(() => {
     const ctrl = new AbortController();
     const agency = localStorage.getItem('eco.agency') || '';
+    // Ventana cerrada explícita (from/to) en vez del `period` rolling: así el
+    // conteo de la card y el total del slice modal (que también manda from/to)
+    // cuentan exactamente lo mismo.
+    const vw = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
     const params = new URLSearchParams({
-      ...window.ecoGetPeriodParams(), limit: '1', minEngagement: String(VIRAL_THRESHOLD),
+      ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()),
+      limit: '1', minEngagement: String(VIRAL_THRESHOLD),
     });
     if (agency) params.set('agency', agency);
     setViralCount(null);
@@ -1124,17 +1154,20 @@ function MentionsScreen({ onMentionClick }) {
         </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
-          {loading ? 'Cargando…' : `${window.ecoFmtCount(data.total)} menciones`}
+          {/* El feed es EN VIVO (ventana rolling que incluye hoy) — a
+              diferencia de los agregados, que cierran en ayer. El rótulo lo
+              hace explícito para que los dos totales de esta pantalla no
+              parezcan contradictorios (auditoría 2026-08, P0-10). */}
+          {loading ? 'Cargando…' : `${window.ecoFmtCount(data.total)} menciones · en vivo (incluye hoy)`}
         </span>
       </div>
 
       {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
           período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 'var(--sp-3)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
         {/* Exacto, no '1.3K': es el mismo número que el contador de la barra de
-            filtros y el subtítulo de la lista imprimen a 40px y 200px de aquí.
-            Un conteo de menciones el producto lo sabe entero. */}
-        <QuickMetric label="Total" value={window.ecoFmtCount(D.CURRENT_METRICS.totalMentions)} />
+            filtros y el subtítulo de la lista imprimen a 40px y 200px de aquí. */}
+        <QuickMetric label="Total" value={window.ecoFmtCount(D.CURRENT_METRICS.totalMentions)} sub="período · cierre de ayer" />
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
         <MetricQuick label="Engagement rate" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate} />
         <MetricQuick label="Velocidad" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity} note="vs período ant." />
@@ -1689,7 +1722,7 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
                         ? 'Error de conexión'
                         : (data.total === 0
                             ? 'Sin resultados'
-                            : `${data.total.toLocaleString('es-PR')} menciones · página ${page} de ${totalPages}`)}
+                            : `${data.total.toLocaleString('es-PR')} menciones · en vivo (incluye hoy) · página ${page} de ${totalPages}`)}
                 </div>
               </div>
               <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
@@ -1758,6 +1791,11 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       value: `${m.nss > 0 ? '+' : ''}${m.nss}`,
       accent: 'var(--accent)',
       label: 'Net Sentiment Score',
+      // Ventana explícita de los datos que esta pantalla muestra (D.PERIOD).
+      // Con solo periodPreset, el rango personalizado devolvía 400 en
+      // /api/eco-metric-insight (sin clave 'custom' — auditoría 2026-08).
+      periodStart: ecoDataWindow().from,
+      periodEnd: ecoDataWindow().to,
       periodPreset: period || '7D',
       agency,
       subcomponents: [],
@@ -1777,7 +1815,10 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       accent,
       histogram: { label: `Evolución diaria · ${row.label.toLowerCase()}`, values, xLabels },
       mentions: [],
-      _filter: { sentiment: name },
+      // El donut (SENTIMENT_BREAKDOWN) cuenta la ventana de eco-data en el
+      // universo pertinente — la modal hereda la ventana; el universo es el
+      // default de ambos.
+      _filter: { ...ecoDataWindow(), sentiment: name },
     });
   }
 
@@ -1794,17 +1835,16 @@ function SentimentScreen({ onMentionClick, period, agency }) {
       title: e.emotion,
       accent,
       mentions: [],
-      _filter: { emotion: e.emotion },
+      _filter: { ...ecoDataWindow(), emotion: e.emotion },
     });
   }
 
   function openTimelineDaySlice(d) {
-    const total = (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--text-3)';
-    // Ver la nota de openTimelineDaySlice del Scorecard: no hay serie real por
-    // hora, así que no se dibuja histograma en vez de sintetizarlo.
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
+    // Sin histogram: el "Volumen por hora" era una senoide sintética, no
+    // datos (auditoría 2026-08).
     setSlice({
       eyebrow: d.date,
       title: bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro',
@@ -1818,7 +1858,9 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   function openGroupSlice(row, sentimentType) {
     const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
     const label = row.label;
-    const filter = { sentiment: sentimentType };
+    // Las tablas "Sentimiento por X" cuentan la ventana de eco-data en el
+    // universo pertinente — la modal hereda la ventana.
+    const filter = { ...ecoDataWindow(), sentiment: sentimentType };
     if (groupBy === 'source') {
       filter.source = {
         'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
@@ -2274,11 +2316,13 @@ function TopicsScreen({ onMentionClick }) {
         const slugIdx = {};
         D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
         const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
-        // Sin histograma sintético (aquí incluso llevaba `jitter` para romper la
-        // simetría del seno y que no se notara) y sin splitSentiment: el modal
-        // rellena el desglose real desde /api/eco-mentions con `_filter`.
         const dateStr = dayModal.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         const dayIso = dayModal.dt.toISOString().slice(0, 10);
+        // topicMode 'all': la celda del calendario cuenta multi-clasificación
+        // (universo pertinente) — el modal abre en la MISMA base para que el
+        // total cuadre con la celda. (El histograma
+        // "Volumen por hora" que se mostraba aquí era una senoide sintética
+        // con jitter — eliminado, auditoría 2026-08.)
         return (
           <MentionsSliceModal
             slice={{
@@ -2286,7 +2330,7 @@ function TopicsScreen({ onMentionClick }) {
               title: dayModal.topicName,
               accent,
               mentions: [],
-              _filter: { topic: dayModal.topicSlug, day: dayIso },
+              _filter: { topic: dayModal.topicSlug, day: dayIso, topicMode: 'all' },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
               ctaIcon: 'Hash',
               onCta: () => { setDayModal(null); openTopic(dayModal.topicSlug); },
@@ -2600,7 +2644,11 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   React.useEffect(() => {
     let cancelled = false;
     setMentionsState((s) => ({ ...s, loading: true }));
-    fetchSliceMentions({ topic: topic.slug, limit: pageSize, offset: (page - 1) * pageSize })
+    // topicMode primary: la MISMA base del hero de esta pantalla
+    // (TOPICS.count: primario, ventana cerrada, universo pertinente). Antes
+    // la tabla contaba multi-clasificación sobre otra ventana y su total
+    // contradecía el hero (auditoría 2026-08, P0-5).
+    fetchSliceMentions({ ...ecoDataWindow(), topic: topic.slug, topicMode: 'primary', limit: pageSize, offset: (page - 1) * pageSize })
       .then((r) => {
         if (cancelled) return;
         setMentionsState({ loading: false, mentions: r.mentions || [], total: r.total || 0 });
@@ -3034,9 +3082,17 @@ function buildSliceMentions(predicate, max = 8) {
 function fetchSliceMentions(filter) {
   const params = new URLSearchParams();
   const agency = localStorage.getItem('eco.agency');
-  const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
   if (agency) params.set('agency', agency);
-  params.set('period', period);
+  // Ventana cerrada explícita (la misma de los agregados) en vez del `period`
+  // rolling implícito del endpoint. Antes, con rango custom, esto mandaba
+  // `period=custom` SIN from/to y el backend degradaba en silencio a 30 días
+  // rolantes (auditoría 2026-08). El caller puede sobreescribir from/to
+  // pasándolos en `filter`.
+  const w = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+  if (w.from && w.to) {
+    params.set('from', w.from);
+    params.set('to', w.to);
+  }
   params.set('limit', '20');
   for (const [k, v] of Object.entries(filter || {})) {
     if (v == null || v === '') continue;
@@ -3139,18 +3195,32 @@ function GeographyScreen({ onMentionClick }) {
   const seqScale = React.useMemo(() => seqQuantileScale(munis.map((m) => m.count || 0)), [munis]);
 
   function openMuniSlice(m) {
+    // ecoNssColor: la banda neutra del NSS iba en --warn (ámbar), el color de
+    // severidad, así que un municipio en 0.0 se leía como advertencia.
     const accent = window.ecoNssColor(m.nss);
-    // Desglose REAL: /api/eco-geo ya manda positivo/neutral/negativo por
-    // municipio (route.ts:172). Antes esto llamaba a splitSentiment(), que
-    // inventaba el reparto a partir del total con ratios fijos.
+    // Desglose REAL del payload (eco-geo y eco-data lo traen por municipio).
+    // Antes se fabricaba con splitSentiment y ratios fijos 55/25/20 — el
+    // header del modal mostraba números inventados mientras cargaba
+    // (auditoría 2026-08). Si el dato no viene, mejor no mostrar nada.
+    const senti = (m.positivo != null || m.neutral != null || m.negativo != null)
+      ? { pos: m.positivo || 0, neu: m.neutral || 0, neg: m.negativo || 0 }
+      : undefined;
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
       title: `NSS ${m.nss > 0 ? '+' : ''}${m.nss.toFixed(1)}`,
       accent,
       volume: m.count,
-      sentiment: { pos: m.positivo ?? 0, neu: m.neutral ?? 0, neg: m.negativo ?? 0 },
+      ...(senti ? { sentiment: senti } : {}),
       mentions: [],
-      _filter: { municipality: m.slug, ...contentFilter },
+      // El mapa cuenta ventana cerrada SIN pertinencia baja (default del
+      // modal ✓) y su filtro de tópico es any-touch → topicMode 'all' para
+      // que el total del modal cuadre con la burbuja.
+      _filter: {
+        ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
+        municipality: m.slug,
+        ...contentFilter,
+        ...(contentFilter.topic ? { topicMode: 'all' } : {}),
+      },
     });
   }
 
@@ -3173,7 +3243,10 @@ function GeographyScreen({ onMentionClick }) {
           title: focus.name || focus.slug,
           accent: 'var(--accent)',
           mentions: [],
-          _filter: { municipality: focus.slug },
+          _filter: {
+            ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
+            municipality: focus.slug,
+          },
         });
       }
     } catch (_) {}
@@ -3279,19 +3352,32 @@ function GeographyScreen({ onMentionClick }) {
               // negativo primero, que es lo que se va a atender.
               .map((r) => ({ r, rows: munis.filter((m) => m.region === r) }))
               .filter((g) => g.rows.length > 0)
-              .sort((a, b) => (a.rows.reduce((s, m) => s + m.nss, 0) / a.rows.length)
-                            - (b.rows.reduce((s, m) => s + m.nss, 0) / b.rows.length))
+              // Ordena por el MISMO número que se imprime: ponderado por volumen.
+              // Con media simple el orden y la cifra mostrada discrepaban, así que
+              // la columna alineada a la derecha volvía a zigzaguear — justo lo
+              // que este orden venía a arreglar.
+              .map(({ r, rows }) => {
+                const tot = rows.reduce((s, m) => s + (m.count || 0), 0);
+                return { r, rows, avg: tot > 0
+                  ? rows.reduce((s, m) => s + m.nss * (m.count || 0), 0) / tot
+                  : 0 };
+              })
+              .sort((a, b) => a.avg - b.avg)
               .map(({ r }, i) => {
               const regionMunis = munis.filter(m => m.region === r);
               if (regionMunis.length === 0) return null;
-              const avgNss = regionMunis.reduce((s,m) => s+m.nss, 0) / regionMunis.length;
               const total = regionMunis.reduce((s,m) => s+m.count, 0);
-              // El dominio era ±10 (el rango teórico del NSS) con dato que vive
-              // entre 0.0 y −2.1: la región más negativa llenaba 10.5% de la
-              // pista y las seis se leían "planas en cero" mientras la cifra
-              // decía −2.1. El dominio es el umbral de decisión del mapa (±2)
-              // más un tercio de holgura, así que barra y color hablan de la
-              // misma escala.
+              // NSS regional PONDERADO por volumen: antes era media simple de
+              // los NSS municipales y un municipio con 2 menciones pesaba
+              // igual que uno con 4,000 (auditoría 2026-08, P1-12).
+              const avgNss = total > 0
+                ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
+                : 0;
+              // Y el DOMINIO es ±3, no ±10. Con el rango teórico del NSS la región más
+              // negativa llenaba 10.5% de la pista y las seis se leían "planas en cero"
+              // mientras la cifra al lado decía −2.1. ±3 es el umbral de decisión del
+              // mapa (±2) más holgura, así que la barra y el color hablan de la misma
+              // escala.
               const NSS_DOMAIN = 3;
               const pct = Math.max(-1, Math.min(1, avgNss / NSS_DOMAIN));
               return (
@@ -3302,7 +3388,12 @@ function GeographyScreen({ onMentionClick }) {
                       title: `Sentimiento en ${r}`,
                       accent: window.ecoNssColor(avgNss),
                       mentions: [],
-                      _filter: { region: r, ...contentFilter },
+                      _filter: {
+                        ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
+                        region: r,
+                        ...contentFilter,
+                        ...(contentFilter.topic ? { topicMode: 'all' } : {}),
+                      },
                     });
                   }}
                   className="row-hover"
@@ -4728,13 +4819,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       title: `Menciones ${map[name].toLowerCase()}`,
       accent,
       volume: count,
-      sentiment: {
-        pos: name === 'positivo' ? count : 0,
-        neu: name === 'neutral' ? count : 0,
-        neg: name === 'negativo' ? count : 0,
-      },
       mentions: [],
-      _filter: { sentiment: name },
+      // Ventana del termómetro (/api/overview: cerrada, universo pertinente —
+      // el mismo default del modal). Sin el desglose one-hot sintético que
+      // afirmaba "0" en los otros sentimientos mientras cargaba — el real
+      // llega del fetch del modal.
+      _filter: { from: data.periodStart, to: data.periodEnd, sentiment: name },
     });
   }
 
@@ -4755,6 +4845,8 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       volume: total,
       sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
       mentions: [],
+      // La serie diaria del Overview cuenta el universo pertinente (default
+      // del modal); `day` acota al día exacto server-side.
       _filter: { day: d.fullDate },
     });
   }
@@ -4807,7 +4899,11 @@ function OverviewScreen({ period, agency, onMentionClick }) {
             title: topic.name,
             accent,
             mentions: [],
-            _filter: { topic: topic.slug },
+            // Misma ventana y universo que la fila de la tabla
+            // (buildSentimentReport: cerrada, primario, todas las
+            // pertinencias). El default primary del modal cuadra con el
+            // conteo de la fila; el toggle muestra las secundarias.
+            _filter: { from: data.periodStart, to: data.periodEnd, topic: topic.slug },
           });
         }}
       />

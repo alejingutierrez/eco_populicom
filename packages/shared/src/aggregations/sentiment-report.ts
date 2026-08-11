@@ -86,6 +86,8 @@ export interface SentimentReport {
   /** YYYY-MM-DD en TZ PR (inclusive). */
   periodEnd: string;
   totals: SentimentTotals;
+  /** Totales de la ventana previa (misma duración) — para deltas de volumen. */
+  prevTotals: SentimentTotals;
   /** % change de cada sentimiento vs la ventana previa de la misma duración. */
   deltaVsPrev: { negative: number; neutral: number; positive: number };
   /** Una entrada por día calendario en TZ PR, en orden cronológico. */
@@ -95,6 +97,26 @@ export interface SentimentReport {
 }
 
 const TOP_N_TOPICS = 7;
+
+export interface SentimentReportOptions {
+  /**
+   * Incluir menciones con nlp_pertinence = 'baja'. Default FALSE: el universo
+   * canónico de CONTEOS del producto es "menciones pertinentes" (decisión D2
+   * de la auditoría de consistencia 2026-08 — dashboard, modales y correos
+   * cuentan lo mismo). Las métricas compuestas (metrics.ts: NSS/BHI/crisis)
+   * conservan su universo calibrado por backtest; esto solo gobierna conteos.
+   */
+  includeLowPertinence?: boolean;
+}
+
+/**
+ * Fragmento WHERE del universo pertinente. `alias` es el prefijo de la tabla
+ * mentions en la query (p.ej. 'm.'), vacío cuando la query no usa alias.
+ */
+function pertinentSql(includeLow: boolean | undefined, alias = ''): string {
+  if (includeLow) return '';
+  return `AND (${alias}nlp_pertinence IS NULL OR ${alias}nlp_pertinence <> 'baja')`;
+}
 
 // ============================================================
 // Helpers
@@ -139,18 +161,35 @@ async function loadTotals(
   agencyId: string,
   startYmd: string,
   endYmd: string,
+  opts?: SentimentReportOptions,
 ): Promise<{ negative: number; neutral: number; positive: number }> {
   const r = await client.query<{ s: string | null; c: number | string }>(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
         AND is_duplicate = false
+        ${pertinentSql(opts?.includeLowPertinence)}
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1`,
     [agencyId, startYmd, endYmd],
   );
   return foldSentiments(r.rows);
+}
+
+/**
+ * Totales por sentimiento del universo canónico, exportado para que otros
+ * endpoints (eco-data) cuenten EXACTAMENTE igual que el Overview y el correo.
+ */
+export async function loadSentimentTotals(
+  client: PgClientLike,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+  opts?: SentimentReportOptions,
+): Promise<SentimentTotals> {
+  const t = await loadTotals(client, agencyId, startYmd, endYmd, opts);
+  return { ...t, total: t.negative + t.neutral + t.positive };
 }
 
 // ============================================================
@@ -162,6 +201,7 @@ async function loadDailySeries(
   agencyId: string,
   startYmd: string,
   endYmd: string,
+  opts?: SentimentReportOptions,
 ): Promise<DailyPoint[]> {
   const rows = await client.query<{ d: string; s: string | null; c: number | string }>(
     `SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
@@ -170,6 +210,7 @@ async function loadDailySeries(
        FROM mentions
       WHERE agency_id = $1
         AND is_duplicate = false
+        ${pertinentSql(opts?.includeLowPertinence)}
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1, 2
@@ -196,6 +237,21 @@ async function loadDailySeries(
   }));
 }
 
+/**
+ * Serie diaria del universo canónico, exportada para que eco-data construya
+ * el TIMELINE de volumen con LA MISMA query que el Overview y el correo
+ * (antes salía de daily_metric_snapshots — otra fuente, otro universo).
+ */
+export async function loadDailySentimentSeries(
+  client: PgClientLike,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+  opts?: SentimentReportOptions,
+): Promise<DailyPoint[]> {
+  return loadDailySeries(client, agencyId, startYmd, endYmd, opts);
+}
+
 // ============================================================
 // Query: tabla de tópicos con primaryCount + secondaryCount
 // ============================================================
@@ -216,6 +272,7 @@ async function loadTopicsTable(
   agencyId: string,
   startYmd: string,
   endYmd: string,
+  opts?: SentimentReportOptions,
 ): Promise<TopicTableRow[]> {
   // Estrategia (matchea weekly-report:734-823):
   //  - Cada mención cuenta UNA vez bajo su top-confidence topic (subquery con
@@ -246,6 +303,7 @@ async function loadTopicsTable(
              FROM mentions m
             WHERE m.agency_id = $1
               AND m.is_duplicate = false
+              ${pertinentSql(opts?.includeLowPertinence, 'm.')}
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
          ) pt
@@ -260,6 +318,7 @@ async function loadTopicsTable(
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
           AND m.is_duplicate = false
+          ${pertinentSql(opts?.includeLowPertinence, 'm.')}
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY mt.topic_id
@@ -338,17 +397,23 @@ export async function buildSentimentReport(
   endYmd: string,
   prevStartYmd: string,
   prevEndYmd: string,
+  opts?: SentimentReportOptions,
 ): Promise<SentimentReport> {
   const [curr, prev, dailySeries, topicsTable] = await Promise.all([
-    loadTotals(client, agencyId, startYmd, endYmd),
-    loadTotals(client, agencyId, prevStartYmd, prevEndYmd),
-    loadDailySeries(client, agencyId, startYmd, endYmd),
-    loadTopicsTable(client, agencyId, startYmd, endYmd),
+    loadTotals(client, agencyId, startYmd, endYmd, opts),
+    loadTotals(client, agencyId, prevStartYmd, prevEndYmd, opts),
+    loadDailySeries(client, agencyId, startYmd, endYmd, opts),
+    loadTopicsTable(client, agencyId, startYmd, endYmd, opts),
   ]);
 
   const totals: SentimentTotals = {
     ...curr,
     total: curr.negative + curr.neutral + curr.positive,
+  };
+
+  const prevTotals: SentimentTotals = {
+    ...prev,
+    total: prev.negative + prev.neutral + prev.positive,
   };
 
   const deltaVsPrev = {
@@ -361,6 +426,7 @@ export async function buildSentimentReport(
     periodStart: startYmd,
     periodEnd: endYmd,
     totals,
+    prevTotals,
     deltaVsPrev,
     dailySeries,
     topicsTable,

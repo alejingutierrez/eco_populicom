@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool, agencies } from '@eco/database';
-import { eq } from 'drizzle-orm';
+import { getPool } from '@eco/database';
+import { PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1,
-  '5D': 5,
-  '1M': 30,
-  '3M': 90,
-  '6M': 180,
-  '1A': 365,
-  Max: 730,
-};
+// PERIOD_DAYS: mapa canónico de @eco/shared. El local anterior no tenía
+// 7D/30D/90D y esos chips caían en silencio a 730 días (auditoría 2026-08).
+// El filtro sigue siendo por RECENCIA de actividad (last_mention_at), no una
+// ventana de conteo — las narrativas son entidades vivas, no agregados.
 
 interface NarrativeListItem {
   id: string;
@@ -60,16 +55,10 @@ export async function GET(request: NextRequest) {
   const minMentions = Math.max(0, Number(searchParams.get('minMentions') ?? 0));
   const limit = Math.min(500, Math.max(1, Number(searchParams.get('limit') ?? 250)));
 
-  const db = getDb();
-  let agencyId = await resolveAgencyId(searchParams);
-  if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya resuelve
+  // dentro del set PERMITIDO del usuario; null = set vacío, y servir otra
+  // agencia era un leak de tenant (auditoría 2026-08, P1-1).
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
     return NextResponse.json({ narratives: [], meta: { total: 0, period: periodKey } });
   }

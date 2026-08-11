@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getPool, agencies } from '@eco/database';
-import { eq } from 'drizzle-orm';
+import { getPool } from '@eco/database';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -24,16 +23,9 @@ export async function GET(request: NextRequest) {
   const minStrength = Number(searchParams.get('minStrength') ?? 0.15);
   const types = (searchParams.get('types') ?? '').split(',').filter(Boolean);
 
-  const db = getDb();
-  let agencyId = await resolveAgencyId(searchParams);
-  if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-  }
+  // Sin fallback a "primera agencia activa" (leak de tenant — auditoría
+  // 2026-08, P1-1): null = usuario sin agencias concedidas → vacío.
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) return NextResponse.json({ edges: [], meta: { total: 0 } });
 
   const pgPool = getPool();
