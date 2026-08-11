@@ -3196,7 +3196,8 @@ function GeographyScreen({ onMentionClick }) {
 
   function openMuniSlice(m) {
     // ecoNssColor: la banda neutra del NSS iba en --warn (ámbar), el color de
-    // severidad, así que un municipio en 0.0 se leía como advertencia.
+    // severidad, así que un municipio en 0.0 se leía como advertencia. El umbral
+    // vive en UN solo sitio (data.js) y ya está en la escala canónica ±20 de #92.
     const accent = window.ecoNssColor(m.nss);
     // Desglose REAL del payload (eco-geo y eco-data lo traen por municipio).
     // Antes se fabricaba con splitSentiment y ratios fijos 55/25/20 — el
@@ -3207,7 +3208,7 @@ function GeographyScreen({ onMentionClick }) {
       : undefined;
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
-      title: `NSS ${m.nss > 0 ? '+' : ''}${m.nss.toFixed(1)}`,
+      title: `NSS ${m.nss > 0 ? '+' : ''}${Math.round(m.nss)}`,
       accent,
       volume: m.count,
       ...(senti ? { sentiment: senti } : {}),
@@ -3373,12 +3374,12 @@ function GeographyScreen({ onMentionClick }) {
               const avgNss = total > 0
                 ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
                 : 0;
-              // Y el DOMINIO es ±3, no ±10. Con el rango teórico del NSS la región más
-              // negativa llenaba 10.5% de la pista y las seis se leían "planas en cero"
-              // mientras la cifra al lado decía −2.1. ±3 es el umbral de decisión del
-              // mapa (±2) más holgura, así que la barra y el color hablan de la misma
-              // escala.
-              const NSS_DOMAIN = 3;
+              // El DOMINIO es ±30, no ±100. Con el rango teórico del NSS la región
+              // más negativa llenaba ~10% de la pista y las seis se leían "planas
+              // en cero" mientras la cifra al lado decía −21. ±30 es el umbral de
+              // decisión del mapa (±20, escala canónica de #92) más holgura, así
+              // que la barra y el color hablan de la misma escala.
+              const NSS_DOMAIN = 30;
               const pct = Math.max(-1, Math.min(1, avgNss / NSS_DOMAIN));
               return (
                 <button key={r}
@@ -5685,7 +5686,10 @@ function NarrativeScreen({ agency }) {
     setFocusedId(null);
     setSelectedDay(null);
     Promise.all([
-      fetch(`/api/narrative?agency=${agency || ''}&limit=500`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      // Honra el selector de período del header (antes esta pantalla lo
+      // ignoraba y consultaba 730 días — auditoría 2026-08). El app recarga
+      // al cambiar período/agencia, así que leer localStorage aquí basta.
+      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500', ...window.ecoGetPeriodParams() }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
       fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
     ])
       .then(([nRes, eRes]) => {
@@ -5791,7 +5795,7 @@ function NarrativeScreen({ agency }) {
           })}
         </div>
         <div className="narrative-menu-count">
-          {filteredNarratives.length} de {narratives.length} narrativas
+          {filteredNarratives.length} de {narratives.length} narrativas · con actividad en el período
         </div>
         <ul className="narrative-list">
           {filteredNarratives.map((n) => (

@@ -35,7 +35,7 @@
    "positivo": 36,
    "neutral": 38,
    "negativo": 32,
-   "nss": -2.2
+   "nss": -22
   },
   {
    "date": "07-29",
@@ -44,7 +44,7 @@
    "positivo": 28,
    "neutral": 31,
    "negativo": 30,
-   "nss": -1.42
+   "nss": -14
   },
   {
    "date": "07-30",
@@ -62,7 +62,7 @@
    "positivo": 20,
    "neutral": 24,
    "negativo": 23,
-   "nss": -0.83
+   "nss": -8
   },
   {
    "date": "08-01",
@@ -71,7 +71,7 @@
    "positivo": 17,
    "neutral": 22,
    "negativo": 17,
-   "nss": -1.21
+   "nss": -12
   },
   {
    "date": "08-02",
@@ -80,7 +80,7 @@
    "positivo": 47,
    "neutral": 61,
    "negativo": 40,
-   "nss": -1.92
+   "nss": -19
   },
   {
    "date": "08-03",
@@ -89,14 +89,14 @@
    "positivo": 58,
    "neutral": 70,
    "negativo": 43,
-   "nss": -2.73
+   "nss": -27
   }
  ],
  "CURRENT_METRICS": {
-  "nss": -2.2,
-  "nssDelta": -0.4,
-  "nss7d": -1.9,
-  "nss30d": -1.1,
+  "nss": -22,
+  "nssDelta": -4,
+  "nss7d": -19,
+  "nss30d": -11,
   "brandHealthIndex": 41,
   "brandHealthDelta": 2.6,
   "crisisRiskScore": 0.18,
@@ -120,9 +120,9 @@
   "display": {
    "nss": {
     "word": "Negativo leve",
-    "value": -2.2,
-    "short": "-2.2",
-    "raw": -2.2,
+    "value": -22,
+    "short": "-22",
+    "raw": -22,
     "band": null,
     "tone": "neg",
     "color": "var(--neg)"
@@ -187,8 +187,8 @@
     "word": "baja",
     "direction": "down",
     "arrow": "▼",
-    "value": -0.4,
-    "magnitude": 0.4,
+    "value": -4,
+    "magnitude": 4,
     "hasBaseline": true,
     "tone": "neg"
    },
@@ -394,7 +394,7 @@
    "name": "San Juan",
    "region": "Norte",
    "count": 346,
-   "nss": -3.1,
+   "nss": -31,
    "lat": 18.4655,
    "lon": -66.1057
   },
@@ -402,7 +402,7 @@
    "name": "Bayamón",
    "region": "Norte",
    "count": 146,
-   "nss": -2.4,
+   "nss": -24,
    "lat": 18.3985,
    "lon": -66.1614
   },
@@ -410,7 +410,7 @@
    "name": "Carolina",
    "region": "Norte",
    "count": 120,
-   "nss": -1.8,
+   "nss": -18,
    "lat": 18.3809,
    "lon": -65.9574
   },
@@ -418,7 +418,7 @@
    "name": "Ponce",
    "region": "Sur",
    "count": 106,
-   "nss": 0.0,
+   "nss": 0,
    "lat": 18.0111,
    "lon": -66.6141
   },
@@ -426,7 +426,7 @@
    "name": "Caguas",
    "region": "Este",
    "count": 93,
-   "nss": -1.2,
+   "nss": -12,
    "lat": 18.2341,
    "lon": -66.0485
   },
@@ -434,7 +434,7 @@
    "name": "Mayagüez",
    "region": "Oeste",
    "count": 80,
-   "nss": 0.0,
+   "nss": 0,
    "lat": 18.2013,
    "lon": -67.1397
   },
@@ -442,7 +442,7 @@
    "name": "Arecibo",
    "region": "Norte",
    "count": 67,
-   "nss": 1.4,
+   "nss": 14,
    "lat": 18.4725,
    "lon": -66.7156
   },
@@ -450,7 +450,7 @@
    "name": "Guaynabo",
    "region": "Norte",
    "count": 67,
-   "nss": -0.9,
+   "nss": -9,
    "lat": 18.3574,
    "lon": -66.111
   }
@@ -877,12 +877,12 @@
   {
    "label": "Esta semana",
    "total": 658,
-   "nss": -2.2
+   "nss": -22
   },
   {
    "label": "Semana anterior",
    "total": 585,
-   "nss": -1.8
+   "nss": -18
   }
  ],
  "SENTIMENT_BY_SOURCE": [

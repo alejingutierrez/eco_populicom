@@ -1307,9 +1307,10 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         fillOpacity: 1,
         className: 'eco-map-marker',
       });
-      const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
+      // Escala canónica del NSS (−100..100, #92): entero, sin decimal.
+      const nssStr = (m.nss > 0 ? '+' : '') + Math.round(m.nss ?? 0);
       // El tooltip juzga el NSS con el MISMO umbral que el relleno del marcador
-      // y que la leyenda (ecoNssColor, banda ±2). Antes con >0/<0, así que el
+      // y que la leyenda (ecoNssColor, banda ±20). Antes con >0/<0, así que el
       // mismo municipio salía ámbar en el círculo y rojo en su tooltip.
       const nssColor = T(window.ecoNssColor(m.nss));
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

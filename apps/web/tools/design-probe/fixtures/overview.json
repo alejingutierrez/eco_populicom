@@ -13,12 +13,12 @@
   "positive": -3.1,
   "neutral": 0,
   "negative": 18.7,
-  "nss": -2.2,
+  "nss": -4,
   "crisis": null
  },
  "currentMetrics": {
   "totalMentions": 1331,
-  "nss": -2.2,
+  "nss": -22,
   "bhi": 41,
   "crisisScore": 0.18,
   "polarizationIndex": null,
@@ -32,7 +32,7 @@
    "positive": 34,
    "neutral": 36,
    "negative": 36,
-   "nss": -2.2
+   "nss": -22
   },
   {
    "day": "2026-07-29",
@@ -40,7 +40,7 @@
    "positive": 28,
    "neutral": 30,
    "negative": 30,
-   "nss": -1.42
+   "nss": -14
   },
   {
    "day": "2026-07-30",
@@ -48,7 +48,7 @@
    "positive": 7,
    "neutral": 7,
    "negative": 7,
-   "nss": -0.91
+   "nss": -9
   },
   {
    "day": "2026-07-31",
@@ -56,7 +56,7 @@
    "positive": 21,
    "neutral": 23,
    "negative": 23,
-   "nss": -0.83
+   "nss": -8
   },
   {
    "day": "2026-07-32",
@@ -64,7 +64,7 @@
    "positive": 18,
    "neutral": 19,
    "negative": 19,
-   "nss": -1.21
+   "nss": -12
   },
   {
    "day": "2026-07-33",
@@ -72,7 +72,7 @@
    "positive": 47,
    "neutral": 50,
    "negative": 50,
-   "nss": -1.92
+   "nss": -19
   },
   {
    "day": "2026-07-34",
@@ -80,7 +80,7 @@
    "positive": 55,
    "neutral": 58,
    "negative": 58,
-   "nss": -2.73
+   "nss": -27
   }
  ],
  "topicsTable": [

@@ -48,7 +48,7 @@ for i, (d, v) in enumerate(zip(DAYS, VOL)):
         'positivo': pos, 'neutral': v - pos - neg, 'negativo': neg,
         # nss null en un día: es el hueco de serie que el contrato isGap() debe
         # respetar en vez de dibujar una línea recta que inventa el dato.
-        'nss': None if i == 2 else round(-2.2 + math.sin(i / 1.7) * 1.4, 2),
+        'nss': None if i == 2 else round(-22 + math.sin(i / 1.7) * 14),
     })
 
 TOPICS_RAW = [
@@ -71,14 +71,17 @@ TOPICS = [{'name': n, 'slug': s, 'count': c, 'positivePct': p,
            'alsoCount': max(0, (c // 40) - 1)}
           for n, s, c, p, nu, ng, dl in TOPICS_RAW]
 
-MUNI = [('San Juan', 'Norte', 346, -3.1, 18.4655, -66.1057),
-        ('Bayamón', 'Norte', 146, -2.4, 18.3985, -66.1614),
-        ('Carolina', 'Norte', 120, -1.8, 18.3809, -65.9574),
-        ('Ponce', 'Sur', 106, 0.0, 18.0111, -66.6141),
-        ('Caguas', 'Este', 93, -1.2, 18.2341, -66.0485),
-        ('Mayagüez', 'Oeste', 80, 0.0, 18.2013, -67.1397),
-        ('Arecibo', 'Norte', 67, 1.4, 18.4725, -66.7156),
-        ('Guaynabo', 'Norte', 67, -0.9, 18.3574, -66.1110)]
+# NSS en la escala CANÓNICA −100..100 (#92 quitó el /10 del cálculo). Incluye un
+# 0 exacto y valores dentro de la banda neutra ±20, que es donde se ve si el
+# color de la banda es neutro o de severidad.
+MUNI = [('San Juan', 'Norte', 346, -31, 18.4655, -66.1057),
+        ('Bayamón', 'Norte', 146, -24, 18.3985, -66.1614),
+        ('Carolina', 'Norte', 120, -18, 18.3809, -65.9574),
+        ('Ponce', 'Sur', 106, 0, 18.0111, -66.6141),
+        ('Caguas', 'Este', 93, -12, 18.2341, -66.0485),
+        ('Mayagüez', 'Oeste', 80, 0, 18.2013, -67.1397),
+        ('Arecibo', 'Norte', 67, 14, 18.4725, -66.7156),
+        ('Guaynabo', 'Norte', 67, -9, 18.3574, -66.1110)]
 
 EMO = [('ira', 453), ('preocupación', 320), ('esperanza', 186),
        ('alegría', 160), ('sorpresa', 133), ('tristeza', 80)]
@@ -122,7 +125,7 @@ REMOTE = {
     'USER_AGENCY_SLUG': 'ddecpr',
     'TIMELINE': TIMELINE,
     'CURRENT_METRICS': {
-        'nss': -2.2, 'nssDelta': -0.4, 'nss7d': -1.9, 'nss30d': -1.1,
+        'nss': -22, 'nssDelta': -4, 'nss7d': -19, 'nss30d': -11,
         'brandHealthIndex': 41, 'brandHealthDelta': 2.6,
         'crisisRiskScore': 0.18, 'crisisDelta': 0.03,
         'totalMentions': sum(VOL), 'totalMentionsDelta': 12.4,
@@ -135,7 +138,7 @@ REMOTE = {
         'positiveCount': 289, 'neutralCount': 305, 'negativeCount': 264,
         'highPertinenceCount': 148, 'totalEngagement': 36581,
         'display': {
-            'nss': disp('Negativo leve', -2.2, '-2.2', 'neg', 'var(--neg)'),
+            'nss': disp('Negativo leve', -22, '-22', 'neg', 'var(--neg)'),
             'brandHealth': disp('Débil', 41, '41/100', 'warn', 'var(--warn)'),
             'crisis': disp('Normal', 0.18, '0.18', 'pos', 'var(--pos)'),
             'polarization': disp('—', None, '—', 'neutral', 'var(--text-3)'),
@@ -144,7 +147,7 @@ REMOTE = {
             'velocity': disp('Acelerada', 1.3, '1.3x', 'warn', 'var(--warn)'),
         },
         'deltaDisplay': {
-            'nss': delta('baja', 'down', '▼', -0.4, 'neg'),
+            'nss': delta('baja', 'down', '▼', -4, 'neg'),
             'brandHealth': delta('sube', 'up', '▲', 2.6, 'pos'),
             'crisis': delta('sube', 'up', '▲', 0.03, 'neg'),
             'engagementRate': delta('baja', 'down', '▼', -1.2, 'neg'),
@@ -181,8 +184,8 @@ REMOTE = {
          'firedAt': f'2026-08-0{1 + (i % 3)}T{10 + i:02d}:00:00Z',
          'mentionCount': [4, 3, 24, 7][i % 4]} for i in range(8)],
     'COMPARISON': [
-        {'label': 'Esta semana', 'total': sum(VOL), 'nss': -2.2},
-        {'label': 'Semana anterior', 'total': 585, 'nss': -1.8}],
+        {'label': 'Esta semana', 'total': sum(VOL), 'nss': -22},
+        {'label': 'Semana anterior', 'total': 585, 'nss': -18}],
     'SENTIMENT_BY_SOURCE': by([(n, c, 30, 38, 32) for n, k, c in SOURCES], 'source'),
     'SENTIMENT_BY_TOPIC': by([(t['name'], t['count'], t['positivePct'],
                                t['neutralPct'], t['negativePct']) for t in TOPICS], 'topic'),
@@ -201,6 +204,12 @@ REMOTE = {
          'sentiment': TOPICS[i % len(TOPICS)]['dominantSentiment']}
         for i, (d, v) in enumerate(zip(DAYS, VOL))],
 }
+
+# /api/eco-geo lo consulta la pantalla de Geografía cada vez que cambian los
+# filtros; D.MUNICIPALITIES del boot es sólo el estado inicial. Sin este fixture
+# el mapa sale sin marcadores y no se puede verificar ni el radio ni el color.
+with open(os.path.join(FIX, 'eco-geo.json'), 'w', encoding='utf-8') as f:
+    json.dump({'municipalities': REMOTE['MUNICIPALITIES']}, f, ensure_ascii=False, indent=1)
 
 with open(os.path.join(FIX, 'eco-data-remote.json'), 'w', encoding='utf-8') as f:
     json.dump(REMOTE, f, ensure_ascii=False, indent=1)

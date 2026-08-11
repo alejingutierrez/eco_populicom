@@ -242,7 +242,10 @@ window.ecoSentimentLabel = function ecoSentimentLabel(s) {
 // ROJO en su propio tooltip y en la card. `--neu` y no `--warn`: --warn es
 // ADVERTENCIA, y como sólo 1 de 6 regiones sale de la banda, pintar la banda
 // neutra de ámbar convertía el mapa entero en una alarma.
-window.ECO_NSS_NEUTRAL_BAND = 2;
+// Banda neutra del NSS. #92 pasó el NSS municipal a la escala CANÓNICA −100..100
+// (antes −10..10; el cambio fue quitar un /10), así que la misma banda de ±2
+// vale ahora ±20 — el mismo umbral que usa el resto del producto.
+window.ECO_NSS_NEUTRAL_BAND = 20;
 window.ecoNssColor = function ecoNssColor(nss) {
   const v = Number(nss);
   if (!Number.isFinite(v)) return 'var(--neu)';
