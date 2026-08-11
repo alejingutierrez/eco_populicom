@@ -2744,7 +2744,8 @@ function GeographyScreen({ onMentionClick }) {
   }, [contentFilter]);
 
   function openMuniSlice(m) {
-    const accent = m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)';
+    // NSS municipal ahora en escala canónica −100..100 (antes −10..10).
+    const accent = m.nss > 20 ? 'var(--pos)' : m.nss < -20 ? 'var(--neg)' : 'var(--warn)';
     // Desglose REAL del payload (eco-geo y eco-data lo traen por municipio).
     // Antes se fabricaba con splitSentiment y ratios fijos 55/25/20 — el
     // header del modal mostraba números inventados mientras cargaba
@@ -2754,7 +2755,7 @@ function GeographyScreen({ onMentionClick }) {
       : undefined;
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
-      title: `NSS ${m.nss > 0 ? '+' : ''}${m.nss.toFixed(1)}`,
+      title: `NSS ${m.nss > 0 ? '+' : ''}${Math.round(m.nss)}`,
       accent,
       volume: m.count,
       ...(senti ? { sentiment: senti } : {}),
@@ -2830,7 +2831,7 @@ function GeographyScreen({ onMentionClick }) {
           <PRMap
             municipalities={munis}
             accessor={(m) => metric === 'count' ? m.count : Math.abs(m.nss)}
-            colorFn={(m) => metric === 'nss' ? (m.nss > 2 ? 'var(--pos)' : m.nss < -2 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
+            colorFn={(m) => metric === 'nss' ? (m.nss > 20 ? 'var(--pos)' : m.nss < -20 ? 'var(--neg)' : 'var(--warn)') : 'var(--accent)'}
             onMunicipalityClick={openMuniSlice}
           />
           <div style={{ display: 'flex', justifyContent: 'center', gap: 20, fontSize: 11, color: 'var(--text-2)', marginTop: 16 }}>
@@ -2868,7 +2869,7 @@ function GeographyScreen({ onMentionClick }) {
               const avgNss = total > 0
                 ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
                 : 0;
-              const pct = Math.max(-1, Math.min(1, avgNss / 10));
+              const pct = Math.max(-1, Math.min(1, avgNss / 100));
               return (
                 <button key={r}
                   onClick={() => {
@@ -4884,7 +4885,10 @@ function NarrativeScreen({ agency }) {
     setFocusedId(null);
     setSelectedDay(null);
     Promise.all([
-      fetch(`/api/narrative?agency=${agency || ''}&limit=500`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      // Honra el selector de período del header (antes esta pantalla lo
+      // ignoraba y consultaba 730 días — auditoría 2026-08). El app recarga
+      // al cambiar período/agencia, así que leer localStorage aquí basta.
+      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500', ...window.ecoGetPeriodParams() }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
       fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
     ])
       .then(([nRes, eRes]) => {
@@ -4973,7 +4977,7 @@ function NarrativeScreen({ agency }) {
           })}
         </div>
         <div className="narrative-menu-count">
-          {filteredNarratives.length} de {narratives.length} narrativas
+          {filteredNarratives.length} de {narratives.length} narrativas · con actividad en el período
         </div>
         <ul className="narrative-list">
           {filteredNarratives.map((n) => (

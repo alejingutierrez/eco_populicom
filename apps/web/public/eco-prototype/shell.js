@@ -1215,8 +1215,15 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const hasTopicFilter = !!(slice && slice._filter && slice._filter.topic);
   const initialTopicMode = (slice && slice._filter && slice._filter.topicMode) || 'primary';
   const [topicMode, setTopicMode] = React.useState(initialTopicMode);
+  // Toggle de universo: por default el modal cuenta menciones PERTINENTES
+  // (sin 'baja'), igual que todas las cards. El toggle permite auditar el
+  // universo completo a un click sin tocar los agregados (decisión D2,
+  // auditoría 2026-08). Oculto cuando la card fija pertinencia explícita
+  // (p. ej. el drill de crisis con pertinence=alta).
+  const initialIncludeLow = !!(slice && slice._filter && slice._filter.includeLow === '1');
+  const [includeLow, setIncludeLow] = React.useState(initialIncludeLow);
   // Reset cuando cambia el slice (otro tópico, otro filtro).
-  React.useEffect(() => { setTopicMode(initialTopicMode); }, [slice]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setTopicMode(initialTopicMode); setIncludeLow(initialIncludeLow); }, [slice]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // If a slice carries a structured filter, fetch real matching mentions from
   // /api/eco-mentions and replace the placeholder list + counts. The slice
@@ -1228,6 +1235,11 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
     // topicMode viaja siempre que haya filtro de tópico; refleja el estado
     // del toggle (inicializado con el modo de la card de origen).
     if (filter.topic) filter.topicMode = topicMode;
+    // Universo según el toggle (salvo pertinencia explícita de la card).
+    if (!filter.pertinence) {
+      if (includeLow) filter.includeLow = '1';
+      else delete filter.includeLow;
+    }
     // Ventana SIEMPRE explícita: la de la card de origen (filter.from/to) o,
     // si la card no la trae, la ventana cerrada global. Nunca dejamos que
     // /api/eco-mentions derive su rolling window del `period` — era la causa
@@ -1249,7 +1261,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
       .then((j) => setLiveSlice(j))
       .catch(() => setLiveSlice({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }))
       .finally(() => setLoading(false));
-  }, [slice, topicMode]);
+  }, [slice, topicMode, includeLow]);
 
   if (!slice) return null;
   const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta, insightText, subcomponents, headlineValue } = slice;
@@ -1307,11 +1319,23 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
               };
               const range = w.from === w.to ? fmtYmd(w.from) : `${fmtYmd(w.from)} – ${fmtYmd(w.to)}`;
+              // El universo refleja el TOGGLE (estado vivo de la consulta),
+              // no solo el _filter inicial de la card.
               const universo = f.pertinence ? `pertinencia ${f.pertinence}`
-                : (f.includeLow === '1' ? 'todas las pertinencias' : 'sin pertinencia baja');
+                : (includeLow ? 'todas las pertinencias' : 'sin pertinencia baja');
               return (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)' }}>
-                  {range} · {universo}
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span>{range} · {universo}</span>
+                  {!f.pertinence && (
+                    <button
+                      className="chip"
+                      onClick={() => setIncludeLow((v) => !v)}
+                      title="Cambia el universo de esta consulta; los agregados del dashboard no cambian"
+                      style={{ fontSize: 10, padding: '2px 8px' }}
+                    >
+                      {includeLow ? '— Solo pertinentes' : '+ Incluir baja pertinencia'}
+                    </button>
+                  )}
                 </div>
               );
             })()}

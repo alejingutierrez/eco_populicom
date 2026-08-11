@@ -416,10 +416,95 @@ export const GOBERNADORA_TOPICS: TopicDef[] = [
   }
 ];
 
+
+// ============================================================
+// SGPR — Secretaría de la Gobernación (Francisco Domenech)
+// RESTAURADA desde la tabla `topics` de prod (auditoría 2026-08): la
+// taxonomía se cableó en jun-2026 solo en un bundle desplegado desde un
+// worktree nunca mergeado; un redeploy del processor (~1-6 jul) la perdió
+// y TODA la clasificación de tópicos de SGPR murió en silencio (0/1,516
+// menciones clasificadas jul-ago). Los slugs deben coincidir EXACTOS con
+// la tabla `topics` — el processor descarta lo que no matchee.
+// ============================================================
+
+export const SGPR_TOPICS: TopicDef[] = [
+  {
+    slug: "gestion-gobernanza",
+    name: "Gestión de Gobernanza",
+    description: "Coordinación del gabinete, órdenes ejecutivas y operación de La Fortaleza",
+    displayOrder: 1,
+    subtopics: []
+  },
+  {
+    slug: "nombramientos",
+    name: "Nombramientos / Designaciones",
+    description: "Nombramientos, confirmaciones y cambios de personal en agencias",
+    displayOrder: 2,
+    subtopics: []
+  },
+  {
+    slug: "aafaf-finanzas",
+    name: "AAFAF / Finanzas Públicas",
+    description: "AAFAF, deuda pública y Junta de Supervisión Fiscal (FOMB)",
+    displayOrder: 3,
+    subtopics: []
+  },
+  {
+    slug: "relacion-legislatura",
+    name: "Relación con la Legislatura",
+    description: "Senado, Cámara, citaciones, vistas públicas y confirmaciones",
+    displayOrder: 4,
+    subtopics: []
+  },
+  {
+    slug: "politank-cabildeo",
+    name: "Politank / Cabildeo",
+    description: "Firma Politank, contratos gubernamentales y conflictos de interés",
+    displayOrder: 5,
+    subtopics: []
+  },
+  {
+    slug: "controversias-escrutinio",
+    name: "Controversias / Escrutinio",
+    description: "Señalamientos, FEI, investigaciones y ética pública",
+    displayOrder: 6,
+    subtopics: []
+  },
+  {
+    slug: "politica-partidista",
+    name: "Política Partidista",
+    description: "PNP, elecciones, estrategia política y campañas",
+    displayOrder: 7,
+    subtopics: []
+  },
+  {
+    slug: "politicas-publicas",
+    name: "Políticas Públicas",
+    description: "Iniciativas y anuncios de política del gobierno",
+    displayOrder: 8,
+    subtopics: []
+  },
+  {
+    slug: "imagen-liderazgo",
+    name: "Imagen / Liderazgo",
+    description: "Percepción pública, poder y rol de mano derecha de la Gobernadora",
+    displayOrder: 9,
+    subtopics: []
+  },
+  {
+    slug: "relaciones-federales",
+    name: "Relaciones Federales / Estatus",
+    description: "Relación con Washington, estatus político y fondos federales",
+    displayOrder: 10,
+    subtopics: []
+  }
+];
+
 export const TOPICS_BY_AGENCY: Record<string, TopicDef[]> = {
   aaa: AAA_TOPICS,
   ddecpr: DDECPR_TOPICS,
   gobernadora: GOBERNADORA_TOPICS,
+  sgpr: SGPR_TOPICS,
 };
 
 /** Backwards compat: defaults to AAA topics */

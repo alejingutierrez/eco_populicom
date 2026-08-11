@@ -71,7 +71,20 @@ export async function GET(request: NextRequest) {
     params.push(statusFilter);
     where += ` AND n.status = ANY($${params.length}::text[])`;
   }
-  if (days < 730) {
+  // Ventana: from/to (rango custom del calendario) filtra por SOLAPE de la
+  // vida de la narrativa con el rango (last_mention_at >= from Y born_at <=
+  // to, días AST). Presets = recencia de actividad (comportamiento
+  // histórico). Antes la pantalla ignoraba el selector de período por
+  // completo (auditoría 2026-08, P0-12 parcial).
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
+  const YMD = /^\d{4}-\d{2}-\d{2}$/;
+  if (fromParam && toParam && YMD.test(fromParam) && YMD.test(toParam) && fromParam <= toParam) {
+    params.push(`${fromParam}T00:00:00-04:00`);
+    where += ` AND (n.last_mention_at IS NULL OR n.last_mention_at >= $${params.length})`;
+    params.push(`${toParam}T23:59:59.999-04:00`);
+    where += ` AND n.born_at <= $${params.length}`;
+  } else if (days < 730) {
     where += ` AND (n.last_mention_at IS NULL OR n.last_mention_at >= NOW() - INTERVAL '${days} days')`;
   }
   if (minMentions > 0) {
