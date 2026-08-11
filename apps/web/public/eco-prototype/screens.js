@@ -44,6 +44,20 @@ function ecoBounceToSignIn() {
 // separan por saliencia: 0.40–0.60 mezclado con el canvas (menos contraste),
 // ≥0.60 a plena saturación — así la escala sigue creciendo hacia la derecha
 // tanto en modo claro como en oscuro.
+// Color de la banda en la que cae un valor. Es la ÚNICA fuente del color de un
+// veredicto, y existe porque el titular y su propia banda venían de dos sitios
+// distintos: el `tone` que calcula el backend (BAND_TONE en @eco/shared) y la
+// tabla de bandas local, que es la que dibuja la barra. Para el veredicto ALERTA
+// no coincidían, así que la palabra y la barra que está 30px debajo discrepaban
+// sobre el mismo dato. `scale` divide el valor cuando la tabla está en 0-1 y el
+// dato llega en otra escala (polarización llega 0-100).
+function bandColorAt(bands, value, scale) {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  const v = Number(value) / (scale || 1);
+  const b = bands.find((x) => v >= x.from && v < x.to) || bands[bands.length - 1];
+  return b ? b.color : null;
+}
+
 const CRISIS_BANDS = [
   { from: 0,    to: 0.25, label: 'Normal',  color: 'var(--pos)' },
   { from: 0.25, to: 0.40, label: 'Elevado', color: 'var(--warn)' },
@@ -141,7 +155,10 @@ function DeltaBadge({ info, value, metricKey = null, suffix = '%', decimals = 0 
 //    `value` como número de apoyo debajo. Para métricas 0–1 / con banda.
 //  • si no → modo número clásico (volumen, contadores).
 // `deltaInfo` (DeltaDisplay) reemplaza al `delta` numérico cuando está presente.
-function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, metricKey, children, onClick }) {
+// `valueColor` gana sobre `valueTone`: el color del veredicto tiene que salir de
+// la MISMA tabla de bandas que pinta su barra (ver bandColorAt), porque el `tone`
+// del payload lo decide el backend y no coincide con ella.
+function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, metricKey, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
@@ -192,7 +209,7 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       {wordMode ? (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)'), lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
             {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : null}
           </div>
           {(value || sub) && (
@@ -585,7 +602,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
+        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} valueColor={bandColorAt(CRISIS_BANDS, m.crisisRiskScore, 1)} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
               + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
@@ -601,13 +618,13 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
             y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
-        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
+        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} valueColor={bandColorAt(BHI_BANDS, m.brandHealthIndex, 1)} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
           onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} valueColor={bandColorAt(POLARIZATION_BANDS, m.polarizationIndex, 100)} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
           onClick={() => openMetric('polarization', 'Polarización', 'var(--metric-polarization)')}>
           {/* UNA sola gráfica por KPI. Esta era la única card con sparkline Y banda:
               dos escalas distintas para la misma cifra, y como la fila se alinea al
@@ -5032,7 +5049,13 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   const band = cb.label;
   const word = cd ? cd.word : cb.label;
   const valueLabel = cd && cd.value ? cd.value : (Math.round(score * 100) + '%');
-  const wordColor = cd ? cd.color : cb.color;
+  // El titular y su banda leen el MISMO color, y sale de CRISIS_BANDS. Antes el
+  // titular tomaba `cd.color` —el tone que calcula BAND_TONE en el backend— y la
+  // banda tomaba `cb.color` de la tabla local: para el veredicto ALERTA el
+  // backend daba --neg y la tabla otro color, así que la palabra y la barra que
+  // está 30px más abajo discrepaban sobre el mismo dato. Manda la tabla, porque
+  // es la que dibuja la barra que el usuario compara.
+  const wordColor = cb.color;
   const bandColor = cb.color;
   return (
     <button

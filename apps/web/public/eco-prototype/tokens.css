@@ -379,6 +379,29 @@
      Antes la polarización era `#8B5CF6` escrito a mano en 10 sitios. */
   --metric-polarization: #A78BFA;
 
+  /* Rampa de VEREDICTO — 5 pasos de "qué tan mal está", de óptimo a crítico. Es
+     la ÚNICA fuente de color de las bandas de métricas compuestas (crisis, salud
+     de marca, polarización) y del veredicto textual que las acompaña.
+     Existe porque las tres escalas se armaban pidiendo prestados tokens con otro
+     significado, y el resultado era que el titular y su propia banda salían de
+     dos colores distintos en cuatro de los seis veredictos:
+       · --accent (identidad de marca, relleno de .btn-primary y del item activo
+         del rail) era el tercer paso de crisis, así que "Alerta" se leía en --neg
+         sobre una banda naranja de marca — justo la ambigüedad que §5 dice haber
+         roto al mover lo negativo a #FF5470;
+       · --info (estado informativo, con su par --info-bg/--on-info) era el MEJOR
+         tramo de salud de marca: un azul junto al verde se lee como "otra
+         categoría", no como "mejor que verde";
+       · --text-3, un escalón de TEXTO, era el relleno de la banda apática.
+     Los pasos 1 y 3 se derivan por mezcla para que el modo claro los herede sin
+     duplicar hex. Todos pasan AA como texto sobre --canvas, porque los rótulos
+     de los extremos de una BandScale también se pintan con ellos. */
+  --verdict-0: var(--pos);                                       /* óptimo    */
+  --verdict-1: color-mix(in oklab, var(--pos) 50%, var(--warn)); /* aceptable */
+  --verdict-2: var(--warn);                                      /* vigilar   */
+  --verdict-3: color-mix(in oklab, var(--neg) 78%, var(--warn)); /* alerta    */
+  --verdict-4: var(--neg);                                       /* crítico   */
+
   /* Primer plano sobre cualquier --cat-*. En oscuro la paleta categórica es
      clara, así que el texto va oscuro (6.6:1 el peor caso). */
   --on-cat: #0E1620;

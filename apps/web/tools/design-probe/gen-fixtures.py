@@ -126,7 +126,10 @@ REMOTE = {
     'TIMELINE': TIMELINE,
     'CURRENT_METRICS': {
         'nss': -22, 'nssDelta': -4, 'nss7d': -19, 'nss30d': -11,
-        'brandHealthIndex': 41, 'brandHealthDelta': 2.6,
+        # brandHealthIndex viene 0-1 (BrandHealthMini lo pinta con max=1 y rotula
+        # 1 + v*9): 0.41 = 4.7/10, que cae en la banda 'Débil'. Tenerlo en 41
+        # hacía que la búsqueda de banda cayera en la última, 'Fuerte'.
+        'brandHealthIndex': 0.41, 'brandHealthDelta': 0.026,
         'crisisRiskScore': 0.18, 'crisisDelta': 0.03,
         'totalMentions': sum(VOL), 'totalMentionsDelta': 12.4,
         'totalReach': 1284000, 'engagementRate': 3.4, 'engagementDelta': -1.2,
@@ -139,7 +142,7 @@ REMOTE = {
         'highPertinenceCount': 148, 'totalEngagement': 36581,
         'display': {
             'nss': disp('Negativo leve', -22, '-22', 'neg', 'var(--neg)'),
-            'brandHealth': disp('Débil', 41, '41/100', 'warn', 'var(--warn)'),
+            'brandHealth': disp('Débil', 0.41, '4.7 / 10', 'warn', 'var(--warn)'),
             'crisis': disp('Normal', 0.18, '0.18', 'pos', 'var(--pos)'),
             'polarization': disp('—', None, '—', 'neutral', 'var(--text-3)'),
             'engagementRate': disp('Moderada', 3.4, '3.4%', 'warn', 'var(--warn)'),
@@ -148,7 +151,7 @@ REMOTE = {
         },
         'deltaDisplay': {
             'nss': delta('baja', 'down', '▼', -4, 'neg'),
-            'brandHealth': delta('sube', 'up', '▲', 2.6, 'pos'),
+            'brandHealth': delta('sube', 'up', '▲', 0.026, 'pos'),
             'crisis': delta('sube', 'up', '▲', 0.03, 'neg'),
             'engagementRate': delta('baja', 'down', '▼', -1.2, 'neg'),
             'totalMentions': delta('sube', 'up', '▲', 12.4, 'neutral'),
