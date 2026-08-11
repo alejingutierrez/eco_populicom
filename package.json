@@ -12,7 +12,8 @@
     "db:migrate": "npm -w packages/database run migrate",
     "db:seed": "npm -w packages/database run seed",
     "dev": "npm -w apps/web run dev",
-    "build": "npm -w apps/web run build"
+    "build": "npm -w apps/web run build",
+    "contract:live": "tsx scripts/contract-check-live.ts"
   },
   "engines": {
     "node": ">=22.0.0"

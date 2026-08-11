@@ -812,7 +812,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         fillOpacity: 0.78,
         className: 'eco-map-marker',
       });
-      const nssStr = (m.nss > 0 ? '+' : '') + (m.nss ?? 0).toFixed(1);
+      const nssStr = (m.nss > 0 ? '+' : '') + Math.round(m.nss ?? 0);
       const nssColor = m.nss > 0 ? '#3FD47A' : m.nss < 0 ? '#FF6A3D' : '#8A94A1';
       const label = m.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       // El tooltip siempre muestra el conteo real de menciones (m.count). En

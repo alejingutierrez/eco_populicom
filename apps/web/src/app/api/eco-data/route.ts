@@ -861,7 +861,10 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.total - a.total)
       .map((m) => {
         const t = m.total || 1;
-        const nss = Math.round(((m.positivo - m.negativo) / t) * 100) / 10;
+        // Escala canónica del NSS: −100..100 (entera), la misma de
+        // CURRENT_METRICS.nss — antes este campo venía en −10..10 y el mismo
+        // nombre convivía con dos escalas (auditoría 2026-08, P2-7/D4).
+        const nss = Math.round(((m.positivo - m.negativo) / t) * 100);
         return {
           slug: m.slug,
           name: m.name,
