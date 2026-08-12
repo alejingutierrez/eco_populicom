@@ -23,6 +23,8 @@ export * from './prompts/crisis-editorial';
 export * from './prompts/metric-insight';
 export * from './prompts/metric-insight-cached';
 export * from './prompts/chat';
+export * from './prompts/full-report';
+export * from './report';
 export * from './narratives-math';
 export * from './scrape-image';
 // `./bedrock` se importa directamente desde lambdas via

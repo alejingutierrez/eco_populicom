@@ -39,6 +39,9 @@ const PROTECTED_PATHS = [
   /^\/api\/ai(\/.*)?$/,
   /^\/api\/narrative(\/.*)?$/,
   /^\/api\/chat(\/.*)?$/,
+  // El reporte exportable devuelve el período completo de una agencia: nunca
+  // puede servirse sin sesión.
+  /^\/api\/export(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -163,5 +166,6 @@ export const config = {
     '/api/ai/:path*',
     '/api/narrative/:path*',
     '/api/chat/:path*',
+    '/api/export/:path*',
   ],
 };

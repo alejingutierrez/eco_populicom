@@ -523,6 +523,23 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
     } catch (_) {}
     window.location.reload();
   }
+
+  // URL del reporte exportable. Se recalcula en cada render, así que siempre
+  // lleva los filtros que el usuario tiene puestos en ESTE momento. Cuando el
+  // período es 'custom' se manda from/to (que es lo que resolveWindow prioriza)
+  // y además el period, para que el endpoint tenga a qué caer si el rango
+  // guardado quedó incompleto.
+  const exportHref = React.useMemo(() => {
+    const qs = new URLSearchParams();
+    if (agency) qs.set('agency', agency);
+    qs.set('period', period);
+    if (isCustom && lsFrom && lsTo) {
+      qs.set('from', lsFrom);
+      qs.set('to', lsTo);
+    }
+    return `/api/export/report?${qs.toString()}`;
+  }, [agency, period, isCustom, lsFrom, lsTo]);
+
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -717,6 +734,19 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           del header (que tiene flex-wrap), así que caía solo a una fila propia
           y se comía ~48px verticales en las 10 pantallas. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 'none', marginLeft: 'auto' }}>
+        {/* Exportar — abre el reporte analítico en una pestaña nueva.
+            Es un <a target="_blank">, no un botón con window.open(): así el
+            navegador nunca lo trata como popup, y ⌘-clic / clic central / "abrir
+            en ventana nueva" funcionan como en cualquier enlace.
+            El href se arma con los filtros VIGENTES del header (agencia,
+            período y, si el período es custom, el rango de fechas), que es
+            exactamente lo que el endpoint resuelve con resolveWindow. */}
+        <a className="btn" href={exportHref} target="_blank" rel="noopener"
+          title={`Exportar reporte analítico en PDF · ${isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : period}`}
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', textDecoration: 'none' }}>
+          <Icons.Download size={14} color="var(--accent)" />
+          <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Exportar</span>
+        </a>
         {onOpenChat && (
           <button className="btn" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)"
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
@@ -1714,29 +1744,12 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 </button>
               );
             })()}
-            <button className="btn"
-              onClick={() => {
-                // Export CSV client-side de las menciones cargadas en el slice
-                // (antes el botón no tenía onClick — no hacía nada).
-                const rows = mentions || [];
-                if (!rows.length) { (window.ecoToast || (() => {}))('err', 'No hay menciones para exportar.'); return; }
-                const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-                const headers = ['Título', 'Autor', 'Fuente', 'Dominio', 'Sentimiento', 'Tópico', 'Engagement', 'Fecha', 'URL'];
-                const lines = [headers.join(',')];
-                for (const mn of rows) {
-                  lines.push([esc(mn.title), esc(mn.author), esc(mn.source), esc(mn.domain), esc(mn.sentiment), esc(mn.topicName), esc(mn.engagement), esc(mn.publishedAt), esc(mn.url)].join(','));
-                }
-                const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                const safe = ((slice && (slice.title || slice.eyebrow)) || 'menciones').toString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'menciones';
-                a.href = url; a.download = `eco-${safe}.csv`;
-                document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                (window.ecoToast || (() => {}))('ok', `${rows.length} menciones exportadas.`);
-              }}>
-              <Icons.Download size={13} /> Exportar
-            </button>
+            {/* El botón "Exportar" (CSV del slice) se retiró: la exportación es
+                ahora una sola acción de nivel de aplicación — el reporte
+                analítico en PDF del header, que responde a los filtros
+                vigentes. Tener dos exportaciones con alcance distinto (un CSV
+                de 50 filas aquí, un reporte completo allá) bajo la misma
+                palabra era el problema. */}
             <button className="btn"
               onClick={async () => {
                 // La regla se deriva del slice activo (slice._filter + slice.title);
