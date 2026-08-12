@@ -143,6 +143,9 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // prompt — muestras, municipios, autores y crecimiento por tópico. Todas
     // sobre el universo pertinente, igual que el resto del producto.
     { file: 'apps/web/src/app/api/eco-executive-summary/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
+    // Nube de palabras: un solo `baseConds` compartido por el scope y por la
+    // referencia, así que los predicados aparecen una vez.
+    { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {
@@ -273,6 +276,48 @@ describe('tripwire — toda ruta /api/* está en el matcher del middleware (o es
     for (const bare of ['exec-overview', 'eco-executive-summary']) {
       expect(mw).toContain(`'/api/${bare}'`);
     }
+  });
+});
+
+/**
+ * Un parámetro de bind tiene UN tipo para toda la sentencia. Construir un
+ * intervalo con `(${p} || ' days')::interval` lo fija como `text`; si el mismo
+ * parámetro se usa además en aritmética (`${p} + ${otro}`), Postgres busca
+ * `text + unknown` y falla en RUNTIME — el typecheck no ve nada.
+ *
+ * Pasó en /api/eco-terms: 500 en producción desde que se mergeó #91, con la
+ * nube de palabras vacía. Se arregla con `${p}::int * INTERVAL '1 day'`.
+ */
+describe('tripwire — intervalos SQL desde parámetros', () => {
+  const ROUTES_DIR = path.join(REPO, 'apps/web/src/app/api');
+
+  const allRouteFiles = (): string[] => {
+    const out: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name === 'route.ts') out.push(p);
+      }
+    };
+    walk(ROUTES_DIR);
+    return out;
+  };
+
+  // Se quitan comentarios antes de buscar: documentar el patrón malo (como hace
+  // el propio eco-terms para explicar por qué ya no lo usa) no puede romper el
+  // build. Sin esto el test se dispara con su propia explicación.
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  test("ninguna ruta arma un intervalo concatenando un parámetro con ' days'", () => {
+    // Coincide con `|| ' days')::interval` y variantes de espaciado. La forma
+    // correcta es `<param>::int * INTERVAL '1 day'`.
+    const BAD = /\|\|\s*'\s*days?\s*'\s*\)\s*::\s*interval/i;
+    const offenders = allRouteFiles()
+      .filter((f) => BAD.test(stripComments(fs.readFileSync(f, 'utf8'))))
+      .map((f) => path.relative(REPO, f));
+    expect({ offenders }).toEqual({ offenders: [] });
   });
 });
 
