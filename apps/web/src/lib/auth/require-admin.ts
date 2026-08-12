@@ -62,6 +62,42 @@ export async function requireAdmin(): Promise<Gate> {
   return requireRole(['admin']);
 }
 
+/**
+ * Correos con acceso a la página de Alertas.
+ *
+ * Decisión del usuario (ago 2026): "Solo el usuario agutierrez@populicom puede
+ * ver esta página, de resto no". Es una lista literal en código a propósito —
+ * gatearlo por `users.allowed_pages` sería configurable sin deploy, pero se
+ * revierte en cuanto alguien edita el usuario desde el panel, y el requisito es
+ * que NADIE más la vea. Para añadir gente hay que tocar esta constante.
+ *
+ * Se exporta para que el gate del servidor y /api/auth/me (que decide qué
+ * páginas ve el SPA) lean la MISMA fuente.
+ */
+export const ALERTS_ALLOWED_EMAILS = ['agutierrez@populicom.com'];
+
+export function canSeeAlerts(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return ALERTS_ALLOWED_EMAILS.includes(email.trim().toLowerCase());
+}
+
+/**
+ * Gate de las rutas de Alertas. Ocultar la página en el SPA no basta: los
+ * endpoints /api/alerts/* siguen siendo alcanzables a mano, así que el corte
+ * real va aquí.
+ */
+export async function requireAlertsAccess(): Promise<Gate> {
+  const user = await getSession();
+  if (!user) {
+    return { ok: false, response: NextResponse.json({ error: 'unauthenticated' }, { status: 401 }) };
+  }
+  if (!canSeeAlerts(user.email)) {
+    return { ok: false, response: NextResponse.json({ error: 'forbidden' }, { status: 403 }) };
+  }
+  const role = await effectiveRole(user);
+  return { ok: true, user, role };
+}
+
 /** Como requireAdmin pero acepta cualquier usuario autenticado. */
 export async function requireAuth(): Promise<
   | { ok: true; user: SessionUser }

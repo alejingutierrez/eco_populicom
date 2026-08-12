@@ -27,6 +27,8 @@ export interface TopicMentionSample {
   sentiment: 'positivo' | 'neutral' | 'negativo';
   subtopic?: string | null;
   source?: string | null;
+  /** Autor de la mención, cuando está disponible — da contexto de quién habla. */
+  author?: string | null;
 }
 
 export const TOPIC_DESCRIPTION_SYSTEM_PROMPT = `
@@ -65,12 +67,15 @@ export function buildTopicDescriptionPrompt(
     ? agg.topMunicipalities.map((m) => `- ${m.name}: ${m.count} menciones`).join('\n')
     : '- (sin concentración geográfica detectada)';
 
+  // 480 chars por muestra (antes 280) y ahora incluye el autor: la descripción
+  // debe poder decir DE QUÉ se está hablando, no solo cuánto.
   const sampleBlock = samples.length > 0
     ? samples.map((s, i) => {
-        const clean = s.text.replace(/\s+/g, ' ').trim().slice(0, 280);
+        const clean = s.text.replace(/\s+/g, ' ').trim().slice(0, 480);
         const meta = [
           s.subtopic ? `sub=${s.subtopic}` : null,
           s.source ? `src=${s.source}` : null,
+          s.author ? `autor=${s.author}` : null,
           `sent=${s.sentiment}`,
         ].filter(Boolean).join(' ');
         return `${i + 1}. (${meta}) "${clean}"`;
@@ -96,21 +101,31 @@ ${subBlock}
 CONCENTRACIÓN GEOGRÁFICA (top municipios):
 ${muniBlock}
 
-MUESTRAS DE MENCIONES (variadas por sentimiento):
+MUESTRAS DE MENCIONES DEL PERIODO (variadas por sentimiento; mezcla de las más
+comentadas y las más recientes — es la evidencia de QUÉ se está diciendo):
 ${sampleBlock}
 
 TAREA:
-Redacta UNA descripción de 2 a 3 oraciones (máximo 60 palabras) que explique para qué sirve este tópico dentro de la operación de escucha social de la agencia. Debe:
-1. Empezar describiendo el contenido del tópico ("Conversaciones sobre…", "Menciones que cubren…", "Discusiones sobre…").
+Redacta UNA descripción de 3 a 5 oraciones (90 a 130 palabras) que explique DE
+QUÉ SE ESTÁ HABLANDO en este tópico durante el periodo. Debe:
+1. Empezar describiendo el contenido concreto de la conversación ("Conversaciones
+   sobre…", "Menciones que cubren…"), nombrando los asuntos ESPECÍFICOS que
+   aparecen en las muestras — el reclamo, el anuncio o el hecho puntual, no la
+   categoría abstracta. Esto es lo más importante de la descripción.
 2. Citar 2 a 3 subtemas concretos con sus números, en el orden de volumen.
 3. Indicar el balance de sentimiento del periodo con porcentaje explícito.
-4. Si y solo si la concentración geográfica es clara (un municipio > 25% del total), mencionarlo con número. Si no, no fuerces geografía.
+4. Si y solo si la concentración geográfica es clara (un municipio > 25% del
+   total), mencionarlo con número. Si no, no fuerces geografía.
+5. Si las muestras revelan un patrón que los agregados no muestran (una queja
+   repetida, un evento que disparó el volumen, una voz que concentra la
+   conversación), nómbralo con su evidencia.
 
-PROHIBIDO: recomendaciones, sugerencias, juicios prescriptivos, opiniones propias, calificativos cargados ("crítico", "urgente", "alarmante").
+Apóyate en las MUESTRAS para el contenido y en los AGREGADOS para las cifras.
+No cites las muestras textualmente entre comillas: parafrasea el asunto.
 
-FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
-{
-  "description": "<2 a 3 oraciones descriptivas, ≤60 palabras>"
-}
+PROHIBIDO: recomendaciones, sugerencias, juicios prescriptivos, opiniones
+propias, calificativos cargados ("crítico", "urgente", "alarmante").
+
+Devuelve la descripción mediante la herramienta provista.
 `.trim();
 }

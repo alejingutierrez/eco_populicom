@@ -28,7 +28,7 @@ import {
   type TopicAggregateForDescription,
   type TopicMentionSample,
 } from '@eco/shared';
-import { invokeClaude } from '@eco/shared/src/bedrock';
+import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -190,24 +190,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const samples = await loadTopicSamples(pool, agencyId, topicRow.id, sinceIso, untilIso);
     const userPrompt = buildTopicDescriptionPrompt(aggregate, samples);
-    const text = await invokeClaude({
+    // tool-use en vez de pedir JSON en texto crudo: la descripción ahora es
+    // más larga y cita contenido real de las menciones, así que trae comillas
+    // y saltos de línea que rompían `JSON.parse` (el fallback por regex era
+    // un parche). Con input_schema el parseo lo garantiza Bedrock.
+    const parsed = await invokeClaudeWithTool<{ description?: string }>({
       client: getBedrock(),
       systemPrompt: TOPIC_DESCRIPTION_SYSTEM_PROMPT,
       userPrompt,
-      maxTokens: 400,
+      maxTokens: 1200,
       primaryModel: PRIMARY_MODEL,
       fallbackModel: FALLBACK_MODEL,
       temperature: 0,
+      tool: {
+        name: 'emit_topic_description',
+        description: 'Emit the topic description for the period.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'string',
+              minLength: 80,
+              maxLength: 1200,
+              description: 'Descripción de 3 a 5 oraciones sobre de qué se está hablando en este tópico durante el periodo.',
+            },
+          },
+          required: ['description'],
+        },
+      },
     });
-    let parsed: { description?: string };
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // El modelo a veces envuelve en markdown fences; intentamos extraer.
-      const match = text.match(/\{[\s\S]*\}/);
-      parsed = match ? JSON.parse(match[0]) : {};
-    }
-    const description = (parsed.description ?? '').trim().slice(0, 800);
+    const description = (parsed.description ?? '').trim().slice(0, 1200);
     if (!description) {
       log.warn('eco-topic-description', 'model returned empty', { topicSlug, startYmd, endYmd });
       return NextResponse.json(
@@ -325,6 +337,21 @@ async function loadTopicAggregate(
   };
 }
 
+/**
+ * Muestras de menciones que alimentan la descripción.
+ *
+ * Antes traía 2 por sentimiento (6 en total) y solo el título. El usuario pidió
+ * descripciones "más contextuales… pasarle las menciones del periodo a la IA
+ * para que tenga más contexto y pueda hacer descripciones más acertadas", así
+ * que ahora:
+ *   - 10 por sentimiento (hasta 30) en vez de 2,
+ *   - mezcla las más ENGAGED con las más RECIENTES, para no describir solo el
+ *     pico viral e ignorar la conversación de fondo,
+ *   - concatena título + snippet (antes el snippet se descartaba si había
+ *     título), que es donde vive el contenido real de la queja o el reclamo.
+ */
+const SAMPLES_PER_SENTIMENT = 10;
+
 async function loadTopicSamples(
   pool: ReturnType<typeof getPool>,
   agencyId: string,
@@ -333,33 +360,56 @@ async function loadTopicSamples(
   untilIso: string,
 ): Promise<TopicMentionSample[]> {
   const out: TopicMentionSample[] = [];
+  const seen = new Set<string>();
+  const half = Math.ceil(SAMPLES_PER_SENTIMENT / 2);
   for (const s of ['negativo', 'neutral', 'positivo'] as const) {
     const altSentiment = s === 'negativo' ? 'negative' : s === 'positivo' ? 'positive' : 'neutral';
-    const res = await pool.query<{ title: string | null; snippet: string | null; sentiment: string | null; subtopic: string | null; source: string | null }>(
-      `SELECT m.title, m.snippet,
-              COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+    // Dos pasadas por sentimiento: top engagement + más recientes. UNION ALL
+    // en una sola query para no multiplicar round-trips.
+    const res = await pool.query<{ id: string; title: string | null; snippet: string | null; sentiment: string | null; subtopic: string | null; source: string | null; author: string | null }>(
+      `WITH pool AS (
+         SELECT m.id, m.title, m.snippet, m.author, m.page_type,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                COALESCE(m.engagement_score, 0) AS eng,
+                m.published_at
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1 AND mt.topic_id = $2
+            AND m.is_duplicate = false
+            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+            AND m.published_at >= $3 AND m.published_at <= $4
+            AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($5, $6)
+       ),
+       picked AS (
+         (SELECT * FROM pool ORDER BY eng DESC LIMIT $7)
+         UNION
+         (SELECT * FROM pool ORDER BY published_at DESC LIMIT $8)
+       )
+       SELECT p.id, p.title, p.snippet, p.sentiment, p.author,
+              p.page_type AS source,
               (SELECT sub.name FROM mention_topics mt2 JOIN subtopics sub ON sub.id = mt2.subtopic_id
-                WHERE mt2.mention_id = m.id AND mt2.topic_id = $2 LIMIT 1) AS subtopic,
-              m.page_type AS source
-         FROM mention_topics mt
-         JOIN mentions m ON m.id = mt.mention_id
-        WHERE m.agency_id = $1 AND mt.topic_id = $2
-          AND m.is_duplicate = false
-          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-          AND m.published_at >= $3 AND m.published_at <= $4
-          AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($5, $6)
-        ORDER BY COALESCE(m.engagement_score, 0) DESC
-        LIMIT 2`,
-      [agencyId, topicId, sinceIso, untilIso, s, altSentiment],
+                WHERE mt2.mention_id = p.id AND mt2.topic_id = $2 LIMIT 1) AS subtopic
+         FROM picked p
+        ORDER BY p.eng DESC`,
+      [agencyId, topicId, sinceIso, untilIso, s, altSentiment, half, SAMPLES_PER_SENTIMENT - half],
     );
     for (const r of res.rows) {
-      const text = ((r.title ?? '') || (r.snippet ?? '')).toString().trim();
+      if (seen.has(r.id)) continue;
+      // Título + snippet: el contenido real de la queja suele estar en el
+      // snippet, que antes se descartaba cuando existía título.
+      const title = (r.title ?? '').toString().replace(/\s+/g, ' ').trim();
+      const snippet = (r.snippet ?? '').toString().replace(/\s+/g, ' ').trim();
+      const text = (snippet && title && !snippet.startsWith(title))
+        ? `${title} — ${snippet}`
+        : (snippet || title);
       if (!text) continue;
+      seen.add(r.id);
       out.push({
         text,
         sentiment: normalizeSentiment(r.sentiment),
         subtopic: r.subtopic ?? null,
         source: r.source ?? null,
+        author: r.author ?? null,
       });
     }
   }

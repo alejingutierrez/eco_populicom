@@ -3,7 +3,7 @@ import { getDb, users } from '@eco/database';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/session';
 import { ensureUserProvisioned } from '@/lib/provision';
-import { effectiveRole } from '@/lib/auth/require-admin';
+import { effectiveRole, canSeeAlerts } from '@/lib/auth/require-admin';
 import { capabilitiesFor } from '@/lib/auth/roles';
 import { log } from '@/lib/log';
 
@@ -42,6 +42,16 @@ export async function GET(): Promise<NextResponse> {
     /* fila aún no provisionada — defaults seguros (sin override de páginas) */
   }
 
+  // Alertas está restringida a una lista de correos (ALERTS_ALLOWED_EMAILS).
+  // Se expone como flag PROPIO en vez de recortar `allowedPages`: esa lista
+  // tiene semántica "vacía = todas", así que materializarla para quitar un
+  // item habría ocultado cualquier página ausente del arreglo (Configuración,
+  // las vistas exec, /search…). El SPA lo lee en ecoCanSeePage.
+  //
+  // Esto es solo la mitad de UI; el corte que importa es requireAlertsAccess
+  // en /api/alerts/*, que lee la MISMA constante.
+  const canAlerts = canSeeAlerts(user.email);
+
   return NextResponse.json({
     user: {
       sub: user.sub,
@@ -53,6 +63,7 @@ export async function GET(): Promise<NextResponse> {
       capabilities: capabilitiesFor(role),
       allowedPages,
       allAgencies,
+      canSeeAlerts: canAlerts,
     },
   });
 }

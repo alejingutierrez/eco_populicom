@@ -78,7 +78,9 @@ const TOPIC_DESCRIPTION_TOOL_SCHEMA = {
   properties: {
     description: {
       type: 'string',
-      description: '2-3 oraciones describiendo el tópico, cada afirmación con número concreto + nombre propio.',
+      minLength: 80,
+      maxLength: 1200,
+      description: '3-5 oraciones describiendo DE QUÉ se habla en el tópico, cada afirmación con número concreto + nombre propio.',
     },
   },
   required: ['description'],
@@ -739,7 +741,10 @@ async function generateTopicDescriptionsFor(
         client: bedrock,
         systemPrompt: TOPIC_DESCRIPTION_SYSTEM_PROMPT,
         userPrompt: prompt,
-        maxTokens: 400,
+        // 1200 (antes 400): el prompt ahora pide 3-5 oraciones con contenido
+        // real de las menciones; con 400 el tool_use se truncaba y devolvía
+        // input vacío en silencio.
+        maxTokens: 1200,
         primaryModel: PRIMARY_MODEL,
         fallbackModel: FALLBACK_MODEL,
         temperature: 0,
@@ -749,7 +754,7 @@ async function generateTopicDescriptionsFor(
           input_schema: TOPIC_DESCRIPTION_TOOL_SCHEMA,
         },
       });
-      const description = (parsed.description ?? '').trim().slice(0, 800);
+      const description = (parsed.description ?? '').trim().slice(0, 1200);
       if (!description) {
         updates.push({ topic: t.slug, status: 'skip', message: 'modelo devolvió vacío' });
         continue;
@@ -853,7 +858,7 @@ async function generatePeriodInsightsFor(
   try {
     const samples = await loadSamples(client, agency.id, periodStart, periodEnd);
     const insightsPrompt = buildSentimentInsightsPrompt(aggregates, samples);
-    const insights = await invokeClaudeWithTool<PeriodInsightsOutput>({
+    const insightsPromise = invokeClaudeWithTool<PeriodInsightsOutput>({
       client: bedrock,
       systemPrompt: INSIGHTS_SYSTEM_PROMPT,
       userPrompt: insightsPrompt,
@@ -898,21 +903,32 @@ async function generatePeriodInsightsFor(
       return trimmed.length >= 80 ? trimmed : null;
     };
 
-    let dailySummary: string | null = null;
-    try {
-      dailySummary = await trySummary(1500);
-      if (!dailySummary) {
-        console.warn(`[ai-tasks] period_summary returned empty/short for ${agency.slug} ${periodStart}→${periodEnd} at maxTokens=1500; retrying with 3000`);
-        dailySummary = await trySummary(3000);
-      }
-    } catch (err) {
-      console.warn(`[ai-tasks] period_summary error for ${agency.slug} ${periodStart}→${periodEnd}: ${(err as Error).message}`);
+    // Los dos llamados a Bedrock (insights + summary) son INDEPENDIENTES: no
+    // comparten estado ni el output de uno alimenta al otro. Antes corrían en
+    // serie, así que el usuario esperaba la suma de las dos latencias de Opus
+    // (~30-60s) cada vez que cambiaba de temporalidad. Ahora arrancan juntos y
+    // el wall-clock es el del más lento, ~la mitad. (Reportado por el usuario:
+    // "cuando cambio de temporalidad siento que los insights están tardando
+    // mucho tiempo en generarse".)
+    const summaryPromise = (async (): Promise<string | null> => {
       try {
-        dailySummary = await trySummary(3000);
-      } catch (err2) {
-        console.warn(`[ai-tasks] period_summary retry also failed: ${(err2 as Error).message}`);
+        const first = await trySummary(1500);
+        if (first) return first;
+        console.warn(`[ai-tasks] period_summary returned empty/short for ${agency.slug} ${periodStart}→${periodEnd} at maxTokens=1500; retrying with 3000`);
+        return await trySummary(3000);
+      } catch (err) {
+        console.warn(`[ai-tasks] period_summary error for ${agency.slug} ${periodStart}→${periodEnd}: ${(err as Error).message}`);
+        try {
+          return await trySummary(3000);
+        } catch (err2) {
+          console.warn(`[ai-tasks] period_summary retry also failed: ${(err2 as Error).message}`);
+          return null;
+        }
       }
-    }
+    })();
+
+    const [insights, dailySummary] = await Promise.all([insightsPromise, summaryPromise]);
+
     if (!dailySummary) {
       // El usuario reportó que para 2026-04-12→2026-05-11 no se generó resumen
       // — antes esto era silencioso (null persistido). Ahora ERROR explícito.

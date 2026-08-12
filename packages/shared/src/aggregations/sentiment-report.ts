@@ -59,6 +59,23 @@ export interface DailyPoint {
   positive: number;
 }
 
+/**
+ * Punto horario — usado por la tendencia del Overview cuando la ventana es de
+ * UN solo día (chip "1D"). Con granularidad diaria ese caso rendía una sola
+ * columna sin forma; a nivel de hora se ve el ciclo real del día.
+ */
+export interface HourlyPoint {
+  /** "YYYY-MM-DD HH" en TZ PR — clave única del bucket. */
+  hour: string;
+  /** "14h" — etiqueta corta para el eje X. */
+  hourLabel: string;
+  /** YYYY-MM-DD en TZ PR del día al que pertenece la hora. */
+  date: string;
+  negative: number;
+  neutral: number;
+  positive: number;
+}
+
 export interface TopicTableRow {
   topic: string;
   /** "puentes · asfalto · drenaje" (top 3 subtopics). Vacío si la fila es agregada. */
@@ -235,6 +252,74 @@ async function loadDailySeries(
     dayLabel: formatDayLabel(date),
     ...v,
   }));
+}
+
+/**
+ * Serie HORARIA del mismo universo canónico que `loadDailySeries`. La usa el
+ * Overview cuando la ventana seleccionada es de un solo día ("1D"): a nivel
+ * diario esa ventana rendía un único punto sin forma, y el usuario no podía
+ * ver el ciclo del día.
+ *
+ * Mismos bordes AST y mismo filtro de pertinencia que la serie diaria, así
+ * que la suma de las horas cuadra exactamente con el total del termómetro.
+ */
+async function loadHourlySeries(
+  client: PgClientLike,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+  opts?: SentimentReportOptions,
+): Promise<HourlyPoint[]> {
+  const rows = await client.query<{ h: string; s: string | null; c: number | string }>(
+    `SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD HH24') AS h,
+            COALESCE(nlp_sentiment, bw_sentiment) AS s,
+            COUNT(*)::int AS c
+       FROM mentions
+      WHERE agency_id = $1
+        AND is_duplicate = false
+        ${pertinentSql(opts?.includeLowPertinence)}
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
+        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
+      GROUP BY 1, 2
+      ORDER BY 1`,
+    [agencyId, startYmd, endYmd],
+  );
+
+  // Pre-fill las 24 horas de cada día de la ventana para que el chart no
+  // tenga gaps y el eje X cubra el día completo aunque no haya menciones.
+  const hourly = new Map<string, { date: string; negative: number; neutral: number; positive: number }>();
+  for (let cur = startYmd; cur <= endYmd; cur = addDaysYmd(cur, 1)) {
+    for (let h = 0; h < 24; h++) {
+      hourly.set(`${cur} ${String(h).padStart(2, '0')}`, { date: cur, negative: 0, neutral: 0, positive: 0 });
+    }
+  }
+  for (const row of rows.rows) {
+    const bucket = hourly.get(row.h);
+    if (!bucket) continue;
+    const s = normalizeSentiment(row.s);
+    if (s) bucket[s] += Number(row.c);
+  }
+  return Array.from(hourly.entries()).map(([hour, v]) => ({
+    hour,
+    hourLabel: `${hour.slice(11, 13)}h`,
+    date: v.date,
+    negative: v.negative,
+    neutral: v.neutral,
+    positive: v.positive,
+  }));
+}
+
+/**
+ * Serie horaria del universo canónico. Exportada para /api/overview (chip 1D).
+ */
+export async function loadHourlySentimentSeries(
+  client: PgClientLike,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+  opts?: SentimentReportOptions,
+): Promise<HourlyPoint[]> {
+  return loadHourlySeries(client, agencyId, startYmd, endYmd, opts);
 }
 
 /**
