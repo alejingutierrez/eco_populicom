@@ -3,6 +3,14 @@ import { getSessionFromRequest } from '@/lib/session';
 
 // Dashboard UI + dashboard-private API routes. Everything else (public assets,
 // auth pages, auth API, health check, Leaflet tiles) passes through.
+//
+// ⚠️ DOS listas, y AMBAS son necesarias:
+//   - `config.matcher` (abajo) decide qué requests INVOCAN el middleware.
+//   - `PROTECTED_PATHS` (aquí) decide cuáles EXIGEN sesión.
+// Añadir una ruta solo al matcher no protege nada: el middleware corre,
+// `isProtected()` devuelve false y la request pasa. Pasó con
+// /api/eco-executive-summary y /api/eco-terms (#98 solo tocó el matcher, y
+// eco-terms siguió respondiendo 500 sin sesión en prod en vez de 401).
 const PROTECTED_PATHS = [
   /^\/overview(\/.*)?$/,
   /^\/dashboard(\/.*)?$/,
@@ -23,6 +31,8 @@ const PROTECTED_PATHS = [
   /^\/api\/eco-insights(\/.*)?$/,
   /^\/api\/eco-metric-insight(\/.*)?$/,
   /^\/api\/eco-topic-description(\/.*)?$/,
+  /^\/api\/eco-executive-summary(\/.*)?$/,
+  /^\/api\/eco-terms(\/.*)?$/,
   /^\/api\/alerts(\/.*)?$/,
   /^\/api\/agencies(\/.*)?$/,
   /^\/api\/users(\/.*)?$/,

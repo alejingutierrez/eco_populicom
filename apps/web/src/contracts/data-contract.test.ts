@@ -208,21 +208,40 @@ describe('tripwire — toda ruta /api/* está en el matcher del middleware (o es
     reports: SESSION_GATES,
   };
 
-  test('ningún endpoint nuevo queda fuera del matcher', () => {
+  // El middleware tiene DOS listas y las dos hacen falta:
+  //   - `config.matcher`  → qué requests INVOCAN el middleware.
+  //   - `PROTECTED_PATHS` → cuáles EXIGEN sesión (regex, vía isProtected()).
+  // Estar solo en el matcher NO protege: el middleware corre, isProtected()
+  // devuelve false y la request pasa de largo. Este test comprueba AMBAS, que
+  // es justo lo que la primera versión no hacía — de ahí que /api/eco-terms
+  // siguiera abierto en prod después de #98.
+  const groupsUnderApi = () => {
     const apiDir = path.join(REPO, 'apps/web/src/app/api');
-    const groups = fs
+    return fs
       .readdirSync(apiDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
-      .map((d) => d.name);
+      .map((d) => d.name)
+      .filter((g) => !INTENTIONALLY_PUBLIC.has(g) && !(g in GATED_IN_ROUTE));
+  };
 
+  test('ningún endpoint nuevo queda fuera del matcher', () => {
     const mw = read('apps/web/src/middleware.ts');
-    const missing = groups.filter(
-      (g) =>
-        !INTENTIONALLY_PUBLIC.has(g) &&
-        !(g in GATED_IN_ROUTE) &&
-        !mw.includes(`'/api/${g}/:path*'`),
-    );
+    const missing = groupsUnderApi().filter((g) => !mw.includes(`'/api/${g}/:path*'`));
+    expect({ missing }).toEqual({ missing: [] });
+  });
 
+  test('ningún endpoint nuevo queda fuera de PROTECTED_PATHS (el que de verdad exige sesión)', () => {
+    const mw = read('apps/web/src/middleware.ts');
+    // Sólo el bloque de PROTECTED_PATHS, para no dar por buena una coincidencia
+    // que en realidad está en config.matcher.
+    const block = mw.slice(
+      mw.indexOf('const PROTECTED_PATHS'),
+      mw.indexOf('function isProtected'),
+    );
+    expect(block.length).toBeGreaterThan(0);
+    const missing = groupsUnderApi().filter(
+      (g) => !block.includes(`/^\\/api\\/${g}(\\/.*)?$/`),
+    );
     expect({ missing }).toEqual({ missing: [] });
   });
 
