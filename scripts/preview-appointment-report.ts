@@ -25,6 +25,9 @@ const data: AppointmentRenderData = {
     position: 'Secretaria de la Gobernación',
     predecessor: 'Francisco Domenech',
     announcedOnLabel: 'lunes 10 de agosto de 2026',
+    // Ruta relativa: el preview se sirve desde /emails/, así que resuelve a
+    // /appointments/placeholder.svg. En producción photo_url es una URL absoluta.
+    photoUrl: '../appointments/placeholder.svg',
     notes: 'Designada por la gobernadora Jenniffer González Colón tras la salida de Francisco Domenech el 7 de agosto. Fue secretaria de Estado (1995–1999) y presidenta de la Junta de Planificación.',
   },
   windowLabel: '9 – 12 ago 2026',
@@ -170,9 +173,18 @@ function buildMockChartUrl(): string {
   return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
-const html = renderAppointmentReportHtml(data);
 const repoRoot = join(__dirname, '..');
-const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', 'appointment-report-preview.html');
-writeFileSync(outPath, html, 'utf8');
-console.log(`Preview escrito: ${outPath}`);
-console.log(`HTML length: ${html.length} bytes`);
+const outDir = join(repoRoot, 'apps', 'web', 'public', 'emails');
+
+// Dos variantes: con retrato y sin él (monograma de iniciales). La ficha tiene
+// que verse bien en ambos estados, porque photo_url es opcional.
+const withPhoto = renderAppointmentReportHtml(data);
+writeFileSync(join(outDir, 'appointment-report-preview.html'), withPhoto, 'utf8');
+console.log(`Preview (con foto):  appointment-report-preview.html · ${withPhoto.length} bytes`);
+
+const noPhoto = renderAppointmentReportHtml({
+  ...data,
+  appointment: { ...data.appointment, photoUrl: null },
+});
+writeFileSync(join(outDir, 'appointment-report-preview-monograma.html'), noPhoto, 'utf8');
+console.log(`Preview (monograma): appointment-report-preview-monograma.html · ${noPhoto.length} bytes`);

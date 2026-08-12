@@ -387,6 +387,10 @@ export function emailDocument(opts: EmailDocumentOpts): string {
       .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
       .stack { display: block !important; width: 100% !important; }
       .stack-pad { padding: 0 0 10px 0 !important; }
+      /* Retrato de la ficha de nombramiento: en móvil pasa arriba y centrado,
+         y suelta el padding-right que lo separaba del texto en dos columnas. */
+      .stack-center { text-align: center !important; padding: 0 0 14px 0 !important; }
+      .stack-center img, .stack-center table { margin-left: auto !important; margin-right: auto !important; }
       .kpi-value { font-size: 30px !important; }
       h1.title { font-size: 22px !important; }
       h1.headline { font-size: 22px !important; line-height: 1.25 !important; }

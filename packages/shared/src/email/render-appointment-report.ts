@@ -57,6 +57,14 @@ export interface AppointmentRenderData {
     /** "lunes 10 de agosto de 2026". */
     announcedOnLabel: string;
     notes?: string | null;
+    /**
+     * Retrato de la persona. Debe ser una URL ESTABLE y servida por nosotros
+     * (`{dashboard}/appointments/<slug>.jpg`): las og:image de los medios de PR
+     * vienen con token firmado (`?auth=…`) que expira y dejaría el correo con
+     * la imagen rota semanas después. Si falta, se dibuja un monograma con las
+     * iniciales — el correo nunca depende de la foto.
+     */
+    photoUrl?: string | null;
   };
 
   /** "9 – 12 ago 2026" — ventana cubierta (nombramiento → hoy). */
@@ -120,34 +128,72 @@ export interface AppointmentRenderData {
 // Ficha del nombramiento — HERO
 // ------------------------------------------------------------
 
+/**
+ * Iniciales para el monograma cuando no hay foto.
+ *
+ * Toma el nombre de pila y el PRIMER apellido, no el último: en la convención
+ * española el apellido que identifica es el primero, así que "Norma E. Burgos
+ * Andújar" es NB (no NA, que sería el apellido materno). Descarta las
+ * iniciales sueltas tipo "E." para que no se cuelen como palabra.
+ */
+function initialsOf(name: string): string {
+  const words = name.split(/\s+/).filter((w) => w.replace(/[^\p{L}]/gu, '').length > 1);
+  const first = words[0]?.[0] ?? name.replace(/[^\p{L}]/gu, '')[0] ?? '?';
+  const second = words[1]?.[0] ?? '';
+  return `${first}${second}`.toUpperCase();
+}
+
+const PHOTO_PX = 92;
+
+/**
+ * Retrato circular con anillo violeta, o monograma de iniciales si no hay foto.
+ * Tamaño fijo en px (los % no resuelven en Outlook) y `width`/`height` como
+ * atributos además del style, que es lo único que Outlook desktop respeta.
+ */
+function portrait(a: AppointmentRenderData['appointment']): string {
+  if (a.photoUrl) {
+    return `<img src="${esc(a.photoUrl)}" alt="${esc(a.personName)}" width="${PHOTO_PX}" height="${PHOTO_PX}" style="display:block;width:${PHOTO_PX}px;height:${PHOTO_PX}px;border-radius:50%;object-fit:cover;border:3px solid ${COLORS.surface};outline:1px solid ${COLORS.event};background:${COLORS.surface};">`;
+  }
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${PHOTO_PX}" height="${PHOTO_PX}" style="width:${PHOTO_PX}px;height:${PHOTO_PX}px;border-radius:50%;background:${COLORS.event};background-color:${COLORS.event};">
+                        <tr><td align="center" valign="middle" style="height:${PHOTO_PX}px;font-size:32px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;line-height:1;">${esc(initialsOf(a.personName))}</td></tr>
+                      </table>`;
+}
+
+/**
+ * La ficha ES el hero del correo: retrato + nombre + cargo + a quién sustituye
+ * y desde cuándo. Reemplaza al par "titular h1 + tabla etiqueta/valor" de la
+ * primera versión, que repetía el nombre dos veces y leía a formulario.
+ * `class="stack"` hace que en móvil el retrato pase arriba y centrado.
+ */
 function appointmentCard(data: AppointmentRenderData): string {
   const a = data.appointment;
-  const rows: Array<{ label: string; value: string }> = [
-    { label: 'Cargo', value: a.position },
-    ...(a.predecessor ? [{ label: 'Sustituye a', value: a.predecessor }] : []),
-    { label: 'Desde', value: a.announcedOnLabel },
-  ];
 
-  const cells = rows.map((r, i) => {
-    const border = i === rows.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-    return `
-      <tr>
-        <td class="force-text-soft" style="padding:10px 16px;${border}font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;width:1px;">${esc(r.label)}</td>
-        <td class="force-text-dark" style="padding:10px 16px 10px 0;${border}font-size:13.5px;color:${COLORS.ink};font-weight:600;line-height:1.45;">${esc(r.value)}</td>
-      </tr>`;
-  }).join('');
+  const metaLine = [
+    a.predecessor ? `Sustituye a <strong style="color:${COLORS.inkSoft};font-weight:700;">${esc(a.predecessor)}</strong>` : null,
+    `Desde el ${esc(a.announcedOnLabel)}`,
+  ].filter(Boolean).join(` <span style="color:${COLORS.event};">·</span> `);
 
   return `
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.eventSoft}" style="background:${COLORS.eventSoft};background-color:${COLORS.eventSoft};border:1px solid ${COLORS.event};border-radius:8px;overflow:hidden;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.eventSoft}" style="background:${COLORS.eventSoft};background-color:${COLORS.eventSoft};border:1px solid ${COLORS.event};border-radius:10px;overflow:hidden;">
                 <tr>
-                  <td style="padding:18px 16px 14px 16px;border-bottom:1px solid ${COLORS.borderSoft};">
-                    <div style="font-size:10.5px;font-weight:700;color:${COLORS.event};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">Nombramiento registrado</div>
-                    <div class="force-text-dark" style="font-size:24px;line-height:1.2;font-weight:700;color:${COLORS.ink};letter-spacing:-0.02em;">${esc(a.personName)}</div>
+                  <td style="padding:22px 22px 20px 22px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td class="stack stack-center" valign="top" width="${PHOTO_PX}" style="width:${PHOTO_PX}px;padding-right:18px;">
+                          ${portrait(a)}
+                        </td>
+                        <td class="stack" valign="top">
+                          <div style="font-size:10px;font-weight:800;color:${COLORS.event};letter-spacing:0.14em;text-transform:uppercase;margin-bottom:7px;">Nombramiento</div>
+                          <div class="force-text-dark" style="font-size:23px;line-height:1.2;font-weight:700;color:${COLORS.ink};letter-spacing:-0.02em;">${esc(a.personName)}</div>
+                          <div style="margin-top:5px;font-size:14.5px;line-height:1.35;font-weight:700;color:${COLORS.event};">${esc(a.position)}</div>
+                          <div class="force-text-mute appleLinks" style="margin-top:9px;font-size:12.5px;line-height:1.6;color:${COLORS.inkSoft};">${metaLine}</div>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
-                ${cells}
                 ${a.notes
-                  ? `<tr><td colspan="2" class="force-text-mute" style="padding:12px 16px;border-top:1px solid ${COLORS.borderSoft};font-size:12.5px;color:${COLORS.inkSoft};line-height:1.55;">${esc(a.notes)}</td></tr>`
+                  ? `<tr><td class="force-text-mute" style="padding:14px 22px 16px 22px;border-top:1px solid rgba(109,74,174,0.22);font-size:12.5px;color:${COLORS.inkSoft};line-height:1.6;">${esc(a.notes)}</td></tr>`
                   : ''}
               </table>`;
 }
@@ -221,8 +267,8 @@ function sinceVsBeforeBlock(data: AppointmentRenderData): string {
                 </tr>
                 <tr>
                   <td style="padding:10px 16px 6px 16px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Sentimiento</td>
-                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Desde</td>
-                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Previos</td>
+                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Desde el nombr.</td>
+                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">${data.windowDays} ${dayWord} antes</td>
                   <td align="right" style="padding:10px 16px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Cambio</td>
                 </tr>
                 ${sentimentRows}
@@ -451,24 +497,31 @@ export function renderAppointmentReportHtml(data: AppointmentRenderData): string
   const dayWord = data.windowDays === 1 ? 'día' : 'días';
 
   const contentRows = `
-          <!-- HERO · la ficha del nombramiento -->
+          <!-- HERO · la ficha ES el hero (retrato + quién/qué/desde cuándo) -->
           <tr>
-            <td class="px-32" style="padding:26px 32px 18px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
+            <td class="px-32" style="padding:24px 32px 4px 32px;">
+              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:14px;">
                 ${esc(data.agencyKicker)}
               </div>
-              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
-                Nombramiento nuevo:<br>la conversación desde el día uno
-              </h1>
-              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
-                ${esc(data.windowLabel)} &nbsp;·&nbsp; ${data.windowDays} ${dayWord} desde el nombramiento, hoy incluido &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
-              </div>
+              ${appointmentCard(data)}
             </td>
           </tr>
 
+          <!-- Alcance del resumen: una sola línea, separada de la ficha -->
           <tr>
-            <td class="px-32" style="padding:0 32px 22px 32px;">
-              ${appointmentCard(data)}
+            <td class="px-32" style="padding:16px 32px 20px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="stack" valign="middle">
+                    <div class="force-text-dark" style="font-size:13.5px;font-weight:700;color:${COLORS.ink};line-height:1.4;">
+                      Resumen desde el nombramiento hasta hoy
+                    </div>
+                    <div class="force-text-soft appleLinks" style="margin-top:3px;font-size:12px;color:${COLORS.inkMute};line-height:1.5;">
+                      ${esc(data.windowLabel)} &nbsp;·&nbsp; ${data.windowDays} ${dayWord}, hoy incluido &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
+                    </div>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 

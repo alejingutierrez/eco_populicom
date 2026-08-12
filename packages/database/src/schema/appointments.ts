@@ -44,6 +44,13 @@ export const agencyAppointments = pgTable(
     queryTerms: jsonb('query_terms').$type<string[]>(),
     /** Contexto libre que registra el analista; se muestra en la ficha y va al prompt. */
     notes: text('notes'),
+    /**
+     * Retrato de la persona para la ficha del correo. Debe ser una URL ESTABLE
+     * servida por nosotros (`{dashboard}/appointments/<slug>.jpg`): las og:image
+     * de los medios de PR llevan token firmado (`?auth=…`) que expira y dejaría
+     * el correo con la imagen rota. NULL ⇒ se dibuja un monograma de iniciales.
+     */
+    photoUrl: text('photo_url'),
     /** NULL = pendiente de envío. Estampado tras el envío para no repetirlo. */
     notifiedAt: timestamp('notified_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

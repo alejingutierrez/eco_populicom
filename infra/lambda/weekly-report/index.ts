@@ -771,6 +771,7 @@ interface AppointmentRow {
   coverage_start: string;
   recipients: string[] | null;
   notes: string | null;
+  photo_url: string | null;
   notified_at: string | null;
 }
 
@@ -781,7 +782,7 @@ function ymdOf(v: string | Date): string {
 
 const APPOINTMENT_SELECT = `
   SELECT ap.id, ap.agency_id, ap.person_name, ap.position, ap.predecessor,
-         ap.announced_on, ap.coverage_start, ap.recipients, ap.notes, ap.notified_at,
+         ap.announced_on, ap.coverage_start, ap.recipients, ap.notes, ap.photo_url, ap.notified_at,
          a.slug AS agency_slug, a.name AS agency_name
     FROM agency_appointments ap
     JOIN agencies a ON a.id = ap.agency_id`;
@@ -971,6 +972,7 @@ async function buildAppointmentEmail(
       predecessor: ap.predecessor,
       announcedOnLabel: fullDateEs(ap.announced_on),
       notes: ap.notes,
+      photoUrl: ap.photo_url,
     },
     windowLabel,
     baselineLabel,
@@ -1148,6 +1150,8 @@ async function ensureReportsSchema(client: any): Promise<void> {
       created_by UUID REFERENCES users(id)
     );
   `);
+  // Añadida después del CREATE original (ago 2026): retrato de la persona.
+  await client.query(`ALTER TABLE agency_appointments ADD COLUMN IF NOT EXISTS photo_url TEXT;`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_agency_appointments_agency_id ON agency_appointments(agency_id);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_agency_appointments_pending ON agency_appointments(notified_at);`);
 
