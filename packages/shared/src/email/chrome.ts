@@ -121,6 +121,32 @@ export function buildSubject(tag: string, agencyShort: string, detail: string): 
   return `[${tag}] ${agencyShort} · ${detail}`;
 }
 
+/**
+ * `report_send_log.template_key` → tipo de correo. ÚNICA fuente de verdad del
+ * mapeo, compartida por el lambda que escribe el log y por la UI de admin que
+ * lo lee.
+ *
+ * Existe porque la tabla de historial resolvía el tipo con un ternario
+ * (`key === 'weekly-comparison-v1' ? Semanal : Diario`), así que **cualquier
+ * tipo nuevo se etiquetaba como Diario en silencio** — los dos envíos de
+ * nombramiento del 12-ago aparecían como reportes diarios. Un mapa explícito
+ * convierte ese fallo silencioso en un `null` que la UI puede mostrar como
+ * desconocido.
+ */
+export const TEMPLATE_KEY_TO_KIND: Record<string, EmailKind> = {
+  'daily-sentiment-summary': 'daily',
+  /** Legado: nombraba "semanal" a un correo que en realidad es diario. */
+  'weekly-sentiment-summary': 'daily',
+  'weekly-comparison-v1': 'weekly',
+  'appointment-summary-v1': 'appointment',
+};
+
+/** Tipo de correo de un template_key, o null si no está registrado. */
+export function kindFromTemplateKey(key: string | null | undefined): EmailKind | null {
+  if (!key) return null;
+  return TEMPLATE_KEY_TO_KIND[key] ?? null;
+}
+
 // ------------------------------------------------------------
 // Helpers de texto/números
 // ------------------------------------------------------------

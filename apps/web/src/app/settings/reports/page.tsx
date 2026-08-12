@@ -21,9 +21,24 @@ import {
   Divider,
 } from 'antd';
 import { ArrowLeftOutlined, CheckCircleOutlined, CloseCircleOutlined, SendOutlined, SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
+// Subpath, NO el barrel: esta es una página cliente y `@eco/shared` re-exporta
+// todos los prompts y renderers de correo, que acabarían en el bundle del
+// navegador sin que nadie los use. chrome.ts es autocontenido (sus únicos
+// imports son de tipo, y se borran al compilar).
+import { EMAIL_KIND_META, kindFromTemplateKey, type EmailKind } from '@eco/shared/src/email/chrome';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
+
+/** Color del Tag de AntD por tipo de correo (la paleta hex del chrome es para
+ *  el correo; aquí usamos los presets de AntD del resto del panel). */
+const HISTORY_KIND_COLOR: Record<EmailKind, string> = {
+  daily: 'blue',
+  weekly: 'geekblue',
+  appointment: 'purple',
+  alert: 'orange',
+  crisis: 'red',
+};
 
 interface Agency { id: string; slug: string; name: string; }
 interface ReportConfig {
@@ -425,10 +440,15 @@ function HistoryTable({ rows }: { rows: HistoryEntry[] }) {
         {
           title: 'Tipo',
           dataIndex: 'templateKey',
-          width: 90,
-          render: (k: string) => k === 'weekly-comparison-v1'
-            ? <Tag color="geekblue">Semanal</Tag>
-            : <Tag color="blue">Diario</Tag>,
+          width: 110,
+          // El mapeo vive en @eco/shared (TEMPLATE_KEY_TO_KIND): antes era un
+          // ternario que etiquetaba como "Diario" TODO lo que no fuera semanal,
+          // así que un tipo nuevo se disfrazaba de diario sin avisar.
+          render: (k: string) => {
+            const kind = kindFromTemplateKey(k);
+            if (!kind) return <Tag color="default" title={k}>Desconocido</Tag>;
+            return <Tag color={HISTORY_KIND_COLOR[kind]}>{EMAIL_KIND_META[kind].subjectTag}</Tag>;
+          },
         },
         {
           title: 'Trigger',
