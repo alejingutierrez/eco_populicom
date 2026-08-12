@@ -3,6 +3,14 @@ import { getSessionFromRequest } from '@/lib/session';
 
 // Dashboard UI + dashboard-private API routes. Everything else (public assets,
 // auth pages, auth API, health check, Leaflet tiles) passes through.
+//
+// ⚠️ DOS listas, y AMBAS son necesarias:
+//   - `config.matcher` (abajo) decide qué requests INVOCAN el middleware.
+//   - `PROTECTED_PATHS` (aquí) decide cuáles EXIGEN sesión.
+// Añadir una ruta solo al matcher no protege nada: el middleware corre,
+// `isProtected()` devuelve false y la request pasa. Pasó con
+// /api/eco-executive-summary y /api/eco-terms (#98 solo tocó el matcher, y
+// eco-terms siguió respondiendo 500 sin sesión en prod en vez de 401).
 const PROTECTED_PATHS = [
   /^\/overview(\/.*)?$/,
   /^\/dashboard(\/.*)?$/,
@@ -23,12 +31,17 @@ const PROTECTED_PATHS = [
   /^\/api\/eco-insights(\/.*)?$/,
   /^\/api\/eco-metric-insight(\/.*)?$/,
   /^\/api\/eco-topic-description(\/.*)?$/,
+  /^\/api\/eco-executive-summary(\/.*)?$/,
+  /^\/api\/eco-terms(\/.*)?$/,
   /^\/api\/alerts(\/.*)?$/,
   /^\/api\/agencies(\/.*)?$/,
   /^\/api\/users(\/.*)?$/,
   /^\/api\/ai(\/.*)?$/,
   /^\/api\/narrative(\/.*)?$/,
   /^\/api\/chat(\/.*)?$/,
+  // El reporte exportable devuelve el período completo de una agencia: nunca
+  // puede servirse sin sesión.
+  /^\/api\/export(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -133,11 +146,26 @@ export const config = {
     '/api/eco-insights/:path*',
     '/api/eco-metric-insight/:path*',
     '/api/eco-topic-description/:path*',
+    // Un `:path*` NO cubre la ruta desnuda en todos los casos, así que los
+    // endpoints sin segmentos hijos se listan en las DOS formas (igual que
+    // /api/exec-overview arriba). Se omitió al añadir el endpoint y quedó
+    // accesible sin sesión en prod: `resolveAgencyId` sin sesión acepta
+    // `?agency=<slug>` (rama "public/seed"), así que un anónimo podía pedir el
+    // resumen de cualquier agencia. El endpoint además tiene su propio
+    // requireAuth como defensa en profundidad.
+    '/api/eco-executive-summary/:path*',
+    '/api/eco-executive-summary',
+    // eco-terms (nube de palabras) también estaba fuera del matcher y respondía
+    // sin sesión — verificado en prod: devolvía 500 de SQL en vez de 401, que es
+    // la señal de que la query se estaba ejecutando para un anónimo.
+    '/api/eco-terms/:path*',
+    '/api/eco-terms',
     '/api/alerts/:path*',
     '/api/agencies/:path*',
     '/api/users/:path*',
     '/api/ai/:path*',
     '/api/narrative/:path*',
     '/api/chat/:path*',
+    '/api/export/:path*',
   ],
 };

@@ -143,6 +143,9 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // prompt — muestras, municipios, autores y crecimiento por tópico. Todas
     // sobre el universo pertinente, igual que el resto del producto.
     { file: 'apps/web/src/app/api/eco-executive-summary/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
+    // Nube de palabras: un solo `baseConds` compartido por el scope y por la
+    // referencia, así que los predicados aparecen una vez.
+    { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {
@@ -173,6 +176,148 @@ describe('tripwire — predicados de universo por endpoint', () => {
     expect(count(src, 'pertinentSql(opts')).toBe(5);
     expect(count(src, 'is_duplicate = false')).toBe(5);
     expect(src).toContain('confidence DESC NULLS LAST, topic_id ASC');
+  });
+});
+
+/**
+ * El matcher del middleware es un ALLOWLIST explícito: una ruta de API que no
+ * esté listada queda accesible SIN sesión. Y eso no falla de forma visible,
+ * porque `resolveAgencyId` sin sesión cae a una rama "public/seed" que acepta
+ * `?agency=<slug>` — así que el endpoint responde con datos de la agencia que
+ * le pidan en vez de 401.
+ *
+ * Pasó de verdad: `/api/eco-executive-summary` se desplegó a producción fuera
+ * del matcher (ago-2026). Este test enumera los directorios de rutas y exige
+ * que cada uno esté cubierto, o listado como público a propósito.
+ */
+describe('tripwire — toda ruta /api/* está en el matcher del middleware (o es pública a propósito)', () => {
+  // Rutas que DEBEN ser alcanzables sin sesión, con su razón.
+  const INTENTIONALLY_PUBLIC = new Set([
+    'auth',   // login / refresh / me: son el mecanismo de sesión
+    'health', // healthcheck del ALB y del contenedor
+  ]);
+
+  // Rutas fuera del matcher que se gatean DENTRO del handler. Verificado contra
+  // prod sin sesión: /api/admin/* → 403, /api/reports/* → 401. Se exige abajo
+  // que el gate siga existiendo en el código, para que quitarlo no las deje
+  // abiertas en silencio.
+  //
+  // `admin` NO usa sesión Cognito a propósito: lo invoca EventBridge, así que
+  // gatea por el secreto compartido `x-eco-cron-secret` (fail-closed si no está
+  // configurado). Por eso su lista de gates válidos es distinta.
+  const SESSION_GATES = ['requireCapability', 'requireRole', 'requireAdmin', 'requireAuth'];
+  const GATED_IN_ROUTE: Record<string, string[]> = {
+    admin: ['x-eco-cron-secret', ...SESSION_GATES],
+    reports: SESSION_GATES,
+  };
+
+  // El middleware tiene DOS listas y las dos hacen falta:
+  //   - `config.matcher`  → qué requests INVOCAN el middleware.
+  //   - `PROTECTED_PATHS` → cuáles EXIGEN sesión (regex, vía isProtected()).
+  // Estar solo en el matcher NO protege: el middleware corre, isProtected()
+  // devuelve false y la request pasa de largo. Este test comprueba AMBAS, que
+  // es justo lo que la primera versión no hacía — de ahí que /api/eco-terms
+  // siguiera abierto en prod después de #98.
+  const groupsUnderApi = () => {
+    const apiDir = path.join(REPO, 'apps/web/src/app/api');
+    return fs
+      .readdirSync(apiDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .filter((g) => !INTENTIONALLY_PUBLIC.has(g) && !(g in GATED_IN_ROUTE));
+  };
+
+  test('ningún endpoint nuevo queda fuera del matcher', () => {
+    const mw = read('apps/web/src/middleware.ts');
+    const missing = groupsUnderApi().filter((g) => !mw.includes(`'/api/${g}/:path*'`));
+    expect({ missing }).toEqual({ missing: [] });
+  });
+
+  test('ningún endpoint nuevo queda fuera de PROTECTED_PATHS (el que de verdad exige sesión)', () => {
+    const mw = read('apps/web/src/middleware.ts');
+    // Sólo el bloque de PROTECTED_PATHS, para no dar por buena una coincidencia
+    // que en realidad está en config.matcher.
+    const block = mw.slice(
+      mw.indexOf('const PROTECTED_PATHS'),
+      mw.indexOf('function isProtected'),
+    );
+    expect(block.length).toBeGreaterThan(0);
+    const missing = groupsUnderApi().filter(
+      (g) => !block.includes(`/^\\/api\\/${g}(\\/.*)?$/`),
+    );
+    expect({ missing }).toEqual({ missing: [] });
+  });
+
+  test('las rutas gateadas en el handler conservan su gate', () => {
+    // Recorre cada route.ts del grupo y exige al menos un gate por archivo.
+    for (const [group, gates] of Object.entries(GATED_IN_ROUTE)) {
+      const dir = path.join(REPO, 'apps/web/src/app/api', group);
+      const files: string[] = [];
+      const walk = (d: string) => {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, e.name);
+          if (e.isDirectory()) walk(p);
+          else if (e.name === 'route.ts') files.push(p);
+        }
+      };
+      walk(dir);
+      expect(files.length).toBeGreaterThan(0);
+      const ungated = files
+        .filter((f) => !gates.some((g) => fs.readFileSync(f, 'utf8').includes(g)))
+        .map((f) => path.relative(REPO, f));
+      expect({ group, ungated }).toEqual({ group, ungated: [] });
+    }
+  });
+
+  test('los endpoints sin segmentos hijos también se listan en su forma desnuda', () => {
+    // `/api/foo/:path*` no cubre `/api/foo` de forma fiable; los endpoints que
+    // se consumen en su raíz necesitan AMBAS entradas.
+    const mw = read('apps/web/src/middleware.ts');
+    for (const bare of ['exec-overview', 'eco-executive-summary']) {
+      expect(mw).toContain(`'/api/${bare}'`);
+    }
+  });
+});
+
+/**
+ * Un parámetro de bind tiene UN tipo para toda la sentencia. Construir un
+ * intervalo con `(${p} || ' days')::interval` lo fija como `text`; si el mismo
+ * parámetro se usa además en aritmética (`${p} + ${otro}`), Postgres busca
+ * `text + unknown` y falla en RUNTIME — el typecheck no ve nada.
+ *
+ * Pasó en /api/eco-terms: 500 en producción desde que se mergeó #91, con la
+ * nube de palabras vacía. Se arregla con `${p}::int * INTERVAL '1 day'`.
+ */
+describe('tripwire — intervalos SQL desde parámetros', () => {
+  const ROUTES_DIR = path.join(REPO, 'apps/web/src/app/api');
+
+  const allRouteFiles = (): string[] => {
+    const out: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name === 'route.ts') out.push(p);
+      }
+    };
+    walk(ROUTES_DIR);
+    return out;
+  };
+
+  // Se quitan comentarios antes de buscar: documentar el patrón malo (como hace
+  // el propio eco-terms para explicar por qué ya no lo usa) no puede romper el
+  // build. Sin esto el test se dispara con su propia explicación.
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  test("ninguna ruta arma un intervalo concatenando un parámetro con ' days'", () => {
+    // Coincide con `|| ' days')::interval` y variantes de espaciado. La forma
+    // correcta es `<param>::int * INTERVAL '1 day'`.
+    const BAD = /\|\|\s*'\s*days?\s*'\s*\)\s*::\s*interval/i;
+    const offenders = allRouteFiles()
+      .filter((f) => BAD.test(stripComments(fs.readFileSync(f, 'utf8'))))
+      .map((f) => path.relative(REPO, f));
+    expect({ offenders }).toEqual({ offenders: [] });
   });
 });
 
