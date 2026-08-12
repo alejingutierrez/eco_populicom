@@ -40,6 +40,7 @@ import {
 import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
+import { requireAuth } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -80,6 +81,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfter / 1000)) } },
     );
   }
+
+  // Sesión OBLIGATORIA, verificada en la ruta y no sólo en el middleware.
+  // El matcher del middleware es un allowlist explícito de rutas; olvidar
+  // añadir un endpoint nuevo lo deja abierto, y `resolveAgencyId` sin sesión
+  // cae a la rama "public/seed" que acepta `?agency=<slug>` — es decir, un
+  // anónimo podía pedir el resumen de cualquier agencia (pasó con este mismo
+  // endpoint al desplegarlo). Este chequeo hace que el olvido no sea
+  // explotable.
+  const auth = await requireAuth();
+  if (!auth.ok) return auth.response;
 
   const start = Date.now();
   const { searchParams } = new URL(request.url);
@@ -462,7 +473,7 @@ async function loadTopAuthors(
   const res = await pool.query<{ name: string; mentions: number | string; reach: number | string }>(
     `SELECT m.author AS name,
             COUNT(*)::int AS mentions,
-            COALESCE(SUM(m.reach), 0)::bigint AS reach
+            COALESCE(SUM(m.reach_estimate), 0)::bigint AS reach
        FROM mentions m
       WHERE m.agency_id = $1
         AND m.is_duplicate = false
