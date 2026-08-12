@@ -165,8 +165,13 @@
    buscador era el MÁS alto en desktop y el MÁS bajo en el teléfono, además del
    único control que no llegaba al objetivo táctil).
    ======================================================================== */
-:root { --ctl-h: 34px; }
-@media (pointer: coarse) { :root { --ctl-h: 44px; } }
+/* `--ctl-h` es ALIAS de `--control-h`, no un segundo token. Coexistían: los
+   botones, inputs y selects medían 34px por `--ctl-h` mientras los controles de
+   la cabecera medían 32px por `--control-h`, que es precisamente el escalón de
+   bordes que la auditoría reportó (seis controles a 26/30/32/34/38). Un alias en
+   vez de un reemplazo porque `--ctl-h` tiene tres consumidores en index.html y
+   así convergen sin tocarlos; el override táctil vive con `--control-h`. */
+:root { --ctl-h: var(--control-h); }
 
 /* ===========================================================================
    4 · MOVIMIENTO
@@ -469,7 +474,10 @@
      ⚠️ La leyenda DEBE usar estos mismos tokens: hoy HourActivityCard pinta
      los swatches con rgba(11,95,128,…) — el azul del tema `costa` — mientras
      las celdas van en naranja. */
-  --seq-0: rgba(255, 106, 61, 0.08);
+  /* Paso 0 RESERVADO al cero real (ver seqColor). Sube de 0.08 a 0.14: a 0.08
+     daba 1.10:1 contra --canvas, así que una franja sin actividad se leía como
+     agujero y no como celda, y era indistinguible del primer paso CON datos. */
+  --seq-0: rgba(255, 106, 61, 0.14);
   /* Los pasos 1..5 se redistribuyeron: --seq-1 a 0.24 medía 1.45:1 sobre
      --canvas, o sea el paso más usado del mapa era invisible. Ahora
      1.77 / 2.47 / 3.37 / 4.3 / 6.2 : 1. --seq-0 se queda abajo a propósito,
@@ -539,7 +547,9 @@
   --narr-dormant: #6B7280;
   --narr-unknown: #64748B;   /* 4.76:1 sobre blanco */
 
-  --seq-0: rgba(200, 58, 30, 0.06);
+  /* Mismo ajuste que en oscuro: el paso 0 es el cero real y tiene que separarse
+     del primer paso con datos. */
+  --seq-0: rgba(200, 58, 30, 0.10);
   /* Mismo piso que en oscuro, medido sobre --canvas #FFFFFF: 0.20 daba
      1.34:1, 0.34 da 1.64:1. */
   --seq-1: rgba(200, 58, 30, 0.34);

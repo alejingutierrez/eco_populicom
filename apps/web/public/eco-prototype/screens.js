@@ -814,8 +814,15 @@ function BrandHealthMini({ value }) {
 // puedan divergir (era el hallazgo F6).
 const SEQ_STEPS = ['var(--seq-0)', 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
 function seqColor(intensity) {
-  const i = Math.round(Math.min(1, Math.max(0, intensity || 0)) * (SEQ_STEPS.length - 1));
-  return SEQ_STEPS[i];
+  const t = Math.min(1, Math.max(0, intensity || 0));
+  // El paso 0 queda RESERVADO al cero real. Antes cualquier valor bajo (t < 0.1)
+  // redondeaba al mismo paso que "sin actividad" y, con --seq-0 a 0.08 de alfa
+  // (1.10:1 contra --canvas), una franja CON menciones se pintaba idéntica a una
+  // vacía: el heatmap sub-reportaba la actividad de madrugada y el mapa de
+  // municipios los municipios con poco volumen. Los valores > 0 arrancan en el
+  // paso 1.
+  if (t === 0) return SEQ_STEPS[0];
+  return SEQ_STEPS[1 + Math.round(t * (SEQ_STEPS.length - 2))];
 }
 
 // Variante ATADA A LA DISTRIBUCIÓN, para datos con cola larga. `seqColor`
@@ -880,8 +887,13 @@ function HourActivityCard({ onCellClick }) {
             secuencial --seq-*. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           <span>menos</span>
-          <div style={{ display: 'flex', gap: 'var(--sp-05)' }}>
-            {SEQ_STEPS.map((t, i) => (
+          <div style={{ display: 'flex', gap: 'var(--sp-05)', alignItems: 'center' }}>
+            {/* El paso 0 va con borde y separado del degradado: representa "sin
+                actividad", no "poca" (ver seqColor). Dentro de la rampa era
+                invisible —1.10:1 contra --canvas— así que el extremo "menos" no
+                tenía ancla y una franja vacía no se distinguía de una con datos. */}
+            <div style={{ width: 10, height: 10, background: SEQ_STEPS[0], border: '1px solid var(--hairline-strong)', borderRadius: 'var(--r-sm)', marginRight: 'var(--sp-1)' }} />
+            {SEQ_STEPS.slice(1).map((t, i) => (
               <div key={i} style={{ width: 10, height: 10, background: t, borderRadius: 'var(--r-sm)' }} />
             ))}
           </div>
@@ -2475,8 +2487,21 @@ function SentimentBar({ t }) {
 // --- Bubbles variant ---
 function TopicBubbles({ topics, onSelect }) {
   const max = Math.max(...topics.map(t => t.count));
-  // Lay out bubbles with deterministic pseudo-random positions within an SVG viewport
-  const W = 960, H = 360;
+  // El viewBox mide lo que mide el contenedor (1 unidad = 1 píxel), como el
+  // resto de las gráficas. Antes era 960×360 fijo con `height: 360`: en móvil
+  // (~309px de ancho útil) el SVG se escalaba a 0.32, los rótulos de 11 unidades
+  // se pintaban a 3.5px —ilegibles, y por debajo del piso de 11px que la escala
+  // fija— y el dibujo ocupaba 116px dentro de una caja de 360px. Sin escala, los
+  // tamaños de letra son los reales.
+  const [wrapRef, cw] = useChartWidth(720);
+  const isMob = window.ecoIsMobile();
+  const W = Math.max(280, Math.round(cw));
+  // En móvil la caja es vertical: cabe el mismo dibujo sin achicarlo.
+  const H = isMob ? 520 : 360;
+  // Los radios se escalan con el ÁREA de la caja para conservar la densidad del
+  // empaquetado; la RAZÓN entre radios —que es lo que codifica el dato— no
+  // cambia con el tamaño de la caja.
+  const rk = Math.sqrt((W * H) / (960 * 360));
   const positioned = React.useMemo(() => {
     const out = [];
     const rng = (i) => {
@@ -2485,7 +2510,7 @@ function TopicBubbles({ topics, onSelect }) {
       return s - Math.floor(s);
     };
     topics.forEach((t, i) => {
-      const r = 30 + (t.count / max) * 70;
+      const r = (30 + (t.count / max) * 70) * rk;
       let x = 60 + rng(i) * (W - 120);
       let y = 60 + rng(i + 7) * (H - 120);
       // Push away from prior bubbles
@@ -2503,21 +2528,24 @@ function TopicBubbles({ topics, onSelect }) {
       out.push({ ...t, x, y, r });
     });
     return out;
-  }, [topics]);
+  }, [topics, W, H, rk]);
 
   return (
-    <div style={{ position: 'relative', width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 360, display: 'block' }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
         {positioned.map((t) => {
           // Mismo mapa que el treemap y que la leyenda (un solo hue por estado).
           const color = window.ecoSentimentColor(t.dominantSentiment);
           return (
             <g key={t.slug} style={{ cursor: 'pointer' }} onClick={() => onSelect(t.slug)}>
               <circle cx={t.x} cy={t.y} r={t.r} fill={color} fillOpacity="0.18" stroke={color} strokeWidth="1.5" />
-              <text x={t.x} y={t.y - 4} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--text)" style={{ pointerEvents: 'none' }}>
-                {t.name.length > 18 ? t.name.slice(0, 17) + '…' : t.name}
+              {/* Ahora que 1 unidad = 1 píxel, estos tamaños son tamaños REALES
+                  de letra y salen de la escala (11 y 15). En móvil el rótulo se
+                  corta antes porque la burbuja también es más pequeña. */}
+              <text x={t.x} y={t.y - 4} textAnchor="middle" fontSize="var(--fs-overline)" fontWeight="700" fill="var(--text)" style={{ pointerEvents: 'none' }}>
+                {t.name.length > (isMob ? 12 : 18) ? t.name.slice(0, (isMob ? 12 : 18) - 1) + '…' : t.name}
               </text>
-              <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
+              <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="var(--fs-num-sm)" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
               <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="var(--fs-overline)"

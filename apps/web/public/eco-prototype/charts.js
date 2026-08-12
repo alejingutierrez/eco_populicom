@@ -1119,14 +1119,39 @@ function RadialGauge({ value, max = 3, size = 120, thickness = 10, colorStops })
 function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a11yTitle }) {
   const ids = useChartIds();
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-  const bp = (window.ecoUseBreakpoint ? window.ecoUseBreakpoint() : 'desktop');
-  // En táctil, 24 columnas dan celdas de 10x14px: 168 objetivos imposibles de
-  // acertar con el dedo. Se agrupan en franjas de 2 horas (12 columnas), que a
-  // 390px deja celdas de ~26px y mantiene legible el patrón día/noche.
-  const bucket = bp === 'mobile' ? 2 : 1;
+  // El agrupamiento lo decide el ANCHO MEDIDO del contenedor, no el viewport.
+  //
+  // Antes salía de `ecoUseBreakpoint()`, así que el heatmap del Scorecard —que
+  // vive en una card de 292px— recibía 24 columnas por estar en un viewport de
+  // desktop. Con celdas de 24px eso pide 622px, y el ancestro con
+  // `overflow: hidden` recortaba 313px: TRECE DE LAS VEINTICUATRO HORAS
+  // desaparecían sin ninguna señal. Con celdas fluidas no se recortaba nada pero
+  // quedaban a 12px de ancho, bajo el mínimo táctil AA (SC 2.5.8).
+  //
+  // Agrupar es la salida que no miente: 24 horas en franjas de 2, 3, 4 o 6 horas
+  // siguen mostrando el día completo, con celdas que se pueden tocar y una
+  // etiqueta que dice el rango real (ver hourLabel). Se elige el grupo MÁS FINO
+  // que quepa.
+  const [wrapRef, boxW] = useChartWidth(0);
+  const CELL_MIN = 24;
+  const LABEL_W = 30;          // la canaleta del rótulo del día
+  const bucket = React.useMemo(() => {
+    // Sin medida todavía (primer render): franja de 2h, que es la que cabe en
+    // cualquier ancho razonable, para no parpadear de 24 a 12 columnas.
+    if (!boxW) return 2;
+    for (const b of [1, 2, 3, 4, 6]) {
+      const n = Math.ceil(hours / b);
+      if (LABEL_W + n * CELL_MIN + (n - 1) * 2 <= boxW) return b;
+    }
+    return 6;
+  }, [boxW, hours]);
   const cols = Math.ceil(hours / bucket);
   // Separadores en horas que marcan transición de turno (6am, 12pm, 6pm).
-  const SHIFT_BREAKS = new Set(bucket === 1 ? [6, 12, 18] : [3, 6, 9]);
+  // Cortes de turno (6am / 12pm / 6pm) expresados en columnas del grupo actual,
+  // para que sigan cayendo en la misma HORA con cualquier agrupamiento.
+  const SHIFT_BREAKS = new Set([6, 12, 18]
+    .map((h) => h / bucket)
+    .filter((c) => Number.isInteger(c) && c > 0 && c < cols));
   const extraGap = (c) => SHIFT_BREAKS.has(c) ? 4 : 0;
   const hourOf = (c) => c * bucket;
   const valueOf = (d, c) => {
@@ -1138,7 +1163,16 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
     ? `${String(hourOf(c)).padStart(2, '0')}:00`
     : `${String(hourOf(c)).padStart(2, '0')}:00–${String(hourOf(c) + bucket - 1).padStart(2, '0')}:59`;
   // Celdas fluidas: ocupan el ancho disponible en vez de un cellSize fijo.
-  const gridCols = `repeat(${cols}, minmax(0, 1fr))`;
+  // `minmax(24px, 1fr)`, no `minmax(0, 1fr)`. Con base 0 la celda se comprimía a
+  // 12-19px de ANCHO — bajo el mínimo de objetivo táctil de WCAG 2.2 AA (SC
+  // 2.5.8), que aplica también con ratón — mientras `minHeight: 24` sólo defendía
+  // el alto. El defecto llevaba ahí desde antes; no se veía porque el heatmap sin
+  // datos no dibuja celdas que medir. Cuando 24 columnas a 24px no caben, la card
+  // ya scrollea en horizontal (.scroll-x), que es preferible a un objetivo que no
+  // se puede tocar.
+  // minmax(CELL_MIN, 1fr): el piso defiende el objetivo táctil y el 1fr reparte
+  // lo que sobre. Como `bucket` ya garantiza que caben, el piso nunca desborda.
+  const gridCols = `repeat(${cols}, minmax(${CELL_MIN}px, 1fr))`;
   // Tabla equivalente: una rejilla de 7x12 (o 7x24) de celdas de color es
   // ilegible con lector de pantalla. Las celdas siguen siendo focoables una a
   // una (tabIndex + aria-label), y la tabla da la lectura completa.
@@ -1150,10 +1184,12 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
   const tableCols = [{ key: 'dia', label: 'Día' }].concat(
     Array.from({ length: cols }).map((_, c) => ({ key: `h${c}`, label: hourLabel(c) })));
   return (
-    <div role="group" aria-label={a11yTitle || 'Actividad por día y hora'}>
+    <div ref={wrapRef} role="group" aria-label={a11yTitle || 'Actividad por día y hora'}>
       <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 'var(--sp-05)', marginLeft: 30, fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-1)' }}>
         {Array.from({ length: cols }).map((_, c) => (
           <div key={c} style={{ textAlign: 'center', marginLeft: extraGap(c), fontWeight: SHIFT_BREAKS.has(c) ? 700 : 400, color: SHIFT_BREAKS.has(c) ? 'var(--text-2)' : 'var(--text-3)' }}>
+            {/* Con 24 columnas se rotula hora par para que no se apiñen; agrupado
+                cabe una etiqueta por columna. */}
             {(bucket === 1 ? hourOf(c) % 2 === 0 : true) ? hourOf(c) : ''}
           </div>
         ))}
@@ -1175,7 +1211,11 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
                   title={`${labels[d]} ${hourLabel(c)} — ${v} menciones`}
                   className={clickable ? 'eco-heat-cell' : undefined}
                   style={{
-                    aspectRatio: '1 / 1',
+                    // Sin `aspectRatio: '1 / 1'`: era una declaración muerta y
+                    // contradictoria. Con 24 columnas fluidas la celda mide ~12px de
+                    // ancho en la card de desktop, así que el cuadrado pedía 12px de
+                    // alto y `minHeight` ganaba siempre: las celdas medidas son 12x24,
+                    // nunca cuadradas. Se declara lo que de verdad manda.
                     // >=24px en ambos modos: es el mínimo de objetivo táctil de
                     // WCAG 2.2 AA (SC 2.5.8), y aplica también con ratón.
                     minHeight: 24,
