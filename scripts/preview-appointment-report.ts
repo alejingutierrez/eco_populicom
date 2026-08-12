@@ -26,8 +26,8 @@ const data: AppointmentRenderData = {
     predecessor: 'Francisco Domenech',
     announcedOnLabel: 'lunes 10 de agosto de 2026',
     // Ruta relativa: el preview se sirve desde /emails/, así que resuelve a
-    // /appointments/placeholder.svg. En producción photo_url es una URL absoluta.
-    photoUrl: '../appointments/placeholder.svg',
+    // /appointments/. En producción photo_url es la URL absoluta del dashboard.
+    photoUrl: '../appointments/norma-burgos.jpg',
     notes: 'Designada por la gobernadora Jenniffer González Colón tras la salida de Francisco Domenech el 7 de agosto. Fue secretaria de Estado (1995–1999) y presidenta de la Junta de Planificación.',
   },
   windowLabel: '9 – 12 ago 2026',

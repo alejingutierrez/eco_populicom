@@ -25,4 +25,17 @@ UPDATE agency_appointments
 Sin `photo_url` el correo dibuja un **monograma con las iniciales** en violeta:
 la ficha nunca depende de que exista la foto.
 
+## Encuadre
+
+Cuadradas y recortadas a **cabeza y hombros**, con el rostro a ~29% del borde
+superior — no centrado. Si centras el rostro, el círculo del correo corta la
+barbilla y deja aire de sobra arriba. 368×368 (4× el render de 92px) a JPEG
+calidad 88 pesa ~40 KB, que es lo correcto para un correo.
+
+## Inventario
+
+| Archivo | Persona | Origen |
+|---|---|---|
+| `norma-burgos.jpg` | Norma E. Burgos Andújar | provista por el cliente (12-ago-2026) |
+
 `placeholder.svg` es solo para el preview local (`scripts/preview-appointment-report.ts`).
