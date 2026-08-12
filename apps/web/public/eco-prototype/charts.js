@@ -594,7 +594,12 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
             const dotData = data[hoverIdx];
             return (
               <g>
-                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                {/* --chart-crosshair, no --text-3: el token existe para esto y la
+                    otra gráfica del producto ya lo usa (SeriesPanels, más abajo en
+                    este archivo), así que la MISMA guía de hover salía de dos
+                    colores en dos gráficas. Y --text-3 es además --chart-axis: la
+                    guía se pintaba con el color de los rótulos del eje. */}
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {normalized.map(s => {
                   if (isGap(dotData[s.key])) return null;
                   const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
@@ -638,7 +643,7 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
             return (
               <g key={s.key + '-tag'} transform={`translate(${innerW + 4}, ${y})`}>
                 <rect x={0} y={-8} width={46} height={16} fill={s.color} rx={2} />
-                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
+                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill={window.ecoOnFill(s.color)} textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
               </g>
             );
           })}
@@ -1096,7 +1101,13 @@ function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTit
 
 // Horizontal bar list
 function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value', trackHeight = 6, onItemClick }) {
-  const _max = max ?? Math.max(...items.map(i => i[valueKey]));
+  // Piso 1 en el DOMINIO, no en el dato. Con una lista de ceros `Math.max` da 0 y
+  // el ancho sale `NaN%`, que el navegador descarta sin decir nada; con lista vacía
+  // da −Infinity (inofensivo hoy, porque el .map de abajo no corre, pero es una
+  // bomba armada para el primer callsite que lea _max fuera del bucle). Con máximo
+  // 1 cada barra vale 0/1 = 0%, que es lo correcto. En cuanto el máximo real es ≥1
+  // nada cambia: la barra sigue siendo valor/máximo, proporcional.
+  const _max = max ?? Math.max(1, ...items.map(i => i[valueKey]));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
       {items.map((it, i) => {

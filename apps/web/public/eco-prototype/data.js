@@ -217,7 +217,12 @@ window.ecoSentimentColor = function ecoSentimentColor(s) {
   const k = String(s || '').toLowerCase();
   if (k === 'positivo' || k === 'positive' || k === 'pos') return 'var(--pos)';
   if (k === 'negativo' || k === 'negative' || k === 'neg') return 'var(--neg)';
-  return 'var(--text-3)';
+  // --neu y no --text-3: --text-3 es --chart-axis, así que el neutral salía del
+  // mismo gris que los ticks y los rótulos del eje del propio gráfico. Es el
+  // gris del DATO (tokens.css §color), el mismo que ya devuelve ecoNssColor doce
+  // líneas más abajo para su banda neutra: un solo archivo no puede tener dos
+  // respuestas para el mismo gris.
+  return 'var(--neu)';
 };
 
 // Etiqueta del estado de sentimiento — un solo mapa para todo el producto. El
@@ -259,10 +264,45 @@ window.ecoNssColor = function ecoNssColor(nss) {
 window.ECO_METRIC_COLOR = {
   nss: 'var(--accent)',
   brandHealthIndex: 'var(--pos)',
-  totalMentions: 'var(--text-2)',
+  // --cat-1 y no --text-2: la serie de volumen es la ÚNICA encendida por defecto
+  // y venía pintada con un token de TEXTO. En esa misma gráfica el crosshair y los
+  // rótulos del eje son --text-3, a 1.58:1 de --text-2 medido sobre --canvas: es
+  // el defecto por el que §5 creó --neu ("la serie Neutral salía idéntica a los
+  // ticks y a los rótulos del eje"). --neu tampoco sirve aquí —da 1.42:1 contra
+  // ese mismo --text-3, todavía peor—: si el cromo es gris, el dato no puede ser
+  // gris. El volumen no emite juicio, así que va al espacio CATEGÓRICO; su delta
+  // sigue saliendo neutro por ECO_METRIC_DIRECTION, que es donde vive ese juicio.
+  totalMentions: 'var(--cat-1)',
   crisisRiskScore: 'var(--neg)',
   polarizationIndex: 'var(--metric-polarization)',
   engagementRate: 'var(--warn)',
+};
+
+// Primer plano sobre un relleno de DATO. §5 declara UN --on-* por relleno, pero el
+// chip de serie del Scorecard y la etiqueta del último punto de MultiLineChart
+// usaban --on-accent —el par del naranja de MARCA— encima de cualquier color de
+// serie: verde, rojo, ámbar, violeta y gris con el mismo primer plano. Medidas las
+// seis combinaciones vigentes, ninguna falla AA (6.2:1 el peor caso en oscuro,
+// 5.1:1 en claro), así que esto no cambia lo que se ve hoy: existe para que el
+// próximo color de serie no herede un par que nadie midió.
+// --neu queda deliberadamente FUERA del mapa: su par declarado --on-neu es #FFFFFF
+// y blanco sobre #94A3B8 da 2.56:1 en oscuro, así que un relleno --neu no puede
+// llevar texto encima hasta que se decida ese token. No se arregla desde aquí.
+window.ECO_ON_FILL = {
+  '--accent': 'var(--on-accent)',
+  '--pos': 'var(--on-pos)',
+  '--neg': 'var(--on-neg)',
+  '--warn': 'var(--on-warn)',
+  '--info': 'var(--on-info)',
+  '--metric-polarization': 'var(--on-cat)',  // es el valor de --cat-2 en ambos modos
+};
+window.ecoOnFill = function ecoOnFill(fill) {
+  const m = String(fill || '').match(/^var\((--[\w-]+)\)$/);
+  const token = m && m[1];
+  if (!token) return 'var(--on-accent)';
+  if (window.ECO_ON_FILL[token]) return window.ECO_ON_FILL[token];
+  if (/^--cat-[1-8]$/.test(token)) return 'var(--on-cat)';
+  return 'var(--on-accent)';
 };
 
 // Resuelve un token a su valor computado. SÓLO para consumidores que no

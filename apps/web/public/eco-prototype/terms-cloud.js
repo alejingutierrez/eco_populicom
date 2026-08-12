@@ -340,11 +340,25 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
       {header}
       <div className="card-bd" ref={boxRef} style={{ minHeight: 120 }}>
         {state.phase === 'loading' ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
-            {[92, 140, 68, 116, 84, 156, 72, 104, 128, 88].map((sw, i) => (
-              <div key={i} className="skeleton" style={{ width: sw, height: 30, borderRadius: 'var(--r-sm)' }} />
-            ))}
-          </div>
+          // El esqueleto anticipa LA VISTA QUE VA A APARECER. Diez bloques flotando
+          // en fila no se parecen a la lista de filas del Ranking —la vista por
+          // defecto en móvil—, así que el relevo se leía como un cambio de contenido
+          // en vez del fin de la carga. Nube: bloques de alto variable, porque ahí el
+          // tamaño ES el dato (el alto real va de 26 a 47px). Ranking: filas apiladas
+          // con el alto (~32px) y el gap (--sp-05) reales de la lista.
+          view === 'cloud' ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
+              {[[156, 44], [92, 30], [140, 36], [68, 26], [116, 32], [84, 28], [128, 34], [72, 26], [104, 30], [88, 28]].map(([sw, sh], i) => (
+                <div key={i} className="skeleton" style={{ width: sw, height: sh, borderRadius: 'var(--r-sm)' }} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <div key={i} className="skeleton" style={{ height: 32, borderRadius: 'var(--r-sm)' }} />
+              ))}
+            </div>
+          )
         ) : view === 'cloud' ? (
           <div role="listbox" aria-multiselectable="true" aria-label="Términos de la conversación"
             style={{ position: 'relative', height: laid.height, transition: 'height var(--dur) var(--ease)' }}>
@@ -375,11 +389,21 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                   }}>
                   {t.term}
                   {t.isNew && (
+                    // La marca va INLINE detrás del último glifo, no anclada al borde
+                    // de la caja. La caja mide measure(texto)+18px y el texto va
+                    // CENTRADO dentro (padding 0, sin text-align), así que `right: 2`
+                    // dejaba el punto ~7px a la derecha de la palabra —dentro del hueco
+                    // de 6px hacia el término vecino— y `top: 2` por encima de la altura
+                    // de mayúscula: los puntos se leían como suciedad flotando entre
+                    // palabras y no como atributo de un término. `super` los sube al
+                    // tercio alto del glifo y escala con el cuerpo, que aquí va de 13 a
+                    // 30px. Cabe sin recortar: 7px de contenido nuevo contra 18px de
+                    // holgura, y no estira la caja de línea.
                     <span aria-hidden="true" style={{
-                      position: 'absolute', top: 2, right: 2,
+                      display: 'inline-block', verticalAlign: 'super', marginLeft: 2,
                       // 'nuevo' es un atributo del DATO, así que va en --info y no en
-                      // el naranja de interacción: el relleno --accent-fill de dos
-                      // líneas arriba ya significa 'seleccionado' en este mismo botón.
+                      // el naranja de interacción: el relleno --accent-fill del mismo
+                      // botón ya significa 'seleccionado'.
                       width: 5, height: 5, borderRadius: '50%', background: 'var(--info)',
                     }} />
                   )}
@@ -420,9 +444,10 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                         las otras dos listas de barras del producto (HBarList en
                         charts.js y .narrative-bar-fill). Antes se pintaba con
                         polarityColor, y --wc-* está declarada para TEXTO
-                        (tokens.css:379-387): codifica la extremidad en saturación,
-                        no en luminosidad, así que --wc-neu #A2ACBA (luminancia
-                        0.412) pesa 1.43x más que --wc-neg-2 #FF5470 (0.289) y la
+                        (tokens.css:504-512): codifica la extremidad en saturación,
+                        no en luminosidad, así que --wc-neu —hoy var(--neu), #94A3B8
+                        (luminancia 0.360)— pesa 1.25x más que --wc-neg-2 #FF5470
+                        (0.288) y la
                         barra más neutra era la que más gritaba de la columna. La
                         polaridad sigue en el color del término, el tooltip y el
                         aria-label. Tampoco sirve --div-*: su centro --div-mid da
@@ -477,10 +502,24 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
           lo dice en vez de fingir que no. El Ranking es la vista precisa. */}
       <div className="card-bd" style={{ paddingTop: 0 }}>
         <div className="t-caption" style={{ color: 'var(--text-3)' }}>
-          El tamaño indica las menciones del término y el color su sentimiento medio.
-          El criterio ({mode === 'frequent' ? 'Frecuentes' : 'Distintivos'}) decide qué términos
-          entran y en qué orden, no su tamaño. Para comparar cifras exactas usa el Ranking:
-          en una nube el área se lee mal por naturaleza.
+          {/* La nota describe los canales de LA VISTA QUE SE ESTÁ VIENDO. En Ranking
+              no hay tamaño que leer, y remitir al Ranking manda al usuario donde ya
+              está — y el Ranking es la vista por defecto en móvil (ver el efecto de
+              isMobile), así que ese era el caso frecuente, no la excepción. */}
+          {view === 'cloud' ? (
+            <>
+              El tamaño indica las menciones del término y el color su sentimiento medio.
+              El criterio ({mode === 'frequent' ? 'Frecuentes' : 'Distintivos'}) decide qué términos
+              entran y en qué orden, no su tamaño. Para comparar cifras exactas usa el Ranking:
+              en una nube el área se lee mal por naturaleza.
+            </>
+          ) : (
+            <>
+              La barra y la cifra indican las menciones del término y el color su sentimiento
+              medio. El criterio ({mode === 'frequent' ? 'Frecuentes' : 'Distintivos'}) decide
+              qué términos entran y en qué orden.
+            </>
+          )}
         </div>
       </div>
     </div>

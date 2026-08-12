@@ -72,6 +72,65 @@ if orphans:
         sys.exit(1)
     print('\nninguno crítico: todos tienen respaldo.')
 
+# --- Colisiones de valor entre familias semánticas ---------------------------
+# Dos tokens con el MISMO valor y significados distintos son indistinguibles en
+# pantalla. Es la clase que produjo el peor hallazgo de la auditoría:
+# --narr-peaking era el mismo hex que --accent, así que estado de narrativa,
+# selección y marca se leían igual; y --emo-ira era idéntico a --neg. Ninguna
+# sonda de color puede verlo — los dos valores SON del sistema.
+FAMILIAS = {
+    'marca': ('--accent',),
+    'semantico': ('--pos', '--neg', '--warn', '--info', '--neu'),
+    'texto': ('--text', '--text-2', '--text-3'),
+    'narrativa': ('--narr-',),
+    'emocion': ('--emo-',),
+    'categoria': ('--cat-',),
+    'veredicto': ('--verdict-',),
+    'metrica': ('--metric-',),
+}
+
+
+def familia(nombre):
+    for fam, pres in FAMILIAS.items():
+        for pre in pres:
+            if nombre == pre or (pre.endswith('-') and nombre.startswith(pre)):
+                return fam
+    return None
+
+
+# Sólo se comparan valores literales (#hex / rgb). Los alias por var() son
+# deliberados y se ven en el nombre.
+valores = collections.defaultdict(list)
+for f in DECL_FILES:
+    p = os.path.join(PROTO, f)
+    if not os.path.exists(p):
+        continue
+    for m in re.finditer(r'(--[A-Za-z0-9_-]+)\s*:\s*(#[0-9A-Fa-f]{3,8})\s*;', open(p, encoding='utf-8').read()):
+        fam = familia(m.group(1))
+        if fam:
+            valores[m.group(2).lower()].append((m.group(1), fam))
+
+colisiones = []
+for val, tks in valores.items():
+    fams = {f for _, f in tks}
+    if len(fams) > 1:
+        colisiones.append((val, sorted(set(tks))))
+
+if colisiones:
+    # AVISO, no fallo. Las 14 colisiones que hay hoy son una sola decisión
+    # pendiente: los siete estados del ciclo de vida de narrativas reutilizan la
+    # paleta CATEGÓRICA (--narr-peaking es --cat-2, que además es
+    # --metric-polarization) y --narr-dormant es el gris de TEXTO. Elegir siete
+    # valores propios es una decisión de paleta, no un arreglo mecánico, así que
+    # romper la build de todo el equipo por ella sería desproporcionado.
+    # Cuando esa paleta se decida, este bloque pasa a sys.exit(1) y la clase
+    # queda cerrada para siempre.
+    print(f'\nAVISO — colisiones de valor ({len(colisiones)}): mismo color, familias distintas')
+    for val, tks in colisiones:
+        print(f'  {val}  ' + ' = '.join(f'{n} ({f})' for n, f in tks))
+    print('  Dos significados con un valor son indistinguibles en pantalla.')
+    print('  Pendiente: paleta propia para el ciclo de vida de narrativas.')
+
 unused = sorted(d for d in declared
                 if d not in used and not d.startswith(IGNORE_PREFIX))
 print('\nsin referencias huérfanas ✔')

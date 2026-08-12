@@ -135,6 +135,15 @@
      había dos bordes izquierdos distintos a la vez. Se sobreescribe a 12px bajo
      768px (index.html, bloque móvil). */
   --gutter-page: 28px;
+  /* Ancho de una columna de tabla que lleva una marca de tiempo COMPLETA de
+     `ecoFmtDateTime` («27 jul 26, 6:00 a. m.»). El formato es de largo FIJO: 21
+     glifos siempre, día y año a dos cifras y mes abreviado. En IBM Plex Mono
+     12px mide 151px; 168 deja holgura para el mono del sistema si falla el
+     subset y para el espacio fino de «a. m.». Existe porque la misma cadena
+     tenía tres anchos distintos: 120px en el historial de Alertas (envolvía a
+     dos renglones), 168px tras medirla allí, y 110px en la tabla de Usuarios.
+     Un dato de largo conocido no necesita que cada tabla adivine su columna. */
+  --w-col-datetime: 168px;
 }
 
 /* ===========================================================================
@@ -507,7 +516,14 @@
      saturación, no en luminosidad, así que los cinco pasos pasan AA. */
   --wc-neg-2: #FF5470;
   --wc-neg-1: #FF9BAC;
-  --wc-neu:   #A2ACBA;
+  /* El neutro de la nube apunta al neutro del DATO. Era #A2ACBA, el valor EXACTO
+     de --text-2: el término sin polaridad se pintaba con el gris del texto
+     secundario de interfaz, y el mismo valor de sentimiento salía de tres tintas
+     distintas en la misma pantalla (nube/Ranking, pill de la lista, barra
+     apilada). Con var(--neu) hay un solo gris de sentimiento neutro y las tres se
+     mueven juntas. Medido: 7.1:1 sobre --canvas (antes 7.92:1), sigue AA para el
+     cuerpo de 13px de la nube. */
+  --wc-neu:   var(--neu);
   --wc-pos-1: #8FE5B0;
   --wc-pos-2: #3FD47A;
 }
@@ -571,7 +587,7 @@
 
   --wc-neg-2: #C2183F;
   --wc-neg-1: #A05A6A;
-  --wc-neu:   #4A515B;
+  --wc-neu:   var(--neu);  /* = #52525B, 7.73:1 sobre blanco; era el valor exacto de --text-2 */
   --wc-pos-1: #4F7A5E;
   --wc-pos-2: #14722F;
 }
