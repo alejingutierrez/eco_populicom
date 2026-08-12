@@ -33,8 +33,10 @@ import {
   buildSentimentInsightsPrompt,
   buildDailySummaryPrompt,
   buildWeeklySummaryPrompt,
+  buildAppointmentSummaryPrompt,
   renderDailyReportHtml,
   renderWeeklySummaryHtml,
+  renderAppointmentReportHtml,
   buildSentimentReport,
   buildSubject,
   closedWindowYmdInTZ,
@@ -55,6 +57,7 @@ import {
   type WeeklyAggregates,
   type DailyReportRenderData,
   type WeeklySummaryRenderData,
+  type AppointmentRenderData,
   type PgClientLike,
   type SentimentReport,
   type WindowMetrics,
@@ -73,6 +76,9 @@ const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'http://eco-alb-188
  *  diario usa el template_key de la config ('daily-sentiment-summary'). */
 const WEEKLY_TEMPLATE_KEY = 'weekly-comparison-v1';
 
+/** template_key del correo de NOMBRAMIENTO en report_send_log. */
+const APPOINTMENT_TEMPLATE_KEY = 'appointment-summary-v1';
+
 /**
  * TZ para todo cálculo de "día calendario" del reporte. Puerto Rico es AST
  * (UTC-4) sin DST. La config por agencia (report_configs.timezone) sigue
@@ -84,13 +90,19 @@ const REPORT_TIMEZONE = 'America/Puerto_Rico';
 let dbUrl: string | null = null;
 let schemaEnsured = false;
 
-type ReportType = 'daily' | 'weekly';
+type ReportType = 'daily' | 'weekly' | 'appointment';
 
 interface InvokePayload {
   /** Si se especifica, ejecuta solo para esa agencia e ignora hora/día (tests manuales). */
   agencySlug?: string;
   /** Tipo de correo a generar en invocación dirigida. Default: 'daily'. */
   reportType?: ReportType;
+  /**
+   * Nombramiento concreto a renderizar (solo con reportType='appointment').
+   * Si se omite, se toma el más reciente de la agencia. En invocación dirigida
+   * el correo se envía SIN estampar notified_at, para poder repetir la prueba.
+   */
+  appointmentId?: string;
   /** Override de destinatarios (solo si viene agencySlug). Si no, usa los de report_configs. */
   recipients?: string[];
   /** True = renderiza y devuelve HTML sin enviar y sin logear. */
@@ -192,6 +204,12 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
       if (dailyDue) runs.push(await runForAgency(client, inputs, 'daily'));
       if (weeklyDue) runs.push(await runForAgency(client, inputs, 'weekly'));
     }
+
+    // Nombramientos pendientes: NO dependen de la hora ni de report_configs
+    // (un cambio de titular no espera a las 6 AM), así que se evalúan en cada
+    // barrido y salen en el primer tick tras el alta.
+    runs.push(...await dispatchPendingAppointments(client));
+
     return { ok: true, runs };
   } finally {
     await client.end();
@@ -216,15 +234,36 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
     return { ok: false, error: `agency '${event.agencySlug}' not found` };
   }
   const a = agencyRow.rows[0];
-  const reportType: ReportType = event.reportType === 'weekly' ? 'weekly' : 'daily';
-  const recipients = event.recipients ?? (a.recipients as string[] | null) ?? [];
+  const reportType: ReportType = event.reportType === 'weekly' ? 'weekly'
+    : event.reportType === 'appointment' ? 'appointment'
+    : 'daily';
+
+  // El correo de nombramiento necesita SU fila; sin nombramiento registrado no
+  // hay nada que renderizar (y no tiene sentido inventar uno para la prueba).
+  let appointment: AppointmentRow | null = null;
+  if (reportType === 'appointment') {
+    appointment = await loadAppointment(client, a.id, event.appointmentId);
+    if (!appointment) {
+      return {
+        ok: false, agency: a.slug, reportType, status: 'no_data',
+        error: event.appointmentId
+          ? `appointment '${event.appointmentId}' not found for agency '${a.slug}'`
+          : `agency '${a.slug}' has no rows in agency_appointments`,
+      };
+    }
+  }
+
+  const recipients = event.recipients
+    ?? (reportType === 'appointment' ? await resolveAppointmentRecipients(client, appointment!) : null)
+    ?? (a.recipients as string[] | null)
+    ?? [];
   const fromEmail = a.from_email ?? 'agutierrez@populicom.com';
   const fromName = a.from_name ?? 'ECO Radar';
   const templateKey = a.template_key ?? 'daily-sentiment-summary';
   const trigger = event.trigger ?? 'manual';
 
   if (event.dryRun === true) {
-    const built = await buildEmail(client, { id: a.id, slug: a.slug, name: a.name }, reportType);
+    const built = await buildEmail(client, { id: a.id, slug: a.slug, name: a.name }, reportType, appointment);
     return { ok: true, agency: a.slug, reportType, html: built.html, subject: built.subject, status: 'sent' };
   }
 
@@ -246,7 +285,7 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
     templateKey,
     trigger,
     triggeredBy: event.triggeredBy ?? null,
-  }, reportType);
+  }, reportType, appointment);
 }
 
 // ============================================================
@@ -265,12 +304,19 @@ interface AgencyRunInputs {
   triggeredBy: string | null;
 }
 
-async function runForAgency(client: any, i: AgencyRunInputs, reportType: ReportType): Promise<RunResult> {
-  const logTemplateKey = reportType === 'weekly' ? WEEKLY_TEMPLATE_KEY : i.templateKey;
+async function runForAgency(
+  client: any,
+  i: AgencyRunInputs,
+  reportType: ReportType,
+  appointment: AppointmentRow | null = null,
+): Promise<RunResult> {
+  const logTemplateKey = reportType === 'weekly' ? WEEKLY_TEMPLATE_KEY
+    : reportType === 'appointment' ? APPOINTMENT_TEMPLATE_KEY
+    : i.templateKey;
   try {
     const built = await buildEmail(client, {
       id: i.agencyId, slug: i.agencySlug, name: i.agencyName,
-    }, reportType);
+    }, reportType, appointment);
 
     if (!built.hasData) {
       console.warn(`[weekly-report] ${i.agencySlug} (${reportType}) — no mentions in period, skipping send`);
@@ -349,7 +395,12 @@ async function buildEmail(
   client: any,
   agency: { id: string; slug: string; name: string },
   reportType: ReportType,
+  appointment: AppointmentRow | null = null,
 ): Promise<BuiltEmail> {
+  if (reportType === 'appointment') {
+    if (!appointment) throw new Error('buildEmail: reportType=appointment requiere una fila de agency_appointments');
+    return buildAppointmentEmail(client, agency, appointment);
+  }
   return reportType === 'weekly'
     ? buildWeeklySummaryEmail(client, agency)
     : buildDailyReportEmail(client, agency);
@@ -363,6 +414,27 @@ function fullDayEs(ymd: string): string {
 
 function fmtIntEs(n: number): string {
   return n.toLocaleString('es-PR');
+}
+
+const ES_MONTH_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const ES_DOW_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+/** "lunes 10 de agosto de 2026" — fecha del nombramiento en la ficha del correo. */
+function fullDateEs(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dow = ES_DOW_LONG[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${dow} ${d} de ${ES_MONTH_LONG[m - 1]} de ${y}`;
+}
+
+/** Días naturales entre dos YYYY-MM-DD, ambos inclusive (mismo día = 1). */
+function daysBetweenInclusive(startYmd: string, endYmd: string): number {
+  const toUtc = (s: string) => {
+    const [y, m, d] = s.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const diff = Math.round((toUtc(endYmd) - toUtc(startYmd)) / 86_400_000);
+  return Math.max(1, diff + 1);
 }
 
 // ============================================================
@@ -683,6 +755,318 @@ async function buildWeeklySummaryEmail(
 }
 
 // ============================================================
+// CORREO DE NOMBRAMIENTO — desde el nombramiento hasta HOY
+// ============================================================
+
+interface AppointmentRow {
+  id: string;
+  agency_id: string;
+  agency_slug: string;
+  agency_name: string;
+  person_name: string;
+  position: string;
+  predecessor: string | null;
+  /** YYYY-MM-DD (columna DATE; pg la devuelve como string con este driver). */
+  announced_on: string;
+  coverage_start: string;
+  recipients: string[] | null;
+  notes: string | null;
+  photo_url: string | null;
+  notified_at: string | null;
+}
+
+/** Normaliza una columna DATE a 'YYYY-MM-DD' venga como string o como Date. */
+function ymdOf(v: string | Date): string {
+  return typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10);
+}
+
+const APPOINTMENT_SELECT = `
+  SELECT ap.id, ap.agency_id, ap.person_name, ap.position, ap.predecessor,
+         ap.announced_on, ap.coverage_start, ap.recipients, ap.notes, ap.photo_url, ap.notified_at,
+         a.slug AS agency_slug, a.name AS agency_name
+    FROM agency_appointments ap
+    JOIN agencies a ON a.id = ap.agency_id`;
+
+function toAppointmentRow(r: any): AppointmentRow {
+  return { ...r, announced_on: ymdOf(r.announced_on), coverage_start: ymdOf(r.coverage_start) };
+}
+
+/** Un nombramiento concreto (por id) o el más reciente de la agencia. */
+async function loadAppointment(client: any, agencyId: string, id?: string): Promise<AppointmentRow | null> {
+  const r = id
+    ? await client.query(`${APPOINTMENT_SELECT} WHERE ap.id = $1 AND ap.agency_id = $2 LIMIT 1`, [id, agencyId])
+    : await client.query(
+        `${APPOINTMENT_SELECT} WHERE ap.agency_id = $1
+          ORDER BY ap.announced_on DESC, ap.created_at DESC LIMIT 1`, [agencyId]);
+  return r.rows.length ? toAppointmentRow(r.rows[0]) : null;
+}
+
+/**
+ * Destinatarios del correo de nombramiento. La fila puede fijarlos (caso
+ * "probar primero conmigo"); si no, se resuelven en el momento del envío desde
+ * los usuarios ECO activos — así un usuario nuevo recibe el próximo
+ * nombramiento sin que haya que tocar ninguna lista.
+ */
+async function resolveAppointmentRecipients(client: any, appointment: AppointmentRow): Promise<string[]> {
+  if (Array.isArray(appointment.recipients) && appointment.recipients.length > 0) {
+    return appointment.recipients;
+  }
+  const r = await client.query(
+    `SELECT DISTINCT lower(email) AS email
+       FROM users
+      WHERE is_active = true AND email IS NOT NULL AND email <> ''
+      ORDER BY 1`,
+  );
+  return r.rows.map((row: any) => row.email as string);
+}
+
+/**
+ * Barrido de nombramientos pendientes: filas sin notified_at cuya ventana ya
+ * arrancó. Estampa notified_at solo cuando SES aceptó al menos un destinatario,
+ * de modo que un fallo transitorio lo reintenta en el tick siguiente.
+ */
+async function dispatchPendingAppointments(client: any): Promise<RunResult[]> {
+  let pending: AppointmentRow[];
+  try {
+    const todayYmd = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
+    const r = await client.query(
+      `${APPOINTMENT_SELECT}
+        WHERE ap.notified_at IS NULL
+          AND a.is_active = true
+          AND ap.coverage_start <= $1::date
+        ORDER BY ap.announced_on ASC, ap.created_at ASC`,
+      [todayYmd],
+    );
+    pending = r.rows.map(toAppointmentRow);
+  } catch (err: any) {
+    // La tabla se crea en ensureReportsSchema; si por lo que sea no existe,
+    // el barrido de nombramientos no debe tumbar el diario ni el semanal.
+    console.error('[weekly-report] appointment sweep query failed:', err?.message ?? err);
+    return [];
+  }
+
+  if (!pending.length) return [];
+  console.log(`[weekly-report] ${pending.length} appointment(s) pending notification`);
+
+  const runs: RunResult[] = [];
+  for (const ap of pending) {
+    const recipients = await resolveAppointmentRecipients(client, ap);
+    if (!recipients.length) {
+      console.warn(`[weekly-report] appointment ${ap.id} (${ap.agency_slug}) — no recipients resolved`);
+      await logSend(client, ap.agency_id, {
+        recipients: [], fromEmail: 'agutierrez@populicom.com',
+        templateKey: APPOINTMENT_TEMPLATE_KEY, trigger: 'scheduled', status: 'no_recipients',
+      });
+      runs.push({ ok: false, agency: ap.agency_slug, reportType: 'appointment', status: 'no_recipients' });
+      continue;
+    }
+
+    const cfg = await client.query(
+      `SELECT from_email, from_name FROM report_configs WHERE agency_id = $1 LIMIT 1`, [ap.agency_id],
+    );
+    const result = await runForAgency(client, {
+      agencyId: ap.agency_id,
+      agencySlug: ap.agency_slug,
+      agencyName: ap.agency_name,
+      recipients,
+      fromEmail: cfg.rows[0]?.from_email ?? 'agutierrez@populicom.com',
+      fromName: cfg.rows[0]?.from_name ?? 'ECO Radar',
+      templateKey: APPOINTMENT_TEMPLATE_KEY,
+      trigger: 'scheduled',
+      triggeredBy: null,
+    }, 'appointment', ap);
+
+    // 'no_data' también se marca: si no hubo ni una mención desde el
+    // nombramiento, reintentar cada hora no va a cambiar el resultado y el
+    // correo perdería sentido. Solo 'failed' se deja pendiente.
+    if (result.status === 'sent' || result.status === 'no_data') {
+      await client.query(`UPDATE agency_appointments SET notified_at = NOW() WHERE id = $1`, [ap.id]);
+      console.log(`[weekly-report] appointment ${ap.id} (${ap.agency_slug}) marked notified · status=${result.status}`);
+    }
+    runs.push(result);
+  }
+  return runs;
+}
+
+async function buildAppointmentEmail(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+  ap: AppointmentRow,
+): Promise<BuiltEmail> {
+  // Ventana: nombramiento → HOY, incluyendo hoy (parcial). Es la diferencia
+  // deliberada con el diario y el semanal, que cierran en ayer: aquí el pedido
+  // es explícitamente "desde que ocurrió el nombramiento hasta hoy".
+  const nowUtc = new Date();
+  const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
+  const startYmd = ap.coverage_start > todayYmd ? todayYmd : ap.coverage_start;
+  const endYmd = todayYmd;
+  const windowDays = daysBetweenInclusive(startYmd, endYmd);
+
+  // Línea base: los MISMOS días inmediatamente anteriores al nombramiento. Así
+  // el delta separa el efecto del anuncio del nivel normal de la agencia.
+  const baselineEnd = addDaysYmd(startYmd, -1);
+  const baselineStart = addDaysYmd(baselineEnd, -(windowDays - 1));
+
+  const [curReport, winCur, winPrev, topicCounts] = await Promise.all([
+    buildSentimentReport(client as PgClientLike, agency.id, startYmd, endYmd, baselineStart, baselineEnd),
+    loadMetricsForWindow(client as PgClientLike, agency.id, startYmd, endYmd),
+    loadMetricsForWindow(client as PgClientLike, agency.id, baselineStart, baselineEnd),
+    loadTopicCounts(client, agency.id, startYmd, endYmd),
+  ]);
+
+  const totals = curReport.totals;
+  const baselineTotals = winPrev.totals;
+
+  const aggregates = await buildAggregates(client, agency, startYmd, endYmd, curReport);
+  const samples = await loadSamples(client, agency.id, startYmd, endYmd);
+
+  const metrics = buildEmailMetrics(winCur, winPrev);
+  const indicatorLines = [
+    { label: 'Riesgo de crisis', cur: metrics.crisis.display.value ?? '—', prev: formatMetric('crisis', winPrev.crisisRiskScore).value ?? '—' },
+    { label: 'Sentimiento neto', cur: metrics.nss.display.value ?? '—', prev: formatMetric('nss', winPrev.nss).value ?? '—' },
+    { label: 'Salud de marca', cur: metrics.bhi.display.value ?? '—', prev: formatMetric('bhi', winPrev.brandHealthIndex).value ?? '—' },
+    { label: 'Polarización', cur: metrics.polarization?.display.value ?? '—', prev: formatMetric('polarization', winPrev.polarizationIndex).value ?? '—' },
+  ];
+
+  const windowLabel = formatPeriodLabel(startYmd, endYmd);
+  const baselineLabel = formatPeriodLabel(baselineStart, baselineEnd);
+
+  const topMentions = [...samples.negative, ...samples.neutral, ...samples.positive]
+    .filter((m) => typeof m.engagement === 'number' && m.engagement > 0)
+    .sort((a, b) => (b.engagement ?? 0) - (a.engagement ?? 0))
+    .slice(0, 5)
+    .map((m) => ({
+      sourceLabel: m.source ?? m.pageType ?? 'Fuente desconocida',
+      title: null,
+      snippet: m.text.length > 220 ? `${m.text.slice(0, 220)}…` : m.text,
+      url: m.url ?? null,
+      engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
+      publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
+      tone: m.sentiment,
+    }));
+
+  const ai = await generateAppointmentSummary({
+    facts: {
+      personName: ap.person_name,
+      position: ap.position,
+      predecessor: ap.predecessor,
+      announcedOn: ap.announced_on,
+      notes: ap.notes,
+    },
+    current: aggregates,
+    baselineTotals,
+    baselineLabel,
+    windowLabel,
+    windowDays,
+    indicatorLines,
+    samples,
+  });
+
+  const renderData: AppointmentRenderData = {
+    agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
+    agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
+    appointment: {
+      personName: ap.person_name,
+      position: ap.position,
+      predecessor: ap.predecessor,
+      announcedOnLabel: fullDateEs(ap.announced_on),
+      notes: ap.notes,
+      photoUrl: ap.photo_url,
+    },
+    windowLabel,
+    baselineLabel,
+    windowDays,
+    updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
+    totals,
+    baselineTotals,
+    totalDelta: formatDelta(totals.total, baselineTotals.total, { kind: 'percent', decimals: 0 }),
+    sentimentDelta: {
+      negative: formatDelta(totals.negative, baselineTotals.negative, { kind: 'percent', decimals: 0, invert: true }),
+      neutral: formatDelta(totals.neutral, baselineTotals.neutral, { kind: 'percent', decimals: 0 }),
+      positive: formatDelta(totals.positive, baselineTotals.positive, { kind: 'percent', decimals: 0 }),
+    },
+    metrics,
+    chartImageUrl: buildChartImageUrl(curReport.dailySeries),
+    summary: ai.summary,
+    reception: ai.reception,
+    highlights: ai.highlights,
+    topics: topicCounts.slice(0, 8).map((t) => ({
+      topic: t.topic,
+      total: t.total,
+      negShare: t.total > 0 ? Math.round((t.negative / t.total) * 100) : null,
+    })),
+    topMentions,
+    dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
+  };
+
+  const subject = buildSubject(
+    'Nombramiento',
+    agencyShortName(agency.slug),
+    `${ap.person_name} · ${fmtIntEs(totals.total)} menciones desde el ${formatShortDay(startYmd)}`,
+  );
+
+  return {
+    html: renderAppointmentReportHtml(renderData),
+    subject,
+    stats: totals,
+    // Sin una sola mención el correo no dice nada; se logea no_data y se marca
+    // notificado (reintentar por hora no cambiaría el resultado).
+    hasData: totals.total > 0,
+  };
+}
+
+async function generateAppointmentSummary(
+  inputs: Parameters<typeof buildAppointmentSummaryPrompt>[0],
+): Promise<{ summary: string; reception: string[]; highlights: string[] }> {
+  const fallback = { summary: 'Resumen no disponible.', reception: [] as string[], highlights: [] as string[] };
+  if (inputs.current.totals.total === 0) {
+    return {
+      summary: `Sin menciones registradas desde el nombramiento de ${inputs.facts.personName} en los canales monitoreados.`,
+      reception: [], highlights: [],
+    };
+  }
+  const prompt = buildAppointmentSummaryPrompt(inputs);
+  try {
+    const parsed = await invokeClaudeWithTool<{ summary?: unknown; reception?: unknown; highlights?: unknown }>(
+      INSIGHTS_SYSTEM_PROMPT,
+      prompt,
+      2000,
+      {
+        name: 'submit_appointment_summary',
+        description: 'Entrega el resumen ejecutivo del nombramiento, los ejes de recepción y los movimientos numéricos vs los días previos.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: 'Párrafo único de 4–6 oraciones (~120–170 palabras): cómo cayó el nombramiento en la conversación pública.' },
+            reception: {
+              type: 'array', items: { type: 'string' },
+              description: '2–4 oraciones, cada una sobre un eje distinto de recepción (respaldo, reparo, trayectoria, salida del predecesor).',
+            },
+            highlights: {
+              type: 'array', items: { type: 'string' },
+              description: '2–4 oraciones sobre lo que el nombramiento movió en los números vs los días previos.',
+            },
+          },
+          required: ['summary', 'reception', 'highlights'],
+          additionalProperties: false,
+        },
+      },
+    );
+    const strings = (arr: unknown, max: number): string[] =>
+      Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, max) : [];
+    return {
+      summary: typeof parsed.summary === 'string' && parsed.summary.trim().length > 0 ? parsed.summary : fallback.summary,
+      reception: strings(parsed.reception, 4),
+      highlights: strings(parsed.highlights, 4),
+    };
+  } catch (err) {
+    console.error('[weekly-report] appointment summary generation failed:', err);
+    return fallback;
+  }
+}
+
+// ============================================================
 // Schema bootstrap (idempotent)
 // ============================================================
 
@@ -744,6 +1128,32 @@ async function ensureReportsSchema(client: any): Promise<void> {
   `);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_agency_id ON report_send_log(agency_id);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_report_send_log_sent_at ON report_send_log(sent_at);`);
+
+  // Migración ago 2026 — correo de NOMBRAMIENTO. Fuente de verdad del disparo:
+  // el barrido horario busca filas con notified_at IS NULL y envía una vez.
+  // Se registra a mano (no por NLP) porque un nombramiento es un hecho con
+  // fecha, y este correo no puede dispararse con un rumor.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS agency_appointments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+      person_name VARCHAR(255) NOT NULL,
+      position VARCHAR(255) NOT NULL,
+      predecessor VARCHAR(255),
+      announced_on DATE NOT NULL,
+      coverage_start DATE NOT NULL,
+      recipients JSONB,
+      query_terms JSONB,
+      notes TEXT,
+      notified_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by UUID REFERENCES users(id)
+    );
+  `);
+  // Añadida después del CREATE original (ago 2026): retrato de la persona.
+  await client.query(`ALTER TABLE agency_appointments ADD COLUMN IF NOT EXISTS photo_url TEXT;`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_agency_appointments_agency_id ON agency_appointments(agency_id);`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_agency_appointments_pending ON agency_appointments(notified_at);`);
 
   // Seed default config: DDEC activo con destinatarios Populicom a las 6 AM
   // (America/Puerto_Rico). Otras agencias inactivas. El ON CONFLICT solo

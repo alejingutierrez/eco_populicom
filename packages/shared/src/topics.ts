@@ -418,7 +418,11 @@ export const GOBERNADORA_TOPICS: TopicDef[] = [
 
 
 // ============================================================
-// SGPR — Secretaría de la Gobernación (Francisco Domenech)
+// SGPR — Secretaría de la Gobernación
+// Titular desde el 10-ago-2026: Norma E. Burgos Andújar (sustituye a Francisco
+// Domenech, que salió el 7-ago). La taxonomía es por ROL, no por persona, así
+// que un cambio de titular no la invalida: `nombramientos` absorbe la cobertura
+// del relevo y `politank-cabildeo` sigue vigente para el histórico de Domenech.
 // RESTAURADA desde la tabla `topics` de prod (auditoría 2026-08): la
 // taxonomía se cableó en jun-2026 solo en un bundle desplegado desde un
 // worktree nunca mergeado; un redeploy del processor (~1-6 jul) la perdió

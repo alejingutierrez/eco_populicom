@@ -23,6 +23,23 @@ Los bundles desplegados pueden contener código que NO existe en ninguna rama
 **Antes de redeployar cualquier lambda**: descarga el bundle vigente y compara
 contra tu rama; busca features que solo existan en el bundle.
 
+**⚠️ `pg` va BUNDLEADO, no externo** (verificado 12 ago 2026 en
+`eco-weekly-report`): el zip desplegado es un solo `index.js` sin
+`node_modules/`, así que el driver `pg` está compilado dentro (388 KB de los
+cuales ~170 KB son pg). Si compilas con `--external:pg` el bundle baja a
+~217 KB y el lambda **revienta en runtime** en `await import('pg')`. Externaliza
+solo `@aws-sdk/*` (lo provee el runtime nodejs22) y `pg-native`.
+
+**Cómo comparar bundles sin sourcemap** (el de weekly-report ya no lo trae):
+extrae los literales de string de 14+ chars de ambos y diffea los conjuntos.
+Los que solo estén en el vivo son drift real; ignora las rutas-comentario
+`node_modules/...` de esbuild, que cambian según el cwd del build.
+
+**Staleness ≠ drift**: si git tiene features que el bundle no, redeployar las
+ARRASTRA. Chequea `git log <commit-del-bundle>..HEAD -- <archivos que usa el
+lambda>` y decide si quieres shippearlas en tu deploy. Al 12 ago 2026 el bundle
+vivo de `eco-weekly-report` correspondía a #89 y main ya iba en #93.
+
 **Bundling desde worktree**: el symlink `node_modules/@eco/*` resuelve al
 working tree del monorepo principal (sucio). Usa SIEMPRE
 `--alias:@eco/shared=<worktree>/packages/shared/src/index.ts` (ídem
@@ -186,6 +203,62 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 | Alerta reglas | `[Alerta]` | `eco-alerts` → render-simple-alert | SQS por mención |
 | Alerta métrica | `[Alerta]` | `eco-metrics-calculator` → render-simple-alert | evaluación diaria |
 | Crisis | `[Crisis]`/`[Alerta]` | `eco-metrics-calculator` → render-crisis-alert | umbral crisis |
+| Nombramiento | `[Nombramiento]` | `eco-weekly-report` → render-appointment-report | una vez, al alta de una fila en `agency_appointments` |
+
+## Correo de NOMBRAMIENTO (`agency_appointments`, ago 2026)
+
+Correo de evento, no de calendario: se envía **una sola vez** cuando cambia el
+titular de una agencia monitoreada, y cubre **desde el nombramiento hasta HOY**
+(incluye el día en curso, parcial — al revés que el diario y el semanal, que
+cierran en ayer). Badge y barra violeta (`EMAIL_COLORS.event`).
+
+- **Disparo**: el mismo barrido horario de `eco-weekly-report`. Tras evaluar
+  diario/semanal llama a `dispatchPendingAppointments()`, que busca filas con
+  `notified_at IS NULL` y `coverage_start <= hoy` (TZ PR). **No** depende de
+  `send_hour_local`: un cambio de titular no espera a las 6 AM, sale en el
+  primer tick tras el alta. Estampa `notified_at` cuando el envío es `sent` o
+  `no_data`; si falla, lo reintenta al tick siguiente.
+- **Alta MANUAL a propósito** (no hay detección por NLP): un nombramiento es un
+  hecho con fecha, y detectarlo por texto daría falsos positivos (rumores,
+  "suena para el cargo", nombramientos de otras jurisdicciones). Este correo no
+  puede dispararse con un rumor. Se registra con `exec-write`.
+- **Comparación**: contra los MISMOS días inmediatamente ANTERIORES al
+  nombramiento (no contra un periodo equivalente arbitrario), para separar el
+  efecto del anuncio del nivel base de la agencia.
+- **Destinatarios**: `agency_appointments.recipients` si viene con valores;
+  si es `NULL`, se resuelven **en el envío** desde `users WHERE is_active` —
+  así un usuario ECO nuevo recibe el próximo nombramiento sin tocar nada.
+  Ojo: `report_configs.recipients` (6 direcciones) NO es la misma lista que
+  los usuarios ECO (4); son conjuntos distintos.
+- **`coverage_start` vs `announced_on`**: `announced_on` es el hecho (sale en la
+  ficha del correo); `coverage_start` es el primer día del resumen. Se separan
+  para poder incluir el arranque de la conversación cuando el relevo se venía
+  cocinando antes del anuncio formal.
+- **template_key** en `report_send_log`: `appointment-summary-v1`.
+
+### Dar de alta un nombramiento
+
+```bash
+aws lambda invoke --function-name eco-migration \
+  --payload '{"action":"exec-write","query":"INSERT INTO agency_appointments (agency_id, person_name, position, predecessor, announced_on, coverage_start, notes) SELECT id, '"'"'Nombre Apellido'"'"', '"'"'Cargo'"'"', '"'"'Predecesor'"'"', '"'"'2026-08-10'"'"'::date, '"'"'2026-08-10'"'"'::date, '"'"'contexto'"'"' FROM agencies WHERE slug='"'"'sgpr'"'"'"}' \
+  --cli-binary-format raw-in-base64-out /tmp/ins.json
+```
+
+Deja `recipients` fuera (queda NULL) para que le llegue a todos los usuarios
+ECO activos; pásalo como jsonb array para restringirlo a una lista fija.
+
+### Probar el correo de nombramiento
+
+```bash
+aws lambda invoke --function-name eco-weekly-report \
+  --payload '{"agencySlug":"sgpr","reportType":"appointment","dryRun":true}' \
+  --cli-binary-format raw-in-base64-out /tmp/dry.json
+```
+
+`dryRun` NO estampa `notified_at`, así que se puede repetir. Sin
+`appointmentId` toma el nombramiento más reciente de la agencia. Un envío
+dirigido (`"trigger":"test"` + `recipients`) tampoco marca la fila: solo el
+barrido programado lo hace.
 
 ## Reportes por correo (`eco-weekly-report` — diario + semanal)
 
@@ -234,6 +307,7 @@ esa invocación; no toca la DB. `reportType` acepta `daily` (default) y
 ### Iteración local de los templates (sin Lambda)
 
 `scripts/preview-daily-report.ts`, `scripts/preview-weekly-summary.ts`,
+`scripts/preview-appointment-report.ts`,
 `scripts/preview-alerts.ts` y `scripts/preview-crisis-alert.ts` generan HTML
 con datos mock en `apps/web/public/emails/*-preview.html`:
 

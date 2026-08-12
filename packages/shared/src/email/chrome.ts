@@ -57,13 +57,19 @@ export const EMAIL_COLORS = {
   elevado: '#D97706',
   alertSoft: '#FBE9E5',
   alertSofter: '#FFF4F1',
+
+  // Eventos institucionales (nombramientos) — violeta: no es alerta (no hay
+  // nada que contener) pero tampoco es rutina, así que no puede compartir el
+  // azul del diario ni el navy del semanal.
+  event: '#6D4AAE',
+  eventSoft: '#F1EBFA',
 } as const;
 
 // ------------------------------------------------------------
 // Tipo de correo — la señal de identidad que pidió el cliente
 // ------------------------------------------------------------
 
-export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis';
+export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis' | 'appointment';
 
 export interface EmailKindMeta {
   /** Texto del badge del header, p.ej. "Reporte diario". */
@@ -101,12 +107,44 @@ export const EMAIL_KIND_META: Record<EmailKind, EmailKindMeta> = {
     color: EMAIL_COLORS.crisis,
     footerNote: 'Recibes esta alerta automática porque estás en la lista de notificación de crisis de tu agencia.',
   },
+  appointment: {
+    label: 'Nombramiento',
+    subjectTag: 'Nombramiento',
+    color: EMAIL_COLORS.event,
+    footerNote: 'Recibes este correo una sola vez, cuando se registra un nombramiento nuevo en una agencia monitoreada. El periodo cubre desde el nombramiento hasta hoy, así que incluye el día en curso (parcial) — a diferencia del diario y el semanal, que cierran en ayer.',
+  },
 };
 
 /** Asunto estándar: "[Tag] SIGLAS · detalle". El tag SIEMPRE va primero para
  *  que el tipo de correo sea lo primero que se lee en el inbox. */
 export function buildSubject(tag: string, agencyShort: string, detail: string): string {
   return `[${tag}] ${agencyShort} · ${detail}`;
+}
+
+/**
+ * `report_send_log.template_key` → tipo de correo. ÚNICA fuente de verdad del
+ * mapeo, compartida por el lambda que escribe el log y por la UI de admin que
+ * lo lee.
+ *
+ * Existe porque la tabla de historial resolvía el tipo con un ternario
+ * (`key === 'weekly-comparison-v1' ? Semanal : Diario`), así que **cualquier
+ * tipo nuevo se etiquetaba como Diario en silencio** — los dos envíos de
+ * nombramiento del 12-ago aparecían como reportes diarios. Un mapa explícito
+ * convierte ese fallo silencioso en un `null` que la UI puede mostrar como
+ * desconocido.
+ */
+export const TEMPLATE_KEY_TO_KIND: Record<string, EmailKind> = {
+  'daily-sentiment-summary': 'daily',
+  /** Legado: nombraba "semanal" a un correo que en realidad es diario. */
+  'weekly-sentiment-summary': 'daily',
+  'weekly-comparison-v1': 'weekly',
+  'appointment-summary-v1': 'appointment',
+};
+
+/** Tipo de correo de un template_key, o null si no está registrado. */
+export function kindFromTemplateKey(key: string | null | undefined): EmailKind | null {
+  if (!key) return null;
+  return TEMPLATE_KEY_TO_KIND[key] ?? null;
 }
 
 // ------------------------------------------------------------
@@ -375,6 +413,10 @@ export function emailDocument(opts: EmailDocumentOpts): string {
       .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
       .stack { display: block !important; width: 100% !important; }
       .stack-pad { padding: 0 0 10px 0 !important; }
+      /* Retrato de la ficha de nombramiento: en móvil pasa arriba y centrado,
+         y suelta el padding-right que lo separaba del texto en dos columnas. */
+      .stack-center { text-align: center !important; padding: 0 0 14px 0 !important; }
+      .stack-center img, .stack-center table { margin-left: auto !important; margin-right: auto !important; }
       .kpi-value { font-size: 30px !important; }
       h1.title { font-size: 22px !important; }
       h1.headline { font-size: 22px !important; line-height: 1.25 !important; }
