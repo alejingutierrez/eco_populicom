@@ -162,6 +162,17 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
+  // Estilo ÚNICO del valor de la card, compartido por las dos ramas (palabra y
+  // cifra). Estaba declarado dos veces con lineHeight 1.1 y 1 sobre el mismo
+  // --fs-num-xl: a 30px son 3px, y bastaba con que una card de la fila mostrara
+  // una PALABRA ("Negativo leve") y sus hermanas un número para que sus líneas
+  // base no coincidieran. Compartir el objeto hace que no puedan divergir otra
+  // vez. El 1.1 gana porque las palabras tienen descendentes; los dígitos no los
+  // tienen, así que el espacio de más es constante y no descuadra nada.
+  const valueStyle = {
+    fontSize: 'var(--fs-num-xl)', fontWeight: 600, lineHeight: 1.1,
+    fontFamily: 'var(--ff-display)',
+  };
   // 'neutral' no es un escalón de texto. Con 'var(--text-3)' (5.00:1 sobre
   // --canvas, tokens.css §5) el titular "Neutral" del Net Sentiment Score salía
   // tres veces más apagado que el "1.3K" de la card de al lado (15.30:1), y es la
@@ -213,7 +224,7 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
       {wordMode ? (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)'), lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            <div className="num" style={{ ...valueStyle, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)') }}>{valueWord}</div>
             {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : null}
           </div>
           {(value || sub) && (
@@ -226,7 +237,7 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
       ) : (
         <>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
-          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
+          <div className="num" style={{ ...valueStyle, color: 'var(--text)' }}>{value}</div>
           {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : (delta != null && (
             <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
               {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
@@ -2114,7 +2125,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
           <div>
-            <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
+            <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
             {D.SENTIMENT_BREAKDOWN.map((s) => {
@@ -2158,7 +2169,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
           <div className="card-bd">
             <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
               labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
-              colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
+              colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
             <div style={{ display: 'flex', gap: 'var(--sp-4)', justifyContent: 'center', marginTop: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>

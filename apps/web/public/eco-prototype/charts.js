@@ -599,6 +599,14 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
                     este archivo), así que la MISMA guía de hover salía de dos
                     colores en dos gráficas. Y --text-3 es además --chart-axis: la
                     guía se pintaba con el color de los rótulos del eje. */}
+                {/* Crosshair con HALO. Un indicador de cromo tiene que verse sobre
+                    CUALQUIER color de dato, y ningún color plano lo garantiza: sobre
+                    la banda neutral —que lleva la mayor parte del volumen— el trazo
+                    quedaba en 1.1:1 contra el relleno, o sea invisible justo donde
+                    más se usa. La línea ancha en --canvas por debajo separa el trazo
+                    del relleno sea cual sea, y el trazo fino encima se lee contra ese
+                    halo. Así el crosshair deja de depender de lo que tenga detrás. */}
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--canvas)" strokeWidth="2.5" opacity="0.85" />
                 <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {normalized.map(s => {
                   if (isGap(dotData[s.key])) return null;
@@ -974,7 +982,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const botPts = stacks.map((s, i) => [i * step, innerH - (s[`${k}_start`] / max) * innerH]).reverse();
             const pts = [...topPts, ...botPts];
             const p = pts.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt[0]},${pt[1]}`).join(' ') + ' Z';
-            return <path key={k} d={p} fill={colors[ki]} opacity="0.85" />;
+            // Sin `opacity`. Estaba ahí como parche del defecto real: la serie
+            // neutral se pintaba con --text-3, que ES --chart-axis (tokens.css),
+            // así que el 36% del volumen salía idéntico a los ticks y al cromo, y
+            // el 0.85 era lo ÚNICO que los separaba. Con la serie en --neu —el
+            // token que existe para el gris de DATOS— la mezcla ya no hace falta,
+            // y el relleno pleno iguala al Donut y a las barras de grupo, que
+            // pintan los mismos tres colores sin atenuar.
+            return <path key={k} d={p} fill={colors[ki]} />;
           })}
           {/* Las cinco, no tres: con 5 rejillas y 3 etiquetas quedaban dos líneas
               huérfanas que el ojo tiene que interpolar. Ahora que el tope es
@@ -1018,7 +1033,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const total = keys.reduce((s, k) => s + (d[k] || 0), 0);
             return (
               <g pointerEvents="none">
-                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {keys.map((k, ki) => {
                   const yEnd = innerH - ((stacks[hover][`${k}_end`]) / max) * innerH;
                   return <circle key={k} cx={xPos} cy={yEnd} r="4" fill="var(--canvas)" stroke={colors[ki]} strokeWidth="2" />;

@@ -299,6 +299,15 @@
   --rail-fg-muted: #8A93A0;
   --rail-fg-active: #FFFFFF;
   --rail-active-bg: rgba(255, 106, 61, 0.18);
+  /* Tinte de acento sobre el RAIL para piezas que NO son el item activo del nav
+     (hoy el badge de versión). Existe porque --rail-active-bg cumplía ese papel
+     de facto pero su nombre lo ata a un ESTADO, así que cualquier pieza que lo
+     usara heredaba un significado que no tiene. Y el rail es la única superficie
+     que cambia de valor entre modos (#030609 → #0A0F16) sin aclararse, así que un
+     tinte fijo no vale para los dos: va declarado en cada modo.
+     Medido: --accent-2 sobre este relleno da 8.88:1 en oscuro y 5.83:1 en claro. */
+  --rail-tint: rgba(255, 106, 61, 0.14);
+  --rail-tint-border: rgba(255, 106, 61, 0.24);
   --rail-border: rgba(255, 255, 255, 0.05);
 
   --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.4);
@@ -358,6 +367,9 @@
   --rail-fg: rgba(255, 255, 255, 0.62);
   --rail-fg-active: #FFFFFF;
   --rail-active-bg: rgba(200, 58, 30, 0.16);
+  /* Ver la nota de --rail-tint en el modo oscuro. */
+  --rail-tint: rgba(200, 58, 30, 0.14);
+  --rail-tint-border: rgba(200, 58, 30, 0.24);
   --rail-border: rgba(255, 255, 255, 0.05);
 
   --shadow-sm: 0 1px 0 rgba(14, 17, 22, 0.04);

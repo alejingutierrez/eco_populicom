@@ -34,6 +34,9 @@ const VP = {
   laptop: [1280, 800, 2, false],
   tablet: [768, 1024, 2, true],
   mobile: [390, 844, 3, true],
+  // tableta en horizontal: ancho de escritorio con puntero GRUESO, el caso que
+  // separa un gate por ancho de uno por puntero.
+  tablet_coarse: [1024, 768, 2, true],
 };
 
 const probeSrc = fs.readFileSync(path.join(HERE, PROBE_FILE), 'utf8').trim();
