@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Resumen ejecutivo</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="shell.css" />
+  <style>
+    /* ============================================================
+       BLEND A+B — "Resumen ejecutivo" con DOS TABS
+       Tab 1 "Tablero de Mando" (cuerpo de blend-a-tablero.html)
+       Tab 2 "Gabinete"         (cuerpo de blend-b-gabinete.html)
+       Un solo shell (ECOShell.frame). El CSS de cada tab está aislado
+       bajo su scope (.view-tablero / .view-gabinete) para que las clases
+       que chocan (.nss-val, .is-crisis, .card) no se filtren entre tabs.
+       Las clases compartidas de tokens.css/shell.css NO se tocan.
+       ============================================================ */
+
+    /* ===== Conmutador de tabs (reemplaza la fila de modos original) ===== */
+    .tabbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .tabgroup { display: inline-flex; gap: 8px; }
+    .tabpill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 18px; border-radius: 6px;
+      font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+      color: var(--text-3);
+      background: var(--canvas); border: 1px solid var(--hairline);
+      transition: color .15s var(--ease), background .15s var(--ease), border-color .15s var(--ease);
+    }
+    .tabpill .tp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .55; }
+    .tabpill:hover { color: var(--text-2); border-color: var(--hairline-strong); }
+    .tabpill.active {
+      color: #fff; background: var(--accent); border-color: var(--accent);
+      box-shadow: 0 2px 10px -2px var(--accent-fill), inset 0 1px 0 rgba(255,255,255,.12);
+    }
+    .tabpill.active .tp-dot { opacity: 1; background: #fff; }
+    .tabnote {
+      margin-left: auto; font-size: 11px; color: var(--text-3);
+      display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+    .tabnote b { color: var(--text-2); font-weight: 600; }
+    .tabnote-rule { width: 1px; height: 12px; background: var(--hairline-strong); }
+
+    /* ===== Vistas (una por tab) ===== */
+    .view { display: flex; flex-direction: column; gap: 16px; }
+    .view[hidden] { display: none; }
+
+    /* ============================================================
+       TAB A · Tablero de Mando — CSS aislado bajo .view-tablero
+       (fila de modos original eliminada)
+       ============================================================ */
+    .view-tablero .stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .view-tablero .stat { padding: 13px 15px; display: flex; flex-direction: column; gap: 8px; }
+    .view-tablero .stat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .view-tablero .stat-label {
+      font-size: 10px; font-weight: 700; color: var(--text-2);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .view-tablero .stat-row { display: flex; align-items: flex-end; gap: 10px; justify-content: space-between; }
+    .view-tablero .stat-num { font-size: 28px; font-weight: 600; line-height: 1; color: var(--text); }
+    .view-tablero .stat-delta { font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+    .view-tablero .stat-sub { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+    .view-tablero .blend-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.72fr) minmax(0, 1fr);
+      gap: 16px; align-items: start;
+    }
+    .view-tablero .blend-left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .view-tablero .blend-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; position: sticky; top: 84px; }
+
+    .view-tablero .sec-head { display: flex; align-items: baseline; gap: 12px; padding: 0 2px; }
+    .view-tablero .sec-title { font-size: 16px; font-weight: 700; letter-spacing: var(--letter-display); color: var(--text); }
+    .view-tablero .sec-title .muted { color: var(--text-3); font-weight: 500; }
+    .view-tablero .sec-note { margin-left: auto; font-size: 11px; color: var(--text-3); display: inline-flex; align-items: center; gap: 8px; }
+    .view-tablero .sec-note .caret { color: var(--accent); }
+    .view-tablero .legend-key { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-3); }
+    .view-tablero .legend-sw { width: 16px; height: 8px; border-radius: 3px; }
+    .view-tablero .sec-note .rule { width: 1px; height: 12px; background: var(--hairline-strong); }
+
+    .view-tablero .table-card { overflow: hidden; }
+    .view-tablero .lt-grid {
+      display: grid;
+      grid-template-columns:
+        40px                    /* Pos */
+        minmax(130px, 1.5fr)    /* Agencia */
+        84px                    /* Índice de Salud */
+        66px                    /* Tendencia */
+        minmax(90px, 1fr)       /* Sentimiento */
+        60px                    /* Riesgo */
+        40px                    /* Velocidad */
+        58px;                   /* Alcance */
+      gap: 10px; align-items: center;
+    }
+    .view-tablero .lt-head { padding: 10px 18px; background: var(--canvas-2); border-bottom: 1px solid var(--hairline-strong); }
+    .view-tablero .lt-head .th {
+      font-size: 9.5px; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.07em;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .view-tablero .th.r { justify-content: flex-end; text-align: right; }
+    .view-tablero .th.c { justify-content: center; }
+    .view-tablero .th.active { color: var(--accent); }
+    .view-tablero .th .caret { font-size: 9px; }
+
+    .view-tablero .lt-row { padding: 0 18px; height: 54px; border-top: 1px solid var(--hairline); }
+    .view-tablero .lt-row:first-of-type { border-top: none; }
+    .view-tablero .tint-pos { background: color-mix(in oklab, var(--pos-bg) 45%, transparent); }
+    .view-tablero .tint-neg { background: color-mix(in oklab, var(--neg-bg) 42%, transparent); }
+    .view-tablero .lt-row.row-hover:hover { background: var(--canvas-2); }
+    .view-tablero .lt-row.tint-pos.row-hover:hover { background: var(--pos-bg); }
+    .view-tablero .lt-row.tint-neg.row-hover:hover { background: var(--neg-bg); }
+
+    /* Pos cell */
+    .view-tablero .pos-cell { display: flex; align-items: center; gap: 6px; }
+    .view-tablero .pos-rank { font-size: 15px; font-weight: 700; color: var(--text); width: 16px; font-variant-numeric: tabular-nums; text-align: right; }
+    .view-tablero .pos-delta { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    /* Agencia cell */
+    .view-tablero .ag-cell { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .view-tablero .ag-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .view-tablero .ag-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .view-tablero .ag-short { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .view-tablero .ag-sector {
+      font-size: 8.5px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; flex: none;
+      border: 1px solid var(--hairline-strong); color: var(--text-3); background: var(--canvas);
+      font-family: var(--ff-mono);
+    }
+    .view-tablero .ag-full { font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 15px; }
+
+    /* Salud cell */
+    .view-tablero .bhi-cell { display: flex; flex-direction: column; gap: 5px; }
+    .view-tablero .bhi-top { display: flex; align-items: center; gap: 7px; }
+    .view-tablero .bhi-num { font-size: 19px; font-weight: 600; line-height: 1; color: var(--text); }
+    .view-tablero .bhi-pill { padding: 2px 6px; font-size: 9px; }
+    .view-tablero .seg-bar { display: flex; gap: 2px; align-items: center; position: relative; height: 5px; }
+    .view-tablero .seg { height: 5px; border-radius: 2px; flex: 1; background: color-mix(in oklab, var(--text-3) 22%, transparent); }
+    .view-tablero .seg-mark { position: absolute; top: -2px; width: 3px; height: 9px; border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 0 1.5px var(--canvas); }
+
+    /* Sentimiento cell */
+    .view-tablero .nss-cell { display: flex; flex-direction: column; gap: 5px; }
+    .view-tablero .nss-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .view-tablero .nss-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .view-tablero .nss-splits { font-size: 9px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .view-tablero .split-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: color-mix(in oklab, var(--text-3) 16%, transparent); }
+
+    /* Riesgo cell */
+    .view-tablero .risk-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+    .view-tablero .risk-num { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .view-tablero .risk-pill { padding: 2px 6px; font-size: 9px; }
+
+    /* Velocidad cell */
+    .view-tablero .vel-cell { text-align: center; }
+    .view-tablero .vel-num { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+    .view-tablero .vel-hot { color: var(--neg); }
+
+    /* Alcance cell */
+    .view-tablero .reach-cell { text-align: right; }
+    .view-tablero .reach-num { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+    .view-tablero .reach-sub { font-size: 8.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+    /* Filas "En integración" */
+    .view-tablero .lt-build {
+      padding: 0 18px; min-height: 50px;
+      border-top: 1px dashed var(--hairline-strong);
+      background: repeating-linear-gradient(45deg, transparent, transparent 8px, color-mix(in oklab, var(--text-3) 5%, transparent) 8px, color-mix(in oklab, var(--text-3) 5%, transparent) 9px);
+    }
+    .view-tablero .lt-build:first-of-type { border-top: 1px dashed var(--hairline-strong); }
+    .view-tablero .ag-dot-build { width: 8px; height: 8px; border-radius: 50%; flex: none; background: transparent; border: 1.5px dashed var(--text-3); }
+    .view-tablero .ag-short-build { font-size: 13px; font-weight: 600; color: var(--text-2); }
+    .view-tablero .pill-build {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 9px; font-weight: 700; padding: 3px 7px; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--warn); background: color-mix(in oklab, var(--warn) 10%, transparent);
+      border: 1px dashed color-mix(in oklab, var(--warn) 55%, transparent);
+      font-family: var(--ff-mono);
+    }
+    .view-tablero .pill-build .bdot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+    .view-tablero .build-note {
+      grid-column: 3 / -1; align-self: center;
+      display: flex; align-items: center; gap: 9px;
+      font-size: 11px; color: var(--text-3);
+    }
+    .view-tablero .build-note .dash { font-family: var(--ff-mono); color: var(--text-3); opacity: .55; letter-spacing: .3em; }
+    .view-tablero .build-note .recop { display: inline-flex; align-items: center; gap: 6px; font-style: italic; }
+    .view-tablero .build-note .recop svg { width: 12px; height: 12px; opacity: .7; }
+
+    /* Riel derecho */
+    .view-tablero .rail-card { display: flex; flex-direction: column; overflow: hidden; }
+    .view-tablero .rail-hd {
+      display: flex; align-items: center; gap: 9px;
+      padding: 12px 15px; border-bottom: 1px solid var(--hairline);
+    }
+    .view-tablero .rail-hd .hd-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .view-tablero .rail-hd-title { font-family: var(--ff-display); font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); flex: 1; }
+    .view-tablero .rail-hd-sub { font-size: 9px; color: var(--text-3); letter-spacing: .08em; text-transform: uppercase; font-family: var(--ff-mono); }
+
+    /* Requiere atención */
+    .view-tablero .attn-card {
+      border-color: color-mix(in oklab, var(--accent) 45%, transparent) !important;
+      box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-fill);
+      background: linear-gradient(180deg, var(--accent-fill), transparent 34%), var(--canvas);
+    }
+    .view-tablero .attn-card .rail-hd { border-bottom: 1px solid color-mix(in oklab, var(--accent) 26%, transparent); }
+    .view-tablero .attn-card .rail-hd .hd-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .view-tablero .attn-row {
+      position: relative; padding: 12px 15px;
+      border-top: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 7px;
+    }
+    .view-tablero .attn-row:first-of-type { border-top: 0; }
+    .view-tablero .attn-row.is-crisis { background: linear-gradient(90deg, var(--neg-bg), transparent 72%); }
+    .view-tablero .attn-row.is-crisis::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--neg); }
+    .view-tablero .attn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .view-tablero .attn-head-l { display: flex; align-items: center; gap: 8px; }
+    .view-tablero .attn-agency { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-2); }
+    .view-tablero .attn-sev .pill { font-size: 9px; padding: 3px 7px; gap: 5px; }
+    .view-tablero .sev-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .view-tablero .attn-title { font-size: 13px; font-weight: 600; line-height: 1.32; color: var(--text); }
+    .view-tablero .attn-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .view-tablero .attn-metric { font-family: var(--ff-mono); font-size: 10.5px; color: var(--text-2); min-width: 0; }
+    .view-tablero .attend {
+      flex: none; display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 11px; border-radius: 3px; background: var(--accent); color: #fff;
+      font-size: 11px; font-weight: 700; letter-spacing: .03em; border: 1px solid var(--accent);
+    }
+    .view-tablero .attend svg { width: 11px; height: 11px; }
+
+    /* Olas temáticas */
+    .view-tablero .theme-row { padding: 12px 15px; border-top: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 7px; }
+    .view-tablero .theme-row:first-of-type { border-top: 0; }
+    .view-tablero .theme-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .view-tablero .theme-label { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.25; }
+    .view-tablero .theme-meta { display: flex; align-items: baseline; gap: 9px; flex-shrink: 0; }
+    .view-tablero .theme-vol { font-family: var(--ff-mono); font-size: 11px; color: var(--text-3); }
+    .view-tablero .theme-nss { font-family: var(--ff-numeric); font-size: 13px; font-weight: 600; }
+    .view-tablero .theme-bar-track { height: 4px; border-radius: 1px; background: color-mix(in oklab, var(--text-3) 18%, transparent); overflow: hidden; }
+    .view-tablero .theme-bar { height: 100%; border-radius: 1px; }
+    .view-tablero .theme-agencies { font-size: 9.5px; color: var(--text-3); font-family: var(--ff-mono); letter-spacing: .02em; }
+
+    /* ============================================================
+       TAB B · Gabinete — CSS aislado bajo .view-gabinete
+       (fila de modos original eliminada)
+       ⚠️ B redefine .card (flex/padding); aquí queda confinado al tab.
+       ============================================================ */
+    /* color derivado (compliant, sin hex suelto): ALERTA entre ámbar y rojo */
+    .view-gabinete { --alerta: color-mix(in oklab, var(--warn) 45%, var(--neg)); }
+
+    /* Cabecera de triaje (una tarjeta ancha)
+       .card.triage → especificidad mayor que la regla .card (display:flex). */
+    .view-gabinete .card.triage {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr 1fr 1.15fr;
+      align-items: stretch;
+      padding: 0;
+      gap: 0;
+      overflow: hidden;
+    }
+    .view-gabinete .card.triage > div { padding: 16px 20px; min-width: 0; }
+    .view-gabinete .card.triage > div + div { border-left: 1px solid var(--hairline); }
+
+    .view-gabinete .cell-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--text-3); margin-bottom: 11px;
+    }
+
+    /* triage counts */
+    .view-gabinete .counts { display: flex; align-items: baseline; gap: 13px; }
+    .view-gabinete .count-item { display: flex; align-items: baseline; gap: 8px; }
+    .view-gabinete .count-item .swatch { width: 11px; height: 11px; border-radius: 50%; align-self: center; }
+    .view-gabinete .count-num {
+      font-family: var(--ff-numeric); font-weight: 600; font-size: 27px;
+      line-height: 1; color: var(--text); letter-spacing: -0.02em;
+    }
+    .view-gabinete .count-word { font-size: 12px; color: var(--text-2); font-weight: 500; white-space: nowrap; }
+    .view-gabinete .count-sep { color: var(--text-3); font-size: 20px; font-weight: 300; align-self: center; }
+    .view-gabinete .legend { display: flex; flex-wrap: wrap; gap: 7px 15px; margin-top: 14px; }
+    .view-gabinete .legend-item {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 10px;
+      color: var(--text-3); font-family: var(--ff-mono); letter-spacing: 0.03em;
+    }
+    .view-gabinete .legend-item .swatch { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* KPI blocks */
+    .view-gabinete .kpi-row { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+    .view-gabinete .kpi-big {
+      font-family: var(--ff-numeric); font-weight: 600; font-size: 33px;
+      line-height: 1; color: var(--text); letter-spacing: -0.02em;
+    }
+    .view-gabinete .kpi-delta { font-family: var(--ff-numeric); font-size: 13px; font-weight: 600; }
+    .view-gabinete .kpi-foot {
+      margin-top: 10px; font-size: 11px; color: var(--text-3);
+      display: flex; align-items: center; gap: 7px;
+    }
+    .view-gabinete .kpi-foot b { color: var(--text-2); font-weight: 600; }
+    .view-gabinete .kpi-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+
+    .view-gabinete .splitbar {
+      display: flex; height: 7px; border-radius: 4px; overflow: hidden;
+      background: rgba(125,125,125,0.18); margin-top: 12px;
+    }
+    .view-gabinete .split-legend {
+      display: flex; justify-content: space-between; margin-top: 7px;
+      font-size: 10px; color: var(--text-3); font-family: var(--ff-mono);
+    }
+
+    /* Encabezado de sección del grid */
+    .view-gabinete .grid-head {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-top: 2px;
+    }
+    .view-gabinete .grid-head .gh-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .view-gabinete .grid-head .gh-note {
+      font-size: 11px; color: var(--text-3);
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .view-gabinete .gh-note .gh-dash {
+      display: inline-block; width: 14px; height: 0;
+      border-top: 1.5px dashed var(--hairline-strong);
+    }
+
+    /* Grid de tarjetas por secretaría */
+    .view-gabinete .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+      gap: 14px;
+    }
+
+    .view-gabinete .card {
+      padding: 15px 16px 14px;
+      position: relative;
+      display: flex; flex-direction: column; gap: 11px;
+      overflow: hidden;
+    }
+    .view-gabinete .card.is-crisis { border-top: 3px solid var(--neg); border-radius: 0 0 6px 6px; }
+    .view-gabinete .card.is-alert  { border-top: 3px solid var(--alerta); border-radius: 0 0 6px 6px; }
+
+    /* top row */
+    .view-gabinete .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .view-gabinete .band-group { display: inline-flex; align-items: center; gap: 9px; }
+    .view-gabinete .rank-inline { font-family: var(--ff-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.02em; }
+    .view-gabinete .sector-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--text-2); background: var(--canvas-2); border: 1px solid var(--hairline);
+      border-radius: 4px; padding: 3px 7px;
+    }
+    .view-gabinete .sector-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .view-gabinete .band {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .view-gabinete .band .tl-dot { position: relative; width: 10px; height: 10px; border-radius: 50%; }
+    .view-gabinete .band .tl-dot.pulse-ring::after {
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      animation: ringPulse 1.6s ease-out infinite;
+    }
+
+    .view-gabinete .agency-name {
+      font-family: var(--ff-display); font-weight: 700; font-size: 16px;
+      line-height: 1.15; letter-spacing: -0.01em; color: var(--text);
+    }
+    .view-gabinete .agency-full { font-size: 11px; color: var(--text-3); line-height: 1.3; margin-top: 1px; }
+
+    /* titular */
+    .view-gabinete .titular {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 0 0; border-top: 1px solid var(--hairline);
+    }
+    .view-gabinete .avatar {
+      flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-family: var(--ff-display); font-weight: 700; font-size: 11px; letter-spacing: 0.01em;
+      color: var(--accent); background: var(--accent-fill);
+      border: 1px solid color-mix(in oklab, var(--accent) 22%, transparent);
+    }
+    .view-gabinete .titular-meta { min-width: 0; }
+    .view-gabinete .titular-name {
+      font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.2;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .view-gabinete .titular-role {
+      font-size: 10.5px; color: var(--text-3); line-height: 1.2;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* hero metric */
+    .view-gabinete .hero { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .view-gabinete .hero-left { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+    .view-gabinete .hero-num {
+      font-family: var(--ff-numeric); font-weight: 600; font-size: 28px;
+      line-height: 0.95; color: var(--text); letter-spacing: -0.02em;
+    }
+    .view-gabinete .hero-meta { display: flex; align-items: center; gap: 6px; }
+    .view-gabinete .hero-delta { font-family: var(--ff-numeric); font-size: 12px; font-weight: 600; }
+    .view-gabinete .hero-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em;
+      color: var(--text-3); width: 100%; margin-bottom: 1px;
+    }
+    .view-gabinete .spark-wrap { flex: 0 0 auto; }
+
+    /* sentiment */
+    .view-gabinete .sentiment { display: flex; align-items: center; gap: 10px; }
+    .view-gabinete .sentiment .splitbar { margin-top: 0; flex: 1; height: 6px; }
+    .view-gabinete .nss-val {
+      flex: 0 0 auto; font-family: var(--ff-numeric); font-size: 12px; font-weight: 600;
+      min-width: 30px; text-align: right;
+    }
+
+    /* one-liners */
+    .view-gabinete .liners {
+      display: flex; flex-direction: column; gap: 5px;
+      padding-top: 9px; border-top: 1px solid var(--hairline); margin-top: auto;
+    }
+    .view-gabinete .liner { display: flex; align-items: center; gap: 7px; font-size: 11.5px; line-height: 1.25; min-width: 0; }
+    .view-gabinete .liner .ic { flex: 0 0 auto; font-size: 11px; line-height: 1; width: 13px; text-align: center; }
+    .view-gabinete .liner .txt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+    .view-gabinete .liner .lbl { font-weight: 600; }
+
+    /* Tarjetas EN INTEGRACIÓN */
+    .view-gabinete .card.is-building {
+      border: 1px dashed var(--hairline-strong);
+      background: color-mix(in oklab, var(--canvas) 55%, transparent);
+      box-shadow: none;
+      gap: 11px;
+    }
+    .view-gabinete .card.is-building .avatar {
+      color: var(--text-3);
+      background: transparent;
+      border: 1px dashed var(--hairline-strong);
+    }
+    .view-gabinete .card.is-building .agency-name { color: var(--text-2); }
+    .view-gabinete .badge-building {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--warn); background: var(--warn-bg);
+      border: 1px dashed color-mix(in oklab, var(--warn) 45%, transparent);
+      border-radius: 4px; padding: 3px 8px;
+    }
+    .view-gabinete .badge-building .b-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+    .view-gabinete .build-hero {
+      display: flex; align-items: baseline; gap: 9px;
+    }
+    .view-gabinete .build-num {
+      font-family: var(--ff-numeric); font-weight: 600; font-size: 28px;
+      line-height: 0.95; color: var(--text-3); letter-spacing: -0.02em;
+    }
+    .view-gabinete .build-bar {
+      height: 6px; border-radius: 4px; margin-top: 2px;
+      background: repeating-linear-gradient(90deg,
+        var(--hairline) 0 8px, transparent 8px 14px);
+    }
+    .view-gabinete .build-foot {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 11px; color: var(--text-3);
+      padding-top: 9px; border-top: 1px dashed var(--hairline); margin-top: auto;
+    }
+    .view-gabinete .build-foot .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="data.js"></script>
+  <script src="shell.js"></script>
+  <script>
+    (function () {
+      const M = window.MOCK;
+
+      /* ============================================================
+         CONTENIDO TAB A · "Tablero de Mando"
+         Cuerpo de blend-a-tablero.html SIN la fila de modos ni el frame.
+         ============================================================ */
+      const contentA = (function () {
+        const G = M.gov;
+        const F = M.fmt;
+
+        const hsl = (a, l) => `hsl(${a.hue} 52% ${l}%)`;
+        const sectorAbbr = { 'Económico': 'ECON', 'Social': 'SOCIAL', 'Infraestructura': 'INFRA', 'Seguridad': 'SEGUR' };
+
+        // ---- sparkline ----
+        function sparkSVG(arr, w, h, color) {
+          const s = M.spark(arr, w, h, 3);
+          return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
+            <path d="${s.area}" fill="${color}" opacity="0.10"/>
+            <path d="${s.line}" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="${s.last[0].toFixed(1)}" cy="${s.last[1].toFixed(1)}" r="2.3" fill="${color}" stroke="var(--canvas)" stroke-width="1.2"/>
+          </svg>`;
+        }
+
+        function rankDeltaHTML(d) {
+          if (d > 0) return `<span class="pos-delta" style="color:var(--pos)">▲${d}</span>`;
+          if (d < 0) return `<span class="pos-delta" style="color:var(--neg)">▼${Math.abs(d)}</span>`;
+          return `<span class="pos-delta" style="color:var(--text-3)">—</span>`;
+        }
+
+        /* ---- TIRA DE KPIs DEL GOBIERNO ---- */
+        const govCB = M.crisisBand(G.crisis);       // ALERTA
+        const govBB = M.bhiBand(G.bhi);             // Débil
+        const kSpark = (arr, color) => sparkSVG(arr, 78, 28, color);
+        const volSeries = G.crisisTrend.map((v) => v * 100);
+
+        const stats = `
+          <div class="stat-strip">
+            <div class="card stat">
+              <div class="stat-top">
+                <span class="stat-label">Índice de Salud</span>
+                <span class="stat-delta" style="color:var(--neg)">▼ ${F.signed(G.bhiDelta)}</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-num num">${G.bhi}</span>
+                ${kSpark(G.trend, 'var(--accent)')}
+              </div>
+              <div class="stat-sub">Compuesto ponderado · banda ${govBB.label}</div>
+            </div>
+
+            <div class="card stat">
+              <div class="stat-top">
+                <span class="stat-label">Sentimiento Neto</span>
+                <span class="stat-delta" style="color:var(--neg)">▼ ${F.signed(G.nssDelta)}</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-num num" style="color:var(--neg)">${F.signed(G.nss)}</span>
+                ${kSpark(G.nssTrend, 'var(--neg)')}
+              </div>
+              <div class="stat-sub">${G.positivePct}% pos · ${G.neutralPct}% neu · ${G.negativePct}% neg</div>
+            </div>
+
+            <div class="card stat">
+              <div class="stat-top">
+                <span class="stat-label">Riesgo de Crisis</span>
+                <span class="pill ${govCB.cls}">${govCB.label}</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-num num" style="color:var(--neg)">${G.crisis.toFixed(2)}</span>
+                <span class="stat-delta" style="color:var(--neg)">▲ ${F.signed(G.crisisDelta, 2)}</span>
+              </div>
+              <div class="stat-sub">${G.inCrisis} en crisis · ${G.inAlert} en alerta</div>
+            </div>
+
+            <div class="card stat">
+              <div class="stat-top">
+                <span class="stat-label">Menciones · 7 días</span>
+                <span class="stat-delta" style="color:var(--text-2)">▲ +${G.volDelta}%</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-num num">${F.compact(G.vol)}</span>
+                ${kSpark(volSeries, 'var(--text-2)')}
+              </div>
+              <div class="stat-sub">Alcance ${F.compact(G.reach)} personas</div>
+            </div>
+          </div>`;
+
+        /* ---- IZQUIERDA — RANKING ---- */
+        const secHead = `
+          <div class="sec-head">
+            <div class="sec-title">Ranking de salud digital <span class="muted">· ${G.agenciesTracked} agencias</span></div>
+            <div class="sec-note">
+              <span class="legend-key"><span class="legend-sw" style="background:var(--pos)"></span>Pos</span>
+              <span class="legend-key"><span class="legend-sw" style="background:var(--text-3)"></span>Neu</span>
+              <span class="legend-key"><span class="legend-sw" style="background:var(--neg)"></span>Neg</span>
+              <span class="rule"></span>
+              ordenado por <b style="color:var(--text-2);font-weight:600">Índice de Salud</b> <span class="caret">▾</span>
+            </div>
+          </div>`;
+
+        const tableHead = `
+          <div class="lt-grid lt-head">
+            <span class="th">Pos</span>
+            <span class="th">Agencia</span>
+            <span class="th active">Índice <span class="caret">▾</span></span>
+            <span class="th c">Tend. 14&nbsp;sem</span>
+            <span class="th">Sentimiento</span>
+            <span class="th r">Riesgo</span>
+            <span class="th c">Vel.</span>
+            <span class="th r">Alcance</span>
+          </div>`;
+
+        const sorted = M.agencies.slice().sort((a, b) => b.bhi - a.bhi);
+        const N = sorted.length;
+        const segLabels = ['Crítico', 'Débil', 'Sano', 'Fuerte'];
+        const segColors = ['var(--neg)', 'var(--warn)', 'var(--pos)', 'var(--accent)'];
+
+        const rows = sorted.map(function (a, idx) {
+          const pos = idx + 1;
+          const bb = M.bhiBand(a.bhi);
+          const cb = M.crisisBand(a.crisis);
+          const dotC = hsl(a, 52);
+
+          let tint = '';
+          if (pos <= 2) tint = ' tint-pos';
+          else if (pos >= N - 2) tint = ' tint-neg';
+
+          const segIndex = a.bhi < 40 ? 0 : a.bhi < 60 ? 1 : a.bhi < 80 ? 2 : 3;
+          const segs = segLabels.map(function (_, si) {
+            const on = si === segIndex;
+            return `<span class="seg" style="${on ? 'background:' + segColors[si] : ''}"></span>`;
+          }).join('');
+          const markPct = Math.min(Math.max(a.bhi, 0), 100);
+
+          const splitBar = `<div class="split-bar">
+              <div style="flex-grow:${a.pos};background:var(--pos)"></div>
+              <div style="flex-grow:${a.neu};background:var(--text-3)"></div>
+              <div style="flex-grow:${a.neg};background:var(--neg)"></div>
+            </div>`;
+          const nssC = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
+          const velHot = a.engVel >= 2.0 ? ' vel-hot' : '';
+
+          return `
+          <div class="lt-grid lt-row row-hover${tint}">
+            <div class="pos-cell">
+              <span class="pos-rank num">${pos}</span>
+              ${rankDeltaHTML(a.rankDelta)}
+            </div>
+            <div class="ag-cell">
+              <div class="ag-top">
+                <span class="ag-dot" style="background:${dotC}"></span>
+                <span class="ag-short">${a.short}</span>
+                <span class="ag-sector">${sectorAbbr[a.sector] || a.sector}</span>
+              </div>
+              <div class="ag-full">${a.name}</div>
+            </div>
+            <div class="bhi-cell">
+              <div class="bhi-top">
+                <span class="bhi-num num">${a.bhi}</span>
+                <span class="pill ${bb.cls} bhi-pill">${bb.label}</span>
+              </div>
+              <div class="seg-bar">
+                ${segs}
+                <span class="seg-mark" style="left:${markPct}%;background:${bb.color}"></span>
+              </div>
+            </div>
+            <div>${sparkSVG(a.trend, 62, 30, bb.color)}</div>
+            <div class="nss-cell">
+              <div class="nss-top">
+                <span class="nss-val" style="color:${nssC}">${F.signed(a.nss)}</span>
+                <span class="nss-splits">${a.pos}/${a.neu}/${a.neg}</span>
+              </div>
+              ${splitBar}
+            </div>
+            <div class="risk-cell">
+              <span class="risk-num num" style="color:${cb.color}">${a.crisis.toFixed(2)}</span>
+              <span class="pill ${cb.cls} risk-pill">${cb.label}</span>
+            </div>
+            <div class="vel-cell">
+              <span class="vel-num num${velHot}">${a.engVel.toFixed(1)}×</span>
+            </div>
+            <div class="reach-cell">
+              <div class="reach-num num">${F.compact(a.reach)}</div>
+              <div class="reach-sub num">${F.compact(a.vol)} menc.</div>
+            </div>
+          </div>`;
+        }).join('');
+
+        // ---- Filas "En integración" ----
+        const building = [
+          { name: 'Departamento de Hacienda', short: 'Hacienda', sector: 'Económico', state: 'building' },
+          { name: 'Departamento de Corrección y Rehabilitación', short: 'DCR', sector: 'Seguridad', state: 'building' },
+        ];
+        const clockIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+        const buildRows = building.map(function (b) {
+          return `
+          <div class="lt-grid lt-build">
+            <div class="pos-cell"><span class="pos-rank" style="color:var(--text-3);font-weight:600">—</span></div>
+            <div class="ag-cell">
+              <div class="ag-top">
+                <span class="ag-dot-build"></span>
+                <span class="ag-short-build">${b.short}</span>
+                <span class="ag-sector">${sectorAbbr[b.sector] || b.sector}</span>
+                <span class="pill-build"><span class="bdot pulse"></span>En integración</span>
+              </div>
+              <div class="ag-full">${b.name}</div>
+            </div>
+            <div class="build-note">
+              <span class="dash">— — — —</span>
+              <span class="recop">${clockIcon}Recopilando data…</span>
+            </div>
+          </div>`;
+        }).join('');
+
+        const table = `<div class="card table-card">${tableHead}${rows}${buildRows}</div>`;
+
+        /* ---- DERECHA — RIEL: "Requiere atención" + "Olas temáticas" ---- */
+        const sevMeta = {
+          crisis: { cls: 'pill-neg', label: 'CRISIS', color: 'var(--neg)' },
+          alerta: { cls: 'pill-neg', label: 'ALERTA', color: 'var(--neg)' },
+        };
+        const atIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
+
+        const attnItems = M.feed.filter((f) => f.sev === 'crisis' || f.sev === 'alerta');
+        const attnRows = attnItems.map(function (f) {
+          const a = M.byKey(f.agency);
+          const sm = sevMeta[f.sev];
+          const isCrisis = f.sev === 'crisis';
+          return `
+          <div class="attn-row ${isCrisis ? 'is-crisis' : ''} row-hover">
+            <div class="attn-head">
+              <div class="attn-head-l">
+                <span class="attn-sev"><span class="pill ${sm.cls}"><span class="sev-dot${isCrisis ? ' pulse' : ''}" style="background:${sm.color}"></span>${sm.label}</span></span>
+                <span class="attn-agency">${a.short}</span>
+              </div>
+              <span class="theme-vol">${f.t}</span>
+            </div>
+            <div class="attn-title">${f.title}</div>
+            <div class="attn-foot">
+              <span class="attn-metric">${f.metric} · ${F.compact(f.reach)} alcance</span>
+              <button class="attend">Atender ${atIcon}</button>
+            </div>
+          </div>`;
+        }).join('');
+
+        const attnCard = `
+          <div class="card rail-card attn-card">
+            <div class="rail-hd">
+              <span class="hd-dot"></span>
+              <span class="rail-hd-title">Requiere atención</span>
+              <span class="rail-hd-sub">${attnItems.length} activos</span>
+            </div>
+            ${attnRows}
+          </div>`;
+
+        const topThemes = M.themes.slice().sort((a, b) => b.vol - a.vol).slice(0, 4);
+        const themeRows = topThemes.map(function (t) {
+          const cb = M.crisisBand(t.crisis);
+          const nssC = t.nss > 0 ? 'var(--pos)' : 'var(--neg)';
+          return `
+          <div class="theme-row">
+            <div class="theme-top">
+              <span class="theme-label">${t.label}</span>
+              <span class="theme-meta">
+                <span class="theme-vol">${F.compact(t.vol)}</span>
+                <span class="theme-nss" style="color:${nssC}">${F.signed(t.nss)}</span>
+              </span>
+            </div>
+            <div class="theme-bar-track">
+              <div class="theme-bar" style="width:${Math.min(t.crisis * 100, 100)}%;background:${cb.color}"></div>
+            </div>
+            <div class="theme-agencies">${t.agencies.map((k) => (M.byKey(k) ? M.byKey(k).short : k)).join(' · ')}</div>
+          </div>`;
+        }).join('');
+
+        const themesCard = `
+          <div class="card rail-card">
+            <div class="rail-hd">
+              <span class="hd-dot" style="background:var(--text-3)"></span>
+              <span class="rail-hd-title">Olas temáticas</span>
+              <span class="rail-hd-sub">vol ↓</span>
+            </div>
+            ${themeRows}
+          </div>`;
+
+        const mainGrid = `
+          <div class="blend-grid">
+            <div class="blend-left">${secHead}${table}</div>
+            <div class="blend-right">${attnCard}${themesCard}</div>
+          </div>`;
+
+        // cuerpo del tab (sin fila de modos)
+        return stats + mainGrid;
+      })();
+
+      /* ============================================================
+         CONTENIDO TAB B · "Gabinete"
+         Cuerpo de blend-b-gabinete.html SIN la fila de modos ni el frame.
+         ============================================================ */
+      const contentB = (function () {
+        const f = M.fmt;
+        const gov = M.gov;
+
+        // ---------- helpers ----------
+        function sectorColor(sec) {
+          switch (sec) {
+            case 'Económico': return 'var(--pos)';
+            case 'Social': return 'var(--accent-2)';
+            case 'Infraestructura': return 'var(--warn)';
+            case 'Seguridad': return 'var(--info)';
+            default: return 'var(--text-3)';
+          }
+        }
+        function deltaColor(d) {
+          return d > 0 ? 'var(--pos)' : d < 0 ? 'var(--neg)' : 'var(--text-3)';
+        }
+        function rankMarkup(d) {
+          if (d > 0) return '<span style="color:var(--pos)">▲ ' + Math.abs(d) + '</span>';
+          if (d < 0) return '<span style="color:var(--neg)">▼ ' + Math.abs(d) + '</span>';
+          return '<span style="color:var(--text-3)">—</span>';
+        }
+        function initials(name) {
+          const cleaned = name.replace(/^(Hon\.|Ing\.|Dr\.|Dra\.|Lcdo\.|Lcda\.)\s*/i, '').trim();
+          const parts = cleaned.split(/\s+/).filter(Boolean);
+          if (parts.length === 0) return '··';
+          if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+          return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+        function tlColor(a) {
+          if (a.crisis >= 0.60) return 'var(--neg)';
+          if (a.crisis >= 0.40) return 'var(--alerta)';
+          if (a.crisis >= 0.25) return 'var(--warn)';
+          return 'var(--pos)';
+        }
+        function sparkSVG(a, color) {
+          const w = 96, h = 30;
+          const s = M.spark(a.trend, w, h, 2);
+          return '<svg width="' + w + '" height="' + h + '" style="display:block">' +
+            '<path d="' + s.area + '" fill="' + color + '" opacity="0.12"/>' +
+            '<path d="' + s.line + '" stroke="' + color + '" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '<circle cx="' + s.last[0].toFixed(1) + '" cy="' + s.last[1].toFixed(1) + '" r="2.2" fill="' + color + '"/>' +
+            '</svg>';
+        }
+        function splitbar(a) {
+          return '<div class="splitbar">' +
+            '<div style="flex-grow:' + a.pos + ';background:var(--pos)"></div>' +
+            '<div style="flex-grow:' + a.neu + ';background:var(--text-3)"></div>' +
+            '<div style="flex-grow:' + a.neg + ';background:var(--neg)"></div>' +
+            '</div>';
+        }
+
+        // ---- CABECERA DE TRIAJE (una tarjeta ancha) ----
+        const inCrisis = gov.inCrisis;                              // 1
+        const inAlert = gov.inAlert;                                // 5
+        const stable = gov.agenciesTracked - inCrisis - inAlert;    // 7
+        const govBhiBand = M.bhiBand(gov.bhi);
+
+        const triageHTML =
+          // izquierda: estado del gabinete
+          '<div>' +
+            '<div class="cell-label">Estado del gabinete · ' + gov.agenciesTracked + ' agencias</div>' +
+            '<div class="counts">' +
+              '<div class="count-item"><span class="swatch" style="background:var(--neg)"></span>' +
+                '<span class="count-num">' + inCrisis + '</span><span class="count-word">en crisis</span></div>' +
+              '<span class="count-sep">·</span>' +
+              '<div class="count-item"><span class="swatch" style="background:var(--alerta)"></span>' +
+                '<span class="count-num">' + inAlert + '</span><span class="count-word">en alerta</span></div>' +
+              '<span class="count-sep">·</span>' +
+              '<div class="count-item"><span class="swatch" style="background:var(--pos)"></span>' +
+                '<span class="count-num">' + stable + '</span><span class="count-word">estables</span></div>' +
+            '</div>' +
+            '<div class="legend">' +
+              '<span class="legend-item"><span class="swatch" style="background:var(--pos)"></span>NORMAL</span>' +
+              '<span class="legend-item"><span class="swatch" style="background:var(--warn)"></span>ELEVADO</span>' +
+              '<span class="legend-item"><span class="swatch" style="background:var(--alerta)"></span>ALERTA</span>' +
+              '<span class="legend-item"><span class="swatch" style="background:var(--neg)"></span>CRISIS</span>' +
+            '</div>' +
+          '</div>' +
+
+          // KPI 1 — Índice de Salud
+          '<div>' +
+            '<div class="cell-label">Índice de Salud</div>' +
+            '<div class="kpi-row">' +
+              '<span class="kpi-big">' + gov.bhi + '</span>' +
+              '<span class="pill ' + govBhiBand.cls + '">' + govBhiBand.label + '</span>' +
+              '<span class="kpi-delta" style="color:' + deltaColor(gov.bhiDelta) + '">' + f.signed(gov.bhiDelta) + '</span>' +
+            '</div>' +
+            '<div class="kpi-foot">' +
+              '<span class="dot" style="background:var(--neg)"></span>' +
+              'Riesgo de Crisis · <b style="color:var(--neg)">ALERTA</b> (' + gov.crisis.toFixed(2) + ')' +
+            '</div>' +
+          '</div>' +
+
+          // KPI 2 — Sentimiento Neto
+          '<div>' +
+            '<div class="cell-label">Sentimiento Neto</div>' +
+            '<div class="kpi-row">' +
+              '<span class="kpi-big" style="color:var(--neg)">' + f.signed(gov.nss) + '</span>' +
+              '<span class="kpi-delta" style="color:' + deltaColor(gov.nssDelta) + '">' + f.signed(gov.nssDelta) + '</span>' +
+            '</div>' +
+            '<div class="splitbar">' +
+              '<div style="flex-grow:' + gov.positivePct + ';background:var(--pos)"></div>' +
+              '<div style="flex-grow:' + gov.neutralPct + ';background:var(--text-3)"></div>' +
+              '<div style="flex-grow:' + gov.negativePct + ';background:var(--neg)"></div>' +
+            '</div>' +
+            '<div class="split-legend">' +
+              '<span>' + gov.positivePct + '% pos</span>' +
+              '<span>' + gov.neutralPct + '% neu</span>' +
+              '<span>' + gov.negativePct + '% neg</span>' +
+            '</div>' +
+          '</div>' +
+
+          // KPI 3 — Conversación
+          '<div>' +
+            '<div class="cell-label">Conversación · ' + M.meta.periodShort + '</div>' +
+            '<div class="kpi-row" style="gap:8px">' +
+              '<span class="kpi-big" style="font-size:26px">' + f.compact(gov.vol) + '</span>' +
+              '<span class="kpi-delta" style="color:' + deltaColor(gov.volDelta) + '">' + f.signed(gov.volDelta) + '%</span>' +
+            '</div>' +
+            '<div class="kpi-foot kpi-stack" style="margin-top:9px">' +
+              '<span><b>' + f.int(gov.vol) + '</b> menciones</span>' +
+              '<span>Alcance estimado <b>' + f.compact(gov.reach) + '</b></span>' +
+            '</div>' +
+          '</div>';
+
+        // ---- GRID DE TARJETAS — 13 agencias ordenadas por riesgo ----
+        const sorted = M.agencies.slice().sort(function (a, b) { return b.crisis - a.crisis; });
+
+        const cardsHTML = sorted.map(function (a) {
+          const cb = M.crisisBand(a.crisis);
+          const bb = M.bhiBand(a.bhi);
+          const isCrisis = cb.isCrisis === true;
+          const isAlert = a.crisis >= 0.40 && a.crisis < 0.60;
+          const tc = tlColor(a);
+          const dotClass = isCrisis ? 'tl-dot pulse-ring' : 'tl-dot';
+          const dotStyle = isCrisis ? 'background:' + tc + ';--neg:' + tc : 'background:' + tc;
+          const sc = sectorColor(a.sector);
+          const cardCls = isCrisis ? ' is-crisis' : (isAlert ? ' is-alert' : '');
+
+          return '' +
+          '<div class="card' + cardCls + '">' +
+            '<div class="card-top">' +
+              '<span class="sector-chip"><span class="sector-dot" style="background:' + sc + '"></span>' + a.sector + '</span>' +
+              '<span class="band-group">' +
+                '<span class="band" style="color:' + tc + '">' +
+                  '<span class="' + dotClass + '" style="' + dotStyle + '"></span>' + cb.label +
+                '</span>' +
+                '<span class="rank-inline" title="Cambio de posición vs. semana anterior">' + rankMarkup(a.rankDelta) + '</span>' +
+              '</span>' +
+            '</div>' +
+
+            '<div>' +
+              '<div class="agency-name">' + a.short + '</div>' +
+              '<div class="agency-full">' + a.name + '</div>' +
+            '</div>' +
+
+            '<div class="titular">' +
+              '<span class="avatar">' + initials(a.lead) + '</span>' +
+              '<div class="titular-meta">' +
+                '<div class="titular-name">' + a.lead + '</div>' +
+                '<div class="titular-role">' + a.role + '</div>' +
+              '</div>' +
+            '</div>' +
+
+            '<div class="hero">' +
+              '<div class="hero-left">' +
+                '<span class="hero-label">Índice de Salud</span>' +
+                '<span class="hero-num">' + a.bhi + '</span>' +
+                '<span class="hero-meta">' +
+                  '<span class="pill ' + bb.cls + '">' + bb.label + '</span>' +
+                  '<span class="hero-delta" style="color:' + deltaColor(a.bhiDelta) + '">' + f.signed(a.bhiDelta) + '</span>' +
+                '</span>' +
+              '</div>' +
+              '<div class="spark-wrap">' + sparkSVG(a, bb.color) + '</div>' +
+            '</div>' +
+
+            '<div class="sentiment">' +
+              splitbar(a) +
+              '<span class="nss-val" style="color:' + (a.nss >= 0 ? 'var(--pos)' : 'var(--neg)') + '">' + f.signed(a.nss) + '</span>' +
+            '</div>' +
+
+            '<div class="liners">' +
+              '<div class="liner">' +
+                '<span class="ic" style="color:' + (isCrisis || isAlert ? 'var(--neg)' : 'var(--warn)') + '">&#9650;</span>' +
+                '<span class="txt"><span class="lbl" style="color:var(--text)">Riesgo</span> — ' + a.concern + '</span>' +
+              '</div>' +
+              '<div class="liner">' +
+                '<span class="ic" style="color:var(--pos)">&#10003;</span>' +
+                '<span class="txt"><span class="lbl" style="color:var(--pos)">Logro</span> — ' + a.win + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+        // ---- TARJETAS "EN INTEGRACIÓN" (placeholder, inline) ----
+        const BUILDING = [
+          { name: 'Departamento de Hacienda', short: 'Hacienda', sector: 'Económico' },
+          { name: 'Departamento de Corrección y Rehabilitación', short: 'DCR', sector: 'Seguridad' },
+        ];
+        const buildingHTML = BUILDING.map(function (b) {
+          const sc = sectorColor(b.sector);
+          const mono = b.short.slice(0, 2).toUpperCase();
+          return '' +
+          '<div class="card is-building">' +
+            '<div class="card-top">' +
+              '<span class="sector-chip"><span class="sector-dot" style="background:' + sc + '"></span>' + b.sector + '</span>' +
+              '<span class="badge-building"><span class="b-dot pulse"></span>En integración</span>' +
+            '</div>' +
+
+            '<div>' +
+              '<div class="agency-name">' + b.short + '</div>' +
+              '<div class="agency-full">' + b.name + '</div>' +
+            '</div>' +
+
+            '<div class="titular">' +
+              '<span class="avatar">' + mono + '</span>' +
+              '<div class="titular-meta">' +
+                '<div class="titular-name" style="color:var(--text-3)">Titular por designar</div>' +
+                '<div class="titular-role">Cobertura en integración</div>' +
+              '</div>' +
+            '</div>' +
+
+            '<div class="hero">' +
+              '<div class="hero-left">' +
+                '<span class="hero-label">Índice de Salud</span>' +
+                '<span class="build-num">—</span>' +
+              '</div>' +
+              '<div class="spark-wrap" style="opacity:0.5"><div class="build-bar" style="width:96px"></div></div>' +
+            '</div>' +
+
+            '<div class="sentiment">' +
+              '<div class="splitbar" style="margin-top:0;flex:1;height:6px;background:var(--canvas-2)"></div>' +
+              '<span class="nss-val" style="color:var(--text-3)">—</span>' +
+            '</div>' +
+
+            '<div class="build-foot">' +
+              '<span class="pulse"></span>Recopilando data…' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+        // ---- ENCABEZADO DEL GRID ----
+        const gridHeadHTML =
+          '<div class="grid-head">' +
+            '<div class="gh-title">Gabinete · ordenado por riesgo</div>' +
+            '<div class="gh-note"><span class="gh-dash"></span>' + BUILDING.length + ' agencias en integración</div>' +
+          '</div>';
+
+        // cuerpo del tab (sin fila de modos)
+        return '<div class="card triage">' + triageHTML + '</div>' +
+          gridHeadHTML +
+          '<div class="grid">' + cardsHTML + buildingHTML + '</div>';
+      })();
+
+      /* ============================================================
+         CONMUTADOR DE TABS (reemplaza la fila de modos)
+         ============================================================ */
+      const tabRow = `
+        <div class="tabbar">
+          <div class="tabgroup" role="tablist">
+            <button class="tabpill active" data-tab="tablero" role="tab" aria-selected="true">
+              <span class="tp-dot"></span>Tablero de Mando
+            </button>
+            <button class="tabpill" data-tab="gabinete" role="tab" aria-selected="false">
+              <span class="tp-dot"></span>Gabinete
+            </button>
+          </div>
+          <div class="tabnote">
+            <span>Vista consolidada de <b>${M.gov.agenciesTracked} agencias</b></span>
+            <span class="tabnote-rule"></span>
+            <span>semana cerrada · actualizado <b>6:00 AM AST</b></span>
+          </div>
+        </div>`;
+
+      /* ============================================================
+         MOUNT — un solo shell
+         ============================================================ */
+      const content = tabRow +
+        `<section class="view view-tablero">${contentA}</section>` +
+        `<section class="view view-gabinete" hidden>${contentB}</section>`;
+
+      document.getElementById('app').innerHTML = ECOShell.frame({
+        active: 'gobierno',
+        title: 'Resumen ejecutivo',
+        eyebrow: 'Vista Ejecutiva · Multi-agencia',
+        period: '7D',
+        content,
+      });
+
+      /* ============================================================
+         WIRE — alternar tabs
+         ============================================================ */
+      const pills = Array.prototype.slice.call(document.querySelectorAll('.tabpill'));
+      const views = {
+        tablero: document.querySelector('.view-tablero'),
+        gabinete: document.querySelector('.view-gabinete'),
+      };
+      pills.forEach(function (pill) {
+        pill.addEventListener('click', function () {
+          const tab = pill.getAttribute('data-tab');
+          pills.forEach(function (p) {
+            const on = p === pill;
+            p.classList.toggle('active', on);
+            p.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          views.tablero.hidden = tab !== 'tablero';
+          views.gabinete.hidden = tab !== 'gabinete';
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Radar de Crisis / Sala Situacional</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="shell.css" />
+  <style>
+    /* ============================================================
+       Radar de Crisis — contenido (cockpit de 3 columnas).
+       El shell (sidebar + header + page padding/gap) lo pinta ECOShell.
+       Solo definimos el cuerpo de la sala situacional aquí.
+       ============================================================ */
+
+    /* ===== Cockpit grid ===== *
+       Excepción del Radar: fila a altura fija para mantener el "cockpit
+       feel" bajo el header de ECO. Las listas/feed hacen scroll interno. */
+    .sit-grid {
+      height: calc(100vh - 150px);
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 338px 1fr 296px;
+      gap: 16px;
+    }
+    .col { min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+
+    .col-eyebrow {
+      font-family: var(--ff-display); font-size: 13px; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-2);
+      display: flex; align-items: center; gap: 9px;
+      padding-bottom: 2px;
+    }
+    .col-eyebrow .lead-rule { flex: 1; height: 1px; background: var(--hairline); }
+    .col-eyebrow .tag {
+      font-family: var(--ff-mono); font-size: 9px; font-weight: 500;
+      letter-spacing: .1em; text-transform: uppercase; color: var(--text-3);
+    }
+
+    /* ===== Gauge card ===== */
+    .gauge-card { padding: 16px 16px 14px; text-align: center; position: relative; overflow: hidden; }
+    .gauge-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(220px 160px at 50% 8%, var(--accent-fill), transparent 70%);
+      pointer-events: none;
+    }
+    .gauge-wrap { position: relative; width: 230px; height: 230px; margin: 2px auto 0; }
+    .gauge-center {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 6px;
+    }
+    .gauge-val { font-family: var(--ff-numeric); font-size: 56px; font-weight: 600; line-height: .9; color: var(--neg); letter-spacing: -.02em; }
+    .gauge-max { font-family: var(--ff-mono); font-size: 11px; color: var(--text-3); margin-top: -2px; }
+    .gauge-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); }
+    .gauge-delta {
+      position: absolute; top: 14px; right: 16px;
+      font-family: var(--ff-mono); font-size: 12px; font-weight: 600; color: var(--neg);
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+
+    /* ===== Stark stats row ===== */
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 4px; }
+    .stat-cell { text-align: center; padding: 2px 4px; border-right: 1px solid var(--hairline); }
+    .stat-cell:last-child { border-right: 0; }
+    .stat-num { font-family: var(--ff-numeric); font-size: 26px; font-weight: 600; line-height: 1; }
+    .stat-cap { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-top: 4px; }
+
+    .mini-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .mini {
+      border: 1px solid var(--hairline); border-radius: 4px; padding: 9px 11px;
+      background: var(--canvas-2);
+    }
+    .mini-cap { font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); }
+    .mini-val { font-family: var(--ff-numeric); font-size: 22px; font-weight: 600; line-height: 1; margin-top: 5px; display: flex; align-items: baseline; gap: 7px; }
+    .mini-delta { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; }
+
+    /* ===== Ranked list ===== */
+    .rank-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .rank-body { overflow-y: auto; flex: 1 1 auto; padding: 4px 0 2px; }
+    .rank-row {
+      display: grid; grid-template-columns: 78px 1fr 38px 64px; gap: 10px;
+      align-items: center; padding: 7px 16px;
+      border-top: 1px solid var(--hairline);
+    }
+    .rank-row:first-child { border-top: 0; }
+    .rank-short { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rank-bar-track { height: 7px; border-radius: 1px; background: color-mix(in oklab, var(--text-3) 18%, transparent); overflow: hidden; }
+    .rank-bar { height: 100%; border-radius: 1px; }
+    .rank-val { font-family: var(--ff-mono); font-size: 12px; font-weight: 600; text-align: right; }
+    .rank-pill { justify-self: end; }
+    .rank-pill .pill { font-size: 9px; padding: 3px 6px; }
+
+    /* ===== Center feed ===== */
+    .feed-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .feed-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 18px; border-bottom: 1px solid var(--hairline);
+    }
+    .feed-hd-title { font-family: var(--ff-display); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+    .feed-hd-sub { font-size: 10px; color: var(--text-3); letter-spacing: .08em; text-transform: uppercase; font-family: var(--ff-mono); }
+    .feed-body { overflow-y: auto; flex: 1 1 auto; }
+
+    .feed-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: 46px 70px 1fr 84px;
+      gap: 11px; align-items: start;
+      padding: 14px 16px 14px 18px;
+      border-top: 1px solid var(--hairline);
+    }
+    .feed-row:first-child { border-top: 0; }
+    .feed-row.is-crisis {
+      background: linear-gradient(90deg, var(--neg-bg), transparent 70%);
+    }
+    .feed-row.is-crisis::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      background: var(--neg);
+    }
+    .feed-time { font-family: var(--ff-mono); font-size: 12px; color: var(--text-3); padding-top: 2px; white-space: nowrap; }
+    .feed-sev { display: flex; align-items: center; padding-top: 1px; }
+    .feed-sev .pill { font-size: 9px; padding: 4px 8px; gap: 5px; }
+    .sev-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .feed-main { min-width: 0; }
+    .feed-agency { font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--accent-2); text-transform: uppercase; }
+    .feed-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--text); margin-top: 3px; }
+    .feed-metric { font-family: var(--ff-mono); font-size: 11px; color: var(--text-2); margin-top: 6px; }
+    .feed-reach { text-align: right; padding-top: 2px; }
+    .feed-reach-val { font-family: var(--ff-numeric); font-size: 17px; font-weight: 600; color: var(--text); line-height: 1; }
+    .feed-reach-cap { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-top: 4px; }
+
+    /* ===== Right column ===== */
+    .decide-card {
+      border-color: color-mix(in oklab, var(--accent) 55%, transparent) !important;
+      box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-fill);
+      background: linear-gradient(180deg, var(--accent-fill), transparent 40%), var(--canvas);
+    }
+    .decide-hd {
+      padding: 13px 15px 11px; border-bottom: 1px solid color-mix(in oklab, var(--accent) 28%, transparent);
+      display: flex; align-items: center; gap: 9px;
+    }
+    .decide-hd .hd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .decide-hd-title { font-family: var(--ff-display); font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); line-height: 1.15; }
+    .decide-row {
+      padding: 12px 15px;
+      border-top: 1px solid var(--hairline);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .decide-row:first-of-type { border-top: 0; }
+    .decide-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .decide-title { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+    .decide-agency { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .attend {
+      align-self: flex-start;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 11px; border-radius: 3px;
+      background: var(--accent); color: #fff;
+      font-size: 11px; font-weight: 700; letter-spacing: .03em;
+      border: 1px solid var(--accent);
+    }
+    .attend svg { width: 11px; height: 11px; }
+
+    /* themes */
+    .themes-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .themes-body { flex: 1 1 auto; overflow-y: auto; }
+    .theme-agencies { font-size: 10px; color: var(--text-3); font-family: var(--ff-mono); letter-spacing: .02em; }
+    .theme-row {
+      padding: 13px 15px;
+      border-top: 1px solid var(--hairline);
+      display: flex; flex-direction: column; gap: 7px;
+    }
+    .theme-row:first-of-type { border-top: 0; }
+    .theme-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .theme-label { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.25; }
+    .theme-meta { display: flex; align-items: baseline; gap: 9px; flex-shrink: 0; }
+    .theme-vol { font-family: var(--ff-mono); font-size: 11px; color: var(--text-3); }
+    .theme-nss { font-family: var(--ff-numeric); font-size: 13px; font-weight: 600; }
+    .theme-bar-track { height: 4px; border-radius: 1px; background: color-mix(in oklab, var(--text-3) 18%, transparent); overflow: hidden; }
+    .theme-bar { height: 100%; border-radius: 1px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="data.js"></script>
+  <script src="shell.js"></script>
+  <script>
+    const M = window.MOCK;
+    const fmt = M.fmt;
+
+    /* ---- gauge recipe (270° arc) ---- */
+    function gauge(value, max, size, thick, color) {
+      const r = (size - thick) / 2, cx = size / 2, cy = size / 2;
+      const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, p = Math.max(0, Math.min(1, value / max));
+      const pt = (ang) => [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+      const [x0, y0] = pt(a0), [x1, y1] = pt(a1), [xv, yv] = pt(a0 + (a1 - a0) * p);
+      // tick marks at band thresholds 0.25 / 0.40 / 0.60
+      const ticks = [0.25, 0.40, 0.60].map((t) => {
+        const ang = a0 + (a1 - a0) * t;
+        const ri = r - thick / 2 - 3, ro = r + thick / 2 + 3;
+        return `<line x1="${(cx + ri * Math.cos(ang)).toFixed(1)}" y1="${(cy + ri * Math.sin(ang)).toFixed(1)}" x2="${(cx + ro * Math.cos(ang)).toFixed(1)}" y2="${(cy + ro * Math.sin(ang)).toFixed(1)}" stroke="var(--hairline-strong)" stroke-width="1.5"/>`;
+      }).join('');
+      return `<svg width="${size}" height="${size}">
+        <path d="M ${x0} ${y0} A ${r} ${r} 0 1 1 ${x1} ${y1}" stroke="var(--canvas-2)" stroke-width="${thick}" fill="none" stroke-linecap="round"/>
+        <path d="M ${x0} ${y0} A ${r} ${r} 0 ${p > 0.66 ? 1 : 0} 1 ${xv} ${yv}" stroke="${color}" stroke-width="${thick}" fill="none" stroke-linecap="round"/>
+        ${ticks}
+        <circle cx="${xv.toFixed(1)}" cy="${yv.toFixed(1)}" r="${thick / 1.6}" fill="var(--canvas)" stroke="${color}" stroke-width="2"/>
+      </svg>`;
+    }
+
+    const gov = M.gov;
+    const govBand = M.crisisBand(gov.crisis); // ALERTA
+
+    /* ============================================================
+       LEFT COLUMN
+       ============================================================ */
+    const delta = (v, invert) => {
+      const bad = invert ? v > 0 : v < 0;
+      const good = invert ? v < 0 : v > 0;
+      const c = good ? 'var(--pos)' : bad ? 'var(--neg)' : 'var(--text-3)';
+      const arrow = v > 0 ? '▲' : v < 0 ? '▼' : '—';
+      return { c, arrow };
+    };
+
+    const nssD = delta(gov.nssDelta, false);
+
+    const leftCol = `
+      <div class="col">
+        <div class="col-eyebrow">Estado del gobierno<span class="lead-rule"></span><span class="tag">ponderado</span></div>
+
+        <div class="card gauge-card">
+          <div class="gauge-delta">▲ ${fmt.signed(gov.crisisDelta, 2)} vs. sem.</div>
+          <div class="gauge-wrap">
+            ${gauge(gov.crisis, 1.0, 230, 18, 'var(--neg)')}
+            <div class="gauge-center">
+              <div class="gauge-val">${gov.crisis.toFixed(2)}</div>
+              <div class="gauge-max">de 1.00 máx.</div>
+              <span class="pill ${govBand.cls}">${govBand.label}</span>
+              <div class="gauge-label">Riesgo de Crisis</div>
+            </div>
+          </div>
+          <div class="stats-row">
+            <div class="stat-cell">
+              <div class="stat-num" style="color:var(--neg)">${gov.inCrisis}</div>
+              <div class="stat-cap">en crisis</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-num" style="color:var(--warn)">${gov.inAlert}</div>
+              <div class="stat-cap">en alerta</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-num" style="color:var(--text-2)">${gov.agenciesTracked}</div>
+              <div class="stat-cap">monitoreadas</div>
+            </div>
+          </div>
+          <div class="mini-metrics">
+            <div class="mini">
+              <div class="mini-cap">Sentimiento Neto</div>
+              <div class="mini-val" style="color:var(--neg)">${fmt.signed(gov.nss)}<span class="mini-delta" style="color:${nssD.c}">${nssD.arrow} ${fmt.signed(gov.nssDelta)}</span></div>
+            </div>
+            <div class="mini">
+              <div class="mini-cap">Polarización</div>
+              <div class="mini-val" style="color:var(--warn)">${gov.polar.toFixed(2)}<span class="mini-delta" style="color:var(--neg)">▲ ${fmt.signed(gov.polarDelta, 2)}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card rank-card">
+          <div class="feed-hd" style="padding:12px 16px">
+            <span class="feed-hd-title">Agencias por riesgo</span>
+            <span class="feed-hd-sub">crisis ↓</span>
+          </div>
+          <div class="rank-body" id="rankBody"></div>
+        </div>
+      </div>`;
+
+    /* ============================================================
+       CENTER COLUMN — feed
+       ============================================================ */
+    const centerCol = `
+      <div class="col">
+        <div class="card feed-card">
+          <div class="feed-hd">
+            <div>
+              <div class="feed-hd-title">Escalamiento en vivo</div>
+            </div>
+            <div class="feed-hd-sub" style="display:flex;align-items:center;gap:8px">
+              <span class="pulse" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--neg)"></span>
+              flujo cross-agencia · últimas 2 h
+            </div>
+          </div>
+          <div class="feed-body" id="feedBody"></div>
+        </div>
+      </div>`;
+
+    /* ============================================================
+       RIGHT COLUMN
+       ============================================================ */
+    const decisions = [
+      { title: 'Apagón masivo — activar protocolo y vocería', agency: 'energia', sev: 'crisis' },
+      { title: 'Racionamiento de agua: AAA en 9 municipios del sur', agency: 'aaa', sev: 'alerta' },
+      { title: 'Saturación de salas de emergencia — Salud', agency: 'salud', sev: 'alerta' },
+    ];
+    const atIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
+
+    const decideRows = decisions.map((d) => {
+      const a = M.byKey(d.agency);
+      const cb = M.crisisBand(a.crisis);
+      return `
+        <div class="decide-row">
+          <div class="decide-top">
+            <div class="decide-title">${d.title}</div>
+            <span class="pill ${cb.cls}" style="font-size:9px;padding:3px 6px;flex-shrink:0">${cb.label}</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span class="decide-agency" style="color:${cb.color}">${a.short} · ${a.lead}</span>
+            <button class="attend">Atender ${atIcon}</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    const topThemes = M.themes.slice().sort((a, b) => b.vol - a.vol).slice(0, 5);
+    const themeRows = topThemes.map((t) => {
+      const cb = M.crisisBand(t.crisis);
+      const nssC = t.nss > 0 ? 'var(--pos)' : 'var(--neg)';
+      return `
+        <div class="theme-row">
+          <div class="theme-top">
+            <span class="theme-label">${t.label}</span>
+            <span class="theme-meta">
+              <span class="theme-vol">${fmt.compact(t.vol)}</span>
+              <span class="theme-nss" style="color:${nssC}">${fmt.signed(t.nss)}</span>
+            </span>
+          </div>
+          <div class="theme-bar-track">
+            <div class="theme-bar" style="width:${Math.min(t.crisis * 100, 100)}%;background:${cb.color}"></div>
+          </div>
+          <div class="theme-agencies">${t.agencies.map((k) => (M.byKey(k) ? M.byKey(k).short : k)).join(' · ')}</div>
+        </div>`;
+    }).join('');
+
+    const rightCol = `
+      <div class="col">
+        <div class="col-eyebrow">Acción ejecutiva<span class="lead-rule"></span></div>
+        <div class="card decide-card">
+          <div class="decide-hd">
+            <span class="hd-dot"></span>
+            <span class="decide-hd-title">Requiere decisión de La Fortaleza</span>
+          </div>
+          ${decideRows}
+        </div>
+        <div class="card themes-card">
+          <div class="feed-hd" style="padding:12px 15px">
+            <span class="feed-hd-title">Olas temáticas</span>
+            <span class="feed-hd-sub">vol ↓</span>
+          </div>
+          <div class="themes-body">${themeRows}</div>
+        </div>
+      </div>`;
+
+    /* ============================================================
+       MOUNT — shell frame wraps the 3-column situation room
+       ============================================================ */
+    const content = `<div class="sit-grid">${leftCol}${centerCol}${rightCol}</div>`;
+
+    document.getElementById('app').innerHTML = ECOShell.frame({
+      active: 'gobierno',
+      title: 'Radar de Crisis',
+      eyebrow: 'Vista ejecutiva · Sala situacional',
+      period: '7D',
+      content,
+    });
+
+    /* ============================================================
+       RENDER: ranked list (crisis DESC)
+       ============================================================ */
+    const ranked = M.agencies.slice().sort((a, b) => b.crisis - a.crisis);
+    const maxCrisis = Math.max.apply(null, ranked.map((a) => a.crisis));
+    document.getElementById('rankBody').innerHTML = ranked.map((a) => {
+      const cb = M.crisisBand(a.crisis);
+      const w = Math.max(6, (a.crisis / maxCrisis) * 100);
+      return `
+        <div class="rank-row row-hover">
+          <span class="rank-short" title="${a.name}">${a.short}</span>
+          <div class="rank-bar-track">
+            <div class="rank-bar" style="width:${w.toFixed(1)}%;background:${cb.color}"></div>
+          </div>
+          <span class="rank-val" style="color:${cb.color}">${a.crisis.toFixed(2)}</span>
+          <span class="rank-pill"><span class="pill ${cb.cls}">${cb.label}</span></span>
+        </div>`;
+    }).join('');
+
+    /* ============================================================
+       RENDER: feed (severity sorted)
+       ============================================================ */
+    const sevOrder = { crisis: 0, alerta: 1, elevado: 2, positivo: 3 };
+    const sevMeta = {
+      crisis:   { cls: 'pill-neg', label: 'CRISIS', color: 'var(--neg)' },
+      alerta:   { cls: 'pill-neg', label: 'ALERTA', color: 'var(--neg)' },
+      elevado:  { cls: 'pill-warn', label: 'ELEVADO', color: 'var(--warn)' },
+      positivo: { cls: 'pill-pos', label: 'POSITIVO', color: 'var(--pos)' },
+    };
+    const feed = M.feed.slice().sort((a, b) => sevOrder[a.sev] - sevOrder[b.sev]);
+    let crisisSeen = false;
+    document.getElementById('feedBody').innerHTML = feed.map((f) => {
+      const a = M.byKey(f.agency);
+      const sm = sevMeta[f.sev];
+      const isTopCrisis = f.sev === 'crisis' && !crisisSeen;
+      if (f.sev === 'crisis') crisisSeen = true;
+      const dotPulse = isTopCrisis ? ' pulse' : '';
+      return `
+        <div class="feed-row ${isTopCrisis ? 'is-crisis' : ''} row-hover">
+          <div class="feed-time">${f.t}</div>
+          <div class="feed-sev">
+            <span class="pill ${sm.cls}"><span class="sev-dot${dotPulse}" style="background:${sm.color}"></span>${sm.label}</span>
+          </div>
+          <div class="feed-main">
+            <div class="feed-agency">${a.short}</div>
+            <div class="feed-title">${f.title}</div>
+            <div class="feed-metric">${f.metric}</div>
+          </div>
+          <div class="feed-reach">
+            <div class="feed-reach-val">${fmt.compact(f.reach)}</div>
+            <div class="feed-reach-cap">alcance</div>
+          </div>
+        </div>`;
+    }).join('');
+  </script>
+</body>
+</html>

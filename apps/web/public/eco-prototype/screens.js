@@ -1,18 +1,38 @@
 // Dashboard + screens
 const { Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap } = window.ECO_CHARTS;
-const { MentionDrawer, MentionsSliceModal } = window.ECO_SHELL;
+const { MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
-function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children }) {
+function KpiCard({ label, value, delta, sub, icon, trendData, accent = 'var(--accent)', tone, highlight, invertDelta, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
+  const clickable = !!onClick;
   return (
-    <div className="card" style={{ padding: 18, position: 'relative', overflow: 'hidden', borderTop: highlight ? `2px solid ${accent}` : undefined }}>
+    <div
+      className="card"
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      style={{
+        padding: 18, position: 'relative', overflow: 'hidden',
+        borderTop: highlight ? `2px solid ${accent}` : undefined,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'transform 0.12s var(--ease), box-shadow 0.12s var(--ease)',
+      }}
+      onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.18)'; } : undefined}
+      onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; } : undefined}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         {IconC && <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--accent-fill)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
         {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto' }}>{tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal'}</span>}
+        {clickable && !tone && (
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <I2.Sparkles size={10} /> Detalles
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div className="num" style={{ fontSize: 34, fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
@@ -37,12 +57,124 @@ function fmt(n) {
   return n.toLocaleString('es-PR');
 }
 
+/**
+ * Helper compartido para abrir un MetricInsightModal desde cualquier pantalla.
+ * Construye el slice inicial con headlineValue + subcomponents + skeleton de
+ * insight, lo aplica vía setSlice, y dispara un fetch (con polling) al
+ * endpoint /api/eco-metric-insight. Al llegar la respuesta actualiza el slice
+ * con el texto del insight.
+ *
+ * @param {Function} setSlice — el setter del state local de cada screen.
+ * @param {Object} opts — { metric, value, accent, label, periodStart?, periodEnd?, periodPreset?, agency, subcomponents, filter }
+ */
+function openMetricInsightShared(setSlice, opts) {
+  const headlineValue = opts.value != null && opts.value !== '' ? String(opts.value) : '—';
+  setSlice({
+    eyebrow: opts.label,
+    title: `${opts.label}${opts.periodLabel ? ' · ' + opts.periodLabel : ''}`,
+    accent: opts.accent || 'var(--accent)',
+    headlineValue,
+    headlineLabel: opts.label,
+    subcomponents: opts.subcomponents || [],
+    insightText: '__loading__',
+    mentions: [],
+    _filter: opts.filter || {},
+  });
+
+  const params = new URLSearchParams({ metric: opts.metric });
+  if (opts.periodStart && opts.periodEnd) {
+    params.set('from', opts.periodStart);
+    params.set('to', opts.periodEnd);
+  } else if (opts.periodPreset) {
+    params.set('period', opts.periodPreset);
+  }
+  if (opts.agency) params.set('agency', opts.agency);
+
+  const startedAt = Date.now();
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_MS = 3000;
+
+  async function tick() {
+    try {
+      const res = await fetch('/api/eco-metric-insight?' + params.toString(), {
+        credentials: 'same-origin', cache: 'no-store',
+      });
+      if (res.status === 202) {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          setSlice((s) => s ? { ...s, insightText: 'Insight no disponible (timeout).' } : s);
+          return;
+        }
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      if (!res.ok) {
+        setSlice((s) => s ? { ...s, insightText: 'No se pudo cargar el insight.' } : s);
+        return;
+      }
+      const json = await res.json();
+      setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
+    } catch (_) {
+      setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
+    }
+  }
+  tick();
+}
+
+// Sanitiza HTML del briefing IA — solo permite <strong>/</strong>. El lambda
+// que genera el briefing ya hace este filtro server-side; esta función es
+// defensa en profundidad por si una fila vieja escapó el filtro o si en el
+// futuro se llena la tabla por otra vía.
+function sanitizeBriefingHtml(html) {
+  if (!html) return '';
+  return String(html).replace(/<(?!\/?strong\b)[^>]*>/gi, '');
+}
+
 // =============== DASHBOARD ===============
-function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
+function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency }) {
   const m = D.CURRENT_METRICS;
-  const [activeMetrics, setActiveMetrics] = useState(['nss', 'totalMentions', 'crisisRiskScore']);
-  const [focus, setFocus] = useState('signal'); // signal | narrative | crisis
+  // Default: solo "Menciones" (issue #6). El usuario puede sumar series con
+  // los chips, máx 3 a la vez.
+  const [activeMetrics, setActiveMetrics] = useState(['totalMentions']);
+  // Modo del Resumen ejecutivo: signal | emerging | crisis. El backend
+  // devuelve D.BRIEFING como objeto con esas 3 claves.
+  const [focus, setFocus] = useState('signal');
   const [slice, setSlice] = useState(null);
+  const [metricModal, setMetricModal] = useState(null);
+
+  // Resumen ejecutivo activo según `focus`. Si el backend solo devolvió el
+  // shape antiguo (un solo briefing), fallback a él para no romper la UI.
+  const briefingByMode = (D.BRIEFING && typeof D.BRIEFING === 'object' && D.BRIEFING.signal !== undefined)
+    ? D.BRIEFING
+    : null;
+  const activeBriefing = briefingByMode
+    ? (briefingByMode[focus] || briefingByMode.signal || null)
+    : D.BRIEFING;
+
+  // Helper para clicks en KPIs del Scorecard. Usa el period preset (no
+  // periodStart/periodEnd) porque DashboardScreen consume /api/eco-data que
+  // no expone esos campos; el endpoint /api/eco-metric-insight resolverá la
+  // ventana con closedWindowYmdInTZ del period preset.
+  function openKpiInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' }
+      : metric === 'nss' ? { sentiment: 'negativo' }
+      : metric === 'polarization' ? {}
+      : {};
+    openMetricInsightShared(setSlice, {
+      metric, value, accent,
+      label: labels[metric] || metric,
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter,
+    });
+  }
 
   const seriesConfig = [
     { key: 'nss', label: 'NSS', color: 'var(--accent)' },
@@ -57,20 +189,33 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
     const total = Math.round((d.totalMentions || d.positivo + d.neutral + d.negativo) || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    // Detectar granularidad horaria por la presencia de "T..:00:00" en fullDate
+    // (backend emite "YYYY-MM-DDTHH:00:00-04:00" para buckets horarios). Para
+    // hora: filtramos `day` + `hour` y omitimos histograma (la gráfica ya es
+    // por hora). Para día: filtramos `day` y mostramos histograma 24h (mock).
+    const isHourly = d.fullDate && /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
-    setSlice({
-      eyebrow: d.date,
-      title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayIso };
+    if (hourMatch) filter.hour = hourMatch[1];
+    const slicePayload = {
+      eyebrow: isHourly ? `${d.date} AST` : d.date,
+      title: isHourly
+        ? `Hora ${d.date} · NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`
+        : `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
-      _filter: { day: dayIso },
-    });
+      _filter: filter,
+    };
+    if (!isHourly) {
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
+        return Math.round(base * (total / 24) * 1.6);
+      });
+      slicePayload.histogram = { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) };
+    }
+    setSlice(slicePayload);
   }
 
   function openSourceSlice(src) {
@@ -111,45 +256,70 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
 
   function openBriefingSlice() {
     // Hero CTA opens the mention slice for the actual dominant topic reported
-    // by the API briefing (falls back to the first topic by volume).
-    const briefingTopicName = (D.BRIEFING && D.BRIEFING.dominantSignal || '').split(' · ')[0];
+    // by the active briefing mode (falls back to the first topic by volume).
+    const briefingTopicName = (activeBriefing && activeBriefing.dominantSignal || '').split(' · ')[0];
     const topic = (briefingTopicName && D.TOPICS.find(t => t.name === briefingTopicName)) || D.TOPICS[0];
     if (topic) openTopicSlice(topic);
   }
 
+  function openMetric(key, label, accent) {
+    let value = null;
+    if (m) {
+      if (key === 'crisis') value = m.crisisRiskScore;
+      else if (key === 'volume') value = m.totalMentions;
+      // BHI: el cálculo interno es 0-1 pero la UI presenta 1-10 (1=crítico,
+      // 10=fuerte). Pre-convertimos el placeholder para que el modal hable
+      // SIEMPRE en la misma escala — antes el headline saltaba de "0.6"
+      // (mientras cargaba el fetch) a "59.5" (después, por una segunda
+      // multiplicación errónea contra el valor ya escalado del API).
+      else if (key === 'bhi') value = m.brandHealthIndex != null
+        ? Number((1 + m.brandHealthIndex * 9).toFixed(1))
+        : null;
+      else if (key === 'polarization') value = m.polarizationIndex;
+      else value = m.nss;
+    }
+    setMetricModal({ metricKey: key, value, label, accent });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* ── Executive Briefing ── */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, alignItems: 'stretch' }}>
+      {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 24, alignItems: 'stretch' }}>
         <div>
-          <div className="section-eyebrow">Resumen ejecutivo · {(D.BRIEFING && D.BRIEFING.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600, lineHeight: 1.25, letterSpacing: 'var(--letter-display)', marginTop: 8, color: 'var(--text)' }}>
-            {D.BRIEFING ? (
-              <>
-                {D.BRIEFING.narrative.pre}{' '}
-                <span style={{ color: `var(--${D.BRIEFING.narrative.verbTone === 'pos' ? 'pos' : D.BRIEFING.narrative.verbTone === 'neg' ? 'neg' : 'warn'})` }}>
-                  {D.BRIEFING.narrative.verb}
-                </span>
-                {D.BRIEFING.narrative.linkPre}
-                <strong>{D.BRIEFING.narrative.emphasis}</strong>
-                {D.BRIEFING.narrative.linkPost}
-              </>
+          <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            {activeBriefing && activeBriefing.source === 'ai' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
+                <Icons.Sparkles size={9} /> IA · {activeBriefing.generatedAtLabel || 'reciente'}
+              </span>
+            )}
+            {activeBriefing && activeBriefing.source === 'rule' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
+                Resumen automatizado
+              </span>
+            )}
+          </div>
+          {/* Fuente reducida a 18px y line-height 1.45 (issue #1). Narrativas
+              cap a 75 palabras desde el prompt. */}
+          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 18, fontWeight: 500, lineHeight: 1.45, letterSpacing: 'var(--letter-display)', marginTop: 10, color: 'var(--text)' }}>
+            {activeBriefing ? (
+              <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} />
             ) : (
               <>Sin suficientes menciones en este período para generar un resumen.</>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 20, marginTop: 20, fontSize: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 20, marginTop: 16, fontSize: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
-              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.dominantSignal) || '—'}</div>
+              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
             </div>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
-              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
+              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Acción recomendada</div>
-              <div style={{ color: 'var(--accent)', fontWeight: 600, marginTop: 2 }}>{(D.BRIEFING && D.BRIEFING.action) || 'Monitorear tópicos activos →'}</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Siguiente paso</div>
+              <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'accent'})`, fontWeight: 600, marginTop: 2 }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
             </div>
           </div>
           <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -158,7 +328,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </button>
             <span style={{ width: 1, height: 16, background: 'var(--hairline)', margin: '0 4px' }} />
             <button className={`chip ${focus === 'signal' ? 'active' : ''}`} onClick={() => setFocus('signal')}>Señal del día</button>
-            <button className={`chip ${focus === 'narrative' ? 'active' : ''}`} onClick={() => setFocus('narrative')}>Narrativas emergentes</button>
+            <button className={`chip ${focus === 'emerging' ? 'active' : ''}`} onClick={() => setFocus('emerging')}>Narrativas emergentes</button>
             <button className={`chip ${focus === 'crisis' ? 'active' : ''}`} onClick={() => setFocus('crisis')}>Vigilancia de crisis</button>
           </div>
         </div>
@@ -180,15 +350,17 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         </div>
       </div>
 
-      {/* ── Hero KPIs: NSS + Crisis prominent ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr 1fr 1fr', gap: 12 }}>
-        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}>
+      {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.3fr 1.3fr 1fr 1fr 1fr', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
+        <KpiCard label="Net Sentiment Score" value={m.nss != null ? `${m.nss > 0 ? '+' : ''}${m.nss}` : '—'} delta={m.nssDelta} sub="vs 30d ant." icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
+          onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
           <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-3)', marginTop: -4 }}>
             <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="0–1 saturado" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight>
+        <KpiCard label="Riesgo de crisis" value={m.crisisRiskScore != null ? m.crisisRiskScore.toFixed(2) : '—'} delta={m.crisisDelta} sub="rango 0–1" icon="Shield" accent="var(--neg)" tone="neg" invertDelta highlight
+          onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Escala 0–1: gate condicional → 0; >0.25 elevado; >0.40 alerta; >0.60 crisis. Umbrales del backtest 482 días. */}
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 60%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
@@ -199,13 +371,20 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
             </div>
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ayer" icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)} />
-        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? m.brandHealthIndex.toFixed(2) : '—'} delta={m.brandHealthDelta} icon="Heart" accent="var(--pos)">
+        <KpiCard label="Volumen · período" value={fmt(D.TIMELINE.reduce((s, t) => s + (t.totalMentions || 0), 0))} delta={m.totalMentionsDelta} sub="% vs ventana ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
+          onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
+        {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
+            0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
+            y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
+        <KpiCard label="Brand Health" value={m.brandHealthIndex != null ? (1 + m.brandHealthIndex * 9).toFixed(1) : '—'} delta={m.brandHealthDelta != null ? Number((m.brandHealthDelta * 9).toFixed(1)) : null} sub="escala 1–10" icon="Heart" accent="var(--pos)"
+          onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}>
+        <KpiCard label="Polarización" value={m.polarizationIndex != null ? `${m.polarizationIndex.toFixed(0)}%` : '—'} sub="opinión vs neutral" icon="Polarization" accent="#8B5CF6" trendData={D.TIMELINE.map(t => t.polarizationIndex ?? 0)}
+          onClick={() => openMetric('polarization', 'Polarización', '#8B5CF6')}>
+
           <div style={{ marginTop: -2 }}>
             <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 60%, #8B5CF6 60%, #8B5CF6 100%)', position: 'relative' }}>
               <div style={{ position: 'absolute', left: `${Math.min(Math.max(m.polarizationIndex ?? 0, 0), 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: '2px solid #8B5CF6', transform: 'translateX(-50%)' }} />
@@ -217,68 +396,43 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
         </KpiCard>
       </div>
 
-      {/* ── Row 2: Timeline (8) + Topic composition (4) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-        <div className="card">
-          <div className="card-hd">
-            <div>
-              <div className="card-hd-title">Evolución multi-métrica</div>
-              <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {seriesConfig.map((s) => {
-                const on = activeMetrics.includes(s.key);
-                return (
-                  <button key={s.key} onClick={() => {
-                    if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
-                    else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
-                  }} style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '4px 9px', borderRadius: 999,
-                    fontSize: 10, fontWeight: 600,
-                    border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
-                    background: on ? s.color : 'transparent',
-                    color: on ? '#fff' : 'var(--text-3)',
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+      {/* ── Row 2: Timeline ocupa todo el ancho (issue #5 eliminó pie de sentimiento) ── */}
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Evolución multi-métrica</div>
+            <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
           </div>
-          <div className="card-bd">
-            {/* Timeframe selector — drives the global period (same as header pills) */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 8, fontSize: 10, justifyContent: 'flex-end' }}>
-              {['1D', '5D', '1M', '3M', '6M', '1A', 'Max'].map((tf) => (
-                <button key={tf}
-                  onClick={() => setPeriod && setPeriod(tf)}
-                  className={`chip ${period === tf ? 'active' : ''}`}
-                  style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'var(--ff-numeric)', fontWeight: 600 }}>{tf}</button>
-              ))}
-            </div>
-            <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {seriesConfig.map((s) => {
+              const on = activeMetrics.includes(s.key);
+              return (
+                <button key={s.key} onClick={() => {
+                  if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
+                  else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
+                }} style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 9px', borderRadius: 999,
+                  fontSize: 10, fontWeight: 600,
+                  border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
+                  background: on ? s.color : 'transparent',
+                  color: on ? '#fff' : 'var(--text-3)',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? '#fff' : s.color }} />
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-
-        <DashSentimentCard total={m.totalMentions} nss={m.nss} onSliceClick={(name) => {
-          const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
-          if (!row) return;
-          const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-          const senti = { pos: 0, neu: 0, neg: 0 };
-          senti[name === 'positivo' ? 'pos' : name === 'negativo' ? 'neg' : 'neu'] = row.value;
-          setSlice({
-            eyebrow: 'Sentimiento',
-            title: `Menciones ${row.label.toLowerCase()}`,
-            accent,
-            mentions: [],
-            _filter: { sentiment: name },
-          });
-        }} />
+        <div className="card-bd">
+          {/* Issue #6: sin selector de timeframe local — el header global lo cubre. */}
+          <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
+        </div>
       </div>
 
       {/* ── Row 3: Topics (emerging) + Sources + Heatmap ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
@@ -319,14 +473,27 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
       </div>
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+      {metricModal && MetricInsightModal && (
+        <MetricInsightModal
+          metricKey={metricModal.metricKey}
+          value={metricModal.value}
+          label={metricModal.label}
+          accent={metricModal.accent}
+          period={period}
+          agency={(window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || (localStorage.getItem('eco.agency') || '')}
+          onClose={() => setMetricModal(null)}
+        />
+      )}
 
-      {/* ── Recent mentions table (dense) ── */}
+      {/* ── Recent mentions table (dense) — issue #9: sin columna pertinencia,
+          engagement=0 muestra "—". El backend ya excluye twitter y baja
+          pertinencia del feed. ── */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Ordenadas por pertinencia × engagement</div></div>
+          <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
           <a href="#mentions" className="link" style={{ fontSize: 12 }}>Ver todas ({fmt(m.totalMentions)}) →</a>
         </div>
-        <div>
+        <div className="scroll-x">
           {D.MENTIONS.slice(0, 7).map((mn, idx) => {
             const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
             const SIcon = Icons[sourceIcon];
@@ -335,7 +502,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 90px 80px 90px 80px', gap: 12,
+                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', minWidth: 560, gap: 12,
                   alignItems: 'center', padding: '10px 16px',
                   borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                   fontSize: 12, cursor: 'pointer',
@@ -346,12 +513,8 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
                   <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
                 </div>
                 <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-                <span style={{ fontSize: 11, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  {mn.pertinence}
-                </span>
-                <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{fmt(mn.engagement)}</span>
+                <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
                 <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
-                <div style={{ width: 60 }}><Sparkline data={Array.from({ length: 8 }, (_, i) => Math.random() * 10)} width={60} height={18} color={mn.sentiment === 'negativo' ? 'var(--neg)' : 'var(--pos)'} fill={false} /></div>
               </div>
             );
           })}
@@ -361,9 +524,12 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive }) {
   );
 }
 
-// --- BrandHealthMini: a more interesting KPI readout (segmented gauge) ---
+// --- BrandHealthMini: gauge segmentado. Internamente trabaja con value 0..1
+//     (output del backtest), pero el label de la banda y los hitos se muestran
+//     en escala 1–10 para alinearse con la presentación del KpiCard.
+//     Segmentos (valor interno): Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1).
+//     Equivalente en escala 1-10: 1-4.6, 4.6-6.4, 6.4-8.2, 8.2-10.
 function BrandHealthMini({ value }) {
-  // value 0..1. Segments: Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1)
   const segments = [
     { from: 0, to: 0.4, color: 'var(--neg)' },
     { from: 0.4, to: 0.6, color: 'var(--warn)' },
@@ -395,62 +561,10 @@ function BrandHealthMini({ value }) {
           );
         })}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em' }}>
-        <span>CRÍT</span><span>DÉB</span><span>SANO</span><span>FUERTE</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--ff-mono)' }}>
+        <span>1</span><span>4.6</span><span>6.4</span><span>8.2</span><span>10</span>
       </div>
       <div style={{ fontSize: 10, color: bandColor, fontWeight: 700, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{bandLabel}</div>
-    </div>
-  );
-}
-
-// --- DashSentimentCard: redesigned with donut + prominent legend rows (clickable) ---
-function DashSentimentCard({ total, nss, onSliceClick }) {
-  const safeTotal = (D.SENTIMENT_BREAKDOWN || []).reduce((s, x) => s + (x.value || 0), 0) || total || 0;
-  const pctOf = (v) => safeTotal > 0 ? Math.round((v / safeTotal) * 100) : 0;
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Sentimiento</div>
-          <div className="card-hd-sub">Distribución · {fmt(safeTotal)} menciones</div>
-        </div>
-        <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>
-          NSS <span className="num" style={{ color: 'var(--accent)', fontSize: 13, fontWeight: 700 }}>+{nss}</span>
-        </div>
-      </div>
-      <div className="card-bd" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <Donut data={D.SENTIMENT_BREAKDOWN} size={120} thickness={18} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', lineHeight: 1 }}>
-              {pctOf((D.SENTIMENT_BREAKDOWN.find(s => s.name === 'positivo') || {}).value || 0)}%
-            </div>
-            <div style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.06em', marginTop: 2 }}>POSITIVO</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {D.SENTIMENT_BREAKDOWN.map((s) => {
-            const pct = pctOf(s.value);
-            const c = s.name === 'positivo' ? 'var(--pos)' : s.name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-            return (
-              <button key={s.name} onClick={() => onSliceClick(s.name)}
-                className="row-hover"
-                style={{
-                  display: 'grid', gridTemplateColumns: '8px 1fr auto auto 12px',
-                  gap: 8, alignItems: 'center',
-                  padding: '6px 8px', marginInline: -8, borderRadius: 6,
-                  background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
-                }}>
-                <span className="dot" style={{ background: c, width: 8, height: 8 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>{s.label}</span>
-                <span className="num" style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{fmt(s.value)}</span>
-                <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', minWidth: 36, textAlign: 'right' }}>{pct}%</span>
-                <Icons.ArrowRight size={11} color="var(--text-3)" />
-              </button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -497,7 +611,7 @@ function HourActivityCard({ onCellClick }) {
             const intensity = max > 0 ? Math.min(1, v / max) : 0;
             return `rgba(255, 106, 61, ${0.08 + intensity * 0.85})`;
           }}
-          cellSize={11}
+          cellSize={14}
           onCellClick={onCellClick}
         />
       </div>
@@ -506,48 +620,103 @@ function HourActivityCard({ onCellClick }) {
 }
 
 // =============== MENTIONS ===============
+// El feed de menciones ya NO filtra el array `D.MENTIONS` precargado.
+// Hace fetch directo a `/api/eco-mentions` con paginación + búsqueda
+// server-side para que los filtros funcionen sobre el universo completo y la
+// paginación numerada navegue por TODAS las menciones del período, no solo
+// las 20-50 que vienen en el cargue inicial del dashboard.
+const PAGE_SIZE = 25;
+const VIRAL_THRESHOLD = 5000;
+
 function MentionsScreen({ onMentionClick }) {
-  const [sentiment, setSentiment] = useState('all');
-  const [source, setSource] = useState('all');
-  const [pertinence, setPertinence] = useState('all');
-  const [query, setQuery] = useState('');
+  // Estado de filtros (server-side). `q` se sincroniza con `queryInput` con
+  // debounce de 300ms para evitar un fetch por cada tecla.
+  const [queryInput, setQueryInput] = useState('');
+  const [filters, setFilters] = useState({
+    q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent',
+  });
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ mentions: [], total: 0 });
+  const [loading, setLoading] = useState(false);
+  const [viralCount, setViralCount] = useState(null); // null = loading
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
   const [moreOpen, setMoreOpen] = useState(false);
-  const [sortBy, setSortBy] = useState({ key: 'recent', dir: 'desc' });
-  const [showCount, setShowCount] = useState(20);
+  const [slice, setSlice] = useState(null);
 
   React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
 
-  let filtered = D.MENTIONS;
-  if (sentiment !== 'all') filtered = filtered.filter(m => m.sentiment === sentiment);
-  if (source !== 'all') filtered = filtered.filter(m => m.source === source);
-  if (pertinence !== 'all') filtered = filtered.filter(m => m.pertinence === pertinence);
-  if (query) filtered = filtered.filter(m => m.title.toLowerCase().includes(query.toLowerCase()));
+  // Debounce del buscador → filters.q
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      setFilters((f) => f.q === queryInput ? f : { ...f, q: queryInput });
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [queryInput]);
 
-  // Sort
-  filtered = [...filtered];
-  const sortFns = {
-    recent: (a, b) => 0, // API already returns newest first
-    engagement: (a, b) => (a.engagement || 0) - (b.engagement || 0),
-    pertinence: (a, b) => ({ alta: 3, media: 2, baja: 1 }[a.pertinence] || 0) - ({ alta: 3, media: 2, baja: 1 }[b.pertinence] || 0),
-    sentiment: (a, b) => ({ positivo: 3, neutral: 2, negativo: 1 }[a.sentiment] || 0) - ({ positivo: 3, neutral: 2, negativo: 1 }[b.sentiment] || 0),
-  };
-  if (sortFns[sortBy.key]) filtered.sort((a, b) => (sortBy.dir === 'desc' ? -1 : 1) * sortFns[sortBy.key](a, b));
+  // Cuando cambian los filtros (no la página), reset a página 1.
+  // Cuando cambia la página, no reseteamos filtros.
+  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy]);
 
-  const visible = filtered.slice(0, showCount);
+  // Fetch del feed con filtros + paginación.
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    const agency = localStorage.getItem('eco.agency') || '';
+    const period = localStorage.getItem('eco.period') || '1M';
+    const params = new URLSearchParams({
+      period,
+      limit: String(PAGE_SIZE),
+      offset: String((page - 1) * PAGE_SIZE),
+    });
+    if (agency) params.set('agency', agency);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
+    if (filters.source !== 'all') params.set('source', filters.source);
+    if (filters.topic) params.set('topic', filters.topic);
+    if (filters.region) params.set('region', filters.region);
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { mentions: [], total: 0 })
+      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [filters, page]);
 
-  function exportCsv() {
-    const header = ['Título', 'Sentimiento', 'Pertinencia', 'Engagement', 'Tópico', 'Subtópicos', 'Municipio', 'Fuente', 'Publicado', 'URL'];
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = filtered.map((m) => [m.title, m.sentiment, m.pertinence, m.engagement, m.topicName || m.topic, (m.subtopics || []).join('; '), m.municipality, m.source, m.publishedAt, m.url || ''].map(esc).join(','));
-    const csv = [header.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `eco-menciones-${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Conteo de "Virales": una consulta separada con limit=1 (solo nos
+  // interesa `total`). Se recalcula cuando cambia el período/agency, pero
+  // NO cuando cambian filtros de búsqueda — virales es un agregado global.
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    const agency = localStorage.getItem('eco.agency') || '';
+    const period = localStorage.getItem('eco.period') || '1M';
+    const params = new URLSearchParams({
+      period, limit: '1', minEngagement: String(VIRAL_THRESHOLD),
+    });
+    if (agency) params.set('agency', agency);
+    setViralCount(null);
+    fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : { total: 0 })
+      .then((j) => setViralCount(Number(j.total || 0)))
+      .catch(() => setViralCount(0));
+    return () => ctrl.abort();
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
+  const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
+
+  const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
+
+  function openViralSlice() {
+    setSlice({
+      eyebrow: 'Menciones virales',
+      title: 'Engagement ≥ ' + VIRAL_THRESHOLD.toLocaleString('es-PR'),
+      accent: 'var(--neg)',
+      _filter: { minEngagement: String(VIRAL_THRESHOLD) },
+    });
   }
+  const MentionsSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -555,17 +724,17 @@ function MentionsScreen({ onMentionClick }) {
       <div className="card" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
           <Icons.Search size={14} color="var(--text-3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-          <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
+          <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
-            <button key={x.k} onClick={() => setSentiment(x.k)} className={`chip ${sentiment === x.k ? 'active' : ''}`}>
+            <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
             </button>
           ))}
         </div>
         <div style={{ width: 1, height: 24, background: 'var(--hairline)' }} />
-        <select className="input" value={source} onChange={(e) => setSource(e.target.value)} style={{ width: 160 }}>
+        <select className="input" value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }}>
           <option value="all">Todas las fuentes</option>
           <option value="facebook">Facebook</option>
           <option value="twitter">X / Twitter</option>
@@ -575,56 +744,68 @@ function MentionsScreen({ onMentionClick }) {
         </select>
         <div style={{ position: 'relative' }}>
           <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
-            <Icons.Filter size={13} /> Más filtros {pertinence !== 'all' && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·1</span>}
+            <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 10 }}>·{activeMoreFiltersCount}</span>}
           </button>
           {moreOpen && (
-            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 220, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Pertinencia</div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                {['all', 'alta', 'media', 'baja'].map((p) => (
-                  <button key={p} className={`chip ${pertinence === p ? 'active' : ''}`} onClick={() => setPertinence(p)}>
-                    {p === 'all' ? 'Todas' : p}
-                  </button>
-                ))}
-              </div>
+            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 12, minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Tópico</div>
+              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                <option value="">Todos los tópicos</option>
+                {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
+              </select>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Región</div>
+              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 10 }}>
+                <option value="">Todas las regiones</option>
+                {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Ordenar por</div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'pertinence', l: 'Pertinencia' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
-                  <button key={o.k} className={`chip ${sortBy.key === o.k ? 'active' : ''}`} onClick={() => setSortBy({ key: o.k, dir: 'desc' })}>
+                {[{ k: 'recent', l: 'Reciente' }, { k: 'engagement', l: 'Engagement' }, { k: 'sentiment', l: 'Sentimiento' }].map((o) => (
+                  <button key={o.k} className={`chip ${filters.sortBy === o.k ? 'active' : ''}`} onClick={() => setFilters((f) => ({ ...f, sortBy: o.k }))}>
                     {o.l}
                   </button>
                 ))}
               </div>
+              {activeMoreFiltersCount > 0 && (
+                <button className="chip" style={{ marginTop: 12 }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
+                  Limpiar filtros
+                </button>
+              )}
             </div>
           )}
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{filtered.length} de {D.MENTIONS.length}</span>
-        <button className="btn" onClick={exportCsv} disabled={filtered.length === 0}>
-          <Icons.Download size={13} /> CSV
-        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          {loading ? 'Cargando…' : `${data.total.toLocaleString('es-PR')} menciones`}
+        </span>
       </div>
 
-      {/* Quick metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-        {[
-          { l: 'Total', v: fmt(D.CURRENT_METRICS.totalMentions), t: null },
-          { l: 'Alcance', v: fmt(D.CURRENT_METRICS.totalReach), t: null },
-          { l: 'Alta pertinencia', v: fmt(D.CURRENT_METRICS.highPertinenceCount), t: 'warn' },
-          { l: 'Engagement rate', v: D.CURRENT_METRICS.engagementRate + '%', t: null },
-          { l: 'Virales (>5K)', v: '23', t: 'neg' },
-        ].map((k, i) => (
-          <div key={i} className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{k.l}</div>
-            <div className="num" style={{ fontSize: 22, fontWeight: 600, color: k.t === 'neg' ? 'var(--neg)' : k.t === 'warn' ? 'var(--warn)' : 'var(--text)', marginTop: 6, fontFamily: 'var(--ff-display)' }}>{k.v}</div>
-          </div>
-        ))}
+      {/* Quick metrics — 4 cards (sin "Alta pertinencia"). "Virales" es clickeable. */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
+        <QuickMetric label="Total" value={fmt(D.CURRENT_METRICS.totalMentions)} />
+        <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
+        <QuickMetric label="Engagement rate" value={D.CURRENT_METRICS.engagementRate + '%'} />
+        <QuickMetric
+          label={`Virales (≥ ${(VIRAL_THRESHOLD / 1000)}K)`}
+          value={viralCount == null ? '…' : fmt(viralCount)}
+          tone="neg"
+          onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
+        />
       </div>
 
       {/* Mentions table */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Menciones</div><div className="card-hd-sub">Ordenar: Más recientes</div></div>
+          <div>
+            <div className="card-hd-title">Menciones</div>
+            <div className="card-hd-sub">
+              {loading ? 'Cargando…' : (
+                data.total === 0
+                  ? 'Sin resultados'
+                  : `Página ${page} de ${totalPages} · ${data.total.toLocaleString('es-PR')} en total`
+              )}
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
             {[
               { k: 'list', l: 'Lista', icon: 'List' },
@@ -640,27 +821,128 @@ function MentionsScreen({ onMentionClick }) {
             })}
           </div>
         </div>
-        {viewMode === 'list' && <MentionsList mentions={visible} onMentionClick={onMentionClick} />}
-        {viewMode === 'cards' && <MentionsCards mentions={visible} onMentionClick={onMentionClick} />}
-        {viewMode === 'table' && <MentionsTable mentions={visible} onMentionClick={onMentionClick} sortBy={sortBy} setSortBy={setSortBy} />}
-        {visible.length < filtered.length && (
-          <div style={{ padding: 14, textAlign: 'center', borderTop: '1px solid var(--hairline)' }}>
-            <button className="chip" onClick={() => setShowCount((n) => n + 20)}>
-              Cargar más ({filtered.length - visible.length} restantes)
-            </button>
+        {data.mentions.length === 0 && !loading && (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            No se encontraron menciones con los filtros actuales.
+          </div>
+        )}
+        {viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} />}
+        {data.total > PAGE_SIZE && (
+          <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         )}
       </div>
+      {slice && MentionsSliceModal && (
+        <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />
+      )}
     </div>
   );
 }
 
-// --- Mentions: List view (dense table-row) ---
+function QuickMetric({ label, value, tone, onClick }) {
+  const color = tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)';
+  const baseStyle = {
+    padding: 14,
+    cursor: onClick ? 'pointer' : 'default',
+    transition: 'background 0.15s ease',
+  };
+  return (
+    <div
+      className="card"
+      style={baseStyle}
+      onClick={onClick || undefined}
+      onMouseEnter={onClick ? (e) => (e.currentTarget.style.background = 'var(--canvas-2)') : undefined}
+      onMouseLeave={onClick ? (e) => (e.currentTarget.style.background = '') : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        {label}
+        {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
+      </div>
+      <div className="num" style={{ fontSize: 22, fontWeight: 600, color, marginTop: 6, fontFamily: 'var(--ff-display)' }}>{value}</div>
+    </div>
+  );
+}
+
+function Pagination({ page, totalPages, onChange }) {
+  // Estilo clásico: Anterior · 1 2 3 … N · Siguiente. Muestra hasta 5 páginas
+  // alrededor de la actual con elipses en los extremos cuando hay más.
+  const window = 2; // vecinos a cada lado
+  const pages = [];
+  const push = (p) => { if (!pages.includes(p) && p >= 1 && p <= totalPages) pages.push(p); };
+  push(1);
+  for (let p = page - window; p <= page + window; p++) push(p);
+  push(totalPages);
+  pages.sort((a, b) => a - b);
+
+  const out = [];
+  let prev = 0;
+  for (const p of pages) {
+    if (p - prev > 1) out.push({ ellipsis: true, key: 'e-' + prev });
+    out.push({ p, key: 'p-' + p });
+    prev = p;
+  }
+
+  const btnStyle = (active, disabled) => ({
+    minWidth: 32,
+    padding: '6px 10px',
+    border: '1px solid ' + (active ? 'var(--accent)' : 'var(--hairline)'),
+    background: active ? 'var(--accent-fill)' : 'var(--canvas)',
+    color: disabled ? 'var(--text-3)' : (active ? 'var(--accent)' : 'var(--text-2)'),
+    borderRadius: 6,
+    fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontWeight: active ? 700 : 500,
+    fontFamily: 'var(--ff-numeric)',
+  });
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      <button
+        onClick={() => page > 1 && onChange(page - 1)}
+        disabled={page <= 1}
+        style={btnStyle(false, page <= 1)}
+        aria-label="Página anterior"
+      >
+        <Icons.ChevronLeft size={12} style={{ verticalAlign: 'middle' }} />
+        <span style={{ marginLeft: 4, fontSize: 11 }}>Anterior</span>
+      </button>
+      {out.map((item) => item.ellipsis ? (
+        <span key={item.key} style={{ padding: '6px 4px', color: 'var(--text-3)', fontSize: 12 }}>…</span>
+      ) : (
+        <button
+          key={item.key}
+          onClick={() => onChange(item.p)}
+          style={btnStyle(item.p === page, false)}
+          aria-current={item.p === page ? 'page' : undefined}
+        >
+          {item.p}
+        </button>
+      ))}
+      <button
+        onClick={() => page < totalPages && onChange(page + 1)}
+        disabled={page >= totalPages}
+        style={btnStyle(false, page >= totalPages)}
+        aria-label="Página siguiente"
+      >
+        <span style={{ marginRight: 4, fontSize: 11 }}>Siguiente</span>
+        <Icons.ChevronRight size={12} style={{ verticalAlign: 'middle' }} />
+      </button>
+    </div>
+  );
+}
+
+// --- Mentions: List view (dense table-row, sin columnas Engagement ni Pertinencia) ---
 function MentionsList({ mentions, onMentionClick }) {
   return (
-    <>
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 80px 90px 80px 80px 30px', gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
-        <span /><span>Mención</span><span>Sentimiento</span><span>Pertinencia</span><span style={{ textAlign: 'right' }}>Engagement</span><span>Tópico</span><span>Hora</span><span>Tendencia</span><span />
+    <div className="scroll-x">
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+        <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
@@ -668,30 +950,27 @@ function MentionsList({ mentions, onMentionClick }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 80px 80px 90px 80px 80px 30px', gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 12, alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12, cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ overflow: 'hidden' }}>
               <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
               <div style={{ color: 'var(--text-3)', fontSize: 10 }}>{mn.author} · {mn.domain}</div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-            <span style={{ fontSize: 11, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{mn.pertinence}</span>
-            <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{fmt(mn.engagement)}</span>
-            <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize' }}>{mn.topic}</span>
+            <span style={{ color: 'var(--text-2)', fontSize: 11, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{mn.publishedAt}</span>
-            <div style={{ width: 60 }}><Sparkline data={Array.from({length:8},()=>Math.random()*10)} width={60} height={18} color={mn.sentiment === 'negativo' ? 'var(--neg)' : 'var(--pos)'} fill={false} /></div>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
           </div>
         );
       })}
-    </>
+    </div>
   );
 }
 
-// --- Mentions: Cards view (rich tiles) ---
+// --- Mentions: Cards view (rich tiles, sin pill de pertinencia) ---
 function MentionsCards({ mentions, onMentionClick }) {
   return (
-    <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+    <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
       {mentions.map((mn) => {
         const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
         const SIcon = Icons[sourceIcon];
@@ -709,11 +988,10 @@ function MentionsCards({ mentions, onMentionClick }) {
               <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`}>{mn.sentiment}</span>
             </div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.title}</div>
-            {mn.excerpt && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.excerpt}</div>}
+            {mn.snippet && <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{mn.snippet}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author}</span>
-              <span style={{ marginLeft: 'auto' }} className="num">{fmt(mn.engagement)} eng.</span>
-              <span style={{ fontSize: 10, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', fontWeight: 600, textTransform: 'uppercase' }}>{mn.pertinence}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{mn.author || '—'}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</span>
             </div>
           </div>
         );
@@ -722,42 +1000,17 @@ function MentionsCards({ mentions, onMentionClick }) {
   );
 }
 
-// --- Mentions: Table view (compact with more columns) ---
-function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
-  const columns = [
-    { key: null, l: '' },
-    { key: null, l: 'ID' },
-    { key: null, l: 'Título' },
-    { key: null, l: 'Autor' },
-    { key: null, l: 'Dominio' },
-    { key: 'sentiment', l: 'Sentim.' },
-    { key: 'pertinence', l: 'Pert.' },
-    { key: 'engagement', l: 'Engage.' },
-    { key: null, l: 'Alcance' },
-    { key: null, l: 'Tópico' },
-    { key: null, l: 'Municipio' },
-    { key: 'recent', l: 'Fecha' },
-  ];
-  const toggle = (k) => {
-    if (!k || !setSortBy) return;
-    setSortBy((s) => s.key === k ? { key: k, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key: k, dir: 'desc' });
-  };
+// --- Mentions: Table view (compact, sin columnas Engagement ni Pertinencia) ---
+function MentionsTable({ mentions, onMentionClick }) {
+  const columns = ['', 'Título', 'Autor', 'Dominio', 'Sentim.', 'Tópico', 'Subtópico', 'Municipio', 'Fecha'];
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--hairline-strong)', background: 'var(--canvas-2)' }}>
-            {columns.map((c) => {
-              const sortable = !!c.key;
-              const active = sortBy && sortBy.key === c.key;
-              return (
-                <th key={c.l}
-                  onClick={() => toggle(c.key)}
-                  style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: active ? 'var(--accent)' : 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap', cursor: sortable ? 'pointer' : 'default', userSelect: 'none' }}>
-                  {c.l}{sortable && active ? (sortBy.dir === 'desc' ? ' ↓' : ' ↑') : ''}
-                </th>
-              );
-            })}
+            {columns.map((c) => (
+              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{c}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -768,15 +1021,21 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
             return (
               <tr key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover" style={{ borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}>
                 <td style={{ padding: '8px 10px' }}><SIcon size={12} color="var(--text-3)" /></td>
-                <td className="num" style={{ padding: '8px 10px', color: 'var(--text-3)', fontSize: 10 }}>#{mn.id}</td>
                 <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{mn.title}</td>
-                <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
                 <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
-                <td style={{ padding: '8px 10px', fontWeight: 600, color: mn.pertinence === 'alta' ? 'var(--neg)' : 'var(--warn)', textTransform: 'uppercase', fontSize: 10 }}>{mn.pertinence}</td>
-                <td className="num" style={{ padding: '8px 10px', textAlign: 'right' }}>{fmt(mn.engagement)}</td>
-                <td className="num" style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-2)' }}>{fmt(mn.reach || mn.engagement * 15)}</td>
-                <td style={{ padding: '8px 10px', color: 'var(--text-2)', textTransform: 'capitalize' }}>{mn.topic}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</td>
+                <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>
+                  {(mn.subtopics && mn.subtopics.length > 0) ? (
+                    <>
+                      {mn.subtopics[0]}
+                      {mn.subtopics.length > 1 && (
+                        <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>+{mn.subtopics.length - 1}</span>
+                      )}
+                    </>
+                  ) : '—'}
+                </td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.municipality || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{mn.publishedAt}</td>
               </tr>
@@ -789,9 +1048,38 @@ function MentionsTable({ mentions, onMentionClick, sortBy, setSortBy }) {
 }
 
 // =============== SENTIMENT ===============
-function SentimentScreen({ onMentionClick }) {
+function SentimentScreen({ onMentionClick, period, agency }) {
   const [slice, setSlice] = useState(null);
+  const [groupBy, setGroupBy] = useState('source');
   const m = D.CURRENT_METRICS;
+
+  // Mapa de dimensiones del breakdown "Sentimiento por X". Las 4 fuentes de
+  // datos vienen del API /api/eco-data — ver eco-data/route.ts.
+  const GROUP_BY_OPTIONS = [
+    { k: 'source',   l: 'Fuente',    dataKey: 'SENTIMENT_BY_SOURCE',   itemKey: 'source' },
+    { k: 'topic',    l: 'Tópico',    dataKey: 'SENTIMENT_BY_TOPIC',    itemKey: 'topic' },
+    { k: 'subtopic', l: 'Subtópico', dataKey: 'SENTIMENT_BY_SUBTOPIC', itemKey: 'subtopic' },
+    { k: 'region',   l: 'Región',    dataKey: 'SENTIMENT_BY_REGION',   itemKey: 'region' },
+  ];
+  const activeGroup = GROUP_BY_OPTIONS.find((o) => o.k === groupBy) || GROUP_BY_OPTIONS[0];
+  const groupRows = (D[activeGroup.dataKey] || []).map((r) => ({
+    ...r,
+    label: r[activeGroup.itemKey] || r.source || r.topic || r.subtopic || r.region || '—',
+  }));
+
+  function openNssInsight() {
+    if (m.nss == null) return;
+    openMetricInsightShared(setSlice, {
+      metric: 'nss',
+      value: `${m.nss > 0 ? '+' : ''}${m.nss}`,
+      accent: 'var(--accent)',
+      label: 'Net Sentiment Score',
+      periodPreset: period || '7D',
+      agency,
+      subcomponents: [],
+      filter: {},
+    });
+  }
 
   function openSentimentSlice(name) {
     const row = D.SENTIMENT_BREAKDOWN.find(s => s.name === name);
@@ -824,50 +1112,74 @@ function SentimentScreen({ onMentionClick }) {
     const total = (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--text-3)';
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
-      return Math.round(base * (total / 24) * 1.6);
-    });
+    const isHourly = d.fullDate && /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
-    setSlice({
-      eyebrow: d.date,
-      title: bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro',
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayIso };
+    if (hourMatch) filter.hour = hourMatch[1];
+    const payload = {
+      eyebrow: isHourly ? `${d.date} AST` : d.date,
+      title: isHourly
+        ? `Hora ${d.date}`
+        : (bias === 'negativo' ? 'Día negativo' : bias === 'positivo' ? 'Día positivo' : 'Día neutro'),
       accent,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
-      histogram: { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) },
       mentions: [],
-      _filter: { day: dayIso },
-    });
+      _filter: filter,
+    };
+    if (!isHourly) {
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const base = Math.sin((h - 10) / 24 * Math.PI) * 0.5 + 0.5;
+        return Math.round(base * (total / 24) * 1.6);
+      });
+      payload.histogram = { label: 'Volumen por hora', values: hours, xLabels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`) };
+    }
+    setSlice(payload);
   }
 
-  function openSourceSlice(s, sentimentType) {
+  function openGroupSlice(row, sentimentType) {
     const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-    const sourceKey = {
-      'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
-      'Noticias': 'news', 'Instagram': 'instagram', 'YouTube': 'youtube', 'Blogs': 'blog',
-    }[s.source] || (s.source || '').toLowerCase();
+    const label = row.label;
+    const filter = { sentiment: sentimentType };
+    if (groupBy === 'source') {
+      filter.source = {
+        'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
+        'Noticias': 'news', 'Instagram': 'instagram', 'YouTube': 'youtube', 'Blogs': 'blog',
+      }[label] || String(label || '').toLowerCase();
+    } else if (groupBy === 'topic') {
+      filter.topic = row.slug || row.topic || label;
+    } else if (groupBy === 'subtopic') {
+      filter.subtopic = label;
+    } else if (groupBy === 'region') {
+      filter.region = label;
+    }
+    const eyebrowLabel = { source: 'Fuente', topic: 'Tópico', subtopic: 'Subtópico', region: 'Región' }[groupBy] || 'Grupo';
     setSlice({
-      eyebrow: `Fuente · ${s.source}`,
+      eyebrow: `${eyebrowLabel} · ${label}`,
       title: `Sentimiento ${sentimentType}`,
       accent,
       mentions: [],
-      _filter: { source: sourceKey, sentiment: sentimentType },
+      _filter: filter,
     });
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 24, alignItems: 'center' }}>
         <div>
-          <div className="section-eyebrow">Balance de sentimiento · 30 días</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8 }}>
+          <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
+          <button onClick={openNssInsight}
+            className="row-hover"
+            title="Ver insight del NSS para el periodo"
+            style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginTop: 8, padding: '4px 8px', marginInline: -8, borderRadius: 6, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
             <div className="num" style={{ fontSize: 56, fontWeight: 500, color: 'var(--accent)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>+{m.nss}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>NSS</div>
-            <div style={{ marginLeft: 24, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icons.ArrowRight size={14} color="var(--text-3)" />
+            <div style={{ marginLeft: 8, fontSize: 12, color: 'var(--neg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Icons.ArrowDown size={12} /> 3.2 vs período anterior
             </div>
-          </div>
+          </button>
           <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 12, maxWidth: 640, lineHeight: 1.55 }}>
             Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
           </div>
@@ -900,13 +1212,15 @@ function SentimentScreen({ onMentionClick }) {
       </div>
 
       {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.5fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Sentimiento en el tiempo</div><div className="card-hd-sub">Volumen apilado · click un día para ver menciones</div></div>
           </div>
           <div className="card-bd">
-            <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
+            <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
+              labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
+              colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8, fontSize: 12 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
@@ -919,25 +1233,50 @@ function SentimentScreen({ onMentionClick }) {
       </div>
 
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Sentimiento por fuente</div><div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div></div></div>
-        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 18 }}>
-          {D.SENTIMENT_BY_SOURCE.map((s) => {
-            const total = s.positivo + s.neutral + s.negativo;
-            const pos = Math.round((s.positivo/total)*100);
-            const neu = Math.round((s.neutral/total)*100);
-            const neg = 100 - pos - neu;
+        <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div>
+            <div className="card-hd-title">Sentimiento por {activeGroup.l.toLowerCase()}</div>
+            <div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div>
+          </div>
+          {/* Toggle de dimensión: fuente / tópico / subtópico / región.
+              Mismo patrón visual que GeographyScreen (Volumen/Sentimiento). */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
+            {GROUP_BY_OPTIONS.map((o) => (
+              <button key={o.k}
+                onClick={() => setGroupBy(o.k)}
+                style={{
+                  padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                  borderRadius: 999, border: 'none', cursor: 'pointer',
+                  background: groupBy === o.k ? 'var(--canvas)' : 'transparent',
+                  color: groupBy === o.k ? 'var(--text)' : 'var(--text-3)',
+                  boxShadow: groupBy === o.k ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                }}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+        <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 18 }}>
+          {groupRows.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '20px 0' }}>
+              Sin datos para esta dimensión en el periodo.
+            </div>
+          )}
+          {groupRows.map((s, idx) => {
+            const total = (s.positivo || 0) + (s.neutral || 0) + (s.negativo || 0);
+            const pos = total > 0 ? Math.round((s.positivo/total)*100) : 0;
+            const neu = total > 0 ? Math.round((s.neutral/total)*100) : 0;
+            const neg = Math.max(0, 100 - pos - neu);
             return (
-              <div key={s.source}>
+              <div key={`${groupBy}-${s.label}-${idx}`}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ fontWeight: 500 }}>{s.source}</span>
+                  <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)' }}>{s.label}</span>
                   <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(total)}</span>
                 </div>
                 <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <button onClick={() => openSourceSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'positivo')} title={`${pos}% positivo — click para ver menciones`}
                     style={{ width: `${pos}%`, background: 'var(--pos)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openSourceSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'neutral')} title={`${neu}% neutral — click para ver menciones`}
                     style={{ width: `${neu}%`, background: 'var(--text-3)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openSourceSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
+                  <button onClick={() => openGroupSlice(s, 'negativo')} title={`${neg}% negativo — click para ver menciones`}
                     style={{ width: `${neg}%`, background: 'var(--neg)', border: 'none', cursor: 'pointer', padding: 0 }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>
@@ -956,14 +1295,39 @@ function SentimentScreen({ onMentionClick }) {
   );
 }
 
-// --- Emotions card — redesigned ---
+// --- Emotions card — redesigned (v2) ---
+//
+// Bug previo: el backend mapeaba emociones como "alivio/gratitud/sarcasmo/
+// indiferencia" a `color: 'neu'`, pero `--neu` no existe como CSS var, así
+// que `background: var(--neu)` resolvía vacío y la barra quedaba invisible.
+//
+// Fix: paleta auto-contenida en frontend, mapeada por NOMBRE de emoción (no
+// confía en `e.color` del backend). Cada emoción del set definido por el
+// prompt del processor tiene un color distinto y semántico:
+//   - enojo / frustración  → rojo (var(--neg))
+//   - preocupación         → ámbar (var(--warn))
+//   - sarcasmo             → púrpura (#8C5BA8)
+//   - indiferencia         → gris cálido (#7B8794)
+//   - gratitud / esperanza / alegría / aprobación → verde (var(--pos))
+//   - alivio               → teal (#5FA98A)
+//   - confusión            → gris (#7B8794)
+//   - fallback             → gris (#7B8794)
+function emotionColor(emotion) {
+  const e = (emotion || '').toLowerCase();
+  if (e === 'enojo' || e === 'frustración' || e === 'frustracion') return 'var(--neg)';
+  if (e === 'preocupación' || e === 'preocupacion') return 'var(--warn)';
+  if (e === 'sarcasmo') return '#8C5BA8';
+  if (e === 'indiferencia' || e === 'confusión' || e === 'confusion') return '#7B8794';
+  if (e === 'gratitud' || e === 'esperanza' || e === 'alegría' || e === 'alegria' || e === 'aprobación' || e === 'aprobacion') return 'var(--pos)';
+  if (e === 'alivio') return '#5FA98A';
+  return '#7B8794';
+}
+
 function EmotionsCard({ emotions, onEmotionClick }) {
   const sorted = [...emotions].sort((a, b) => b.count - a.count);
   const total = sorted.reduce((s, e) => s + e.count, 0);
   const top = sorted[0];
-  // Circumplex quadrants: pleasantness x activation
-  // For now, grouping into 4 buckets by color tone
-  const toneFamily = { neg: 'Desagradable', pos: 'Agradable', warn: 'Alerta', text: 'Neutral' };
+  const topColor = emotionColor(top.emotion);
 
   return (
     <div className="card">
@@ -975,26 +1339,26 @@ function EmotionsCard({ emotions, onEmotionClick }) {
         <Icons.Heart size={14} color="var(--text-3)" />
       </div>
       <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Top emotion hero */}
+        {/* Emoción dominante (hero) */}
         <button onClick={() => onEmotionClick(top)}
           className="row-hover"
           style={{
             display: 'flex', alignItems: 'center', gap: 14,
             padding: '12px 14px', borderRadius: 8,
-            background: `color-mix(in oklab, var(--${top.color}) 8%, var(--canvas))`,
-            border: `1px solid color-mix(in oklab, var(--${top.color}) 25%, var(--hairline))`,
+            background: `color-mix(in oklab, ${topColor} 8%, var(--canvas))`,
+            border: `1px solid color-mix(in oklab, ${topColor} 25%, var(--hairline))`,
             cursor: 'pointer', textAlign: 'left', width: '100%',
           }}>
           <div style={{
             width: 48, height: 48, borderRadius: '50%',
-            background: `var(--${top.color})`, opacity: 0.15,
+            background: `color-mix(in oklab, ${topColor} 18%, transparent)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <div style={{ width: 22, height: 22, borderRadius: '50%', background: `var(--${top.color})` }} />
+            <div style={{ width: 22, height: 22, borderRadius: '50%', background: topColor }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: `var(--${top.color})` }}>Emoción dominante</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: topColor }}>Emoción dominante</div>
             <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', marginTop: 2 }}>{top.emotion}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -1004,26 +1368,39 @@ function EmotionsCard({ emotions, onEmotionClick }) {
           <Icons.ArrowRight size={14} color="var(--text-3)" />
         </button>
 
-        {/* All emotions as a rank */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {/* Ranking de emociones — todas pintadas por nombre (no por e.color del
+            backend que podía ser 'neu' sin var CSS). Bar 8px, ancho mínimo 2%
+            para que las menores no desaparezcan visualmente. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {sorted.map((e, i) => {
-            const pct = (e.count / sorted[0].count) * 100;
+            const pct = total > 0 ? (e.count / total) * 100 : 0;
+            const color = emotionColor(e.emotion);
+            const widthPct = pct > 0 ? Math.max(2, pct) : 0; // 2% piso visual cuando hay datos
             return (
               <button key={e.emotion} onClick={() => onEmotionClick(e)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '18px 1fr 1fr 50px 12px',
-                  gap: 10, alignItems: 'center',
-                  padding: '6px 8px', marginInline: -8, borderRadius: 6,
+                  display: 'grid', gridTemplateColumns: '22px 120px 1fr 64px 12px',
+                  gap: 12, alignItems: 'center',
+                  padding: '8px 10px', marginInline: -10, borderRadius: 6,
                   background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
                   fontSize: 12,
                 }}>
-                <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
                 <span style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.emotion}</span>
-                <div className="bar-track" style={{ height: 4 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: `var(--${e.color})`, borderRadius: 'inherit', transition: 'width 0.3s var(--ease)' }} />
+                <div style={{ height: 8, borderRadius: 4, background: 'var(--canvas-2)', overflow: 'hidden', position: 'relative' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${widthPct}%`,
+                    background: color,
+                    borderRadius: 'inherit',
+                    transition: 'width 0.3s var(--ease)',
+                  }} />
                 </div>
-                <span className="num" style={{ textAlign: 'right', color: 'var(--text-2)', fontWeight: 600 }}>{fmt(e.count)}</span>
+                <span style={{ textAlign: 'right' }}>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-2)', fontWeight: 600, fontSize: 12, lineHeight: 1.1 }}>{fmt(e.count)}</span>
+                  <span className="num" style={{ display: 'block', color: 'var(--text-3)', fontSize: 9, marginTop: 1 }}>{pct.toFixed(1)}%</span>
+                </span>
                 <Icons.ArrowRight size={11} color="var(--text-3)" />
               </button>
             );
@@ -1042,20 +1419,20 @@ function TopicsScreen({ onMentionClick }) {
   const sel = selected ? D.TOPICS.find(t => t.slug === selected) : null;
   const subs = sel ? (D.SUBTOPICS[sel.slug] || []) : [];
 
-  // Build a "topic of the day" calendar for last ~35 days from TIMELINE + TOPICS
+  // Real "topic of the day" data viene del endpoint (TOPIC_CALENDAR), que
+  // agrupa mention_topics por (published_at AT TZ AST)::date y se queda con
+  // el top-1 tópico por día. El backend ya respeta el periodo seleccionado
+  // (35d para periodos cortos, hasta 365d para "1A"/"Max"), así que aquí
+  // pasamos toda la lista — el render por semanas se encarga.
   const calendarData = React.useMemo(() => {
-    const days = D.TIMELINE.slice(-35);
-    return days.map((d, i) => {
-      // Deterministic "main topic" rotation so the calendar reads stable
-      const topic = D.TOPICS[(i * 7 + Math.floor(d.totalMentions / 400)) % D.TOPICS.length];
-      const sentiment = (i + Math.floor(d.negativo / 80)) % 3 === 0 ? 'negativo' : (i % 4 === 0 ? 'positivo' : 'neutral');
+    return (D.TOPIC_CALENDAR || []).map((d) => {
       return {
         date: d.date,
         fullDate: d.fullDate,
-        volume: d.totalMentions,
-        topicSlug: topic.slug,
-        topicName: topic.name,
-        sentiment,
+        volume: d.volume,
+        topicSlug: d.topicSlug,
+        topicName: d.topicName,
+        sentiment: d.sentiment,
       };
     });
   }, []);
@@ -1126,6 +1503,21 @@ function TopicsScreen({ onMentionClick }) {
           />
         );
       })()}
+
+      {/* Nota explicativa: la pestaña Tópicos usa el MISMO conteo que el correo
+          y el Overview (top-confidence). Si una mención toca varios tópicos,
+          cuenta una vez en su tópico principal — el "+N también lo tocan"
+          señala las menciones donde ese tópico es secundario. */}
+      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
+          criterio del correo y del Overview). El "+N también lo tocan"
+          indica menciones donde el tópico aparece como tema secundario. Al
+          hacer clic en un tópico verás las primarias por defecto, con un
+          toggle para incluir las secundarias.
+        </span>
+      </div>
     </div>
   );
 }
@@ -1133,7 +1525,7 @@ function TopicsScreen({ onMentionClick }) {
 // --- Treemap variant (existing style, with click drill-in) ---
 function TopicTreemap({ topics, onSelect }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gridAutoRows: '76px', gap: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gridAutoRows: '76px', gap: 4 }}>
       {topics.map((t, i) => {
         const color = t.dominantSentiment === 'positivo' ? 'var(--pos)' : t.dominantSentiment === 'negativo' ? 'var(--neg)' : t.dominantSentiment === 'mixed' ? 'var(--warn)' : 'var(--text-3)';
         const bg = t.dominantSentiment === 'positivo' ? 'var(--pos-bg)' : t.dominantSentiment === 'negativo' ? 'var(--neg-bg)' : 'var(--canvas-2)';
@@ -1155,20 +1547,43 @@ function TopicTreemap({ topics, onSelect }) {
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.name}</div>
               <div className="num" style={{ fontSize: i < 2 ? 30 : 18, fontWeight: 600, color: 'var(--text)', marginTop: 4, fontFamily: 'var(--ff-display)' }}>{fmt(t.count)}</div>
+              {t.secondaryCount > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>+{t.secondaryCount} también lo tocan</div>
+              )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', height: 3, width: 60, borderRadius: 2, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
-                <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-                <div style={{ width: `${t.neutralPct}%`, background: 'var(--text-3)' }} />
-                <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, color: t.delta > 0 ? 'var(--neg)' : 'var(--pos)' }}>
-                {t.delta > 0 ? '↑' : '↓'} {Math.abs(t.delta)}%
-              </span>
-            </div>
+            {/* Barra de distribución de sentimiento: ahora ocupa todo el ancho
+                disponible (flex: 1) y usa flex-grow proporcional al porcentaje
+                — esto elimina el bug donde la barra quedaba diminuta (60px
+                fijos) en tiles grandes. La altura aumentó a 6px para que
+                las tres bandas sean visibles. */}
+            <SentimentBar t={t} />
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Componente común para la fila inferior de un tile/list-row: barra de
+// distribución pos/neu/neg + delta. Manejo de delta=null ("—") para distinguir
+// "sin base de comparación" de "delta=0".
+function SentimentBar({ t }) {
+  const deltaStr = t.delta == null
+    ? '—'
+    : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`;
+  const deltaColor = t.delta == null
+    ? 'var(--text-3)'
+    : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)', minWidth: 40 }}>
+        <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
+        <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--text-3)' }} />
+        <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
+      </div>
+      <span style={{ fontSize: 10, fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 40, textAlign: 'right' }}>
+        {deltaStr}
+      </span>
     </div>
   );
 }
@@ -1220,8 +1635,10 @@ function TopicBubbles({ topics, onSelect }) {
               <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
-              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9" fill={t.delta > 0 ? 'var(--neg)' : 'var(--pos)'} fontWeight="700" style={{ pointerEvents: 'none' }}>
-                {t.delta > 0 ? '↑' : '↓'} {Math.abs(t.delta)}%
+              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="9"
+                fill={t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)'}
+                fontWeight="700" style={{ pointerEvents: 'none' }}>
+                {t.delta == null ? '—' : `${t.delta > 0 ? '↑' : t.delta < 0 ? '↓' : '↔'} ${Math.abs(t.delta)}%`}
               </text>
             </g>
           );
@@ -1242,20 +1659,25 @@ function TopicList({ topics, onSelect }) {
   const sorted = [...topics].sort((a, b) => b.count - a.count);
   const max = Math.max(...sorted.map(t => t.count));
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', gap: 12, padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+    <div className="scroll-x">
+      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Δ</span><span />
       </div>
       {sorted.map((t, i) => (
         <button key={t.slug} onClick={() => onSelect(t.slug)} className="row-hover"
           style={{
-            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', gap: 12, alignItems: 'center',
+            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 12, alignItems: 'center',
             padding: '10px 12px', fontSize: 12, textAlign: 'left', cursor: 'pointer',
             borderTop: i > 0 ? '1px solid var(--hairline)' : '1px solid var(--hairline)',
             width: '100%',
           }}>
           <span className="mono" style={{ color: 'var(--text-3)', fontSize: 11 }}>{String(i+1).padStart(2,'0')}</span>
-          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{t.name}</span>
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+            {t.secondaryCount > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>+{t.secondaryCount} también lo tocan</span>
+            )}
+          </span>
           <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(t.count)}</span>
           <span className={`pill ${t.dominantSentiment === 'positivo' ? 'pill-pos' : t.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn'}`} style={{ justifySelf: 'start' }}>{t.dominantSentiment}</span>
           <div style={{ position: 'relative', height: 14 }}>
@@ -1266,7 +1688,10 @@ function TopicList({ topics, onSelect }) {
               <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
             </div>
           </div>
-          <span style={{ textAlign: 'right', fontSize: 11, fontWeight: 600, color: t.delta > 0 ? 'var(--neg)' : 'var(--pos)' }}>{t.delta > 0 ? '+' : ''}{t.delta}%</span>
+          <span style={{ textAlign: 'right', fontSize: 11, fontWeight: 600,
+            color: t.delta == null ? 'var(--text-3)' : t.delta > 0 ? 'var(--neg)' : t.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
+            {t.delta == null ? '—' : `${t.delta > 0 ? '+' : ''}${t.delta}%`}
+          </span>
           <Icons.ChevronRight size={14} color="var(--text-3)" />
         </button>
       ))}
@@ -1278,6 +1703,59 @@ function TopicList({ topics, onSelect }) {
 function TopicDetail({ topic, subs, onBack }) {
   const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
   const subMax = Math.max(1, ...subs.map(s => s.count));
+
+  // --- (5) Descripción IA cacheada por periodo ----------------------
+  // En vez de leer `topic.description` (que era un único string por tópico,
+  // sobrescrito en cada corrida del cron y sin tracking de fechas), pedimos al
+  // endpoint /api/eco-topic-description la descripción correspondiente al
+  // periodo activo. Si está en caché → ready inmediato. Si no, el endpoint
+  // invoca Bedrock síncronamente (~3-10s) y persiste; al volver, ya queda
+  // guardada para futuras peticiones.
+  const [desc, setDesc] = React.useState({ status: 'loading', text: null, generatedAt: null });
+  React.useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    const agency = localStorage.getItem('eco.agency');
+    const period = localStorage.getItem('eco.period') || '1M';
+    const customFrom = localStorage.getItem('eco.from');
+    const customTo = localStorage.getItem('eco.to');
+    if (agency) params.set('agency', agency);
+    if (period === 'custom' && customFrom && customTo) {
+      params.set('from', customFrom);
+      params.set('to', customTo);
+    } else {
+      params.set('period', period);
+    }
+    params.set('topic', topic.slug);
+    setDesc({ status: 'loading', text: null, generatedAt: null });
+    fetch('/api/eco-topic-description?' + params.toString(), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d.status === 'ready') setDesc({ status: 'ready', text: d.description, generatedAt: d.generatedAt });
+        else if (d.status === 'empty') setDesc({ status: 'empty', text: null, generatedAt: null });
+        else setDesc({ status: 'error', text: null, generatedAt: null });
+      })
+      .catch(() => { if (!cancelled) setDesc({ status: 'error', text: null, generatedAt: null }); });
+    return () => { cancelled = true; };
+  }, [topic.slug]);
+
+  // --- (3) Tabla de menciones del tópico ----------------------------
+  const [mentionsState, setMentionsState] = React.useState({ loading: true, mentions: [], total: 0 });
+  const [page, setPage] = React.useState(1);
+  const pageSize = 20;
+  React.useEffect(() => {
+    let cancelled = false;
+    setMentionsState((s) => ({ ...s, loading: true }));
+    fetchSliceMentions({ topic: topic.slug, limit: pageSize, offset: (page - 1) * pageSize })
+      .then((r) => {
+        if (cancelled) return;
+        setMentionsState({ loading: false, mentions: r.mentions || [], total: r.total || 0 });
+      })
+      .catch(() => { if (!cancelled) setMentionsState({ loading: false, mentions: [], total: 0 }); });
+    return () => { cancelled = true; };
+  }, [topic.slug, page]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Breadcrumb + back */}
@@ -1291,14 +1769,17 @@ function TopicDetail({ topic, subs, onBack }) {
       </div>
 
       {/* Hero stats */}
-      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 20, alignItems: 'center' }}>
+      <div className="card" style={{ padding: 20, display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 20, alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópico</div>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className={`pill ${sentPill}`}>{topic.dominantSentiment}</span>
-            <span style={{ fontSize: 12, color: topic.delta > 0 ? 'var(--neg)' : 'var(--pos)', fontWeight: 600 }}>
-              {topic.delta > 0 ? '↑' : '↓'} {Math.abs(topic.delta)}% vs. período anterior
+            <span style={{ fontSize: 12, fontWeight: 600,
+              color: topic.delta == null ? 'var(--text-3)' : topic.delta > 0 ? 'var(--neg)' : topic.delta < 0 ? 'var(--pos)' : 'var(--text-3)' }}>
+              {topic.delta == null
+                ? 'Sin base de comparación'
+                : `${topic.delta > 0 ? '↑' : topic.delta < 0 ? '↓' : '↔'} ${Math.abs(topic.delta)}% vs. período anterior`}
             </span>
           </div>
         </div>
@@ -1307,37 +1788,123 @@ function TopicDetail({ topic, subs, onBack }) {
         <StatBox label="Negativas" value={`${topic.negativePct}%`} tone="neg" />
       </div>
 
-      {/* Subtopics */}
+      {/* Descripción IA: cargada del endpoint cacheado por (topic_id,
+          period_start, period_end). loading → muestra placeholder; ready →
+          texto; empty → mensaje neutral; error → bloque oculto. */}
+      <div className="card" style={{ padding: 18 }}>
+        <div className="section-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA · período seleccionado
+        </div>
+        {desc.status === 'loading' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, animation: 'pulse 1.4s ease-in-out infinite' }}>
+            Generando descripción para este periodo…
+          </div>
+        )}
+        {desc.status === 'ready' && (
+          <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--text)' }}>{desc.text}</div>
+        )}
+        {desc.status === 'empty' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            No hay menciones de este tópico en el periodo seleccionado, así que no se puede describir.
+          </div>
+        )}
+        {desc.status === 'error' && (
+          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            No fue posible generar la descripción. Intenta más tarde.
+          </div>
+        )}
+      </div>
+
+      {/* Subtopics — ahora con descripción del cluster (qué cubre el subtopic)
+          y pill de sentimiento dominante, para que el usuario entienda de qué
+          va cada subtopic sin tener que abrir las menciones. */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · haz clic para filtrar menciones</div></div>
-          <button className="btn"><Icons.Filter size={12} /> Filtrar menciones por este tópico</button>
+          <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · cluster del periodo seleccionado</div></div>
         </div>
-        <div>
-          {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados</div>}
-          {subs.map((s, i) => (
-            <div key={s.name} className="row-hover" style={{
-              display: 'grid', gridTemplateColumns: '28px 2fr 100px 1.4fr', gap: 12, alignItems: 'center',
-              padding: '12px 18px', borderTop: '1px solid var(--hairline)', cursor: 'pointer', fontSize: 13,
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
-              <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
-              <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
-              <div style={{ position: 'relative', height: 8 }}>
-                <div style={{ position: 'absolute', inset: 0, background: 'var(--canvas-2)', borderRadius: 999 }} />
-                <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${(s.count/subMax)*100}%`, background: 'var(--accent)', borderRadius: 999 }} />
+        <div className="scroll-x">
+          {subs.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Sin subtópicos detectados en este periodo</div>}
+          {subs.map((s, i) => {
+            const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-warn';
+            return (
+              <div key={s.slug || s.name} className="row-hover" style={{
+                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', minWidth: 640, gap: 12, alignItems: 'center',
+                padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 13,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
+                  {s.description && (
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{s.description}</div>
+                  )}
+                </div>
+                <div className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(s.count)}</div>
+                <span className={`pill ${subSentPill}`} style={{ justifySelf: 'start' }}>{s.dominantSentiment || 'mixed'}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(0,0,0,0.08)' }}>
+                    <div style={{ flexGrow: Math.max(0, s.positivePct || 0), background: 'var(--pos)' }} />
+                    <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--text-3)' }} />
+                    <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-3)', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{s.positivePct || 0}% pos</span>
+                    <span>{s.negativePct || 0}% neg</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Evolution */}
+      {/* Evolution — datos reales por tópico (mention_topics × día AST). */}
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">Menciones últimos 30 días</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">Menciones reales (zona AST)</div></div></div>
         <div className="card-bd">
-          <AreaLineChart data={D.TIMELINE} accessor={(d) => d.totalMentions * (topic.count / D.CURRENT_METRICS.totalMentions)} height={200} color="var(--accent)" />
+          {(topic.evolution && topic.evolution.length > 0) ? (
+            <AreaLineChart data={topic.evolution} accessor={(d) => d.count} height={200} color="var(--accent)" />
+          ) : (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              Sin menciones registradas para este tópico en este periodo.
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* (3) Menciones del tópico — tabla paginada del periodo activo. */}
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Menciones del tópico</div>
+            <div className="card-hd-sub">
+              {mentionsState.loading
+                ? 'Cargando…'
+                : `${fmt(mentionsState.total)} menciones · página ${page} de ${Math.max(1, Math.ceil(mentionsState.total / pageSize))}`}
+            </div>
+          </div>
+        </div>
+        <div>
+          {mentionsState.loading && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>Cargando menciones…</div>
+          )}
+          {!mentionsState.loading && mentionsState.mentions.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              Sin menciones para este tópico en el periodo seleccionado.
+            </div>
+          )}
+          {!mentionsState.loading && mentionsState.mentions.length > 0 && (
+            <MentionsTable mentions={mentionsState.mentions} onMentionClick={() => {}} />
+          )}
+        </div>
+        {!mentionsState.loading && mentionsState.total > pageSize && (
+          <div style={{ padding: 12, borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
+            <Pagination
+              page={page}
+              totalPages={Math.max(1, Math.ceil(mentionsState.total / pageSize))}
+              onChange={setPage}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1360,14 +1927,35 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
   const colorFor = (slug) => palette[slugIdx[slug] % palette.length];
 
-  // Build a 7-col week grid starting on the first day's weekday
+  if (!data || data.length === 0) {
+    return (
+      <div className="card">
+        <div className="card-hd"><div><div className="card-hd-title">Calendario de tópicos</div><div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div></div></div>
+        <div className="card-bd" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+          Sin actividad de tópicos en este periodo.
+        </div>
+      </div>
+    );
+  }
+
+  // Build a 7-col week grid starting on the first day's weekday (Monday-first)
   const parsed = data.map(d => {
     const dt = new Date(d.fullDate);
     return { ...d, dt };
   });
   const first = parsed[0].dt;
+  const last = parsed[parsed.length - 1].dt;
   const firstDow = (first.getDay() + 6) % 7; // Monday-first: 0..6
   const cells = Array(firstDow).fill(null).concat(parsed);
+
+  // Agrupar en filas de 7 días (semanas). En cada salto de fila, si el día
+  // que comienza la fila (o cualquier día en ella) pertenece a un mes distinto
+  // del último mes etiquetado, insertamos un header con el nuevo mes — así el
+  // calendario sigue legible cuando el periodo cubre varios meses.
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(cells.slice(i, i + 7));
+  }
 
   // Volume scale
   const maxV = Math.max(...parsed.map(d => d.volume));
@@ -1375,8 +1963,12 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   // Legend = unique topics present in calendar
   const uniqueTopics = [...new Set(parsed.map(d => d.topicSlug))].map(s => D.TOPICS.find(t => t.slug === s)).filter(Boolean);
 
-  const monthLabel = first.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+  const sameMonth = first.getFullYear() === last.getFullYear() && first.getMonth() === last.getMonth();
+  const headerLabel = sameMonth
+    ? first.toLocaleDateString('es', { month: 'long', year: 'numeric' })
+    : `${first.toLocaleDateString('es', { month: 'short', year: 'numeric' })} – ${last.toLocaleDateString('es', { month: 'short', year: 'numeric' })}`;
 
+  let lastMonthLabel = null;
   return (
     <div className="card">
       <div className="card-hd">
@@ -1386,10 +1978,10 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Icons.CalendarDays size={14} color="var(--text-3)" />
-          <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{monthLabel}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-2)', textTransform: 'capitalize' }}>{headerLabel}</span>
         </div>
       </div>
-      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 20 }}>
+      <div className="card-bd" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 200px', '1fr'), gap: 20 }}>
         {/* Grid */}
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
@@ -1397,39 +1989,69 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               <div key={d} style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'center', paddingBottom: 4 }}>{d}</div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-            {cells.map((c, i) => {
-              if (!c) return <div key={`e${i}`} />;
-              const color = colorFor(c.topicSlug);
-              const intensity = 0.3 + (c.volume / maxV) * 0.7; // 0.3 to 1.0
-              const dayNum = c.dt.getDate();
-              return (
-                <button key={c.date} onClick={() => onDayClick(c)}
-                  title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${fmt(c.volume)} menciones`}
-                  style={{
-                    position: 'relative',
-                    aspectRatio: '1 / 1', minHeight: 62,
-                    padding: 6,
-                    borderRadius: 6,
-                    background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
-                    border: '1px solid var(--hairline)',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                    textAlign: 'left', cursor: 'pointer',
-                    overflow: 'hidden',
+          {weeks.map((week, wIdx) => {
+            // Etiqueta de mes para esta fila: si alguno de los días pertenece
+            // a un mes nuevo que aún no etiquetamos, lo mostramos arriba de
+            // la fila. Esto marca claramente el cambio mes-a-mes en periodos
+            // largos como 1A/Max.
+            const firstReal = week.find(d => d);
+            const monthKey = firstReal ? `${firstReal.dt.getFullYear()}-${firstReal.dt.getMonth()}` : null;
+            const showHeader = monthKey && monthKey !== lastMonthLabel;
+            if (showHeader) lastMonthLabel = monthKey;
+            const monthName = firstReal ? firstReal.dt.toLocaleDateString('es', { month: 'long', year: 'numeric' }) : '';
+
+            return (
+              <React.Fragment key={`w${wIdx}`}>
+                {showHeader && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    marginTop: wIdx === 0 ? 0 : 10, marginBottom: 4,
+                    fontSize: 10, fontWeight: 700, color: 'var(--text-2)',
+                    textTransform: 'uppercase', letterSpacing: '0.08em',
                   }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                    <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
-                    {c.sentiment === 'negativo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />}
-                    {c.sentiment === 'positivo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pos)' }} />}
+                    <span style={{ flex: '0 0 auto' }}>{monthName}</span>
+                    <span style={{ flex: 1, height: 1, background: 'var(--hairline)' }} />
                   </div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-                    {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
-                  </div>
-                  <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                  {week.map((c, i) => {
+                    if (!c) return <div key={`e${wIdx}-${i}`} />;
+                    const color = colorFor(c.topicSlug);
+                    const intensity = 0.3 + (c.volume / maxV) * 0.7;
+                    const dayNum = c.dt.getDate();
+                    const isFirstOfMonth = dayNum === 1;
+                    return (
+                      <button key={c.date} onClick={() => onDayClick(c)}
+                        title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${fmt(c.volume)} menciones`}
+                        style={{
+                          position: 'relative',
+                          aspectRatio: '1 / 1', minHeight: 62,
+                          padding: 6,
+                          borderRadius: 6,
+                          background: `${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}`,
+                          // Borde más marcado en el primer día del mes para
+                          // reforzar el cambio cuando ocurre mid-week.
+                          border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
+                          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                          textAlign: 'left', cursor: 'pointer',
+                          overflow: 'hidden',
+                        }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                          <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)' }}>{dayNum}</span>
+                          {c.sentiment === 'negativo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />}
+                          {c.sentiment === 'positivo' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pos)' }} />}
+                        </div>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: intensity > 0.65 ? '#fff' : 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                          {c.topicName.length > 14 ? c.topicName.slice(0, 13) + '…' : c.topicName}
+                        </div>
+                        <div className="num" style={{ fontSize: 10, fontWeight: 600, color: intensity > 0.65 ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{fmt(c.volume)}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </React.Fragment>
+            );
+          })}
         </div>
 
         {/* Legend */}
@@ -1455,6 +2077,10 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neg)' }} />
               Día con sentimiento negativo dominante
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 2 }} />
+              Primer día del mes
             </div>
           </div>
         </div>
@@ -1574,7 +2200,7 @@ function GeographyScreen({ onMentionClick }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 12 }}>
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
           <div className="card-bd">
@@ -1629,6 +2255,103 @@ function GeographyScreen({ onMentionClick }) {
       </div>
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+    </div>
+  );
+}
+
+// =============== CRISIS ALERTS TAB (embed de /settings/alerts) ===============
+// Configurador de la regla `crisis_threshold`: umbrales, cooldown y destinatarios.
+// El backend es metrics-calculator (cron c/10 min). Aquí solo se persiste la regla
+// en alert_rules; la próxima evaluación la lee automáticamente.
+function CrisisAlertsTab() {
+  const [config, setConfig] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const iframeRef = useRef(null);
+
+  const reloadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cfg, hist] = await Promise.all([
+        fetch('/api/alerts/crisis-config?agencySlug=ddecpr').then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch('/api/alerts/history?agencySlug=ddecpr&limit=10').then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+      ]);
+      setConfig(cfg.config ?? null);
+      setHistory(hist.history ?? []);
+    } catch (err) {
+      console.error('crisis tab load failed', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { reloadAll(); }, [reloadAll]);
+
+  const isActive = config?.isActive ?? false;
+  const crisisMin = config?.crisisMin ?? 0.40;
+  const cooldownHours = config?.cooldownHours ?? 12;
+  const recipientsCount = config?.notifyEmails?.length ?? 0;
+  const lastFire = history[0] || null;
+  const lastFireLabel = lastFire ? new Date(lastFire.triggeredAt).toLocaleString('es-PR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* KPIs operativos */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
+        <KpiCard
+          label="Estado del disparador"
+          value={loading ? '…' : (isActive ? 'Activo' : 'Inactivo')}
+          sub={isActive ? 'evalúa cada 10 min' : 'no se enviarán alertas'}
+          icon="Bell"
+          accent={isActive ? 'var(--pos)' : 'var(--text-3)'}
+        />
+        <KpiCard
+          label="Umbral de disparo"
+          value={loading ? '…' : crisisMin.toFixed(2)}
+          sub="Crisis Score (0–1)"
+          icon="Shield"
+          accent="var(--neg)"
+        />
+        <KpiCard
+          label="Cooldown"
+          value={loading ? '…' : `${cooldownHours}h`}
+          sub="entre alertas"
+          icon="Calendar"
+          accent="var(--text-2)"
+        />
+        <KpiCard
+          label="Destinatarios"
+          value={loading ? '…' : String(recipientsCount)}
+          sub={lastFire ? `último: ${lastFireLabel.split(',')[0]}` : 'sin envíos aún'}
+          icon="Mail"
+          accent="var(--text-2)"
+        />
+      </div>
+
+      {/* Form embebido */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">Configuración de la alerta de crisis</div>
+            <div className="card-hd-sub">Edita umbrales, cooldown y destinatarios. Los cambios aplican desde el siguiente ciclo (≤ 10 min).</div>
+          </div>
+          <button className="chip" onClick={() => { reloadAll(); if (iframeRef.current) iframeRef.current.src = iframeRef.current.src; }}>
+            Recargar
+          </button>
+        </div>
+        <iframe
+          ref={iframeRef}
+          src="/settings/alerts?embed=1"
+          title="Configuración de alertas de crisis"
+          style={{
+            width: '100%',
+            height: 1100,
+            border: 'none',
+            background: 'transparent',
+            display: 'block',
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -1694,7 +2417,7 @@ function ReportsTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* KPI strip propio del tab */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
         <KpiCard
           label="Estado del envío"
           value={loading ? '…' : (config?.isActive ? 'Activo' : 'Pausado')}
@@ -1796,7 +2519,7 @@ function AlertsScreen({ onMentionClick }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 12 }}>
         <KpiCard label="Alertas activas" value="6" icon="Bell" accent="var(--accent)" />
         <KpiCard label="Disparadas · 24h" value="4" delta={50} sub="vs ayer" icon="Zap" accent="var(--neg)" invertDelta />
         <KpiCard label="Reglas configuradas" value="7" icon="Shield" accent="var(--text-2)" />
@@ -1806,10 +2529,11 @@ function AlertsScreen({ onMentionClick }) {
       <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={() => setTab('feed')} className={`chip ${tab === 'feed' ? 'active' : ''}`}>Feed en vivo</button>
         <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
+        <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>
         <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
         <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>
         <div style={{ flex: 1 }} />
-        {tab !== 'reports' && (
+        {tab !== 'reports' && tab !== 'crisis' && (
           <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
         )}
       </div>
@@ -1852,12 +2576,12 @@ function AlertsScreen({ onMentionClick }) {
       )}
 
       {tab === 'rules' && (
-        <div className="card">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+        <div className="card scroll-x">
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, padding: '10px 16px', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
             <span>Regla</span><span>Prioridad</span><span style={{ textAlign: 'right' }}>Disparos 30d</span><span>Estado</span><span>Canales</span><span>Último</span><span />
           </div>
           {D.ALERTS.map((a) => (
-            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
+            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 12, alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 12 }}>
               <span style={{ fontWeight: 500 }}>{a.name}</span>
               <span className={`pill ${a.priority === 'alta' ? 'pill-neg' : a.priority === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{a.priority}</span>
               <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered}</span>
@@ -1883,6 +2607,8 @@ function AlertsScreen({ onMentionClick }) {
       )}
 
       {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
+
+      {tab === 'crisis' && <CrisisAlertsTab />}
 
       {tab === 'reports' && <ReportsTab />}
 
@@ -1983,7 +2709,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Descripción (opcional)</span>
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contexto o razón de la regla" />
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>Tópico</span>
               <select className="input" value={topic} onChange={(e) => setTopic(e.target.value)}>
@@ -2078,9 +2804,9 @@ function AlertsHistory({ onMentionClick }) {
       </div>
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
-        <div>
+        <div className="scroll-x">
           {rows.slice(0, 40).map((r, i) => (
-            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
+            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px', minWidth: 560, gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 12, alignItems: 'center' }}>
               <span className="mono" style={{ color: 'var(--text-3)' }}>{r.triggeredAt ? new Date(r.triggeredAt).toLocaleString('es-PR', { timeZone: 'America/Puerto_Rico' }) : '—'}</span>
               <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`}>{r.severity || 'media'}</span>
               <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
@@ -2102,8 +2828,8 @@ function SettingsScreen() {
   ];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('220px 1fr', '1fr'), gap: 20, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         {sections.map((s) => {
           const IconC = Icons[s.icon];
           return (
@@ -2121,7 +2847,7 @@ function SettingsScreen() {
           );
         })}
       </div>
-      <div>{section === 'usuarios' ? <UsersAdmin /> : <AlertsPrefs />}</div>
+      <div style={{ minWidth: 0 }}>{section === 'usuarios' ? <UsersAdmin /> : <AlertsPrefs />}</div>
     </div>
   );
 }
@@ -2285,7 +3011,7 @@ function UsersAdmin() {
       {/* Roles at a glance */}
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Roles disponibles</div><div className="card-hd-sub">Permisos configurados a nivel de plataforma</div></div></div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, borderTop: '1px solid var(--hairline)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 0, borderTop: '1px solid var(--hairline)' }}>
           {ROLES.map((r, i) => (
             <div key={r.k} style={{ padding: 16, borderRight: i < ROLES.length - 1 ? '1px solid var(--hairline)' : 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2306,9 +3032,9 @@ function UsersAdmin() {
       {/* Users table */}
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Usuarios</div><div className="card-hd-sub">{filtered.length} resultados</div></div></div>
-        <div>
+        <div className="scroll-x">
           <div style={{
-            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', gap: 12,
+            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
             padding: '10px 18px', borderTop: '1px solid var(--hairline)',
             fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em',
             background: 'var(--canvas-2)',
@@ -2323,7 +3049,7 @@ function UsersAdmin() {
                 onClick={() => setDrawer({ mode: 'edit', user: u })}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', gap: 12,
+                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 12,
                   padding: '12px 18px', alignItems: 'center', cursor: 'pointer',
                   borderTop: '1px solid var(--hairline)',
                 }}>
@@ -2390,7 +3116,7 @@ function UserDrawer({ drawer, onSave, onDelete, onClose }) {
           {/* Identity */}
           <div>
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Identidad</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 10 }}>
               <Field label="Nombre completo" required>
                 <input value={form.name} onChange={(e) => setField('name', e.target.value)}
                   placeholder="María Santos"
@@ -2449,7 +3175,7 @@ function UserDrawer({ drawer, onSave, onDelete, onClose }) {
           {/* Scope — which agencies this user can see */}
           <div>
             <div className="section-eyebrow" style={{ marginBottom: 10 }}>Alcance de datos</div>
-            <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            <div style={{ padding: 12, border: '1px solid var(--hairline)', borderRadius: 10, display: 'grid', gridTemplateColumns: window.ecoCols('repeat(2, 1fr)', '1fr'), gap: 8 }}>
               {['DTOP','DACo','Salud','AMA','Familia','Educación'].map((a, i) => (
                 <label key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)' }}>
                   <input type="checkbox" defaultChecked={i === 0 || a === form.agency} />
@@ -2627,4 +3353,1284 @@ function AlertsPrefs() {
   );
 }
 
-window.ECO_SCREENS = { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen };
+// =============== OVERVIEW ===============
+// Espejo del correo diario (eco-weekly-report) sin LLM. Consume /api/overview
+// que internamente usa el mismo @eco/shared/buildSentimentReport que el
+// lambda — totales, deltas, daily series y la tabla de tópicos coinciden
+// byte-por-byte con el correo de las 6 AM cuando period=7D.
+//
+// Layout (top a bottom):
+//   1. Hero — período + total
+//   2. Termómetro — 3 KPIs neg/neu/pos con Δ vs ventana previa
+//   3. Highlights — NSS+Riesgo · Volúmenes · Brand Health
+//   4. Tendencia — multi-line chart con neg/neu/pos
+//   5. Tópico principal — top-7 + Otros + Sin clasificar
+//
+// Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
+// (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
+// el conteo multi-clasificación.
+function OverviewScreen({ period, agency, onMentionClick }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [slice, setSlice] = useState(null);
+
+  useEffect(() => {
+    setData(null); setError(null);
+    const params = new URLSearchParams({ period: period || '7D' });
+    if (agency) params.set('agency', agency);
+    // Rango personalizado: cuando period === 'custom', el FilterBar habrá
+    // guardado eco.from/eco.to en localStorage; los pasamos al API para que
+    // sobrescriba la ventana derivada del period.
+    if (period === 'custom') {
+      const from = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.from')) || '';
+      const to = (typeof localStorage !== 'undefined' && localStorage.getItem('eco.to')) || '';
+      if (from && to) { params.set('from', from); params.set('to', to); }
+    }
+    const ctrl = new AbortController();
+    fetch('/api/overview?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then(setData)
+      .catch((e) => { if (e?.name !== 'AbortError') setError(String(e?.message || e)); });
+    return () => ctrl.abort();
+  }, [period, agency]);
+
+  if (error) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+        <div className="section-eyebrow" style={{ color: 'var(--neg)', marginBottom: 6 }}>Error</div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No se pudo cargar el Overview: {error}</div>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+        Cargando…
+      </div>
+    );
+  }
+
+  function openSentimentSlice(name, count) {
+    const map = { negativo: 'Negativo', neutral: 'Neutral', positivo: 'Positivo' };
+    const accent = name === 'positivo' ? 'var(--pos)' : name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+    setSlice({
+      eyebrow: 'Sentimiento',
+      title: `Menciones ${map[name].toLowerCase()}`,
+      accent,
+      volume: count,
+      sentiment: {
+        pos: name === 'positivo' ? count : 0,
+        neu: name === 'neutral' ? count : 0,
+        neg: name === 'negativo' ? count : 0,
+      },
+      mentions: [],
+      _filter: { sentiment: name },
+    });
+  }
+
+  // openDaySlice — click en un punto del gráfico de tendencias. Para puntos
+  // diarios, abre el modal con las menciones de ESE día. Para puntos horarios
+  // (1D), abre el modal con las menciones de ESA HORA específica (filtro
+  // day + hour). El backend acepta `day=YYYY-MM-DD` y `hour=0..23` en AST.
+  function openDaySlice(d) {
+    if (!d || !d.fullDate) return;
+    const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
+    const bias = (d.negative || 0) > (d.positive || 0) ? 'negativo'
+      : (d.positive || 0) > (d.negative || 0) ? 'positivo' : 'neutral';
+    const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
+    // Detectar granularidad horaria por la presencia de "T..:00:00" en fullDate
+    // (formato del backend: "YYYY-MM-DDTHH:00:00-04:00"). Sin "T", asumimos día.
+    const isHourly = /T\d{2}:\d{2}:\d{2}/.test(d.fullDate);
+    const dayYmd = d.fullDate.slice(0, 10);
+    const hourMatch = isHourly ? d.fullDate.match(/T(\d{2}):/) : null;
+    const filter = { day: dayYmd };
+    if (hourMatch) filter.hour = hourMatch[1];
+    setSlice({
+      eyebrow: d.date || d.fullDate,
+      title: isHourly ? `Conversación de las ${d.date || ''}` : `Conversación del día`,
+      accent,
+      volume: total,
+      sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
+      mentions: [],
+      _filter: filter,
+    });
+  }
+
+  // openMetricInsight — abre MetricInsightModal vía helper compartido.
+  function openMetricInsight(metric, value, accent) {
+    const labels = {
+      crisis: 'Riesgo de crisis',
+      polarization: 'Polarización',
+      nss: 'Net Sentiment Score',
+      bhi: 'Brand Health',
+      volume: 'Volumen',
+    };
+    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' } : {};
+    openMetricInsightShared(setSlice, {
+      metric,
+      value,
+      accent,
+      label: labels[metric] || metric,
+      periodLabel: data?.periodLabel,
+      periodStart: data?.periodStart,
+      periodEnd: data?.periodEnd,
+      agency,
+      subcomponents: [],
+      filter,
+    });
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <OverviewHero data={data} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
+      <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
+      <OverviewTendencia dailySeries={data.dailySeries} onDayClick={openDaySlice} />
+      <OverviewTopicos
+        rows={data.topicsTable}
+        totals={data.totals}
+        onTopicClick={(row) => {
+          // Buscar el slug del tópico en D.TOPICS (eco-data) para que el modal
+          // pueda filtrar. La tabla del Overview viene de buildSentimentReport
+          // (matchea correo) que solo expone el name; resolvemos el slug aquí.
+          const topic = (D.TOPICS || []).find((t) => t.name === row.topic);
+          if (!topic) return;
+          const palette = ['#E1767B', '#4A7FB5', '#6B9E7F', '#C08457', '#8B6BB0', '#D4A73E', '#5A9FA8', '#A3624D'];
+          const slugIdx = {};
+          (D.TOPICS || []).forEach((tp, i) => { slugIdx[tp.slug] = i; });
+          const accent = palette[(slugIdx[topic.slug] || 0) % palette.length] || 'var(--accent)';
+          setSlice({
+            eyebrow: 'Tópico',
+            title: topic.name,
+            accent,
+            mentions: [],
+            _filter: { topic: topic.slug },
+          });
+        }}
+      />
+      {/* Insights va al FINAL, después de Topicos (orden explícito del
+          usuario: "necesito que salga de último después de los topicos"). */}
+      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+    </div>
+  );
+}
+
+function OverviewHero({ data }) {
+  const total = data.totals.total || 0;
+  return (
+    <div style={{ padding: '4px 4px 0' }}>
+      {/* Sin section-eyebrow: el periodo / fechas viven en el Header (chips +
+          calendar icon) y la palabra "Overview" ya está en el header / sidebar.
+          Repetirlas aquí era ruido (instrucción explícita del usuario). */}
+      <h1 style={{
+        fontFamily: 'var(--ff-display)', fontSize: 26, fontWeight: 600,
+        lineHeight: 1.2, margin: '0 0 4px', letterSpacing: 'var(--letter-display)',
+        color: 'var(--text)',
+      }}>
+        Conversación pública de los últimos {data.dailySeries.length} días
+      </h1>
+      <div style={{ color: 'var(--text-2)', fontSize: 13 }}>
+        {total > 0
+          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {data.periodStart} → {data.periodEnd}</>
+          : <>Sin menciones registradas en la ventana seleccionada.</>}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTermometro({ totals, deltas, onSliceClick }) {
+  const t = totals.total || 1;
+  const cards = [
+    { name: 'Negativo', sentKey: 'negativo', value: totals.negative, delta: deltas.negative, accent: 'var(--neg)', invert: true },
+    { name: 'Neutral',  sentKey: 'neutral',  value: totals.neutral,  delta: deltas.neutral,  accent: 'var(--text-3)', invert: false },
+    { name: 'Positivo', sentKey: 'positivo', value: totals.positive, delta: deltas.positive, accent: 'var(--pos)', invert: false },
+  ];
+  return (
+    <div>
+      <div className="section-eyebrow" style={{ marginBottom: 8 }}>01 · Termómetro · vs ventana previa</div>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
+        {cards.map((c) => {
+          const pct = totals.total > 0 ? Math.round((c.value / t) * 100) : 0;
+          // Negativo: subir es malo (rojo); bajar es bueno (verde).
+          // Positivo: subir es bueno (verde); bajar es malo (rojo).
+          // Neutral: sin color especial.
+          const dColor = c.name === 'Neutral'
+            ? 'var(--text-3)'
+            : c.invert
+              ? (c.delta > 0 ? 'var(--neg)' : c.delta < 0 ? 'var(--pos)' : 'var(--text-3)')
+              : (c.delta > 0 ? 'var(--pos)' : c.delta < 0 ? 'var(--neg)' : 'var(--text-3)');
+          // Las cards del termómetro abren MentionsSliceModal con el sentimiento
+          // correspondiente. Usar <button> para teclado/aria; padding/estilos
+          // imitan el card. Sin underline o cursor pointer por defecto del btn.
+          return (
+            <button key={c.name}
+              onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
+              className="card row-hover"
+              style={{
+                padding: 16, textAlign: 'left',
+                cursor: 'pointer', border: '1px solid var(--hairline)',
+                background: 'var(--canvas)',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {c.name}
+                </div>
+                <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div className="num" style={{ fontSize: 32, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                  {fmt(c.value)}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{pct}%</div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: dColor, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '·'}
+                {Math.abs(Math.round(c.delta))}% vs ventana previa
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// OverviewHighlights — reducido a un único termómetro de Crisis. Antes había
+// 3 tarjetas (NSS · Riesgo, Volúmenes, Brand Health). Por petición explícita
+// del usuario quitamos NSS / Volúmenes / Brand Health del Overview (esas
+// métricas viven en el tab Scorecard); Crisis se queda como termómetro pero
+// ya no está fusionada con NSS — vive aquí en su propia card slim.
+//
+// Clickable: abre MetricInsightModal con insight LLM + subcomponentes
+// (severity/velocity/relevance/confidence del snapshot diario).
+function OverviewHighlights({ metrics, onOpenInsight }) {
+  const m = metrics || {};
+  if (m.crisisRiskScore == null) return null;
+  // Crisis Risk en escala 0–1 (backtest 482d, PR #37). Thresholds:
+  // NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
+  const score = m.crisisRiskScore;
+  const band = score >= 0.60 ? 'CRISIS'
+    : score >= 0.40 ? 'ALERTA'
+    : score >= 0.25 ? 'ELEVADO'
+    : 'NORMAL';
+  const bandColor = score >= 0.40 ? 'var(--neg)' : score >= 0.25 ? 'var(--warn)' : 'var(--pos)';
+  return (
+    <button
+      onClick={() => onOpenInsight && onOpenInsight('crisis', score.toFixed(2), 'var(--neg)')}
+      className="card row-hover"
+      style={{
+        padding: 16,
+        display: 'grid', gridTemplateColumns: window.ecoCols('160px 1fr', '1fr'), gap: 16, alignItems: 'center',
+        cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
+        textAlign: 'left', width: '100%',
+      }}
+      title="Ver insight del riesgo de crisis para el periodo">
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Icons.Shield size={14} color="var(--neg)" />
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Riesgo de crisis
+          </div>
+          <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div className="num" style={{ fontSize: 28, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+            {score.toFixed(2)}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>/1</div>
+          <span className={`pill pill-${score >= 0.40 ? 'neg' : score >= 0.25 ? 'warn' : 'pos'}`} style={{ marginLeft: 'auto', fontSize: 10 }}>{band}</span>
+        </div>
+      </div>
+      <div style={{ paddingLeft: 16, borderLeft: '1px solid var(--hairline)' }}>
+        <div style={{ height: 6, borderRadius: 3, background: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: `${Math.min(score * 100, 100)}%`, top: -3, width: 12, height: 12, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor}`, transform: 'translateX(-50%)' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 4, fontFamily: 'var(--ff-mono)', letterSpacing: '0.04em' }}>
+          <span>NORMAL</span><span>ELEVADO</span><span>ALERTA</span><span>CRISIS</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function OverviewTendencia({ dailySeries, onDayClick }) {
+  // Adapta dailySeries del API al shape que MultiLineChart espera (`date` + keys de las series).
+  // Guardamos fullDate (YYYY-MM-DD) para que el onPointClick pueda filtrar
+  // las menciones del día seleccionado en MentionsSliceModal (_filter.day).
+  const chartData = (dailySeries || []).map((d) => ({
+    date: d.dayLabel,
+    fullDate: d.date,
+    negative: d.negative,
+    neutral: d.neutral,
+    positive: d.positive,
+    totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
+  }));
+  const series = [
+    { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
+    { key: 'neutral',  label: 'Neutral',  color: 'var(--text-3)' },
+    { key: 'positive', label: 'Positivo', color: 'var(--pos)' },
+  ];
+  if (chartData.length === 0) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        Sin datos de tendencia en el periodo.
+      </div>
+    );
+  }
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">02 · Tendencia · Día a día</div>
+          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones</div>
+        </div>
+      </div>
+      <div className="card-bd">
+        {/* Per-series normalization (cada línea con su propio min/max) +
+            smooth bezier — petición explícita del usuario: "me gustaba más
+            como se veía antes... me gustaban las líneas suavizadas". Con
+            shared-scale, los picos grandes (ej. neg=203) comprimían las
+            variaciones diarias normales en una banda plana al fondo. */}
+        <MultiLineChart data={chartData} series={series} height={240} onPointClick={onDayClick} smooth={true} />
+      </div>
+    </div>
+  );
+}
+
+function OverviewTopicos({ rows, totals, onTopicClick }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+        Sin tópicos clasificados en el periodo.
+      </div>
+    );
+  }
+  const universe = totals.total || 1;
+
+  function DistributionBar({ neg, neu, pos, t }) {
+    const td = t || 1;
+    const negPct = (neg / td) * 100;
+    const neuPct = (neu / td) * 100;
+    const posPct = Math.max(0, 100 - negPct - neuPct);
+    return (
+      <div style={{ display: 'flex', height: 8, borderRadius: 2, overflow: 'hidden', background: 'var(--canvas-2)' }}>
+        <div title={`negativo · ${neg}`} style={{ width: `${negPct}%`, background: 'var(--neg)' }} />
+        <div title={`neutral · ${neu}`}  style={{ width: `${neuPct}%`, background: 'var(--text-3)' }} />
+        <div title={`positivo · ${pos}`} style={{ width: `${posPct}%`, background: 'var(--pos)' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">03 · Tópico principal</div>
+          <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
+        </div>
+      </div>
+      <div>
+        {rows.map((row, idx) => {
+          const pctOfTotal = universe > 0 ? Math.round((row.total / universe) * 100) : 0;
+          const muted = !!(row.isOther || row.isUnclassified);
+          // Solo las filas clasificadas (top-7) son clickeables. "Otros" y
+          // "Sin clasificar" agregan tópicos heterogéneos / sin clasificar
+          // y no tienen un slug único al cual filtrar.
+          const clickable = !muted && !!onTopicClick;
+          return (
+            <div key={idx}
+              onClick={clickable ? () => onTopicClick(row) : undefined}
+              className={clickable ? 'row-hover' : undefined}
+              style={{
+                display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
+                padding: '14px 16px', alignItems: 'center',
+                borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
+                opacity: muted ? 0.78 : 1,
+                cursor: clickable ? 'pointer' : 'default',
+              }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13.5, fontWeight: muted ? 500 : 600,
+                  color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{row.topic}</div>
+                {(row.subtopics || row.secondaryCount > 0) && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3, fontStyle: row.isUnclassified ? 'italic' : 'normal' }}>
+                    {row.subtopics}
+                    {row.subtopics && row.secondaryCount > 0 ? ' · ' : ''}
+                    {row.secondaryCount > 0 && (
+                      <span>+{row.secondaryCount} también lo tocan</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="num" style={{ fontSize: 14, fontWeight: muted ? 600 : 700, color: 'var(--text)' }}>
+                  {fmt(row.total)}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 2 }}>{pctOfTotal}%</div>
+              </div>
+              <DistributionBar neg={row.negative} neu={row.neutral} pos={row.positive} t={row.total} />
+            </div>
+          );
+        })}
+        {/* Footer "Total del periodo" — debe cuadrar con el termómetro */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 16,
+          padding: '14px 16px', alignItems: 'center',
+          borderTop: '1px solid var(--hairline-strong)',
+          background: 'var(--canvas-2)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Total del periodo
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>{fmt(totals.total)}</div>
+          </div>
+          <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} />
+        </div>
+      </div>
+      <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
+          criterio del correo diario). El "+N también lo tocan" indica
+          menciones donde el tópico aparece como tema secundario — verás
+          conteos más altos en la pestaña Tópicos por esa razón.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// OverviewInsights — 3 columnas (negativos / positivos / resumen general)
+// generadas por LLM y cacheadas por (agency, periodStart, periodEnd).
+// Patrón cache-or-202: si el endpoint devuelve 'ready' renderiza inmediato.
+// Si devuelve 'computing' arranca polling cada 3s hasta cap 90s.
+function OverviewInsights({ periodStart, periodEnd, agency }) {
+  const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
+  const pollRef = React.useRef(null);
+  const startedAt = React.useRef(0);
+  const MAX_POLL_MS = 90 * 1000;
+  const POLL_INTERVAL_MS = 3 * 1000;
+
+  React.useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    setState({ phase: 'loading', data: null, error: null });
+    startedAt.current = Date.now();
+    const ctrl = new AbortController();
+
+    async function fetchOnce() {
+      const params = new URLSearchParams({ from: periodStart, to: periodEnd });
+      if (agency) params.set('agency', agency);
+      try {
+        const res = await fetch('/api/eco-insights?' + params.toString(), {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
+        if (res.status === 202) {
+          setState((s) => ({ ...s, phase: 'computing' }));
+          return 'computing';
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setState({ phase: 'error', data: null, error: body.error || `HTTP ${res.status}` });
+          return 'error';
+        }
+        const json = await res.json();
+        setState({ phase: 'ready', data: json, error: null });
+        return 'ready';
+      } catch (e) {
+        if (e?.name === 'AbortError') return 'aborted';
+        setState({ phase: 'error', data: null, error: String(e?.message || e) });
+        return 'error';
+      }
+    }
+
+    async function loop() {
+      const status = await fetchOnce();
+      if (status === 'computing') {
+        if (Date.now() - startedAt.current > MAX_POLL_MS) {
+          setState({ phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' });
+          return;
+        }
+        pollRef.current = setTimeout(loop, POLL_INTERVAL_MS);
+      }
+    }
+    loop();
+
+    return () => {
+      ctrl.abort();
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [periodStart, periodEnd, agency]);
+
+  const eyebrow = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>02 · Insights · análisis IA del periodo</div>
+      {state.phase === 'computing' && (
+        <span style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+          GENERANDO…
+        </span>
+      )}
+      {state.phase === 'ready' && state.data?.stale && (
+        <span className="pill pill-info" style={{ fontSize: 9 }} title="Datos cacheados; el lambda está recomputando en background">
+          Actualizando…
+        </span>
+      )}
+    </div>
+  );
+
+  if (state.phase === 'error') {
+    return (
+      <div>
+        {eyebrow}
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          No fue posible cargar los insights del periodo: {state.error}
+        </div>
+      </div>
+    );
+  }
+
+  const cols = [
+    { key: 'negative', title: 'Negativos', accent: 'var(--neg)', items: state.data?.insights?.negative ?? [] },
+    { key: 'positive', title: 'Positivos', accent: 'var(--pos)', items: state.data?.insights?.positive ?? [] },
+    { key: 'general',  title: 'Resumen del periodo', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
+  ];
+  const isLoading = state.phase !== 'ready';
+  const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);
+
+  return (
+    <div>
+      {eyebrow}
+      {allEmpty ? (
+        <div className="card" style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
+          Sin suficiente señal en el periodo seleccionado para generar insights.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 12 }}>
+          {cols.map((col) => (
+            <div key={col.key} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${col.accent}` }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{col.title}</div>
+              {isLoading ? (
+                <>
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6 }} />
+                  <div className="skeleton" style={{ height: 14, marginBottom: 6, width: '92%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '78%' }} />
+                </>
+              ) : col.items.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
+                </div>
+              ) : col.key === 'general' ? (
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(col.items[0]) }} />
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {col.items.map((it, i) => (
+                    <li key={i} style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 8 }}>
+                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 6 }} />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// NarrativeScreen — análisis de UNA narrativa en timeline (streamgraph)
+// ============================================================
+const NARRATIVE_STATUS_ORDER = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
+const NARRATIVE_STATUS_COLORS = {
+  peaking: '#FA8C16',
+  active: '#52C41A',
+  emerging: '#13C2C2',
+  revived: '#EB2F96',
+  declining: '#FAAD14',
+  dormant: '#8C8C8C',
+};
+const NARRATIVE_STATUS_LABELS = {
+  peaking: 'Pico',
+  active: 'Activa',
+  emerging: 'Emergente',
+  revived: 'Revivida',
+  declining: 'Decae',
+  dormant: 'Dormida',
+};
+
+// Catmull-Rom → cubic bezier. Devuelve un string SVG path.
+function smoothPath(points) {
+  if (!points || points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = i === 0 ? points[0] : points[i - 1];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = i + 2 < points.length ? points[i + 2] : p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function NarrativeSparkline({ data, color }) {
+  if (!data || data.length === 0) return null;
+  const w = 64;
+  const h = 18;
+  const max = Math.max(...data, 1);
+  const stepX = w / Math.max(data.length - 1, 1);
+  const points = data.map((v, i) => ({ x: i * stepX, y: h - (v / max) * (h - 2) - 1 }));
+  return (
+    <svg className="narrative-sparkline" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <path d={smoothPath(points)} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NarrativeScreen({ agency }) {
+  const [narratives, setNarratives] = React.useState([]);
+  const [edges, setEdges] = React.useState([]);
+  const [focusedId, setFocusedId] = React.useState(null);
+  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState('all');
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  const [selectedDay, setSelectedDay] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setFocusedId(null);
+    setSelectedDay(null);
+    Promise.all([
+      fetch(`/api/narrative?agency=${agency || ''}&limit=500`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
+    ])
+      .then(([nRes, eRes]) => {
+        if (cancelled) return;
+        const list = nRes.narratives || [];
+        setNarratives(list);
+        setEdges(eRes.edges || []);
+        if (list.length > 0) {
+          const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
+          const top = [...list].sort((a, b) => {
+            const ra = RANK[a.status] ?? 9;
+            const rb = RANK[b.status] ?? 9;
+            if (ra !== rb) return ra - rb;
+            return b.mentionCount - a.mentionCount;
+          })[0];
+          setFocusedId(top.id);
+        }
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String(e));
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [agency]);
+
+  const statusCounts = React.useMemo(() => {
+    const c = { all: narratives.length };
+    for (const n of narratives) c[n.status] = (c[n.status] || 0) + 1;
+    return c;
+  }, [narratives]);
+
+  const filteredNarratives = React.useMemo(() => {
+    const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
+    let list = narratives.filter((n) => statusFilter === 'all' || n.status === statusFilter);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (n) =>
+          n.name.toLowerCase().includes(q) ||
+          (n.summary || '').toLowerCase().includes(q) ||
+          (n.keywords || []).some((k) => String(k).toLowerCase().includes(q))
+      );
+    }
+    return list.sort((a, b) => {
+      const ra = RANK[a.status] ?? 9;
+      const rb = RANK[b.status] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return b.mentionCount - a.mentionCount;
+    });
+  }, [narratives, search, statusFilter]);
+
+  const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
+
+  return (
+    <div className="narrative-screen">
+      <aside className="narrative-menu">
+        <input
+          className="narrative-search"
+          placeholder="Buscar narrativa, keyword…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="narrative-status-filters">
+          <button
+            className={`btn-chip ${statusFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('all')}
+          >
+            Todas ({statusCounts.all || 0})
+          </button>
+          {NARRATIVE_STATUS_ORDER.map((s) => {
+            const count = statusCounts[s] || 0;
+            return (
+              <button
+                key={s}
+                className={`btn-chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
+                onClick={() => count > 0 && setStatusFilter(s)}
+                disabled={count === 0}
+                title={`${NARRATIVE_STATUS_LABELS[s]} (${count})`}
+              >
+                <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[s] }} />
+                {NARRATIVE_STATUS_LABELS[s]} ({count})
+              </button>
+            );
+          })}
+        </div>
+        <div className="narrative-menu-count">
+          {filteredNarratives.length} de {narratives.length} narrativas
+        </div>
+        <ul className="narrative-list">
+          {filteredNarratives.map((n) => (
+            <li
+              key={n.id}
+              className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
+              onClick={() => { setFocusedId(n.id); setSelectedDay(null); }}
+            >
+              <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[n.status] }} />
+              <div className="narrative-item-body">
+                <div className="narrative-item-name">{n.name}</div>
+                <div className="narrative-item-meta">
+                  <span>{n.mentionCount.toLocaleString('es')} menc</span>
+                  <span>·</span>
+                  <span>{NARRATIVE_STATUS_LABELS[n.status] || n.status}</span>
+                </div>
+              </div>
+              {n.sparkline && (
+                <NarrativeSparkline data={n.sparkline} color={NARRATIVE_STATUS_COLORS[n.status]} />
+              )}
+            </li>
+          ))}
+          {filteredNarratives.length === 0 && !loading && (
+            <li className="narrative-empty-li">Sin resultados</li>
+          )}
+        </ul>
+      </aside>
+
+      <main className="narrative-canvas">
+        {loading ? (
+          <div className="narrative-empty">Cargando…</div>
+        ) : error ? (
+          <div className="narrative-empty narrative-empty-error">No se pudo cargar: {error}</div>
+        ) : !focused ? (
+          <div className="narrative-empty">Selecciona una narrativa del menú para ver su análisis.</div>
+        ) : (
+          <NarrativeAnalysis
+            narrative={focused}
+            edges={edges}
+            allNarratives={narratives}
+            agency={agency}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+            onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
+          />
+        )}
+      </main>
+
+      {selectedDay && focused && (
+        <NarrativeDayDrawer
+          narrative={focused}
+          day={selectedDay}
+          agency={agency}
+          onClose={() => setSelectedDay(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDay, onSelectDay, onSelectNarrative }) {
+  const [detail, setDetail] = React.useState(null);
+  const [detailLoading, setDetailLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setDetailLoading(true);
+    fetch(`/api/narrative/${narrative.id}?agency=${agency || ''}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) { setDetail(d); setDetailLoading(false); } })
+      .catch(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [narrative.id, agency]);
+
+  const timeline = detail?.timeline || [];
+  const topAuthors = detail?.topAuthors || [];
+  const platforms = detail?.platforms || [];
+  const recent = detail?.recentMentions || [];
+
+  const related = React.useMemo(() => {
+    return edges
+      .filter((e) => e.source === narrative.id || e.target === narrative.id)
+      .map((e) => {
+        const otherId = e.source === narrative.id ? e.target : e.source;
+        const other = allNarratives.find((n) => n.id === otherId);
+        if (!other) return null;
+        return { ...other, edgeType: e.type, strength: e.strength };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 6);
+  }, [edges, allNarratives, narrative.id]);
+
+  const sentimentTotals = React.useMemo(() => {
+    let p = 0, neu = 0, neg = 0;
+    for (const d of timeline) {
+      p += d.positive || 0;
+      neu += d.neutral || 0;
+      neg += d.negative || 0;
+    }
+    return { positive: p, neutral: neu, negative: neg, total: p + neu + neg };
+  }, [timeline]);
+
+  const peak = React.useMemo(() => {
+    if (timeline.length === 0) return null;
+    return timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
+  }, [timeline]);
+
+  const init = narrative.initiatorFirst;
+  const inf = narrative.initiatorInfluencer;
+
+  return (
+    <div className="narrative-analysis">
+      <div className="narrative-header">
+        <div className="narrative-header-main">
+          <div className="narrative-header-row">
+            <span className="narrative-status-pill" style={{ background: NARRATIVE_STATUS_COLORS[narrative.status] }}>
+              {NARRATIVE_STATUS_LABELS[narrative.status] || narrative.status}
+            </span>
+            <h2 className="narrative-title">{narrative.name}</h2>
+          </div>
+          {narrative.summary && <div className="narrative-summary">{narrative.summary}</div>}
+          {(narrative.keywords || []).length > 0 && (
+            <div className="narrative-keywords">
+              {narrative.keywords.map((k) => (
+                <span key={k} className="narrative-tag">{k}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="narrative-header-metrics">
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Menciones</div>
+            <div className="narrative-metric-value">{narrative.mentionCount.toLocaleString('es')}</div>
+          </div>
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Vel. 24h</div>
+            <div className="narrative-metric-value">{Number(narrative.velocity24h || 0).toFixed(1)}</div>
+          </div>
+          <div className="narrative-metric">
+            <div className="narrative-metric-label">Engagement</div>
+            <div className="narrative-metric-value">{Number(narrative.totalEngagement || 0).toLocaleString('es')}</div>
+          </div>
+        </div>
+      </div>
+
+      <NarrativeStreamgraph
+        timeline={timeline}
+        loading={detailLoading}
+        selectedDay={selectedDay}
+        onSelectDay={onSelectDay}
+      />
+
+      <div className="narrative-grid-3">
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Sentimiento</div>
+          {sentimentTotals.total > 0 ? (
+            <>
+              <div className="narrative-sentiment-bar">
+                <span style={{ flex: sentimentTotals.positive, background: 'var(--pos)' }} />
+                <span style={{ flex: sentimentTotals.neutral, background: 'var(--text-3)' }} />
+                <span style={{ flex: sentimentTotals.negative, background: 'var(--neg)' }} />
+              </div>
+              <div className="narrative-sentiment-row">
+                <span><i style={{ background: 'var(--pos)' }} /> {Math.round((sentimentTotals.positive / sentimentTotals.total) * 100)}% positivo</span>
+                <span><i style={{ background: 'var(--text-3)' }} /> {Math.round((sentimentTotals.neutral / sentimentTotals.total) * 100)}% neutral</span>
+                <span><i style={{ background: 'var(--neg)' }} /> {Math.round((sentimentTotals.negative / sentimentTotals.total) * 100)}% negativo</span>
+              </div>
+              {peak && <div className="narrative-peak">✕ Pico: {peak.day} ({peak.mentions} menciones)</div>}
+            </>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Top voces</div>
+          {topAuthors.length > 0 ? (
+            <ul className="narrative-bar-list">
+              {topAuthors.slice(0, 6).map((a) => (
+                <li key={a.author}>
+                  <span className="narrative-bar-name" title={a.author}>{a.author}</span>
+                  <span className="narrative-bar-count">{a.mentions}</span>
+                </li>
+              ))}
+            </ul>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Plataformas</div>
+          {platforms.length > 0 ? (
+            <ul className="narrative-bar-list">
+              {platforms.slice(0, 6).map((p) => {
+                const max = platforms[0].mentions || 1;
+                return (
+                  <li key={p.platform}>
+                    <span className="narrative-bar-name">{p.platform}</span>
+                    <span className="narrative-bar-track">
+                      <span className="narrative-bar-fill" style={{ width: `${(p.mentions / max) * 100}%` }} />
+                    </span>
+                    <span className="narrative-bar-count">{p.mentions}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : detailLoading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+      </div>
+
+      <div className="narrative-grid-2">
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Primera mención (cronológica)</div>
+          {init ? (
+            <div>
+              <div className="narrative-init-author">
+                <strong>{init.author || '—'}</strong>
+                {init.platform && <span className="narrative-tag-mini">{init.platform}</span>}
+              </div>
+              <div className="narrative-init-date">
+                {new Date(init.publishedAt).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+              {init.snippet && <div className="narrative-init-snippet">{init.snippet}</div>}
+              {init.url && (
+                <a href={init.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                  Ver fuente →
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="narrative-empty-small">Sin datos</div>
+          )}
+        </div>
+
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Voz más influyente (24h)</div>
+          {inf ? (
+            <div>
+              <div className="narrative-init-author">
+                <strong>{inf.author || '—'}</strong>
+              </div>
+              <div className="narrative-init-meta">
+                Reach {(inf.reach || 0).toLocaleString('es')} · Eng {(inf.engagement || 0).toLocaleString('es')}
+              </div>
+              {inf.url && (
+                <a href={inf.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                  Ver fuente →
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="narrative-empty-small">Aún sin datos (requiere ≥24h)</div>
+          )}
+        </div>
+      </div>
+
+      {recent.length > 0 && (
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Menciones recientes</div>
+          <div className="narrative-mentions-list">
+            {recent.slice(0, 5).map((m) => (
+              <div key={m.id} className="narrative-mention-row">
+                <div className="narrative-mention-title">{m.title || '(sin título)'}</div>
+                <div className="narrative-mention-meta">
+                  {m.author && <span>{m.author}</span>}
+                  {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                  {m.sentiment && <span className={`narrative-sentiment-mini sent-${m.sentiment}`}>{m.sentiment}</span>}
+                  <span>{new Date(m.publishedAt).toLocaleDateString('es')}</span>
+                  {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer">→</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {related.length > 0 && (
+        <div className="narrative-panel">
+          <div className="narrative-panel-label">Narrativas relacionadas</div>
+          <ul className="narrative-related-list">
+            {related.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  className="narrative-related-btn"
+                  onClick={() => onSelectNarrative(r.id)}
+                  title={`${r.edgeType} (${(r.strength * 100).toFixed(0)}%)`}
+                >
+                  <span className="narrative-dot" style={{ background: NARRATIVE_STATUS_COLORS[r.status] }} />
+                  <span className="narrative-related-name">{r.name}</span>
+                  <span className="narrative-related-meta">{r.edgeType} · {(r.strength * 100).toFixed(0)}%</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
+  const w = 1080;
+  const h = 240;
+  const margin = { top: 20, right: 24, bottom: 32, left: 24 };
+  const innerW = w - margin.left - margin.right;
+  const innerH = h - margin.top - margin.bottom;
+
+  if (loading) return <div className="narrative-stream-wrap narrative-empty-small">Cargando timeline…</div>;
+  if (!timeline || timeline.length === 0) {
+    return <div className="narrative-stream-wrap narrative-empty-small">Sin datos temporales todavía.</div>;
+  }
+
+  const times = timeline.map((d) => new Date(d.day).getTime());
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  const span = Math.max(1, maxT - minT);
+  const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
+
+  const maxTotal = Math.max(...timeline.map((d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0)), 1);
+  const yCenter = margin.top + innerH / 2;
+  const yScale = (v) => yCenter - (v / maxTotal) * (innerH / 2) * 0.92;
+
+  const stackedPoints = timeline.map((d) => {
+    const x = xScale(d.day);
+    const total = (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
+    const baseline = -total / 2;
+    const negTop = baseline + (d.negative || 0);
+    const neuTop = negTop + (d.neutral || 0);
+    const posTop = neuTop + (d.positive || 0);
+    return {
+      x,
+      day: d.day,
+      mentions: d.mentions || 0,
+      baseline_y: yScale(baseline),
+      neg_y: yScale(negTop),
+      neu_y: yScale(neuTop),
+      pos_y: yScale(posTop),
+    };
+  });
+
+  const buildLayerPath = (upperKey, lowerKey) => {
+    const upper = stackedPoints.map((p) => ({ x: p.x, y: p[upperKey] }));
+    const lower = stackedPoints.map((p) => ({ x: p.x, y: p[lowerKey] })).reverse();
+    const upperD = smoothPath(upper);
+    const lowerD = smoothPath(lower).replace(/^M/, 'L');
+    return `${upperD} ${lowerD} Z`;
+  };
+
+  const layers = [
+    { key: 'negative', d: buildLayerPath('neg_y', 'baseline_y'), color: 'var(--neg)' },
+    { key: 'neutral', d: buildLayerPath('neu_y', 'neg_y'), color: 'var(--text-3)' },
+    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'), color: 'var(--pos)' },
+  ];
+
+  const months = [];
+  const cursor = new Date(minT);
+  cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
+  while (cursor.getTime() <= maxT) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const monthEvery = months.length > 12 ? Math.ceil(months.length / 10) : 1;
+
+  const peak = timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
+  const peakX = xScale(peak.day);
+
+  return (
+    <div className="narrative-stream-wrap">
+      <div className="narrative-stream-legend">
+        <span className="narrative-stream-key"><i style={{ background: 'var(--pos)' }} /> Positivo</span>
+        <span className="narrative-stream-key"><i style={{ background: 'var(--text-3)' }} /> Neutral</span>
+        <span className="narrative-stream-key"><i style={{ background: 'var(--neg)' }} /> Negativo</span>
+        <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
+      </div>
+      <svg className="narrative-stream-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
+        {layers.map((L) => (
+          <path key={L.key} d={L.d} fill={L.color} opacity={0.78} />
+        ))}
+        <line x1={margin.left} y1={yCenter} x2={margin.left + innerW} y2={yCenter} stroke="var(--hairline)" strokeWidth="0.5" opacity={0.5} />
+
+        {stackedPoints.map((p, i) => {
+          const prev = stackedPoints[i - 1];
+          const next = stackedPoints[i + 1];
+          const x0 = prev ? (prev.x + p.x) / 2 : p.x - 2;
+          const x1 = next ? (p.x + next.x) / 2 : p.x + 2;
+          const isSelected = selectedDay === p.day;
+          return (
+            <g key={p.day} className="narrative-stream-day" style={{ cursor: 'pointer' }}>
+              <rect
+                x={x0}
+                y={margin.top}
+                width={Math.max(1, x1 - x0)}
+                height={innerH}
+                fill={isSelected ? 'rgba(63, 181, 216, 0.18)' : 'transparent'}
+                onClick={() => onSelectDay(p.day)}
+              />
+              {isSelected && (
+                <>
+                  <line
+                    x1={p.x}
+                    y1={margin.top}
+                    x2={p.x}
+                    y2={margin.top + innerH}
+                    stroke="var(--accent)"
+                    strokeWidth="1"
+                    strokeDasharray="3 3"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <circle cx={p.x} cy={yCenter} r="4" fill="var(--accent)" style={{ pointerEvents: 'none' }} />
+                </>
+              )}
+              <title>{`${p.day} · ${p.mentions} menciones`}</title>
+            </g>
+          );
+        })}
+
+        {peak && (
+          <g style={{ pointerEvents: 'none' }}>
+            <line x1={peakX} y1={margin.top} x2={peakX} y2={margin.top + innerH} stroke="var(--accent)" strokeWidth="0.5" opacity={0.4} />
+            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="10" fontWeight="600">
+              ✕ pico
+            </text>
+          </g>
+        )}
+
+        {months.map((d, i) => {
+          if (i % monthEvery !== 0) return null;
+          const x = xScale(d);
+          return (
+            <g key={i} style={{ pointerEvents: 'none' }}>
+              <line x1={x} y1={margin.top + innerH} x2={x} y2={margin.top + innerH + 4} stroke="var(--hairline-strong)" />
+              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="10">
+                {d.toLocaleDateString('es', { month: 'short', year: '2-digit' })}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/narrative/${narrative.id}/day?date=${day}&agency=${agency || ''}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [narrative.id, day, agency]);
+
+  const dateLabel = new Date(day).toLocaleDateString('es', { dateStyle: 'long' });
+
+  return (
+    <div className="narrative-day-drawer">
+      <div className="narrative-day-overlay" onClick={onClose} />
+      <div className="narrative-day-panel">
+        <div className="narrative-day-header">
+          <div>
+            <div className="narrative-day-eyebrow">{narrative.name}</div>
+            <div className="narrative-day-title">{dateLabel}</div>
+            {data && <div className="narrative-day-count">{data.totalMentions} menciones</div>}
+          </div>
+          <button className="narrative-day-close" onClick={onClose} aria-label="Cerrar">×</button>
+        </div>
+        <div className="narrative-day-body">
+          {loading ? (
+            <div className="narrative-empty-small">Cargando…</div>
+          ) : !data || data.totalMentions === 0 ? (
+            <div className="narrative-empty-small">No hay menciones registradas en este día.</div>
+          ) : (
+            ['positivo', 'neutral', 'negativo', 'sin_clasificar'].map((kind) => {
+              const items = (data.clusters && data.clusters[kind]) || [];
+              if (items.length === 0) return null;
+              const label = kind === 'sin_clasificar' ? 'Sin clasificar' : kind.charAt(0).toUpperCase() + kind.slice(1);
+              const color = kind === 'positivo' ? 'var(--pos)' : kind === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+              return (
+                <div key={kind} className="narrative-day-cluster">
+                  <div className="narrative-day-cluster-label">
+                    <span className="narrative-dot" style={{ background: color }} />
+                    {label} <em>({items.length})</em>
+                  </div>
+                  {items.map((m) => (
+                    <div key={m.id} className="narrative-day-mention">
+                      <div className="narrative-day-mention-title">{m.title || '(sin título)'}</div>
+                      <div className="narrative-day-mention-meta">
+                        {m.author && <strong>{m.author}</strong>}
+                        {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                        <span>· {new Date(m.publishedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {(m.engagement || 0) > 0 && <span>· {m.engagement} eng</span>}
+                      </div>
+                      {m.snippet && <div className="narrative-day-mention-snippet">{m.snippet}</div>}
+                      {m.url && (
+                        <a href={m.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
+                          Ver fuente →
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.ECO_SCREENS = { OverviewScreen, DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen };

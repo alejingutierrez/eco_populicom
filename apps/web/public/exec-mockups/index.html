@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ECO — Vista Ejecutiva Multi-agencia · 6 propuestas</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  body { min-height: 100vh; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 28px 64px; }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-dot { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+  .seal { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--ff-mono); font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: .04em; }
+  h1 { font-family: var(--ff-display); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 18px 0 6px; }
+  .lede { color: var(--text-2); font-size: 15px; max-width: 720px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 30px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .tile { display: flex; flex-direction: column; padding: 18px; text-decoration: none; color: inherit; position: relative; overflow: hidden; min-height: 188px; transition: transform .14s var(--ease), border-color .14s var(--ease); }
+  .tile:hover { transform: translateY(-3px); border-color: var(--hairline-strong); }
+  .tile .idx { font-family: var(--ff-mono); font-size: 11px; color: var(--text-3); letter-spacing: .1em; }
+  .tile h2 { font-family: var(--ff-display); font-size: 19px; font-weight: 600; margin: 8px 0 0; letter-spacing: -0.01em; }
+  .tile .pitch { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin-top: 8px; flex: 1; }
+  .tile .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
+  .swatch { display: flex; gap: 4px; }
+  .swatch span { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.12); }
+  .open { font-size: 11px; font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
+  .accent-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .legend { margin-top: 30px; font-size: 11px; color: var(--text-3); display: flex; gap: 18px; flex-wrap: wrap; }
+  .legend b { color: var(--text-2); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span style="font-family:var(--ff-display);font-weight:700;font-size:18px;letter-spacing:.02em">ECO</span>
+        <span style="color:var(--text-3);font-size:13px">· Social Listening</span>
+      </div>
+      <h1>Vista Ejecutiva — Multi-agencia</h1>
+      <p class="lede">Cuatro propuestas para mostrarle a la Gobernadora y al gobierno central el estado reputacional de <b style="color:var(--text)">todas las agencias a la vez</b>. Las cuatro viven ahora dentro del <b style="color:var(--text)">shell real de ECO</b> (barra lateral + header, tema mando oscuro), para que se vean como una pantalla más del dashboard. Cuatro modelos mentales, un solo look.</p>
+    </div>
+    <div class="seal">LF</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="legend">
+    <span><b>13 agencias</b> · Gobierno de Puerto Rico</span>
+    <span><b>Look unificado:</b> shell de ECO · tema mando oscuro</span>
+    <span>Exploraciones iniciales (otros temas): <a class="link" href="01-sala-de-mando.html">Sala de Mando</a> · <a class="link" href="04-el-parte.html">El Parte</a></span>
+    <span style="color:var(--text-3)">Datos ilustrativos · mockup de diseño · no representan métricas reales</span>
+  </div>
+</div>
+
+<script>
+// Palette mando · oscuro (el tema del dashboard real de ECO) — compartida por las 4.
+const MANDO = ['#0E1620','#FF6A3D','#3FD47A','#FFC043'];
+const TILES = [
+  { n:'02', file:'02-tabla-de-posiciones.html', title:'Tabla de Posiciones',
+    pitch:'Ranking de salud digital de las 13 agencias, como una tabla de liga o un portafolio: quién sube, quién baja, rendición de cuentas de un vistazo.' },
+  { n:'03', file:'03-matriz-estrategica.html', title:'Matriz Estratégica',
+    pitch:'Matriz 2×2: sentimiento vs. atención. Cada agencia, una burbuja ubicada en Atender ya / Amplificar / Vigilar / Sostener. Lectura de estratega.' },
+  { n:'05', file:'05-gabinete.html', title:'Gabinete',
+    pitch:'Una tarjeta por secretaría, con semáforo y titular. Rendición de cuentas con rostro: el estado del gabinete, secretario por secretario.' },
+  { n:'06', file:'06-radar-de-crisis.html', title:'Radar de Crisis',
+    pitch:'Sala situacional: qué arde ahora. Medidor de riesgo del gobierno, escalamiento en vivo y “requiere decisión de La Fortaleza”. Gravedad de sala de mando.' },
+];
+document.getElementById('grid').innerHTML = TILES.map(t => `
+  <a class="card tile" href="${t.file}">
+    <span class="accent-bar" style="background:${MANDO[1]}"></span>
+    <span class="idx">PROPUESTA ${t.n}</span>
+    <h2>${t.title}</h2>
+    <p class="pitch">${t.pitch}</p>
+    <div class="foot">
+      <span class="swatch">${MANDO.map(c=>`<span style="background:${c}"></span>`).join('')}</span>
+      <span class="open">Abrir · shell ECO →</span>
+    </div>
+  </a>`).join('');
+</script>
+</body>
+</html>

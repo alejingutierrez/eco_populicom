@@ -3,11 +3,18 @@
  * Invoked manually via AWS CLI, not scheduled.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
+import { TOPICS_BY_AGENCY } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
+const bedrock = new BedrockRuntimeClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
+// Haiku para clasificación constrained-enum (subtopic backfill). Es 20x más
+// barato que Opus y suficiente para escoger entre 5-6 opciones predefinidas.
+const SUBTOPIC_BACKFILL_MODEL_ID = process.env.SUBTOPIC_BACKFILL_MODEL_ID ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
-export const handler = async (event: { action?: string; query?: string; queryIds?: number[] }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -215,11 +222,538 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       return { statusCode: 200, body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name) }, null, 2) };
     }
 
+    if (action === 'add-embeddings-column') {
+      // Migración 0004: pgvector + columna embedding + índice ivfflat.
+      // Idempotente — IF NOT EXISTS en todo.
+      const stmts = [
+        `CREATE EXTENSION IF NOT EXISTS vector`,
+        `ALTER TABLE mentions ADD COLUMN IF NOT EXISTS embedding vector(1024)`,
+        `ALTER TABLE mentions ADD COLUMN IF NOT EXISTS embedded_at timestamp with time zone`,
+        `CREATE INDEX IF NOT EXISTS idx_mentions_embedding ON mentions USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) { await client.query(s); applied.push(s); }
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'mentions' AND column_name IN ('embedding','embedded_at')`,
+      );
+      const counts = await client.query(
+        `SELECT COUNT(*)::int AS total, COUNT(embedding)::int AS with_embedding FROM mentions`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ applied, columns: cols.rows.map((r: any) => r.column_name), counts: counts.rows[0] }, null, 2),
+      };
+    }
+
+    if (action === 'create-narratives-schema') {
+      // Crea las tablas del feature "narrativas": narratives, narrative_mentions,
+      // narrative_edges, narrative_candidates. Requiere pgvector ya activo (lo
+      // garantiza add-embeddings-column, pero también lo aseguramos aquí).
+      // Idempotente — IF NOT EXISTS en todo.
+      const stmts = [
+        `CREATE EXTENSION IF NOT EXISTS vector`,
+
+        // Tabla principal de narrativas
+        `CREATE TABLE IF NOT EXISTS narratives (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          name VARCHAR(120) NOT NULL,
+          slug VARCHAR(140) NOT NULL,
+          summary TEXT,
+          keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+          centroid vector(1024),
+          centroid_at_naming vector(1024),
+          status VARCHAR(16) NOT NULL DEFAULT 'emerging'
+            CHECK (status IN ('emerging','active','peaking','declining','dormant','revived')),
+          first_mention_id UUID REFERENCES mentions(id) ON DELETE SET NULL,
+          initiator_first JSONB,
+          initiator_influencer JSONB,
+          mention_count INTEGER NOT NULL DEFAULT 0,
+          total_engagement BIGINT NOT NULL DEFAULT 0,
+          total_reach BIGINT NOT NULL DEFAULT 0,
+          velocity_24h DOUBLE PRECISION NOT NULL DEFAULT 0,
+          engagement_velocity_24h DOUBLE PRECISION NOT NULL DEFAULT 0,
+          drift_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+          born_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_mention_at TIMESTAMPTZ,
+          peaked_at TIMESTAMPTZ,
+          last_renamed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_narratives_agency_slug UNIQUE (agency_id, slug)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_agency_status
+          ON narratives (agency_id, status)`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_last_mention
+          ON narratives (agency_id, last_mention_at DESC)`,
+        // IVFFlat para centroide (consistente con mentions.embedding). Con
+        // ~150 narrativas activas por agencia, lists=10 es suficiente.
+        `CREATE INDEX IF NOT EXISTS idx_narratives_centroid
+          ON narratives USING ivfflat (centroid vector_cosine_ops) WITH (lists = 10)`,
+
+        // Asignación mention → narrative
+        `CREATE TABLE IF NOT EXISTS narrative_mentions (
+          narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          mention_id UUID NOT NULL REFERENCES mentions(id) ON DELETE CASCADE,
+          similarity DOUBLE PRECISION NOT NULL,
+          is_primary BOOLEAN NOT NULL DEFAULT false,
+          assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (narrative_id, mention_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_mentions_mention
+          ON narrative_mentions (mention_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_mentions_primary
+          ON narrative_mentions (mention_id) WHERE is_primary = true`,
+
+        // Edges entre narrativas (undirected: source < target en orden UUID)
+        `CREATE TABLE IF NOT EXISTS narrative_edges (
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          source_narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          target_narrative_id UUID NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+          edge_type VARCHAR(24) NOT NULL
+            CHECK (edge_type IN ('co_occurrence','author_overlap','semantic')),
+          strength DOUBLE PRECISION NOT NULL,
+          computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (source_narrative_id, target_narrative_id, edge_type),
+          CONSTRAINT chk_narrative_edges_order CHECK (source_narrative_id < target_narrative_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_edges_agency
+          ON narrative_edges (agency_id, edge_type)`,
+
+        // Pool de candidatos
+        `CREATE TABLE IF NOT EXISTS narrative_candidates (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+          mention_id UUID NOT NULL REFERENCES mentions(id) ON DELETE CASCADE,
+          embedding vector(1024) NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT uq_narrative_candidates_mention UNIQUE (mention_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_narrative_candidates_agency_created
+          ON narrative_candidates (agency_id, created_at)`,
+      ];
+      const applied: string[] = [];
+      for (const s of stmts) {
+        await client.query(s);
+        applied.push(s.replace(/\s+/g, ' ').slice(0, 80) + '…');
+      }
+      const tables = await client.query(
+        `SELECT table_name FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name IN ('narratives','narrative_mentions','narrative_edges','narrative_candidates')
+          ORDER BY table_name`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          applied: applied.length,
+          tables: tables.rows.map((r: any) => r.table_name),
+        }, null, 2),
+      };
+    }
+
+    if (action === 'cleanup-narrative-duplicates') {
+      // Limpia duplicados de is_primary=true en narrative_mentions causados por
+      // un bug de concurrencia en eco-narrative-cluster (corregido con
+      // reservedConcurrentExecutions=1 después del 2026-05-25). Mantiene la
+      // asignación cronológicamente más antigua como primary, las demás las
+      // demota a is_primary=false. Idempotente — repetir es no-op.
+      const dupBefore = await client.query(
+        `SELECT COUNT(*)::int AS demote_count FROM narrative_mentions nm
+          WHERE nm.is_primary = true
+            AND EXISTS (
+              SELECT 1 FROM narrative_mentions nm2
+               WHERE nm2.mention_id = nm.mention_id
+                 AND nm2.is_primary = true
+                 AND nm2.assigned_at < nm.assigned_at
+            )`,
+      );
+      const upd = await client.query(
+        `UPDATE narrative_mentions nm
+            SET is_primary = false
+          WHERE nm.is_primary = true
+            AND EXISTS (
+              SELECT 1 FROM narrative_mentions nm2
+               WHERE nm2.mention_id = nm.mention_id
+                 AND nm2.is_primary = true
+                 AND nm2.assigned_at < nm.assigned_at
+            )`,
+      );
+      const dupAfter = await client.query(
+        `SELECT COUNT(*)::int AS remaining FROM (
+           SELECT mention_id FROM narrative_mentions WHERE is_primary = true
+           GROUP BY mention_id HAVING COUNT(*) > 1
+         ) t`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify(
+          {
+            demoted: upd.rowCount,
+            expected: dupBefore.rows[0].demote_count,
+            duplicate_mentions_remaining: dupAfter.rows[0].remaining,
+          },
+          null,
+          2,
+        ),
+      };
+    }
+
+    if (action === 'backfill-embeddings') {
+      // Recorre menciones con embedding IS NULL (de la agencia indicada o
+      // todas) y las puebla en lotes con concurrencia 5 contra Bedrock. Es
+      // idempotente y se puede invocar repetidamente — cada corrida procesa
+      // hasta `limit` menciones (default 1000) y reporta cuánto queda.
+      const wantLimit = Math.max(1, Math.min(5000, Number(event.limit ?? 1000)));
+      const agencySlug = event.agencySlug ?? null;
+      const params: unknown[] = [];
+      let where = 'WHERE embedding IS NULL';
+      if (agencySlug) {
+        params.push(agencySlug);
+        where += ` AND agency_id = (SELECT id FROM agencies WHERE slug = $${params.length})`;
+      }
+      params.push(wantLimit);
+      const sel = await client.query(
+        `SELECT id, title, snippet
+           FROM mentions
+           ${where}
+           ORDER BY published_at DESC
+           LIMIT $${params.length}`,
+        params,
+      );
+      const rows = sel.rows as Array<{ id: string; title: string | null; snippet: string | null }>;
+      console.log(`backfill-embeddings: ${rows.length} pending in this batch`);
+
+      const concurrency = 5;
+      let succeeded = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (let i = 0; i < rows.length; i += concurrency) {
+        const chunk = rows.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map(async (row) => {
+          const input = buildEmbeddingInput(row.title, row.snippet);
+          if (!input) { skipped += 1; return; }
+          const vec = await embedText(input);
+          if (!vec) { failed += 1; return; }
+          await client.query(
+            'UPDATE mentions SET embedding = $1::vector, embedded_at = NOW() WHERE id = $2',
+            [toPgvectorLiteral(vec), row.id],
+          );
+          succeeded += 1;
+        }));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            failed += 1;
+            console.warn('backfill-embeddings row failed:', r.reason);
+          }
+        }
+      }
+
+      const remaining = await client.query(
+        agencySlug
+          ? `SELECT COUNT(*)::int AS c FROM mentions
+              WHERE embedding IS NULL AND agency_id = (SELECT id FROM agencies WHERE slug = $1)`
+          : `SELECT COUNT(*)::int AS c FROM mentions WHERE embedding IS NULL`,
+        agencySlug ? [agencySlug] : [],
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          succeeded,
+          skipped,
+          failed,
+          remaining: remaining.rows[0].c,
+          agencySlug,
+        }, null, 2),
+      };
+    }
+
+    if (action === 'seed-subtopics') {
+      // Sembrar la tabla `subtopics` desde @eco/shared.TOPICS_BY_AGENCY.
+      // Idempotente: ON CONFLICT (topic_id, slug) DO NOTHING.
+      // Soporta filtrar a una agencia (agencySlug) o todas.
+      const targetAgency = event.agencySlug ?? null;
+      const agencyKeys = targetAgency
+        ? [targetAgency]
+        : Object.keys(TOPICS_BY_AGENCY);
+
+      let inserted = 0;
+      let skipped = 0;
+      const perAgency: Record<string, { inserted: number; skipped: number }> = {};
+
+      for (const slug of agencyKeys) {
+        perAgency[slug] = { inserted: 0, skipped: 0 };
+        const topicsForAgency = TOPICS_BY_AGENCY[slug];
+        if (!topicsForAgency) continue;
+
+        // Lookup agency id
+        const agencyRow = await client.query(
+          'SELECT id FROM agencies WHERE slug = $1',
+          [slug],
+        );
+        if (agencyRow.rows.length === 0) {
+          console.warn(`seed-subtopics: agency '${slug}' not found in DB`);
+          continue;
+        }
+        const agencyId = agencyRow.rows[0].id;
+
+        for (const topic of topicsForAgency) {
+          if (!topic.subtopics.length) continue;
+          // Lookup topic id
+          const topicRow = await client.query(
+            'SELECT id FROM topics WHERE agency_id = $1 AND slug = $2',
+            [agencyId, topic.slug],
+          );
+          if (topicRow.rows.length === 0) {
+            console.warn(`seed-subtopics: topic '${topic.slug}' missing for agency '${slug}'`);
+            continue;
+          }
+          const topicId = topicRow.rows[0].id;
+          for (const sub of topic.subtopics) {
+            const ins = await client.query(
+              `INSERT INTO subtopics (topic_id, name, slug, description, display_order, is_active)
+               VALUES ($1, $2, $3, $4, $5, true)
+               ON CONFLICT (topic_id, slug) DO NOTHING
+               RETURNING id`,
+              [topicId, sub.name, sub.slug, sub.description, sub.displayOrder],
+            );
+            if (ins.rows.length > 0) { inserted += 1; perAgency[slug].inserted += 1; }
+            else { skipped += 1; perAgency[slug].skipped += 1; }
+          }
+        }
+      }
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ inserted, skipped, perAgency }, null, 2),
+      };
+    }
+
+    if (action === 'backfill-subtopics-init') {
+      // Idempotente: añade `subtopic_attempts` a mention_topics si falta.
+      // Sirve para evitar reprocesar filas que Bedrock no pudo clasificar.
+      await client.query(`
+        ALTER TABLE mention_topics
+        ADD COLUMN IF NOT EXISTS subtopic_attempts SMALLINT NOT NULL DEFAULT 0
+      `);
+      return { statusCode: 200, body: JSON.stringify({ initialized: true }) };
+    }
+
+    if (action === 'backfill-subtopics') {
+      // Backfill: para cada mention_topic con subtopic_id NULL, llama Bedrock
+      // con un menú constrained-enum de subtopics del topic_id ya asignado y
+      // actualiza subtopic_id. Procesa en lotes con concurrencia para acelerar.
+      const wantLimit = Math.max(1, Math.min(5000, Number(event.limit ?? 1000)));
+      const targetAgency = event.agencySlug ?? 'ddecpr';
+      // Concurrency tunable via event payload. Bedrock Sonnet 4.6 (cross-region
+      // inference) tolera 20-30 concurrent sin throttle en cuentas estándar.
+      const concurrency = Math.max(1, Math.min(40, Number((event as { concurrency?: number }).concurrency ?? 8)));
+
+      // Cargar el menú topic→subtopics desde @eco/shared para la agencia.
+      const agencyTopics = TOPICS_BY_AGENCY[targetAgency];
+      if (!agencyTopics) {
+        return { statusCode: 400, body: JSON.stringify({ error: `Unknown agency: ${targetAgency}` }) };
+      }
+      const subtopicsByTopicSlug = new Map<string, { slug: string; name: string; description: string }[]>();
+      for (const t of agencyTopics) subtopicsByTopicSlug.set(t.slug, t.subtopics);
+
+      // Resolver agency_id
+      const agencyRow = await client.query(
+        'SELECT id FROM agencies WHERE slug = $1',
+        [targetAgency],
+      );
+      if (agencyRow.rows.length === 0) {
+        return { statusCode: 404, body: JSON.stringify({ error: `Agency not found: ${targetAgency}` }) };
+      }
+      const agencyId = agencyRow.rows[0].id;
+
+      // Pull pending rows: mentions of this agency with at least one
+      // mention_topic where subtopic_id IS NULL but the topic has subtopics.
+      // Excluye filas ya intentadas N veces sin éxito (subtopic_attempts >= 3)
+      // y ordena por menos intentos primero, luego random para distribuir carga
+      // entre invocaciones paralelas.
+      const maxAttempts = Math.max(1, Math.min(5, Number((event as { maxAttempts?: number }).maxAttempts ?? 3)));
+      const sel = await client.query(
+        `SELECT mt.mention_id, mt.topic_id, t.slug AS topic_slug,
+                m.title, m.snippet, m.nlp_summary
+           FROM mention_topics mt
+           JOIN topics t ON t.id = mt.topic_id
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts < $3
+            AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)
+          ORDER BY mt.subtopic_attempts ASC, random()
+          LIMIT $2`,
+        [agencyId, wantLimit, maxAttempts],
+      );
+
+      const rows = sel.rows as Array<{
+        mention_id: string;
+        topic_id: number;
+        topic_slug: string;
+        title: string | null;
+        snippet: string | null;
+        nlp_summary: string | null;
+      }>;
+      console.log(`backfill-subtopics: ${rows.length} pending rows`);
+
+      // Cache subtopic_id by (topic_id, slug) — avoids per-row SELECT.
+      const subtopicIdCache = new Map<string, number>();
+      const stRows = await client.query(
+        `SELECT st.id, st.slug, st.topic_id
+           FROM subtopics st
+           JOIN topics t ON t.id = st.topic_id
+          WHERE t.agency_id = $1`,
+        [agencyId],
+      );
+      for (const r of stRows.rows) {
+        subtopicIdCache.set(`${r.topic_id}:${r.slug}`, r.id);
+      }
+
+      let succeeded = 0;
+      let unmatched = 0;
+      let failed = 0;
+
+      for (let i = 0; i < rows.length; i += concurrency) {
+        const chunk = rows.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map(async (row) => {
+          const allowed = subtopicsByTopicSlug.get(row.topic_slug) ?? [];
+          if (allowed.length === 0) return; // no subtopics for this topic, skip
+          const slug = await classifySubtopicWithBedrock({
+            title: row.title,
+            snippet: row.snippet,
+            summary: row.nlp_summary,
+            topicSlug: row.topic_slug,
+            allowed,
+          });
+          if (!slug) {
+            // Marcar intento fallido para que el próximo barrido no la repita.
+            await client.query(
+              `UPDATE mention_topics SET subtopic_attempts = subtopic_attempts + 1
+                WHERE mention_id = $1 AND topic_id = $2 AND subtopic_id IS NULL`,
+              [row.mention_id, row.topic_id],
+            );
+            unmatched += 1;
+            return;
+          }
+          const cached = subtopicIdCache.get(`${row.topic_id}:${slug}`);
+          if (!cached) {
+            await client.query(
+              `UPDATE mention_topics SET subtopic_attempts = subtopic_attempts + 1
+                WHERE mention_id = $1 AND topic_id = $2 AND subtopic_id IS NULL`,
+              [row.mention_id, row.topic_id],
+            );
+            unmatched += 1;
+            return;
+          }
+          await client.query(
+            `UPDATE mention_topics SET subtopic_id = $1, subtopic_attempts = subtopic_attempts + 1
+              WHERE mention_id = $2 AND topic_id = $3 AND subtopic_id IS NULL`,
+            [cached, row.mention_id, row.topic_id],
+          );
+          succeeded += 1;
+        }));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            failed += 1;
+            console.warn('backfill-subtopics row failed:', r.reason);
+          }
+        }
+      }
+
+      const remaining = await client.query(
+        `SELECT COUNT(*)::int AS c
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts < $2
+            AND EXISTS (SELECT 1 FROM subtopics st WHERE st.topic_id = mt.topic_id)`,
+        [agencyId, maxAttempts],
+      );
+      const totallyExhausted = await client.query(
+        `SELECT COUNT(*)::int AS c
+           FROM mention_topics mt
+           JOIN mentions m ON m.id = mt.mention_id
+          WHERE m.agency_id = $1
+            AND mt.subtopic_id IS NULL
+            AND mt.subtopic_attempts >= $2`,
+        [agencyId, maxAttempts],
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          processed: rows.length,
+          succeeded,
+          unmatched,
+          failed,
+          remaining: remaining.rows[0].c,
+          exhausted: totallyExhausted.rows[0].c,
+          agencySlug: targetAgency,
+        }, null, 2),
+      };
+    }
+
     return { statusCode: 200, body: `Action '${action}' completed successfully` };
   } finally {
     await client.end();
   }
 };
+
+async function classifySubtopicWithBedrock(args: {
+  title: string | null;
+  snippet: string | null;
+  summary: string | null;
+  topicSlug: string;
+  allowed: { slug: string; name: string; description: string }[];
+}): Promise<string | null> {
+  const { title, snippet, summary, topicSlug, allowed } = args;
+  const menu = allowed.map((s) => `- ${s.slug}: ${s.description}`).join('\n');
+  const prompt = `Eres un clasificador de subtopics para social listening en Puerto Rico. Te doy UNA mención cuyo topic padre YA está asignado como "${topicSlug}".
+
+MENCIÓN:
+Título: ${title ?? '(sin título)'}
+Texto: ${(snippet ?? '').slice(0, 400)}
+Resumen IA: ${summary ?? '(sin resumen)'}
+
+SUBTOPICS PERMITIDOS bajo "${topicSlug}":
+${menu}
+
+INSTRUCCIONES:
+- Elige el subtopic que MEJOR describe el contenido específico de la mención.
+- Responde SOLO con JSON: {"subtopic_slug": "<slug>", "confidence": 0.0-1.0}
+- Si NINGÚN subtopic encaja con confianza ≥0.4, responde: {"subtopic_slug": null, "confidence": 0.0}
+- No expliques. No uses markdown. Solo el JSON.`;
+
+  try {
+    const response = await bedrock.send(new InvokeModelCommand({
+      modelId: SUBTOPIC_BACKFILL_MODEL_ID,
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 100,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.0,
+      }),
+    }));
+    const body = JSON.parse(new TextDecoder().decode(response.body));
+    const text = body?.content?.[0]?.text ?? '';
+    // Strip markdown fences if Haiku adds them despite instructions
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    const slug = parsed?.subtopic_slug;
+    if (!slug || typeof slug !== 'string') return null;
+    // Verify the slug is in the allowed list (defense against hallucination)
+    if (!allowed.some((s) => s.slug === slug)) return null;
+    return slug;
+  } catch (err) {
+    console.warn(`classifySubtopicWithBedrock failed for topic=${topicSlug}: ${(err as Error).message}`);
+    return null;
+  }
+}
 
 async function runMigrations(client: any): Promise<void> {
   console.log('Running schema migrations...');

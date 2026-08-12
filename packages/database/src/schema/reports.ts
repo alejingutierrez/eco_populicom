@@ -3,10 +3,12 @@ import { agencies } from './agencies';
 import { users } from './users';
 
 /**
- * report_configs — configuración por agencia del envío automático del reporte
- * semanal. Una fila por agencia. La Lambda eco-weekly-report corre cada hora
- * (EventBridge), itera las configs activas, y envía solo cuando la hora local
- * actual (según `timezone`) coincide con `sendHourLocal`.
+ * report_configs — configuración por agencia del envío automático de los
+ * reportes por correo (diario y semanal). Una fila por agencia. La Lambda
+ * eco-weekly-report corre cada hora (EventBridge), itera las configs activas,
+ * y envía el DIARIO cuando la hora local (según `timezone`) coincide con
+ * `sendHourLocal`; el SEMANAL además exige que el día local coincida con
+ * `weeklySendDow` (default viernes) y `weeklyEnabled`.
  */
 export const reportConfigs = pgTable(
   'report_configs',
@@ -17,8 +19,15 @@ export const reportConfigs = pgTable(
     sendHourLocal: integer('send_hour_local').notNull().default(6),
     /** IANA timezone, default America/Puerto_Rico (AST, UTC-4 sin DST). */
     timezone: varchar('timezone', { length: 64 }).notNull().default('America/Puerto_Rico'),
-    /** Clave del template. Por ahora solo "weekly-sentiment-summary". */
-    templateKey: varchar('template_key', { length: 64 }).notNull().default('weekly-sentiment-summary'),
+    /** Clave del template del reporte diario ("daily-sentiment-summary";
+     *  antes se llamaba "weekly-sentiment-summary" — self-heal lo migró). */
+    templateKey: varchar('template_key', { length: 64 }).notNull().default('daily-sentiment-summary'),
+    /** Envío del resumen semanal comparativo (viernes por default). */
+    weeklyEnabled: boolean('weekly_enabled').notNull().default(true),
+    /** Día local de envío del semanal — convención JS getDay (0=dom … 6=sáb). */
+    weeklySendDow: integer('weekly_send_dow').notNull().default(5),
+    /** Hora local (0–23) del semanal, independiente del diario. Default 15 = 3 PM. */
+    weeklySendHourLocal: integer('weekly_send_hour_local').notNull().default(15),
     recipients: jsonb('recipients').notNull().$type<string[]>().default([]),
     fromEmail: varchar('from_email', { length: 255 }).notNull().default('agutierrez@populicom.com'),
     fromName: varchar('from_name', { length: 255 }).notNull().default('Populicom Radar'),

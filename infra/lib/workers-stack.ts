@@ -9,6 +9,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -28,11 +29,22 @@ export class WorkersStack extends cdk.Stack {
   public readonly alertsFunction: NodejsFunction;
   public readonly metricsCalculatorFunction: NodejsFunction;
   public readonly weeklyReportFunction: NodejsFunction;
+  public readonly aiTasksFunction: NodejsFunction;
+  public readonly narrativeClusterFunction: NodejsFunction;
+  public readonly narrativeEdgesFunction: NodejsFunction;
+  public readonly narrativeDriftFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
 
     const privateSubnets = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
+
+    // Adopt the pre-existing CloudWatch Log Groups (auto-created by Lambda on
+    // first invocation). Newer aws-cdk-lib defaults to creating its own
+    // LogGroup resources per function, which clashes with the existing ones
+    // and fails the deploy. Importing by name tells CDK to use them as-is.
+    const importLogGroup = (id: string, fnName: string) =>
+      logs.LogGroup.fromLogGroupName(this, id, `/aws/lambda/${fnName}`);
 
     // Brandwatch API token — stored in Secrets Manager so rotation does not
     // require a CDK redeploy. The secret itself is managed outside this stack
@@ -79,6 +91,7 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         BRANDWATCH_TOKEN_SECRET_ARN: brandwatchTokenSecret.secretArn,
       },
+      logGroup: importLogGroup('IngestionLogGroup', 'eco-ingestion'),
       bundling: bundlingOptions,
     });
 
@@ -123,6 +136,7 @@ export class WorkersStack extends cdk.Stack {
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
       },
+      logGroup: importLogGroup('ProcessorLogGroup', 'eco-processor'),
       bundling: bundlingOptions,
     });
 
@@ -163,6 +177,7 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         SES_FROM_EMAIL: 'noreply@populicom.com',
       },
+      logGroup: importLogGroup('AlertsLogGroup', 'eco-alerts'),
       bundling: bundlingOptions,
     });
 
@@ -182,26 +197,47 @@ export class WorkersStack extends cdk.Stack {
     }));
 
     // ---- eco-metrics-calculator Lambda ----
+    // Además de los snapshots diarios, este lambda evalúa reglas
+    // `crisis_threshold` en alert_rules: si el Crisis Score del día supera el
+    // umbral configurado, genera un editorial con Bedrock y envía un correo
+    // de alerta vía SES (mismo patrón individual-por-recipient que weekly-report).
     this.metricsCalculatorFunction = new NodejsFunction(this, 'MetricsCalculatorFunction', {
       functionName: 'eco-metrics-calculator',
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: path.join(__dirname, '../lambda/metrics-calculator/index.ts'),
       handler: 'handler',
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
+      // Bumpeado a 2 min porque el path de crisis añade fetch de samples +
+      // llamada a Bedrock + N envíos SES individuales. El path normal
+      // (sin crisis) sigue terminando en < 10 s.
+      timeout: cdk.Duration.minutes(2),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        SES_FROM_EMAIL: 'agutierrez@populicom.com',
+        SES_FROM_NAME: 'ECO Radar',
+        DASHBOARD_BASE_URL: 'https://app.populicom.com',
       },
+      logGroup: importLogGroup('MetricsCalcLogGroup', 'eco-metrics-calculator'),
       bundling: bundlingOptions,
     });
 
-    // Grant DB access for metrics calculator
+    // DB + Bedrock + SES — el path de detección de crisis necesita los tres.
     this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.metricsCalculatorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
     }));
 
     // EventBridge schedule: every 10 minutes (computes today's snapshot only)
@@ -238,10 +274,11 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         SES_FROM_EMAIL: 'agutierrez@populicom.com',
-        SES_FROM_NAME: 'Populicom Radar',
+        SES_FROM_NAME: 'ECO Radar',
         REPORT_RECIPIENTS: 'agutierrez@populicom.com',
         AGENCY_SLUG: 'ddecpr',
       },
+      logGroup: importLogGroup('WeeklyReportLogGroup', 'eco-weekly-report'),
       bundling: bundlingOptions,
     });
 
@@ -269,5 +306,205 @@ export class WorkersStack extends cdk.Stack {
       description: 'Scan horario — la Lambda compara hora local por agencia (report_configs) contra send_hour_local y envía si coincide.',
     });
     weeklyReportRule.addTarget(new targets.LambdaFunction(this.weeklyReportFunction));
+
+    // ---- eco-ai-tasks Lambda ----
+    // Lambda multi-acción para tareas IA del dashboard:
+    //   - briefing (default scheduled): genera resumen ejecutivo IA del
+    //     scorecard cada 6 horas para cada agencia activa.
+    //   - topic-descriptions (manual): genera descripciones IA de tópicos
+    //     bajo invocación, para llenar/refrescar topics.description.
+    this.aiTasksFunction = new NodejsFunction(this, 'AiTasksFunction', {
+      functionName: 'eco-ai-tasks',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/ai-tasks/index.ts'),
+      handler: 'handler',
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+      },
+      logGroup: importLogGroup('AiTasksLogGroup', 'eco-ai-tasks'),
+      bundling: bundlingOptions,
+    });
+
+    this.aiTasksFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.aiTasksFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // EventBridge schedule — briefing ejecutivo 4×/día (00, 06, 12, 18 hora AST
+    // = 04, 10, 16, 22 UTC). El lambda sin payload corre la acción 'briefing'.
+    const briefingRule = new events.Rule(this, 'AiTasksBriefingSchedule', {
+      ruleName: 'eco-ai-tasks-briefing',
+      schedule: events.Schedule.cron({ minute: '0', hour: '4,10,16,22' }),
+      description: 'Briefing ejecutivo IA del scorecard, 4×/día (00, 06, 12, 18 AST).',
+    });
+    briefingRule.addTarget(new targets.LambdaFunction(this.aiTasksFunction));
+
+    // ---- eco-narrative-cluster Lambda ----
+    // Feature de narrativas (clusters emergentes de menciones). Cada hora:
+    //   1. Asigna menciones nuevas (con embedding) a la narrativa más cercana
+    //      por coseno (≥0.78) usando pgvector + EWMA update del centroide.
+    //   2. Acumula no-matches en `narrative_candidates` y aplica DBSCAN; cada
+    //      cluster denso de ≥10 menciones spawnea una narrativa nueva, nombrada
+    //      con Bedrock Claude (tool-use).
+    //   3. Recalcula lifecycle states (emerging/active/peaking/declining/dormant/revived).
+    //   4. Calcula iniciadores (primero cronológico ya en INSERT; influencer
+    //      después de 24h con mayor reach × engagement).
+    // Memoria 2048 MB: el DBSCAN sobre el pool de candidatos (potencialmente
+    // varios cientos de embeddings de 1024 dims) corre en JS.
+    // Reserved concurrency = 1: el cluster usa el pool de narrative_candidates
+    // como estado compartido (DBSCAN + delete). Dos invocaciones simultáneas
+    // (cron + manual o cron + cron tras retry) pueden spawnear narrativas
+    // duplicadas asignando los mismos mention_ids a is_primary=true en ambas.
+    // Bug observado 2026-05-25: 877 duplicados a limpiar tras una corrida
+    // concurrente. Concurrency=1 lo previene de raíz.
+    this.narrativeClusterFunction = new NodejsFunction(this, 'NarrativeClusterFunction', {
+      functionName: 'eco-narrative-cluster',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-cluster/index.ts'),
+      handler: 'handler',
+      memorySize: 2048,
+      reservedConcurrentExecutions: 1,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        // Tunables (defaults sensatos en el código si faltan)
+        NARRATIVE_THRESHOLD: '0.78',
+        NARRATIVE_EWMA_ALPHA: '0.05',
+        NARRATIVE_MIN_MENTIONS_BIRTH: '10',
+        NARRATIVE_DBSCAN_EPS: '0.22',
+        NARRATIVE_TOP_N_MATCHES: '3',
+        NARRATIVE_INFLUENCE_WINDOW_HOURS: '24',
+        NARRATIVE_PER_AGENCY_LIMIT: '5000',
+        NARRATIVE_MAX_NEW_PER_RUN: '20',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeClusterLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-cluster',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeClusterFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.narrativeClusterFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // Cron horario en minuto 15 — corre 15 min después del weekly-report
+    // (que está en minuto 0). Da margen para que ingestion + processor de la
+    // hora previa terminen de poblar embeddings antes de cluster.
+    const narrativeClusterRule = new events.Rule(this, 'NarrativeClusterSchedule', {
+      ruleName: 'eco-narrative-cluster-hourly',
+      schedule: events.Schedule.cron({ minute: '15' }),
+      description: 'Clustering de menciones nuevas en narrativas: asigna a centroides existentes, spawnea con DBSCAN, recalcula lifecycle.',
+    });
+    narrativeClusterRule.addTarget(new targets.LambdaFunction(this.narrativeClusterFunction));
+
+    // ---- eco-narrative-edges Lambda ----
+    // Diariamente recalcula conexiones entre narrativas (co_occurrence,
+    // author_overlap, semantic). Truncate + reinsert por agencia — idempotente.
+    // No usa Bedrock; solo SQL agregaciones.
+    this.narrativeEdgesFunction = new NodejsFunction(this, 'NarrativeEdgesFunction', {
+      functionName: 'eco-narrative-edges',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-edges/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        NARRATIVE_EDGE_MIN_STRENGTH: '0.15',
+        NARRATIVE_SEMANTIC_THRESHOLD: '0.6',
+        NARRATIVE_CO_OCCURRENCE_MIN_SHARED: '5',
+        NARRATIVE_AUTHOR_OVERLAP_MIN_SHARED: '3',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeEdgesLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-edges',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeEdgesFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    const narrativeEdgesRule = new events.Rule(this, 'NarrativeEdgesSchedule', {
+      ruleName: 'eco-narrative-edges-daily',
+      schedule: events.Schedule.cron({ minute: '0', hour: '6' }),
+      description: 'Recalcula edges entre narrativas (diario, 6am UTC = 2am AST).',
+    });
+    narrativeEdgesRule.addTarget(new targets.LambdaFunction(this.narrativeEdgesFunction));
+
+    // ---- eco-narrative-drift Lambda ----
+    // Semanalmente detecta drift de centroides y re-namea narrativas cuyo eje
+    // ha derivado >25% desde el último naming. Usa Bedrock Claude (tool-use)
+    // para el re-naming. Cap MAX_RENAMES_PER_RUN evita un blast si muchas
+    // narrativas derivan a la vez.
+    this.narrativeDriftFunction = new NodejsFunction(this, 'NarrativeDriftFunction', {
+      functionName: 'eco-narrative-drift',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/narrative-drift/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(5),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        NARRATIVE_DRIFT_THRESHOLD: '0.25',
+        NARRATIVE_MAX_RENAMES_PER_RUN: '15',
+      },
+      logGroup: new logs.LogGroup(this, 'NarrativeDriftLogGroup', {
+        logGroupName: '/aws/lambda/eco-narrative-drift',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: bundlingOptions,
+    });
+
+    this.narrativeDriftFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+    this.narrativeDriftFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    const narrativeDriftRule = new events.Rule(this, 'NarrativeDriftSchedule', {
+      ruleName: 'eco-narrative-drift-weekly',
+      schedule: events.Schedule.cron({ minute: '0', hour: '8', weekDay: 'MON' }),
+      description: 'Detecta drift de centroides y re-namea (semanal, lunes 8am UTC = 4am AST).',
+    });
+    narrativeDriftRule.addTarget(new targets.LambdaFunction(this.narrativeDriftFunction));
   }
 }

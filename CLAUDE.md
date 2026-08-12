@@ -5,6 +5,63 @@ agente, no al humano. Si algo cambia, actualízalo aquí.
 
 ---
 
+## ⚠️ Drift bundle-vs-git (léelo antes de redeployar un lambda)
+
+Los bundles desplegados pueden contener código que NO existe en ninguna rama
+(deploys desde worktrees nunca pusheados). Casos conocidos (QA 2026-06-10):
+
+- `eco-ingestion` (actualizado 15 jul 2026): el live YA NO tiene
+  makeRateLimiter/bw_request_log (reemplazado ~16 jun; el snapshot de junio
+  quedó obsoleto y ya no existe en disco). Live actual = esa versión + parche
+  15 jul: try/catch POR QUERY (un fallo no mata la corrida) y orden por
+  cursor más viejo primero. El parche vive SOLO en el bundle. Gotchas BW:
+  (1) al EDITAR un query, durante el re-index las menciones llegan con
+  `date: null` → el cursor no avanza y cada corrida re-fetchea en loop;
+  arreglar con exec-write (`UPDATE ingestion_cursors SET last_mention_date=…`).
+  (2) ventanas >12h en queries grandes revientan el API ("Max retries" por
+  5xx, no 429) — backfill en trozos de 12h con
+  `{backfillStartDate, backfillEndDate, backfillQueryIds:[…]}` (no mueve cursores).
+- `eco-migration`: acciones live: custom-query (solo SELECT), exec-write
+  (UPDATE/INSERT/DELETE, añadida 15 jul), reset-cursors, reset-snapshots,
+  status, migrate-and-seed, … ⚠️ TRAMPA: una acción desconocida responde
+  `"Action '<x>' completed successfully"` SIN hacer nada — verifica siempre
+  el efecto con custom-query. Para añadir acciones: descargar bundle
+  (`aws lambda get-function … Code.Location` + curl + unzip), editar el JS,
+  `node --check`, re-zip, `update-function-code`.
+- `eco-weekly-report`: drift sanado en PR #83 (commit "sync" = base real del
+  bundle del 7 jul: barrel de #82 + `dowInTimeZone` en dates.ts + prompts
+  analíticos que solo estaban en el working tree).
+
+**Antes de redeployar cualquier lambda**: descarga el bundle vigente y compara
+contra tu rama; busca features que solo existan en el bundle.
+
+**Bundling desde worktree**: el symlink `node_modules/@eco/*` resuelve al
+working tree del monorepo principal (sucio). Usa SIEMPRE
+`--alias:@eco/shared=<worktree>/packages/shared/src/index.ts` (ídem
+`@eco/shared/src/bedrock` y `@eco/database`) y rutas ABSOLUTAS del worktree
+(`W=$PWD` se rompe cuando el harness resetea el cwd).
+
+---
+
+## Comportamientos de producto confirmados (no son bugs)
+
+- Correos de reporte (jul 2026): el DIARIO ("[Diario] …", ventana rolante de
+  7 días cerrados) se envía TODOS los días a las 6 AM PR; el SEMANAL
+  comparativo ("[Semanal] …", semana vs anterior) solo los viernes a las
+  3:00 PM PR (weekly_send_dow=5, weekly_send_hour_local=15, weekly_enabled).
+  El viernes llegan AMBOS, cada uno a su hora.
+- `admin/diagnostics` cuenta menciones SIN filtrar `is_duplicate` a propósito.
+- Reglas de alerta de crisis: las 3 agencias tienen `crisis_threshold`
+  (0.4/0.5/12h). aaa y gobernadora notifican solo a agutierrez@ hasta que el
+  cliente confirme destinatarios (seed del QA 2026-06-10).
+- Cron diario `eco-processor-reprocess-unclassified-manual` (08:30 UTC) es
+  TEMPORAL: bórralo cuando un deploy de CDK EcoWorkers cree
+  `ProcessorReprocessUnclassifiedDaily` (ya está en workers-stack.ts).
+- `eco-narrative-cluster` corre con timeout 900s y env
+  `NARRATIVE_CANDIDATE_POOL_LIMIT=12000` (cap del DBSCAN O(n²)).
+
+---
+
 ## Stacks AWS
 
 CDK gestiona ocho stacks en `us-east-1`, cuenta `863956448838`. Ver
@@ -122,21 +179,46 @@ aws lambda invoke \
 cat /tmp/q.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.loads(d["body"]))'
 ```
 
-Solo SELECT. Para UPDATE/INSERT, agrega una acción al `eco-migration` o
-usa el self-heal pattern descrito arriba.
+custom-query es solo SELECT. Para UPDATE/INSERT/DELETE puntuales usa la
+acción `exec-write` (añadida 15 jul 2026; una sola sentencia, devuelve
+`rowCount` — verifica el efecto con un SELECT después). Para DDL o cambios
+repetibles, sigue con acciones dedicadas o el self-heal pattern de arriba.
 
 ---
 
-## Reporte semanal por correo (`eco-weekly-report`)
+## Correos por tipo (jul 2026)
+
+Cuatro correos, todos con chrome compartido (`@eco/shared/email/chrome.ts`:
+paleta, header con badge de tipo, footer con nota de tipo) y asunto tipado
+`[Tag] SIGLAS · detalle`. Indicadores SIEMPRE numéricos (%, /10, con signo —
+paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
+
+| Tipo | Asunto | Fuente | Cuándo |
+|---|---|---|---|
+| Diario | `[Diario]` | `eco-weekly-report` → render-daily-report | todos los días, send_hour_local |
+| Semanal | `[Semanal]` | `eco-weekly-report` → render-weekly-summary | weekly_send_dow + weekly_send_hour_local (default vie 3:00 PM) |
+| Alerta reglas | `[Alerta]` | `eco-alerts` → render-simple-alert | SQS por mención |
+| Alerta métrica | `[Alerta]` | `eco-metrics-calculator` → render-simple-alert | evaluación diaria |
+| Crisis | `[Crisis]`/`[Alerta]` | `eco-metrics-calculator` → render-crisis-alert | umbral crisis |
+
+## Reportes por correo (`eco-weekly-report` — diario + semanal)
 
 - **Trigger**: EventBridge cron `cron(0 * * * ? *)` — cada hora, minuto 0
-  UTC. La lambda itera `report_configs is_active = true` y envía solo
-  cuando `hourInTimeZone(nowUtc, cfg.timezone) === cfg.send_hour_local`.
-- **Hora de envío DDEC**: 6:00 AM `America/Puerto_Rico` = 10:00 UTC.
-- **Periodo**: 7 días naturales **cerrados** terminando AYER en TZ PR. No
-  incluye el día actual parcial.
+  UTC. La lambda itera `report_configs is_active = true` y envía el DIARIO
+  cuando `hourInTimeZone(nowUtc, cfg.timezone) === cfg.send_hour_local`; el
+  SEMANAL cuando `weekly_enabled` Y `dowInTimeZone == weekly_send_dow`
+  (default 5 = viernes, convención JS getDay) Y
+  `hourInTimeZone == weekly_send_hour_local` (default 15) — hora
+  independiente de la del diario.
+- **Horas DDEC**: diario 6:00 AM PR = 10:00 UTC; semanal viernes 3:00 PM PR
+  = 19:00 UTC (AST no tiene DST).
+- **Periodo**: 7 días naturales **cerrados** terminando AYER en TZ PR. El
+  semanal compara además contra los 7 días anteriores a esos.
 - **Recipients**: editables vía `/settings/reports` o por SQL en
-  `report_configs.recipients` (jsonb array).
+  `report_configs.recipients` (jsonb array). Misma lista para ambos tipos.
+- **template_key**: el diario usa `daily-sentiment-summary` (renombrado por
+  self-heal desde `weekly-sentiment-summary`); el semanal se logea en
+  `report_send_log` como `weekly-comparison-v1`.
 
 ### Probar sin enviar (dryRun)
 
@@ -145,6 +227,7 @@ aws lambda invoke \
   --function-name eco-weekly-report \
   --payload '{"agencySlug":"ddecpr","dryRun":true}' \
   --cli-binary-format raw-in-base64-out /tmp/dry.json
+# semanal: añade "reportType":"weekly" al payload
 python3 -c 'import json; d=json.load(open("/tmp/dry.json")); open("/tmp/preview.html","w").write(d["html"])'
 open /tmp/preview.html
 ```
@@ -154,27 +237,28 @@ open /tmp/preview.html
 ```bash
 aws lambda invoke \
   --function-name eco-weekly-report \
-  --payload '{"agencySlug":"ddecpr","trigger":"test","recipients":["x@populicom.com"]}' \
+  --payload '{"agencySlug":"ddecpr","reportType":"weekly","trigger":"test","recipients":["x@populicom.com"]}' \
   --cli-binary-format raw-in-base64-out /tmp/test.json
 ```
 
 `recipients` en el payload **sobreescribe** la lista del config solo para
-esa invocación; no toca la DB.
+esa invocación; no toca la DB. `reportType` acepta `daily` (default) y
+`weekly`.
 
-### Iteración local del template (sin Lambda)
+### Iteración local de los templates (sin Lambda)
 
-`scripts/preview-weekly-report.ts` genera HTML con datos mock y lo escribe
-a `apps/web/public/emails/weekly-report-real.html`. Útil para iterar diseño
-sin redeployar:
+`scripts/preview-daily-report.ts`, `scripts/preview-weekly-summary.ts`,
+`scripts/preview-alerts.ts` y `scripts/preview-crisis-alert.ts` generan HTML
+con datos mock en `apps/web/public/emails/*-preview.html`:
 
 ```bash
 cd /Users/alegut/MyApps/eco_populicom
 node_modules/.bin/tsx \
-  .claude/worktrees/<worktree>/scripts/preview-weekly-report.ts
+  .claude/worktrees/<worktree>/scripts/preview-daily-report.ts
 ```
 
 Después arranca el dev server (`npm run dev -w apps/web`) y abre
-`http://localhost:3000/emails/weekly-report-real.html`. **Importante**:
+`http://localhost:3000/emails/daily-report-preview.html`. **Importante**:
 QuickChart sin `&v=4` muestra leyenda duplicada porque la versión por
 defecto (Chart.js v2) no respeta `plugins.legend.display=false`.
 

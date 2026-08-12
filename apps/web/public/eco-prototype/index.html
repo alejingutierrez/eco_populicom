@@ -270,7 +270,12 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow-x: auto;
+    /* No global horizontal scroll: content REFLOWS instead of being force-
+       widened. Genuinely wide widgets (data tables, streamgraph) get their
+       own .scroll-x wrapper. This is the hard stop that keeps the page body
+       from ever scrolling sideways — the old min-width "scroll guards" that
+       forced 900/1120px are gone. */
+    overflow-x: hidden;
   }
 
   .eco-page {
@@ -278,20 +283,72 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 0;
+    max-width: 100%;
   }
-  /* Tablet + desktop scroll guard */
-  @media (min-width: 900px) {
-    .eco-page { min-width: 900px; }
+
+  /* Sidebar identity — lets the mobile media query override the inline
+     position:sticky to turn the rail into an off-canvas drawer. */
+  .eco-sidebar { min-width: 0; }
+
+  /* Off-canvas nav backdrop. Defined OUTSIDE the mobile media query so it is
+     never an in-flow grid item: if the viewport crosses to desktop while the
+     drawer is still open (before React unmounts it), a media-query-scoped rule
+     would drop position:fixed and the div would displace .eco-main for a frame.
+     It only ever renders when menuOpen is true, which only happens on mobile. */
+  .eco-menu-backdrop {
+    position: fixed; inset: 0; z-index: 2040;
+    background: rgba(0,0,0,0.5);
+    animation: fadeIn 0.2s var(--ease);
   }
-  @media (min-width: 1120px) {
-    .eco-page { min-width: 1120px; }
+
+  /* Reusable horizontal-scroll container for genuinely wide widgets. Scroll
+     stays INSIDE the widget, never the page. */
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; min-width: 0; }
+
+  /* Responsive visibility helpers. */
+  .show-mobile { display: none !important; }
+
+  /* Tablet: auto-collapse the rail to an icon column to reclaim width. Paired
+     in JS with collapsed=true so labels don't clip. */
+  @media (max-width: 1024px) {
+    .eco-app { grid-template-columns: 64px 1fr; }
   }
-  /* Mobile: collapse sidebar, tighten paddings */
+
+  /* Mobile: sidebar leaves the grid and becomes an off-canvas drawer; content
+     spans the full viewport width. */
   @media (max-width: 768px) {
-    .eco-app { grid-template-columns: 56px 1fr; }
-    .eco-app[data-collapsed="true"] { grid-template-columns: 56px 1fr; }
+    .eco-app { grid-template-columns: 1fr; }
+    .eco-app[data-collapsed="true"] { grid-template-columns: 1fr; }
+    .eco-sidebar {
+      position: fixed !important;
+      top: 0; left: 0; bottom: 0;
+      width: min(84vw, 288px) !important;
+      height: 100dvh !important;
+      overflow-y: auto !important;
+      z-index: 2050;
+      transform: translateX(-100%);
+      transition: transform 0.26s var(--ease);
+      box-shadow: 0 0 40px rgba(0,0,0,0.45);
+    }
+    .eco-app[data-menu-open="true"] .eco-sidebar { transform: translateX(0); }
     .eco-page { padding: 14px 12px 36px; }
-    .eco-page > .card { padding: 0; }
+    .show-mobile { display: inline-flex !important; }
+    .hide-mobile { display: none !important; }
+    /* Larger tap targets on touch screens. */
+    .btn { min-height: 40px; }
+    .chip { min-height: 34px; }
+    select, input[type="date"], .input { min-height: 40px; }
+    /* Header date-range popover: pin to the viewport so it can't be clipped
+       off-screen when the header controls wrap (the absolute right:0 anchor
+       would otherwise hang past the left edge under overflow-x:hidden). */
+    .eco-datepop {
+      position: fixed !important;
+      left: 12px !important; right: 12px !important;
+      top: 72px !important;
+      width: auto !important; min-width: 0 !important;
+      z-index: 100;
+    }
   }
 
   /* Card primitive */
@@ -301,6 +358,9 @@
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-sm);
     transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+    /* Allow cards to shrink inside grid/flex tracks (min-width:auto default
+       otherwise lets wide inner content force horizontal overflow). */
+    min-width: 0;
   }
   [data-theme="gaceta"] .card { border-radius: 4px; }
   [data-theme="mando"] .card { border-radius: 6px; }
@@ -580,6 +640,110 @@
   .eco-map-marker:hover { stroke-width: 3 !important; }
   [data-mode="light"] .leaflet-container { background: #F5F6F7; }
 
+  /* ============================================== */
+  /* NARRATIVES — baseline responsive layout.        */
+  /* screens.js references these classes but no CSS  */
+  /* existed, so the two-pane never laid out. This   */
+  /* establishes the master/detail layout and stacks */
+  /* it to single-pane under 900px.                  */
+  /* ============================================== */
+  .narrative-screen {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .narrative-menu {
+    background: var(--canvas);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-lg);
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    position: sticky; top: 84px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    min-width: 0;
+  }
+  .narrative-search { width: 100%; }
+  .narrative-status-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 500;
+    background: var(--canvas-2); border: 1px solid var(--hairline);
+    color: var(--text-2); cursor: pointer; transition: all 0.15s var(--ease);
+  }
+  .btn-chip:hover { border-color: var(--hairline-strong); color: var(--text); }
+  .btn-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-chip.disabled { opacity: 0.4; pointer-events: none; }
+  .narrative-menu-count { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .narrative-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .narrative-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    width: 100%; text-align: left; padding: 9px 10px;
+    border-radius: 8px; background: transparent; border: none; cursor: pointer;
+    color: var(--text-2); transition: background 0.12s var(--ease);
+  }
+  .narrative-item:hover { background: var(--canvas-2); }
+  .narrative-item.active { background: var(--accent-fill); color: var(--text); }
+  .narrative-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; }
+  .narrative-item-body { min-width: 0; flex: 1; }
+  .narrative-item-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .narrative-item-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .narrative-empty-li { padding: 20px; text-align: center; color: var(--text-3); font-size: 12px; }
+  .narrative-canvas { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+  .narrative-empty { padding: 60px 24px; text-align: center; color: var(--text-3); font-size: 14px;
+    background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); }
+  .narrative-empty-error { color: var(--neg); }
+  .narrative-empty-small { font-size: 12px; color: var(--text-3); }
+  .narrative-analysis { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .narrative-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .narrative-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .narrative-header { display: flex; flex-direction: column; gap: 10px; }
+  .narrative-header-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+  .narrative-header-main { min-width: 0; }
+  .narrative-title { font-size: 20px; font-weight: 700; font-family: var(--ff-display); letter-spacing: var(--letter-display); }
+  .narrative-header-metrics { display: flex; flex-wrap: wrap; gap: 16px; }
+  .narrative-metric { display: flex; flex-direction: column; }
+  .narrative-metric-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .narrative-metric-value { font-size: 18px; font-weight: 700; font-family: var(--ff-numeric); }
+  .narrative-panel { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: 16px; min-width: 0; }
+  .narrative-panel-label { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .narrative-keywords, .narrative-tag, .narrative-tag-mini { display: inline-flex; }
+  .narrative-tag, .narrative-tag-mini { padding: 3px 8px; border-radius: 999px; background: var(--canvas-2); border: 1px solid var(--hairline); font-size: 11px; color: var(--text-2); margin: 2px; }
+  .narrative-keywords { flex-wrap: wrap; gap: 4px; }
+  .narrative-summary { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+  .narrative-mentions-list, .narrative-related-list, .narrative-bar-list { display: flex; flex-direction: column; gap: 8px; }
+  .narrative-mention-row, .narrative-related-btn { display: flex; flex-direction: column; gap: 3px; padding: 10px; border-radius: 8px; background: var(--canvas-2); border: 1px solid var(--hairline); cursor: pointer; text-align: left; width: 100%; }
+  .narrative-mention-title, .narrative-related-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .narrative-mention-meta, .narrative-related-meta { font-size: 11px; color: var(--text-3); }
+  .narrative-bar-track { background: var(--canvas-2); border-radius: 999px; overflow: hidden; height: 8px; flex: 1; }
+  .narrative-bar-fill { height: 100%; border-radius: inherit; }
+  .narrative-bar-name { font-size: 12px; color: var(--text-2); }
+  .narrative-bar-count { font-size: 12px; font-weight: 600; font-family: var(--ff-numeric); }
+  .narrative-stream-wrap { min-width: 0; overflow-x: auto; }
+  .narrative-stream-svg { display: block; width: 100%; }
+  .narrative-stream-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-3); }
+  .narrative-stream-hint { font-size: 11px; color: var(--text-3); }
+  .narrative-link { color: var(--accent); cursor: pointer; }
+  /* Day drawer — right side panel, full-width on mobile. */
+  .narrative-day-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 2000; animation: fadeIn 0.2s var(--ease); }
+  [data-mode="dark"] .narrative-day-overlay { background: rgba(0,0,0,0.55); }
+  .narrative-day-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 95vw;
+    background: var(--canvas); border-left: 1px solid var(--hairline); z-index: 2001; overflow-y: auto;
+    animation: slideLeft 0.26s var(--ease); padding: 20px; }
+  .narrative-day-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .narrative-day-close { width: 32px; height: 32px; border-radius: 8px; background: var(--canvas-2); border: 1px solid var(--hairline); cursor: pointer; }
+  @media (max-width: 900px) {
+    .narrative-screen { grid-template-columns: 1fr; }
+    .narrative-menu { position: static; max-height: none; flex-direction: column; }
+    .narrative-list { max-height: 320px; }
+  }
+  @media (max-width: 768px) {
+    .narrative-grid-2, .narrative-grid-3 { grid-template-columns: 1fr; }
+    .narrative-day-panel { width: 100%; }
+  }
+
 </style>
 </head>
 <body>
@@ -623,20 +787,40 @@
     banner.appendChild(msg);
     banner.appendChild(retry);
     document.body.appendChild(banner);
-    // Nudge the dashboard down so nothing is hidden under the banner.
-    document.documentElement.style.setProperty('--eco-banner-offset', '40px');
-    document.body.style.paddingTop = '40px';
+    // Nudge the dashboard down so nothing is hidden under the banner. On narrow
+    // screens the message wraps to two/three lines, so measure the real height
+    // instead of hard-coding 40px (which left the banner overlapping content).
+    const applyOffset = () => {
+      const h = Math.ceil(banner.getBoundingClientRect().height) || 40;
+      document.documentElement.style.setProperty('--eco-banner-offset', h + 'px');
+      document.body.style.paddingTop = h + 'px';
+    };
+    applyOffset();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(applyOffset).observe(banner);
+    } else {
+      window.addEventListener('resize', applyOffset);
+    }
   }
 
   (async function () {
     const params = new URLSearchParams(location.search);
     const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
     const period = params.get('period') || localStorage.getItem('eco.period') || '1M';
+    // Rango personalizado: cuando period === 'custom', el OverviewFilterBar
+    // habrá guardado eco.from y eco.to en localStorage. Se envían como query
+    // params para que /api/eco-data sobrescriba la ventana derivada de period.
+    const fromCustom = params.get('from') || localStorage.getItem('eco.from') || '';
+    const toCustom = params.get('to') || localStorage.getItem('eco.to') || '';
     let apiFailed = false;
     let apiError = null;
     try {
       const qs = new URLSearchParams({ period });
       if (agency) qs.set('agency', agency);
+      if (period === 'custom' && fromCustom && toCustom) {
+        qs.set('from', fromCustom);
+        qs.set('to', toCustom);
+      }
       const res = await fetch('/api/eco-data?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
       if (res.ok) {
         window.ECO_DATA_REMOTE = await res.json();
@@ -665,7 +849,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc1';
+        s.src = base + '/' + f + '?v=prodc9';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

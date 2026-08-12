@@ -1,0 +1,24 @@
+{
+  "_archived": {
+    "reason": "Borrada para liberar un cupo del límite de queries de la cuenta (8/8) y crear la query 'Gobernadora JGO'. Era la query llamada 'Prueba' pero contenía tracking real de Francisco Domenech (4,456 menciones). NO estaba ingerida por ECO.",
+    "archivedDate": "2026-06-04",
+    "originalProjectId": 1998403803,
+    "originalProjectName": "AAA - Autoridad de Acueductos y Alcantarillados",
+    "originalQueryId": 2003910306,
+    "mentionCountAtArchive": 4456,
+    "recreateWith": "POST https://api.brandwatch.com/projects/{projectId}/queries con los campos de abajo (name, type, languages, booleanQuery, contentSources, startDate, samplePercentage, locationFilter, highlightTerms)"
+  },
+  "name": "Prueba",
+  "type": "monitor",
+  "languages": [],
+  "booleanQuery": "<<<Francisco Domenech - Sec. Gobernación / Dir. AAFAF - Medios PR>>>\n\n(\"Francisco Domenech\"\n  OR (Domenech NEAR/10 (secretario OR gobernación OR gobernacion OR AAFAF OR AFFAF \n      OR \"agencia fiscal\" OR \"Fiscal Agency\" OR \"Financial Advisory\" \n      OR \"La Fortaleza\" OR gobierno OR nombra* OR designa* OR confirma*)))\n\n\n\n<<<Exclusiones de ruido>>>\nNOT (futbol OR fútbol OR soccer OR beisbol OR béisbol OR \"Luis Enrique\" \n     OR \"República Dominicana\" OR España OR receta* OR horóscopo \n     OR fantasy OR giveaway)",
+  "highlightTerms": ["nombra","gobierno","secretario","La Fortaleza","Fiscal Agency","confirma","agencia fiscal","Financial Advisory","designa","AFFAF","Domenech","gobernacion","AAFAF","Francisco Domenech","gobernación"],
+  "locationFilter": {
+    "includedLocations": ["MEX","ESP","PRI","PRI.Puerto Rico","ARG"],
+    "excludedLocations": []
+  },
+  "contentSources": ["news","qq","youtube","linkedin_brand_mentions","facebook","bluesky","instagram_public","threads","tumblr","instagram","blog","forum","facebook_public","twitter","review","tiktok","reddit"],
+  "startDate": "2026-02-19T00:00:00.000+0000",
+  "samplePercentage": 100.0,
+  "sentimentClassifierVersion": 3
+}

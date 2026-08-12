@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requireCapability } from '@/lib/auth/require-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,6 +13,8 @@ interface SendTestBody {
   agencySlug: string;
   /** Si se provee, envía solo a estos destinatarios; si no, usa los de report_configs. */
   recipients?: string[];
+  /** Tipo de correo a probar: 'daily' (default) o 'weekly'. */
+  reportType?: 'daily' | 'weekly';
 }
 
 /**
@@ -21,7 +23,7 @@ interface SendTestBody {
  * inmediatamente el reporte de la agencia dada. Requiere rol admin.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdmin();
+  const auth = await requireCapability('manage_templates');
   if (!auth.ok) return auth.response;
 
   let body: SendTestBody;
@@ -43,11 +45,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  console.log(`[reports/send-test] invoked by ${auth.user.email} · agency=${body.agencySlug}`);
+  const reportType = body.reportType === 'weekly' ? 'weekly' : 'daily';
+  console.log(`[reports/send-test] invoked by ${auth.user.email} · agency=${body.agencySlug} · type=${reportType}`);
 
   try {
     const payload = {
       agencySlug: body.agencySlug,
+      reportType,
       recipients: body.recipients,
       dryRun: false,
       trigger: 'test' as const,

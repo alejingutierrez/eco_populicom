@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Gabinete</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="shell.css" />
+  <style>
+    /* ===== Estado del gabinete summary strip ===== */
+    .summary {
+      display: grid;
+      grid-template-columns: 1.55fr 0.9fr 0.9fr 1.1fr;
+      gap: 1px;
+      background: var(--hairline);
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .summary > div {
+      background: var(--canvas);
+      padding: 16px 18px;
+    }
+    .sum-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-3);
+      margin-bottom: 9px;
+    }
+
+    /* counts block */
+    .counts {
+      display: flex;
+      align-items: baseline;
+      gap: 18px;
+    }
+    .count-item {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+    }
+    .count-item .swatch {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      align-self: center;
+    }
+    .count-num {
+      font-family: var(--ff-numeric);
+      font-weight: 600;
+      font-size: 26px;
+      line-height: 1;
+      color: var(--text);
+    }
+    .count-word {
+      font-size: 12px;
+      color: var(--text-2);
+      font-weight: 500;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      margin-top: 13px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--text-3);
+      font-family: var(--ff-mono);
+      letter-spacing: 0.03em;
+    }
+    .legend-item .swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* big stat (gov BHI / NSS) */
+    .stat-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .stat-big {
+      font-family: var(--ff-numeric);
+      font-weight: 600;
+      font-size: 34px;
+      line-height: 1;
+      color: var(--text);
+    }
+    .stat-delta {
+      font-family: var(--ff-numeric);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .stat-foot {
+      margin-top: 9px;
+      font-size: 11px;
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    /* gov mini-bar for sentiment split */
+    .splitbar {
+      display: flex;
+      height: 7px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(125, 125, 125, 0.18);
+      margin-top: 12px;
+    }
+    .split-legend {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 7px;
+      font-size: 10px;
+      color: var(--text-3);
+      font-family: var(--ff-mono);
+    }
+
+    /* ===== Grid of cabinet cards ===== */
+    .grid {
+      display: grid;
+      /* auto-fill se adapta al ancho real del contenido (el shell ocupa 220px),
+         así no se desborda la 4.ª columna dentro de .eco-page. */
+      grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 15px 16px 14px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+      overflow: hidden;
+    }
+    .card.is-crisis {
+      border-top: 3px solid var(--neg);
+      border-radius: 0 0 6px 6px;
+    }
+
+    /* header row: sector chip + traffic light */
+    .card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .sector-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      background: var(--canvas-2);
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      padding: 3px 7px;
+    }
+    .sector-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .traffic {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .traffic .tl-dot {
+      position: relative;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .traffic .tl-dot.pulse-ring::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      animation: ringPulse 1.6s ease-out infinite;
+    }
+
+    /* rank delta corner */
+    .rank-corner {
+      position: absolute;
+      top: 13px;
+      right: 14px;
+      font-family: var(--ff-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    /* identity block */
+    .agency-name {
+      font-family: var(--ff-display);
+      font-weight: 700;
+      font-size: 16px;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .agency-full {
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.3;
+      margin-top: 1px;
+    }
+
+    /* titular row */
+    .titular {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 0 0;
+      border-top: 1px solid var(--hairline);
+    }
+    .avatar {
+      flex: 0 0 auto;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-family: var(--ff-display);
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.01em;
+      color: var(--accent);
+      background: var(--accent-fill);
+      border: 1px solid color-mix(in oklab, var(--accent) 22%, transparent);
+    }
+    .titular-meta { min-width: 0; }
+    .titular-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .titular-role {
+      font-size: 10.5px;
+      color: var(--text-3);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* hero metric row */
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .hero-left {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      flex-wrap: wrap;
+    }
+    .hero-num {
+      font-family: var(--ff-numeric);
+      font-weight: 600;
+      font-size: 28px;
+      line-height: 0.95;
+      color: var(--text);
+    }
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-delta {
+      font-family: var(--ff-numeric);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .hero-label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--text-3);
+      width: 100%;
+      margin-bottom: 1px;
+    }
+    .spark-wrap { flex: 0 0 auto; }
+
+    /* sentiment split bar */
+    .sentiment {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sentiment .splitbar {
+      margin-top: 0;
+      flex: 1;
+      height: 6px;
+    }
+    .nss-val {
+      flex: 0 0 auto;
+      font-family: var(--ff-numeric);
+      font-size: 12px;
+      font-weight: 600;
+      min-width: 30px;
+      text-align: right;
+    }
+
+    /* one-liners */
+    .liners {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding-top: 9px;
+      border-top: 1px solid var(--hairline);
+      margin-top: auto;
+    }
+    .liner {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      line-height: 1.25;
+      min-width: 0;
+    }
+    .liner .ic {
+      flex: 0 0 auto;
+      font-size: 11px;
+      line-height: 1;
+      width: 13px;
+      text-align: center;
+    }
+    .liner .txt {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .liner .lbl {
+      font-weight: 600;
+    }
+    .liner-risk .txt { color: var(--text-2); }
+    .liner-win .txt { color: var(--text-2); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="data.js"></script>
+  <script src="shell.js"></script>
+  <script>
+    (function () {
+      const M = window.MOCK;
+      const f = M.fmt;
+
+      // ---- helpers ----
+      function sectorColor(sec) {
+        // muted, distinct hues per sector
+        switch (sec) {
+          case 'Económico': return 'var(--pos)';
+          case 'Social': return 'var(--accent-2)';
+          case 'Infraestructura': return 'var(--warn)';
+          case 'Seguridad': return 'var(--info)';
+          default: return 'var(--text-3)';
+        }
+      }
+      function deltaColor(d) {
+        return d > 0 ? 'var(--pos)' : d < 0 ? 'var(--neg)' : 'var(--text-3)';
+      }
+      function rankMarkup(d) {
+        if (d > 0) return '<span style="color:var(--pos)">▲ ' + Math.abs(d) + '</span>';
+        if (d < 0) return '<span style="color:var(--neg)">▼ ' + Math.abs(d) + '</span>';
+        return '<span style="color:var(--text-3)">—</span>';
+      }
+      function initials(name) {
+        // strip honorific prefixes, take first letters of next two words
+        const cleaned = name.replace(/^(Hon\.|Ing\.|Dr\.|Dra\.|Lcdo\.|Lcda\.)\s*/i, '').trim();
+        const parts = cleaned.split(/\s+/).filter(Boolean);
+        if (parts.length === 0) return '··';
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+      }
+      function sparkSVG(a, color) {
+        const w = 96, h = 30;
+        const s = M.spark(a.trend, w, h, 2);
+        return '<svg width="' + w + '" height="' + h + '" style="display:block">' +
+          '<path d="' + s.area + '" fill="' + color + '" opacity="0.12"/>' +
+          '<path d="' + s.line + '" stroke="' + color + '" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+          '<circle cx="' + s.last[0].toFixed(1) + '" cy="' + s.last[1].toFixed(1) + '" r="2.2" fill="' + color + '"/>' +
+          '</svg>';
+      }
+      function splitbar(a) {
+        return '<div class="splitbar">' +
+          '<div style="flex-grow:' + a.pos + ';background:var(--pos)"></div>' +
+          '<div style="flex-grow:' + a.neu + ';background:var(--text-3)"></div>' +
+          '<div style="flex-grow:' + a.neg + ';background:var(--neg)"></div>' +
+          '</div>';
+      }
+
+      // =========================================================
+      //  SUMMARY STRIP — estado del gabinete
+      // =========================================================
+      const gov = M.gov;
+      const inCrisis = gov.inCrisis;            // 1
+      const inAlert = gov.inAlert;              // 5
+      const stable = gov.agenciesTracked - inCrisis - inAlert; // 7
+
+      const govBhiBand = M.bhiBand(gov.bhi);
+      const govCrisisBand = M.crisisBand(gov.crisis);
+
+      const summaryHTML =
+        // 1) counts + traffic-light legend
+        '<div>' +
+          '<div class="sum-label">Estado del gabinete · ' + gov.agenciesTracked + ' agencias</div>' +
+          '<div class="counts">' +
+            '<div class="count-item"><span class="swatch" style="background:var(--neg)"></span>' +
+              '<span class="count-num">' + inCrisis + '</span><span class="count-word">en crisis</span></div>' +
+            '<div class="count-item"><span class="swatch" style="background:#E07A1F"></span>' +
+              '<span class="count-num">' + inAlert + '</span><span class="count-word">en alerta</span></div>' +
+            '<div class="count-item"><span class="swatch" style="background:var(--pos)"></span>' +
+              '<span class="count-num">' + stable + '</span><span class="count-word">estables</span></div>' +
+          '</div>' +
+          '<div class="legend">' +
+            '<span class="legend-item"><span class="swatch" style="background:var(--pos)"></span>NORMAL</span>' +
+            '<span class="legend-item"><span class="swatch" style="background:var(--warn)"></span>ELEVADO</span>' +
+            '<span class="legend-item"><span class="swatch" style="background:#E07A1F"></span>ALERTA</span>' +
+            '<span class="legend-item"><span class="swatch" style="background:var(--neg)"></span>CRISIS</span>' +
+          '</div>' +
+        '</div>' +
+
+        // 2) gov Índice de Salud
+        '<div>' +
+          '<div class="sum-label">Índice de Salud · gobierno</div>' +
+          '<div class="stat-row">' +
+            '<span class="stat-big">' + gov.bhi + '</span>' +
+            '<span class="pill ' + govBhiBand.cls + '">' + govBhiBand.label + '</span>' +
+            '<span class="stat-delta" style="color:' + deltaColor(gov.bhiDelta) + '">' + f.signed(gov.bhiDelta) + '</span>' +
+          '</div>' +
+          '<div class="stat-foot">' +
+            '<span class="dot" style="background:' + govCrisisBand.color + '"></span>' +
+            'Riesgo de Crisis ponderado · <b style="color:' + govCrisisBand.color + ';font-weight:700">' + govCrisisBand.label + '</b>' +
+          '</div>' +
+        '</div>' +
+
+        // 3) Sentimiento Neto
+        '<div>' +
+          '<div class="sum-label">Sentimiento Neto</div>' +
+          '<div class="stat-row">' +
+            '<span class="stat-big" style="color:var(--neg)">' + f.signed(gov.nss) + '</span>' +
+            '<span class="stat-delta" style="color:' + deltaColor(gov.nssDelta) + '">' + f.signed(gov.nssDelta) + '</span>' +
+          '</div>' +
+          '<div class="splitbar">' +
+            '<div style="flex-grow:' + gov.positivePct + ';background:var(--pos)"></div>' +
+            '<div style="flex-grow:' + gov.neutralPct + ';background:var(--text-3)"></div>' +
+            '<div style="flex-grow:' + gov.negativePct + ';background:var(--neg)"></div>' +
+          '</div>' +
+          '<div class="split-legend">' +
+            '<span>' + gov.positivePct + '% pos</span>' +
+            '<span>' + gov.neutralPct + '% neu</span>' +
+            '<span>' + gov.negativePct + '% neg</span>' +
+          '</div>' +
+        '</div>' +
+
+        // 4) volume / reach context
+        '<div>' +
+          '<div class="sum-label">Conversación · ' + M.meta.periodShort + '</div>' +
+          '<div class="stat-row" style="gap:8px">' +
+            '<span class="stat-big" style="font-size:26px">' + f.compact(gov.vol) + '</span>' +
+            '<span class="stat-delta" style="color:' + deltaColor(gov.volDelta) + '">' + f.signed(gov.volDelta) + '%</span>' +
+          '</div>' +
+          '<div class="stat-foot" style="margin-top:8px;flex-direction:column;align-items:flex-start;gap:5px">' +
+            '<span><b style="color:var(--text-2)">' + f.int(gov.vol) + '</b> menciones</span>' +
+            '<span>Alcance estimado <b style="color:var(--text-2)">' + f.compact(gov.reach) + '</b></span>' +
+          '</div>' +
+        '</div>';
+
+      // =========================================================
+      //  CARD GRID — one per agency, sorted by crisis DESC
+      // =========================================================
+      const sorted = M.agencies.slice().sort((a, b) => b.crisis - a.crisis);
+
+      const cardsHTML = sorted.map(function (a) {
+        const cb = M.crisisBand(a.crisis);   // traffic-light band
+        const bb = M.bhiBand(a.bhi);
+        const isCrisis = cb.isCrisis === true;
+        const isAlert = a.crisis >= 0.40 && a.crisis < 0.60;
+
+        // traffic-light dot color: NORMAL→pos, ELEVADO→warn, ALERTA→orange, CRISIS→neg
+        let tlColor;
+        if (isCrisis) tlColor = 'var(--neg)';
+        else if (isAlert) tlColor = '#E07A1F';            // orange-ish, between warn and neg
+        else if (a.crisis >= 0.25) tlColor = 'var(--warn)';
+        else tlColor = 'var(--pos)';
+
+        const dotClass = isCrisis ? 'tl-dot pulse-ring' : 'tl-dot';
+        const dotStyle = isCrisis
+          ? 'background:' + tlColor + ';--neg:' + tlColor
+          : 'background:' + tlColor;
+
+        const sparkColor = bb.color;
+        const sc = sectorColor(a.sector);
+
+        return '' +
+        '<div class="card' + (isCrisis ? ' is-crisis' : '') + '">' +
+
+          // rank delta corner
+          '<span class="rank-corner">' + rankMarkup(a.rankDelta) + '</span>' +
+
+          // top row: sector chip + traffic light
+          '<div class="card-top">' +
+            '<span class="sector-chip"><span class="sector-dot" style="background:' + sc + '"></span>' + a.sector + '</span>' +
+            '<span class="traffic" style="color:' + tlColor + '">' +
+              '<span class="' + dotClass + '" style="' + dotStyle + '"></span>' + cb.label +
+            '</span>' +
+          '</div>' +
+
+          // identity
+          '<div>' +
+            '<div class="agency-name">' + a.short + '</div>' +
+            '<div class="agency-full">' + a.name + '</div>' +
+          '</div>' +
+
+          // titular (human accountability)
+          '<div class="titular">' +
+            '<span class="avatar">' + initials(a.lead) + '</span>' +
+            '<div class="titular-meta">' +
+              '<div class="titular-name">' + a.lead + '</div>' +
+              '<div class="titular-role">' + a.role + '</div>' +
+            '</div>' +
+          '</div>' +
+
+          // hero metric row
+          '<div class="hero">' +
+            '<div class="hero-left">' +
+              '<span class="hero-label">Índice de Salud</span>' +
+              '<span class="hero-num">' + a.bhi + '</span>' +
+              '<span class="hero-meta">' +
+                '<span class="pill ' + bb.cls + '">' + bb.label + '</span>' +
+                '<span class="hero-delta" style="color:' + deltaColor(a.bhiDelta) + '">' + f.signed(a.bhiDelta) + '</span>' +
+              '</span>' +
+            '</div>' +
+            '<div class="spark-wrap">' + sparkSVG(a, sparkColor) + '</div>' +
+          '</div>' +
+
+          // sentiment split + NSS
+          '<div class="sentiment">' +
+            splitbar(a) +
+            '<span class="nss-val" style="color:' + (a.nss >= 0 ? 'var(--pos)' : 'var(--neg)') + '">' + f.signed(a.nss) + '</span>' +
+          '</div>' +
+
+          // one-liners: risk + win
+          '<div class="liners">' +
+            '<div class="liner liner-risk">' +
+              '<span class="ic" style="color:' + (isCrisis || isAlert ? 'var(--neg)' : 'var(--warn)') + '">&#9650;</span>' +
+              '<span class="txt"><span class="lbl" style="color:var(--text);">Riesgo</span> — ' + a.concern + '</span>' +
+            '</div>' +
+            '<div class="liner liner-win">' +
+              '<span class="ic" style="color:var(--pos)">&#10003;</span>' +
+              '<span class="txt"><span class="lbl" style="color:var(--pos)">Logro</span> — ' + a.win + '</span>' +
+            '</div>' +
+          '</div>' +
+
+        '</div>';
+      }).join('');
+
+      // =========================================================
+      //  COMPOSE — body content wrapped by the ECO shell
+      // =========================================================
+      const content =
+        '<div class="summary">' + summaryHTML + '</div>' +
+        '<div class="grid">' + cardsHTML + '</div>';
+
+      document.getElementById('app').innerHTML = ECOShell.frame({
+        active: 'gobierno',
+        title: 'Gabinete',
+        eyebrow: 'Vista ejecutiva · Tablero del gabinete',
+        period: '7D',
+        content: content,
+      });
+    })();
+  </script>
+</body>
+</html>

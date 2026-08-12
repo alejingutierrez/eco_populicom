@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Matriz Estratégica</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="shell.css" />
+  <style>
+    /* ===== Body layout: two columns inside the page ===== */
+    .matrix-body {
+      display: grid;
+      grid-template-columns: 1fr 364px;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    /* ===== Matrix card (left) =====
+       CRITICAL: .eco-page is NOT height-constrained, so a flex:1 SVG gets no
+       height. Give the card an EXPLICIT height so the SVG (viewBox +
+       width/height:100%) fills it. The right rail matches via the grid. */
+    .matrix-card { display: flex; flex-direction: column; min-height: 0; height: 600px; padding: 0; overflow: hidden; }
+    .mc-head {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+      padding: 15px 20px 12px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .mc-title { font-family: var(--ff-display); font-size: 19px; font-weight: 600; color: var(--text); letter-spacing: var(--letter-display); line-height: 1.05; }
+    .mc-sub { font-size: 11.5px; color: var(--text-2); margin-top: 4px; max-width: 560px; line-height: 1.4; }
+    .mc-axes-mini { display: flex; gap: 18px; align-items: center; flex: 0 0 auto; }
+    .mc-axes-mini .sep { width: 1px; height: 26px; background: var(--hairline-strong); }
+    .axis-key { display: flex; flex-direction: column; gap: 2px; text-align: right; }
+    .axis-key .k-lab { font-size: 9px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.12em; }
+    .axis-key .k-val { font-size: 12px; font-weight: 600; color: var(--text-2); }
+    .mc-svg-wrap { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 6px 10px 8px; }
+    .mc-svg-wrap svg { display: block; width: 100%; height: 100%; }
+
+    .bubble-grp { cursor: default; }
+    .bubble-grp .b-core { transition: filter 0.18s var(--ease); }
+    .bubble-grp:hover .b-core { filter: brightness(1.18); }
+    .b-label { font-family: var(--ff-display); font-weight: 600; letter-spacing: -0.01em; }
+    .b-sub { font-family: var(--ff-mono); }
+    .quad-label { font-family: var(--ff-display); font-weight: 700; letter-spacing: 0.02em; }
+    .quad-sub { font-family: var(--ff-mono); font-weight: 500; letter-spacing: 0.06em; }
+    .ax-tick { font-family: var(--ff-mono); font-size: 10px; fill: var(--text-3); }
+    .ax-name { font-family: var(--ff-display); font-size: 11px; font-weight: 700; fill: var(--text-2); letter-spacing: 0.04em; }
+    .ax-end { font-family: var(--ff-mono); font-size: 9.5px; fill: var(--text-3); letter-spacing: 0.08em; }
+
+    /* ===== Right rail ===== */
+    .rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; height: 600px; }
+
+    .rail-card { padding: 0; }
+    .rc-head { padding: 13px 16px 11px; border-bottom: 1px solid var(--hairline); }
+    .rc-eyebrow { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.14em; }
+    .rc-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; color: var(--text); margin-top: 3px; letter-spacing: var(--letter-display); }
+    .rc-body { padding: 13px 16px; }
+
+    /* legend */
+    .legend-block + .legend-block { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--hairline); }
+    .legend-lab { font-size: 10px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 9px; }
+    .legend-sizes { display: flex; align-items: flex-end; justify-content: space-around; gap: 6px; }
+    .legend-sizes .ls { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .legend-sizes svg { display: block; overflow: visible; }
+    .ls-val { font-family: var(--ff-mono); font-size: 10px; color: var(--text-2); font-weight: 500; }
+    .legend-swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 12px; }
+    .sw { display: flex; align-items: center; gap: 8px; }
+    .sw-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+    .sw-txt { display: flex; flex-direction: column; line-height: 1.15; }
+    .sw-name { font-size: 11px; font-weight: 600; color: var(--text); }
+    .sw-rng { font-family: var(--ff-mono); font-size: 9px; color: var(--text-3); }
+
+    /* critical list */
+    .crit-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+    .crit-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .crit-head-left { display: flex; align-items: center; gap: 8px; }
+    .crit-dot { width: 8px; height: 8px; background: var(--neg); flex: 0 0 auto; }
+    .crit-title { font-family: var(--ff-display); font-size: 13.5px; font-weight: 600; color: var(--text); }
+    .crit-count { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; color: var(--neg); background: var(--neg-bg); padding: 2px 8px; border-radius: 999px; }
+    .crit-list { flex: 1 1 auto; overflow: hidden; padding: 4px 0; }
+    .crit-row {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      gap: 10px; align-items: center;
+      padding: 8px 16px;
+      border-top: 1px solid var(--hairline);
+    }
+    .crit-row:first-child { border-top: none; }
+    .crit-rank { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; color: var(--text-3); text-align: center; }
+    .crit-mid { min-width: 0; }
+    .crit-name-line { display: flex; align-items: center; gap: 7px; }
+    .crit-name { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+    .crit-bar { display: flex; height: 4px; border-radius: 3px; overflow: hidden; background: rgba(125,125,125,.18); margin-top: 5px; }
+    .crit-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+    .crit-nss { font-family: var(--ff-mono); font-size: 13px; font-weight: 600; line-height: 1; }
+    .crit-vol { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-3); }
+    .pill-sm { font-size: 9px; padding: 2px 6px; }
+
+    .takeaway {
+      margin: 0; padding: 11px 14px;
+      border-top: 1px solid var(--hairline);
+      background: linear-gradient(180deg, transparent, var(--neg-bg));
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .takeaway .tk-icon {
+      flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--neg-bg); color: var(--neg);
+      display: grid; place-items: center; font-size: 12px; font-weight: 700;
+      border: 1px solid color-mix(in oklab, var(--neg) 35%, transparent);
+    }
+    .takeaway p { margin: 0; font-size: 11px; line-height: 1.42; color: var(--text-2); }
+    .takeaway b { color: var(--text); font-weight: 600; }
+    .tk-neg { color: var(--neg); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="data.js"></script>
+  <script src="shell.js"></script>
+  <script>
+    const M = window.MOCK;
+    const A = M.agencies;
+    const G = M.gov;
+    const f = M.fmt;
+
+    /* =========================================================
+       MATRIX GEOMETRY
+    ========================================================= */
+    const W = 824, H = 580;
+    const padL = 74, padR = 30, padT = 42, padB = 52;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    // X: Sentimiento Neto  [-55, +55] -> [padL, W-padR]
+    const NSS_MIN = -55, NSS_MAX = 55;
+    const xScale = (nss) => padL + ((nss - NSS_MIN) / (NSS_MAX - NSS_MIN)) * plotW;
+
+    // r: sqrt(reach), clamp 14..44 (defined first; biggest bubble sets the Y inset)
+    const reaches = A.map(a => a.reach);
+    const rMinReach = Math.min(...reaches), rMaxReach = Math.max(...reaches);
+    const srMin = Math.sqrt(rMinReach), srMax = Math.sqrt(rMaxReach);
+    const R_MIN = 14, R_MAX = 44;
+    const rScale = (reach) => {
+      const t = (Math.sqrt(reach) - srMin) / (srMax - srMin);
+      return R_MIN + t * (R_MAX - R_MIN);
+    };
+
+    // Y: Atención (volumen) sqrt scale, HIGH near top.
+    // Inset the plotting band by the max/min bubble radius (+breathing room) so
+    // the biggest bubble (Energía) never clips the top edge and the smallest
+    // never clips the bottom.
+    const vols = A.map(a => a.vol);
+    const minVol = Math.min(...vols), maxVol = Math.max(...vols);
+    const sMin = Math.sqrt(minVol), sMax = Math.sqrt(maxVol);
+    const yInsetTop = R_MAX + 8;   // headroom for the largest bubble at the top
+    const yInsetBot = R_MIN + 12;  // room for small bubbles + their bottom labels
+    const yTopBand = padT + yInsetTop;        // y for max volume
+    const yBotBand = (H - padB) - yInsetBot;  // y for min volume
+    const yScale = (vol) => {
+      const t = (Math.sqrt(vol) - sMin) / (sMax - sMin); // 0..1
+      return yBotBand - t * (yBotBand - yTopBand);       // high vol -> top
+    };
+
+    const x0 = xScale(0);                 // sentiment center (vertical divider)
+    // Attention midline at a fixed, meaningful volume so the high-attention
+    // agencies (Energía, Salud, Educación, DTOP, Seguridad, AAA) read as TOP.
+    const ATTN_MID = 11000;
+    const yMid = yScale(ATTN_MID);        // horizontal divider (attention split)
+
+    /* =========================================================
+       MATRIX SVG
+    ========================================================= */
+    function buildMatrix() {
+      let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Matriz estratégica de agencias por sentimiento y atención">`;
+
+      // defs: quadrant tints
+      s += `<defs>
+        <linearGradient id="qTL" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--neg)" stop-opacity="0.10"/>
+          <stop offset="1" stop-color="var(--neg)" stop-opacity="0.015"/>
+        </linearGradient>
+        <linearGradient id="qTR" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--pos)" stop-opacity="0.10"/>
+          <stop offset="1" stop-color="var(--pos)" stop-opacity="0.015"/>
+        </linearGradient>
+        <linearGradient id="qBL" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="var(--warn)" stop-opacity="0.085"/>
+          <stop offset="1" stop-color="var(--warn)" stop-opacity="0.012"/>
+        </linearGradient>
+        <linearGradient id="qBR" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.085"/>
+          <stop offset="1" stop-color="var(--accent)" stop-opacity="0.012"/>
+        </linearGradient>
+      </defs>`;
+
+      // plot frame background
+      s += `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" rx="8" fill="var(--canvas-2)" stroke="var(--hairline)" stroke-width="1"/>`;
+
+      // quadrant tints (clip to rounded frame via nested rects)
+      s += `<g>
+        <rect x="${padL}" y="${padT}" width="${x0 - padL}" height="${yMid - padT}" fill="url(#qTL)"/>
+        <rect x="${x0}" y="${padT}" width="${(W - padR) - x0}" height="${yMid - padT}" fill="url(#qTR)"/>
+        <rect x="${padL}" y="${yMid}" width="${x0 - padL}" height="${(H - padB) - yMid}" fill="url(#qBL)"/>
+        <rect x="${x0}" y="${yMid}" width="${(W - padR) - x0}" height="${(H - padB) - yMid}" fill="url(#qBR)"/>
+      </g>`;
+
+      // gridlines (light) at X ticks
+      const xticks = [-40, -20, 0, 20, 40];
+      xticks.forEach(t => {
+        const xx = xScale(t);
+        const isCenter = t === 0;
+        s += `<line x1="${xx.toFixed(1)}" y1="${padT}" x2="${xx.toFixed(1)}" y2="${H - padB}"
+                stroke="${isCenter ? 'var(--hairline-strong)' : 'var(--hairline)'}"
+                stroke-width="${isCenter ? 1.25 : 1}"
+                ${isCenter ? 'stroke-dasharray="5 4"' : 'opacity="0.5"'}/>`;
+      });
+      // horizontal attention midline (dashed)
+      s += `<line x1="${padL}" y1="${yMid.toFixed(1)}" x2="${W - padR}" y2="${yMid.toFixed(1)}"
+              stroke="var(--hairline-strong)" stroke-width="1" stroke-dasharray="5 4" opacity="0.7"/>`;
+
+      // quadrant headline labels (big, faint) — top anchored in each corner
+      const qLabel = (xc, yc, anchor, color, line1, line2) => {
+        const ta = anchor; // start | end | middle
+        return `<g opacity="0.9">
+          <text x="${xc}" y="${yc}" text-anchor="${ta}" class="quad-label" font-size="20" fill="${color}" opacity="0.34">${line1}</text>
+          <text x="${xc}" y="${yc + 15}" text-anchor="${ta}" class="quad-sub" font-size="9.5" fill="${color}" opacity="0.6">${line2}</text>
+        </g>`;
+      };
+      // TL = ATENDER YA (neg), TR = AMPLIFICAR (pos), BL = VIGILAR (warn), BR = SOSTENER (accent)
+      s += qLabel(padL + 16, padT + 26, 'start', 'var(--neg)', 'ATENDER YA', 'alta atención · sentimiento −');
+      s += qLabel(W - padR - 16, padT + 26, 'end', 'var(--pos)', 'AMPLIFICAR', 'alta atención · sentimiento +');
+      s += qLabel(padL + 16, H - padB - 24, 'start', 'var(--warn)', 'VIGILAR', 'baja atención · sentimiento −');
+      s += qLabel(W - padR - 16, H - padB - 24, 'end', 'var(--accent)', 'SOSTENER', 'baja atención · sentimiento +');
+
+      // ===== axes labels & ticks =====
+      // X ticks (numbers) just below frame
+      xticks.forEach(t => {
+        const xx = xScale(t);
+        s += `<text x="${xx.toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" class="ax-tick">${f.signed(t)}</text>`;
+      });
+      // X axis name + end labels
+      s += `<text x="${(padL + (W - padR)) / 2}" y="${H - 10}" text-anchor="middle" class="ax-name">Sentimiento Neto →</text>`;
+      s += `<text x="${padL + 2}" y="${H - 10}" text-anchor="start" class="ax-end">negativo</text>`;
+      s += `<text x="${W - padR - 2}" y="${H - 10}" text-anchor="end" class="ax-end">positivo</text>`;
+
+      // Y axis name (rotated)
+      s += `<text x="18" y="${padT + plotH / 2}" text-anchor="middle" class="ax-name"
+              transform="rotate(-90 18 ${padT + plotH / 2})">Atención (volumen) ↑</text>`;
+      // Y reference ticks: compact volume at low / split / high attention
+      const yRefs = [
+        { v: maxVol,   lab: f.compact(maxVol) },
+        { v: ATTN_MID, lab: f.compact(ATTN_MID) },
+        { v: minVol,   lab: f.compact(minVol) },
+      ];
+      yRefs.forEach(rf => {
+        const yy = yScale(rf.v);
+        s += `<line x1="${padL - 5}" y1="${yy.toFixed(1)}" x2="${padL}" y2="${yy.toFixed(1)}" stroke="var(--hairline-strong)" stroke-width="1"/>`;
+        s += `<text x="${padL - 9}" y="${(yy + 3).toFixed(1)}" text-anchor="end" class="ax-tick" style="font-size:9px">${rf.lab}</text>`;
+      });
+
+      // ===== bubbles =====
+      // Draw largest first so small ones / labels sit on top.
+      const ordered = [...A].sort((a, b) => b.reach - a.reach);
+
+      // Manual label offset overrides for clustered / overlapping bubbles.
+      // dir: where label sits relative to bubble. {dx,dy,anchor}
+      const labelCfg = {
+        energia:   { mode: 'in' },                                  // huge bubble: label inside
+        salud:     { mode: 'in' },                                  // huge bubble: label inside
+        educacion: { mode: 'in' },                                  // big bubble: label inside
+        dtop:      { mode: 'in' },                                  // big bubble: label inside
+        seguridad: { mode: 'out', dx: 0,  dy: -1, anchor: 'mid', place: 'above' },
+        aaa:       { mode: 'out', dx: 0,  dy: 1,  anchor: 'mid', place: 'below' },
+        turismo:   { mode: 'out', dx: 0,  dy: -1, anchor: 'mid', place: 'above' },
+        ddec:      { mode: 'out', dx: 0,  dy: 1,  anchor: 'mid', place: 'below' },
+        drna:      { mode: 'out', dx: 1,  dy: 0,  anchor: 'start', place: 'right' },
+        vivienda:  { mode: 'out', dx: 0,  dy: -1, anchor: 'mid', place: 'above' },
+        familia:   { mode: 'out', dx: -1, dy: 0,  anchor: 'end',  place: 'left' },
+        justicia:  { mode: 'out', dx: 0,  dy: 1,  anchor: 'mid', place: 'below' },
+        dtrh:      { mode: 'out', dx: 0,  dy: -1, anchor: 'mid', place: 'above' },
+      };
+
+      let bubbles = '';
+      ordered.forEach(a => {
+        const r = rScale(a.reach);
+        const cb = M.crisisBand(a.crisis);
+        const cfg = labelCfg[a.key] || { mode: 'out', anchor: 'mid', place: 'below' };
+        // clamp center so the bubble (incl. its crisis halo) stays inside the frame
+        const halo = a.crisis >= 0.60 ? 7 : (a.crisis >= 0.40 ? 4 : 0);
+        const m = r + halo + 2;
+        const cx = Math.max(padL + m, Math.min(W - padR - m, xScale(a.nss)));
+        const cy = Math.max(padT + m, Math.min(H - padB - m, yScale(a.vol)));
+
+        let g = `<g class="bubble-grp">`;
+
+        // outer faint halo for crisis/alert to draw the eye
+        if (a.crisis >= 0.40) {
+          g += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + (a.crisis >= 0.60 ? 7 : 4)).toFixed(1)}"
+                  fill="${cb.color}" opacity="${a.crisis >= 0.60 ? 0.10 : 0.07}"/>`;
+        }
+        // main bubble
+        g += `<circle class="b-core" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"
+                fill="${cb.color}" fill-opacity="0.22" stroke="${cb.color}" stroke-width="1.5"/>`;
+
+        // labels
+        if (cfg.mode === 'in') {
+          // name + crisis value stacked inside the bubble
+          g += `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" class="b-label"
+                  font-size="${r > 34 ? 13 : 12}" fill="var(--text)">${a.short}</text>`;
+          g += `<text x="${cx.toFixed(1)}" y="${(cy + 11).toFixed(1)}" text-anchor="middle" class="b-sub"
+                  font-size="9" fill="${cb.color}" opacity="0.95">Crisis ${a.crisis.toFixed(2)}</text>`;
+        } else {
+          const gap = 5;
+          let lx = cx, ly = cy, anchor = cfg.anchor || 'mid';
+          const ta = anchor === 'mid' ? 'middle' : anchor;
+          if (cfg.place === 'above') { ly = cy - r - gap - 2; }
+          else if (cfg.place === 'below') { ly = cy + r + gap + 9; }
+          else if (cfg.place === 'right') { lx = cx + r + gap; ly = cy + 4; }
+          else if (cfg.place === 'left')  { lx = cx - r - gap; ly = cy + 4; }
+          g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${ta}" class="b-label"
+                  font-size="11.5" fill="var(--text)">${a.short}</text>`;
+        }
+
+        g += `</g>`;
+        bubbles += g;
+      });
+      s += bubbles;
+
+      s += `</svg>`;
+      return s;
+    }
+
+    /* =========================================================
+       AXIS KEY (header mini)
+    ========================================================= */
+    const axesMini = `
+      <div class="mc-axes-mini">
+        <div class="axis-key">
+          <span class="k-lab">Eje X</span>
+          <span class="k-val">Sentimiento Neto</span>
+        </div>
+        <div class="sep"></div>
+        <div class="axis-key">
+          <span class="k-lab">Eje Y</span>
+          <span class="k-val">Atención · volumen</span>
+        </div>
+      </div>`;
+
+    const matrixCard = `
+      <div class="card matrix-card">
+        <div class="mc-head">
+          <div>
+            <div class="mc-title">Matriz Estratégica — ${G.agenciesTracked} agencias</div>
+            <div class="mc-sub">Posición de cada agencia por <b>sentimiento</b> (horizontal) y <b>atención pública</b> (vertical). El cuadrante define la acción: atender, amplificar, vigilar o sostener.</div>
+          </div>
+          ${axesMini}
+        </div>
+        <div class="mc-svg-wrap">${buildMatrix()}</div>
+      </div>`;
+
+    /* =========================================================
+       RIGHT RAIL — legend
+    ========================================================= */
+    // three reference size circles (small / med / large reach)
+    function refCircle(reach, boxW, boxH) {
+      const r = rScale(reach);
+      return `<svg width="${boxW}" height="${boxH}">
+        <circle cx="${boxW / 2}" cy="${boxH - r - 1}" r="${r.toFixed(1)}"
+          fill="var(--text-2)" fill-opacity="0.14" stroke="var(--text-2)" stroke-width="1.25"/>
+      </svg>`;
+    }
+    const refSmall = 720000, refMed = 3200000, refLarge = 7800000;
+    const rLarge = rScale(refLarge);
+    const sizeBoxH = rLarge * 2 + 6;
+    const sizeBoxW = rLarge * 2 + 8;
+
+    // crisis bands swatches
+    const bands = [
+      { label: 'NORMAL',  color: 'var(--pos)',    rng: '< 0.25' },
+      { label: 'ELEVADO', color: 'var(--warn)',   rng: '0.25–0.40' },
+      { label: 'ALERTA',  color: 'var(--neg)',    rng: '0.40–0.60' },
+      { label: 'CRISIS',  color: 'var(--neg)',    rng: '≥ 0.60' },
+    ];
+    const swatchHTML = bands.map(b => `
+      <div class="sw">
+        <span class="sw-dot" style="background:${b.color};${b.label === 'CRISIS' ? 'box-shadow:0 0 0 2px var(--neg-bg);' : ''}"></span>
+        <span class="sw-txt">
+          <span class="sw-name" style="color:${b.color}">${b.label}</span>
+          <span class="sw-rng">${b.rng}</span>
+        </span>
+      </div>`).join('');
+
+    const legendCard = `
+      <div class="card rail-card">
+        <div class="rc-head">
+          <div class="rc-eyebrow">Cómo leer la matriz</div>
+          <div class="rc-title">Lectura estratégica</div>
+        </div>
+        <div class="rc-body">
+          <div class="legend-block">
+            <div class="legend-lab">Tamaño = Alcance</div>
+            <div class="legend-sizes">
+              <div class="ls">${refCircle(refSmall, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refSmall)}</span></div>
+              <div class="ls">${refCircle(refMed, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refMed)}</span></div>
+              <div class="ls">${refCircle(refLarge, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refLarge)}</span></div>
+            </div>
+          </div>
+          <div class="legend-block">
+            <div class="legend-lab">Color = Riesgo de Crisis</div>
+            <div class="legend-swatches">${swatchHTML}</div>
+          </div>
+        </div>
+      </div>`;
+
+    /* =========================================================
+       RIGHT RAIL — ATENDER YA list
+       Cuadrante alta atención + sentimiento adverso. Conjunto fijo
+       (Energía, Salud, AAA, Educación, DTOP, Seguridad), ordenado
+       por Riesgo de Crisis descendente.
+    ========================================================= */
+    const ATTEND_KEYS = ['energia', 'salud', 'aaa', 'educacion', 'dtop', 'seguridad'];
+    const attend = ATTEND_KEYS
+      .map(k => M.byKey(k))
+      .sort((a, b) => b.crisis - a.crisis);
+
+    const critRows = attend.map((a, i) => {
+      const cb = M.crisisBand(a.crisis);
+      const nssColor = a.nss < 0 ? 'var(--neg)' : 'var(--pos)';
+      return `
+        <div class="crit-row">
+          <div class="crit-rank">${i + 1}</div>
+          <div class="crit-mid">
+            <div class="crit-name-line">
+              <span class="crit-name">${a.short}</span>
+              <span class="pill ${cb.cls} pill-sm">${cb.label}</span>
+            </div>
+            <div class="crit-bar">
+              <div style="flex-grow:${a.pos};background:var(--pos)"></div>
+              <div style="flex-grow:${a.neu};background:var(--text-3)"></div>
+              <div style="flex-grow:${a.neg};background:var(--neg)"></div>
+            </div>
+          </div>
+          <div class="crit-right">
+            <span class="crit-nss" style="color:${nssColor}">${f.signed(a.nss)}</span>
+            <span class="crit-vol">${f.compact(a.vol)} men.</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    const critCard = `
+      <div class="card rail-card crit-card">
+        <div class="crit-head">
+          <div class="crit-head-left">
+            <span class="crit-dot ring-pulse"></span>
+            <span class="crit-title">En el cuadrante “Atender ya”</span>
+          </div>
+          <span class="crit-count">${attend.length}</span>
+        </div>
+        <div class="crit-list">${critRows}</div>
+        <div class="takeaway">
+          <span class="tk-icon">!</span>
+          <p>El gobierno opera en <span class="tk-neg">ALERTA</span> ponderada (Riesgo ${G.crisis.toFixed(2)}, Sentimiento ${f.signed(G.nss)}). <b>Energía</b> concentra el mayor volumen y el peor sentimiento — único caso en <span class="tk-neg">CRISIS</span> — y arrastra a Salud y AAA. Atender primero arriba-izquierda.</p>
+        </div>
+      </div>`;
+
+    const rail = `<div class="rail">${legendCard}${critCard}</div>`;
+
+    /* =========================================================
+       MOUNT — envuelto en el shell de ECO (mando · oscuro)
+    ========================================================= */
+    const content = `<div class="matrix-body">${matrixCard}${rail}</div>`;
+
+    document.getElementById('app').innerHTML = ECOShell.frame({
+      active: 'gobierno',
+      title: 'Matriz Estratégica',
+      eyebrow: 'Vista ejecutiva · Sentimiento × Atención',
+      period: '7D',
+      content,
+    });
+  </script>
+</body>
+</html>

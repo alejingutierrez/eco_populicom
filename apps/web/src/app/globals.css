@@ -170,3 +170,41 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
 }
+
+/* ============================================================ */
+/* Responsive — added in the full-responsive audit (jul 2026).  */
+/* The Next.js pages use Ant Design (mostly responsive) plus     */
+/* inline styles; these rules stack dense rows and tighten       */
+/* chrome on phones. globals.css previously had zero @media.     */
+/* ============================================================ */
+
+/* Media never forces horizontal overflow. */
+img, svg, canvas, video { max-width: 100%; }
+
+@media (max-width: 640px) {
+  /* Side-by-side form fields (tagged .eco-form-row) stack on phones. */
+  .eco-form-row.ant-space {
+    flex-direction: column !important;
+    width: 100%;
+  }
+  .eco-form-row.ant-space > .ant-space-item {
+    width: 100%;
+  }
+
+  /* Tighter chrome on small screens (inline padding has no !important,
+     so these win). */
+  .ant-layout-content { padding: 16px !important; }
+  .ant-layout-header {
+    padding: 0 14px !important;
+    height: auto !important;
+    min-height: 56px;
+    line-height: normal;
+    row-gap: 8px;
+    flex-wrap: wrap;
+  }
+  /* Let header controls shrink instead of overflowing. */
+  .ant-layout-header .ant-select { min-width: 0 !important; }
+}
+
+/* Antd tables scroll inside their own container rather than the page. */
+.ant-table-wrapper { max-width: 100%; }

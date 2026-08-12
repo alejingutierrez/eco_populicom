@@ -4,7 +4,8 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention } from '@eco/shared';
+import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -52,13 +53,18 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
   } finally { await client.end(); }
 }
 
-export const handler = async (event: SQSEvent): Promise<void> => {
-  console.log(`Processing ${event.Records.length} records`);
+type ReprocessEvent = { action: 'reprocess-nlp-errors' | 'reprocess-unclassified'; limit?: number };
+type ProcessorEvent = SQSEvent | ReprocessEvent;
 
+function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
+  return typeof (e as ReprocessEvent).action === 'string'
+    && ['reprocess-nlp-errors', 'reprocess-unclassified'].includes((e as ReprocessEvent).action);
+}
+
+export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   if (!dbUrl) {
     dbUrl = await getDatabaseUrl();
   }
-
   if (!agencyMap) {
     agencyMap = await loadAgencyMap(dbUrl);
     console.log(`Agency map loaded: ${agencyMap.size} query-to-agency mappings`);
@@ -67,6 +73,16 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   const pg = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
+
+  if (isReprocessEvent(event)) {
+    try {
+      return await reprocessNlpErrors(client, event.action, event.limit);
+    } finally {
+      await client.end();
+    }
+  }
+
+  console.log(`Processing ${event.Records.length} records`);
 
   try {
     // Batch dedup: one SELECT filters out mentions already in DB.
@@ -99,21 +115,39 @@ export const handler = async (event: SQSEvent): Promise<void> => {
 
     // Parallelize NLP + inserts. `pg.Client` serializes DB queries internally,
     // but Bedrock calls run concurrently (the real bottleneck).
+    //
+    // Partial-batch failure (reportBatchItemFailures): en vez de re-lanzar y
+    // reencolar los 10 mensajes, devolvemos SOLO los messageId que fallaron.
+    // Los registros sanos se eliminan de la cola en el primer intento; el
+    // dedup SELECT + ON CONFLICT hace idempotente cualquier reentrega.
+    const batchItemFailures: { itemIdentifier: string }[] = [];
     if (newRecords.length > 0) {
       const results = await Promise.allSettled(
         newRecords.map((r) => processRecord(r, client)),
       );
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (failed.length > 0) {
-        // Re-throw first error so SQS retries the batch.
-        console.error(`${failed.length}/${newRecords.length} records failed in batch`);
-        throw (failed[0] as PromiseRejectedResult).reason;
+      results.forEach((res, i) => {
+        if (res.status === 'rejected') {
+          const rec = newRecords[i];
+          console.error(`record ${rec.messageId} failed:`, (res as PromiseRejectedResult).reason);
+          batchItemFailures.push({ itemIdentifier: rec.messageId });
+        }
+      });
+      if (batchItemFailures.length > 0) {
+        console.error(`${batchItemFailures.length}/${newRecords.length} records failed in batch (partial retry)`);
       }
     }
+    return { batchItemFailures };
   } finally {
     await client.end();
   }
 };
+
+/** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
+function vc(s: string | null | undefined, max = 255): string | null | undefined {
+  if (s == null) return s;
+  const str = String(s);
+  return str.length > max ? str.slice(0, max) : str;
+}
 
 async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const mention: BrandwatchMention = JSON.parse(record.body);
@@ -146,8 +180,21 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const isDuplicate = duplicate.rows.length > 0;
   const duplicateOfId = isDuplicate ? duplicate.rows[0].id : null;
 
-  // Call Claude Opus via Bedrock for NLP analysis
-  const nlp = await analyzeWithClaude(mention, agency);
+  // Skip-empty: Brandwatch entrega shells vacíos (sin title, snippet ni URL),
+  // especialmente para X/Twitter desde el cambio de API de mayo 2026. No tienen
+  // ningún valor analítico — no se pueden clasificar, ni linkar, ni mostrar.
+  // Persistir estos shells inflaba el `total_mentions` del día y diluía las
+  // métricas de severidad y relevancia del Crisis Score (los aggregates no
+  // filtran por nada que distinga shells de menciones reales). Descartamos en
+  // origen: si Brandwatch corrige el feed más adelante, las menciones llegarán
+  // con contenido y se procesarán normalmente.
+  const isEmpty = !mention.title?.trim() && !mention.snippet?.trim() && !mention.url?.trim();
+  if (isEmpty) {
+    console.log(`[${agency.slug}] Drop-empty-shell: ${resourceId} (page_type=${mention.pageType ?? '?'}, no title/snippet/url)`);
+    return;
+  }
+
+  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency);
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
@@ -155,6 +202,22 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   const regexMunis = extractMunicipalitiesFromText(mention.title, mention.snippet, nlp.summary);
   const mergedMunis = Array.from(new Set([...(nlp.municipalities ?? []), ...regexMunis]));
   nlp.municipalities = mergedMunis.filter((m) => MUNICIPALITY_SLUGS.includes(m));
+
+  // Best-effort: resuelve una imagen representativa (media directa → thumbnail
+  // de YouTube → og:image de news/blog/forum → avatar → null). Nunca lanza; si
+  // el scrape falla o tarda, la mención queda sin imagen y el backfill de
+  // eco-migration la recogerá después.
+  let resolvedImageUrl: string | null = null;
+  try {
+    resolvedImageUrl = await scrapeImageForMention({
+      mediaUrl: mention.mediaUrls?.[0] ?? null,
+      pageType: mention.pageType,
+      url: mention.url,
+      avatarUrl: mention.avatarUrl,
+    });
+  } catch {
+    resolvedImageUrl = null;
+  }
 
   // Insert mention
   const mentionResult = await pgClient.query(
@@ -169,7 +232,8 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       nlp_sentiment, nlp_emotions, nlp_pertinence, nlp_summary,
       text_hash, is_duplicate, duplicate_of_id,
       media_urls, has_image, has_video,
-      published_at, processed_at, language
+      published_at, processed_at, language,
+      resolved_image_url
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6, $7, $8, $9,
@@ -181,28 +245,55 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $34, $35, $36, $37,
       $38, $39, $40,
       $41, $42, $43,
-      $44, NOW(), $45
-    ) RETURNING id`,
+      $44, NOW(), $45,
+      $46
+    ) ON CONFLICT (bw_resource_id) DO NOTHING
+    RETURNING id`,
     [
-      agency.id, mention.resourceId, mention.guid, mention.queryId, mention.queryName,
+      // vc(): Brandwatch entrega autores/nombres/queries que exceden los
+      // varchar(N) del schema — sin truncar, la mención entera muere con 22001
+      // y termina en la DLQ tras agotar reintentos.
+      agency.id, vc(mention.resourceId), vc(mention.guid), mention.queryId, vc(mention.queryName),
       mention.title, mention.snippet, mention.url, mention.originalUrl,
-      mention.author, mention.fullname, mention.gender, mention.avatarUrl,
-      mention.domain, mention.pageType, mention.contentSource, mention.contentSourceName, mention.pubType, mention.subtype,
+      vc(mention.author), vc(mention.fullname), vc(mention.gender, 20), mention.avatarUrl,
+      vc(mention.domain), vc(mention.pageType, 50), vc(mention.contentSource, 50), vc(mention.contentSourceName, 100), vc(mention.pubType, 50), vc(mention.subtype, 50),
       mention.likes ?? 0, mention.comments ?? 0, mention.shares ?? 0,
       mention.engagementScore ?? 0, mention.impact ?? 0, mention.reachEstimate ?? 0,
       mention.potentialAudience ?? 0, mention.monthlyVisitors ?? 0,
-      mention.country, mention.countryCode, mention.region, mention.city, mention.cityCode,
-      mention.sentiment,
+      vc(mention.country, 100), vc(mention.countryCode, 10), vc(mention.region, 100), vc(mention.city, 100), vc(mention.cityCode, 100),
+      vc(mention.sentiment, 20),
       nlp.sentiment, JSON.stringify(nlp.emotions), nlp.pertinence, nlp.summary,
       textHash, isDuplicate, duplicateOfId,
       JSON.stringify(mention.mediaUrls ?? []),
       (mention.mediaUrls?.length ?? 0) > 0 && mention.subtype === 'photo',
       mention.subtype === 'video',
       parsePublishedAt(mention), mention.language ?? 'es',
+      resolvedImageUrl,
     ],
   );
 
+  // ON CONFLICT DO NOTHING: si otra invocación concurrente insertó la misma
+  // mención entre el dedup batch y este INSERT, RETURNING no trae filas — la
+  // otra invocación ya completó (o completará) el procesamiento.
+  if (mentionResult.rows.length === 0) {
+    console.log(`[${agency.slug}] Skip-concurrent-insert: ${mention.resourceId}`);
+    return;
+  }
   const mentionId = mentionResult.rows[0].id;
+
+  // Best-effort: generar embedding del contenido para "menciones similares".
+  // No bloquea el resto del procesamiento — si Bedrock falla, la mención
+  // queda sin embedding y el backfill la recogerá después.
+  const embedInput = buildEmbeddingInput(mention.title, mention.snippet);
+  if (embedInput) {
+    const vec = await embedText(embedInput);
+    if (vec) {
+      await pgClient.query(
+        'UPDATE mentions SET embedding = $1::vector, embedded_at = NOW() WHERE id = $2',
+        [toPgvectorLiteral(vec), mentionId],
+      );
+    }
+  }
 
   // Insert topic associations
   for (const topic of nlp.topics) {
@@ -285,6 +376,17 @@ async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo)
   const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
   const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
 
+  // Construye el menú de subtopics anidado bajo cada topic padre, con sus
+  // descripciones cortas. Esto evita que Claude empareje un subtopic con un
+  // topic incorrecto (problema con la lista plana anterior).
+  const topicSubtopicMenu = agencyTopics
+    .map((t) => {
+      if (!t.subtopics.length) return `  • ${t.slug} — ${t.name}: (sin subtopics)`;
+      const subs = t.subtopics.map((s) => `      - ${s.slug} — ${s.description}`).join('\n');
+      return `  • ${t.slug} — ${t.name}:\n${subs}`;
+    })
+    .join('\n');
+
   // Pass Brandwatch's own sentiment (positive/neutral/negative) as a hint so
   // Claude has an anchor. Historically Claude was too positive — it rated
   // 5,600 "bw=neutral" news items as "positivo". The rules below bias
@@ -304,15 +406,7 @@ Fuente: ${mention.contentSourceName ?? mention.domain} (${mention.domain})
 Autor: ${mention.author ?? 'Desconocido'}
 Fecha: ${mention.date}${bwSentimentHint}
 
-Responde SOLO con JSON válido (sin markdown, sin backticks):
-{
-  "sentiment": "negativo" | "neutral" | "positivo",
-  "emotions": [],
-  "pertinence": "alta" | "media" | "baja",
-  "topics": [{ "topic_slug": "...", "subtopic_slug": "...", "confidence": 0.0 }],
-  "municipalities": [],
-  "summary": "Resumen de una línea"
-}
+Llama a la herramienta classify_mention con los campos correctos.
 
 REGLAS DE SENTIMIENTO (muy importantes — los datos actuales tienen sesgo positivo):
 - "positivo" EXCLUSIVAMENTE cuando el autor/medio expresa evaluación explícitamente favorable hacia ${agency.name}: elogios, logros celebrados por la ciudadanía, resolución de problemas agradecida, decisiones aplaudidas. Señales: "felicita", "excelente", "gracias a", "aplauden", "reconocimiento".
@@ -327,11 +421,22 @@ PERTINENCIA:
 EMOTIONS:
 - del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3. Omite el campo si el texto es meramente factual.
 
-TOPICS:
-- usar SOLO estos slugs: ${topicSlugs}
-- subtopic_slug (opcional): ${subtopicSlugs}
-- Máximo 3 tópicos por mención.
-- confidence: 0.0 a 1.0.
+TOPICS Y SUBTOPICS (menú jerárquico — el subtopic_slug DEBE pertenecer al topic_slug elegido):
+${topicSubtopicMenu}
+
+REGLAS DE TOPICS/SUBTOPICS:
+- topic_slug obligatorio. Usa SOLO uno de: ${topicSlugs}.
+- subtopic_slug opcional pero MUY recomendado. Debe ser uno de los listados bajo el topic_slug elegido. NUNCA mezcles un subtopic de un topic con otro topic.
+- Máximo 3 tópicos por mención. confidence: 0.0 a 1.0.
+
+REGLAS DE ROUTING CROSS-TOPIC (cuando la mención toca varios temas, elige UNO primario):
+- Si el post anuncia el NÚMERO DE EMPLEOS como hecho central → topic = empleo-fuerza-laboral. Si habla de la DECISIÓN/SECTOR corporativo → topic = inversion-extranjera.
+- Misión comercial España: si centra en "empresas PR exportando" → comercio-exterior; si centra en "atraer capital ES a PR" → inversion-extranjera.
+- Hotel boutique con créditos Ley 60: si la conversación es "caso de éxito turístico" → turismo-economia; si es "controversia Ley 60" → incentivos-economicos.
+- Compañía Turismo separación: legislacion-economica (NO turismo-economia).
+- OGPe / PC 1183 / inspecciones bomberos: si discute "permisos como sistema" → permisos-reforma; si discute "DDEC como agencia receptora/cedente de funciones" → legislacion-economica.
+- Críticas dirigidas a la PERSONA del Secretario (credibilidad, gestión, viajes): topic = gestion-secretario con sentiment=negativo; reserva criticas-controversias para críticas al PROYECTO o al MODELO económico, no a la persona.
+- FITUR: turismo-economia.fitur-y-promocion-internacional (NO comercio-exterior).
 
 MUNICIPALITIES:
 - Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).
@@ -347,7 +452,42 @@ MUNICIPALITIES:
     modelsToTry.push(BEDROCK_FALLBACK_MODEL_ID);
   }
 
-  let text: string | null = null;
+  // Bedrock tool-use con input_schema: garantiza un objeto estructurado y
+  // elimina parse-errors de JSON crudo (rompe con `"`/`\n` mal escapados).
+  const classifyTool = {
+    name: 'classify_mention',
+    description: 'Registra la clasificación NLP de una mención de social listening sobre la agencia.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sentiment: { type: 'string', enum: ['negativo', 'neutral', 'positivo'] },
+        emotions: {
+          type: 'array',
+          maxItems: 3,
+          items: { type: 'string', enum: ['frustración', 'enojo', 'alivio', 'gratitud', 'preocupación', 'sarcasmo', 'indiferencia'] },
+        },
+        pertinence: { type: 'string', enum: ['alta', 'media', 'baja'] },
+        topics: {
+          type: 'array',
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              topic_slug: { type: 'string' },
+              subtopic_slug: { type: 'string' },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+            },
+            required: ['topic_slug', 'confidence'],
+          },
+        },
+        municipalities: { type: 'array', items: { type: 'string' } },
+        summary: { type: 'string' },
+      },
+      required: ['sentiment', 'pertinence', 'summary'],
+    },
+  };
+
+  let parsed: NlpAnalysis | null = null;
   let lastErr: unknown = null;
   for (const modelId of modelsToTry) {
     try {
@@ -359,13 +499,21 @@ MUNICIPALITIES:
           body: JSON.stringify({
             anthropic_version: 'bedrock-2023-05-31',
             max_tokens: 1024,
-            messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
+            messages: [{ role: 'user', content: prompt }],
+            tools: [classifyTool],
+            tool_choice: { type: 'tool', name: 'classify_mention' },
           }),
         }),
       );
       const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-      text = responseBody.content[0].text;
+      const blocks = (responseBody.content ?? []) as Array<{ type: string; input?: unknown }>;
+      const toolUse = blocks.find((b) => b.type === 'tool_use');
+      if (!toolUse?.input) {
+        lastErr = new Error(`Bedrock returned no tool_use block (stop_reason=${responseBody.stop_reason})`);
+        continue;
+      }
+      parsed = toolUse.input as NlpAnalysis;
       break;
     } catch (err) {
       lastErr = err;
@@ -377,17 +525,9 @@ MUNICIPALITIES:
       throw err;
     }
   }
-  if (text === null) {
-    throw lastErr ?? new Error('No Bedrock model produced a response');
-  }
 
-  try {
-    // Strip markdown code fences if present
-    const cleanText = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleanText) as NlpAnalysis;
-    return validateNlpResult(parsed, agency.slug);
-  } catch (err) {
-    console.error(`[${agency.slug}] Failed to parse NLP response for ${mention.resourceId}:`, text);
+  if (parsed === null) {
+    console.error(`[${agency.slug}] Bedrock failed for ${mention.resourceId}:`, lastErr);
     return {
       sentiment: 'neutral',
       emotions: [],
@@ -397,6 +537,8 @@ MUNICIPALITIES:
       summary: 'Error en análisis NLP',
     };
   }
+
+  return validateNlpResult(parsed, agency.slug);
 }
 
 function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
@@ -421,6 +563,140 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
     municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
     summary: (raw.summary ?? '').slice(0, 500),
   };
+}
+
+async function reprocessNlpErrors(
+  pgClient: any,
+  action: 'reprocess-nlp-errors' | 'reprocess-unclassified' = 'reprocess-nlp-errors',
+  limit?: number,
+): Promise<{ reprocessed: number; failed: number; remaining: number; details: any[] }> {
+  // 'reprocess-unclassified': menciones procesadas sin fila en mention_topics.
+  // Pasa cuando Claude devuelve un topic_slug fuera del catálogo de la agencia
+  // (el INSERT hace `continue` silencioso) o cuando topics llegó vacío. Sin
+  // esta acción quedan huérfanas para siempre — ningún cron las reintenta.
+  // Cooldown vía processed_at: el reproceso "toca" processed_at al terminar,
+  // así una mención reanalizada que legítimamente queda sin tópico (spam,
+  // posts solo-foto) no se vuelve a analizar hasta dentro de 3 días en vez de
+  // re-quemarse Bedrock con el mismo ruido cada corrida. Prioridad: alta >
+  // media > baja, porque las alta huérfanas son casi siempre misses reales.
+  const where = action === 'reprocess-unclassified'
+    ? `m.is_duplicate = false
+       AND m.processed_at IS NOT NULL
+       AND m.processed_at < NOW() - INTERVAL '3 days'
+       AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)`
+    : `m.nlp_summary = 'Error en análisis NLP'`;
+  const orderBy = action === 'reprocess-unclassified'
+    ? `CASE m.nlp_pertinence WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, m.published_at DESC`
+    : `m.published_at DESC`;
+  const cap = Math.max(1, Math.min(limit ?? 200, 500));
+  const errors = await pgClient.query(`
+    SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
+           m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
+           m.author, m.published_at, m.bw_sentiment, m.language,
+           m.agency_id, a.slug AS agency_slug, a.name AS agency_name
+      FROM mentions m JOIN agencies a ON a.id = m.agency_id
+     WHERE ${where}
+     ORDER BY ${orderBy}
+     LIMIT ${cap}`);
+
+  console.log(`[${action}] Found ${errors.rows.length} mentions to retry (cap ${cap})`);
+
+  const details: any[] = [];
+  let reprocessed = 0;
+  let failed = 0;
+
+  const processRow = async (row: any): Promise<void> => {
+    const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name };
+    const mention: BrandwatchMention = {
+      resourceId: row.bw_resource_id,
+      guid: row.bw_guid,
+      queryId: row.bw_query_id,
+      queryName: row.bw_query_name,
+      title: row.title,
+      snippet: row.snippet,
+      url: row.url,
+      domain: row.domain,
+      contentSource: row.content_source,
+      contentSourceName: row.content_source_name,
+      author: row.author,
+      date: (row.published_at instanceof Date ? row.published_at.toISOString() : row.published_at),
+      sentiment: row.bw_sentiment,
+      language: row.language,
+    } as BrandwatchMention;
+
+    try {
+      const nlp = await analyzeWithClaude(mention, agency);
+      if (nlp.summary === 'Error en análisis NLP') {
+        throw new Error('Bedrock still returns error (tool-use fallback)');
+      }
+
+      await pgClient.query(
+        `UPDATE mentions
+            SET nlp_sentiment = $1,
+                nlp_emotions = $2,
+                nlp_pertinence = $3,
+                nlp_summary = $4,
+                processed_at = NOW()
+          WHERE id = $5`,
+        [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
+      );
+
+      await pgClient.query('DELETE FROM mention_topics WHERE mention_id = $1', [row.id]);
+      for (const t of nlp.topics ?? []) {
+        const topicRow = await pgClient.query(
+          'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
+          [t.topic_slug, row.agency_id],
+        );
+        if (topicRow.rows.length === 0) continue;
+        let subtopicId: number | null = null;
+        if (t.subtopic_slug) {
+          const subRow = await pgClient.query(
+            'SELECT id FROM subtopics WHERE slug = $1 AND topic_id = $2',
+            [t.subtopic_slug, topicRow.rows[0].id],
+          );
+          subtopicId = subRow.rows[0]?.id ?? null;
+        }
+        await pgClient.query(
+          `INSERT INTO mention_topics (mention_id, topic_id, subtopic_id, confidence)
+           VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+          [row.id, topicRow.rows[0].id, subtopicId, t.confidence],
+        );
+      }
+
+      await pgClient.query(`DELETE FROM mention_municipalities WHERE mention_id = $1 AND source = 'nlp'`, [row.id]);
+      for (const muniSlug of nlp.municipalities ?? []) {
+        const muniRow = await pgClient.query('SELECT id FROM municipalities WHERE slug = $1', [muniSlug]);
+        if (muniRow.rows.length > 0) {
+          await pgClient.query(
+            `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
+             VALUES ($1, $2, 'nlp') ON CONFLICT DO NOTHING`,
+            [row.id, muniRow.rows[0].id],
+          );
+        }
+      }
+
+      reprocessed++;
+      details.push({ id: row.id, status: 'ok', sentiment: nlp.sentiment, pertinence: nlp.pertinence, topics: (nlp.topics ?? []).length });
+    } catch (err: any) {
+      failed++;
+      details.push({ id: row.id, status: 'failed', error: String(err?.message ?? err) });
+      console.error(`[${action}] mention ${row.id} failed:`, err);
+    }
+  };
+
+  // Chunks de 4: Bedrock corre concurrente (el cuello real); pg.Client
+  // serializa las queries internamente, así que no hay carrera en DB.
+  const CHUNK = 4;
+  for (let i = 0; i < errors.rows.length; i += CHUNK) {
+    await Promise.allSettled(errors.rows.slice(i, i + CHUNK).map(processRow));
+  }
+
+  const remainingRes = await pgClient.query(
+    `SELECT count(*)::int AS n FROM mentions m WHERE ${where}`,
+  );
+  const remaining = remainingRes.rows[0]?.n ?? 0;
+  console.log(`[${action}] done: ok=${reprocessed} failed=${failed} remaining=${remaining}`);
+  return { reprocessed, failed, remaining, details };
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Panorama Estratégico</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="shell.css" />
+  <style>
+    /* ================= Fila de modos (segmented control) ================= */
+    .mode-row {
+      align-self: flex-start;
+      display: inline-flex; gap: 4px; padding: 4px;
+      background: var(--canvas-2); border: 1px solid var(--hairline);
+      border-radius: 10px;
+    }
+    [data-theme="mando"] .mode-row { border-radius: 8px; }
+    .mode-chip {
+      padding: 7px 14px; font-size: 12.5px; font-weight: 600;
+      color: var(--text-3); border-radius: 7px; letter-spacing: -0.01em;
+      white-space: nowrap; transition: color .15s var(--ease), background .15s var(--ease);
+    }
+    [data-theme="mando"] .mode-chip { border-radius: 6px; }
+    .mode-chip:hover { color: var(--text-2); background: rgba(255,255,255,0.035); }
+    .mode-chip.active {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 2px 10px -3px var(--accent);
+    }
+
+    /* ================= Tira de KPIs ================= */
+    .stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .stat { padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; }
+    .stat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .stat-label { font-size: 10px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; }
+    .stat-row { display: flex; align-items: flex-end; gap: 10px; justify-content: space-between; }
+    .stat-num { font-size: 27px; font-weight: 600; line-height: 1; color: var(--text); }
+    .stat-delta { font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+    .stat-sub { font-size: 10px; color: var(--text-3); }
+
+    /* ================= Layout 2 columnas ================= */
+    .pano-body { display: grid; grid-template-columns: minmax(0,1fr) 384px; gap: 16px; align-items: start; }
+    .pano-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+    /* ---- Matriz (izquierda) ---- */
+    .matrix-card { display: flex; flex-direction: column; min-height: 0; height: 600px; padding: 0; overflow: hidden; }
+    .mc-head {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+      padding: 15px 20px 12px; border-bottom: 1px solid var(--hairline);
+    }
+    .mc-title { font-family: var(--ff-display); font-size: 19px; font-weight: 600; color: var(--text); letter-spacing: var(--letter-display); line-height: 1.05; }
+    .mc-sub { font-size: 11.5px; color: var(--text-2); margin-top: 4px; max-width: 520px; line-height: 1.4; }
+    .mc-axes-mini { display: flex; gap: 18px; align-items: center; flex: 0 0 auto; }
+    .mc-axes-mini .sep { width: 1px; height: 26px; background: var(--hairline-strong); }
+    .axis-key { display: flex; flex-direction: column; gap: 2px; text-align: right; }
+    .axis-key .k-lab { font-size: 9px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.12em; }
+    .axis-key .k-val { font-size: 12px; font-weight: 600; color: var(--text-2); }
+    .mc-svg-wrap { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 6px 10px 8px; }
+    .mc-svg-wrap svg { display: block; width: 100%; height: 100%; }
+
+    .bubble-grp { cursor: default; }
+    .bubble-grp .b-core { transition: filter 0.18s var(--ease); }
+    .bubble-grp:hover .b-core { filter: brightness(1.18); }
+    .b-label { font-family: var(--ff-display); font-weight: 600; letter-spacing: -0.01em; }
+    .b-sub { font-family: var(--ff-mono); }
+    .quad-label { font-family: var(--ff-display); font-weight: 700; letter-spacing: 0.02em; }
+    .quad-sub { font-family: var(--ff-mono); font-weight: 500; letter-spacing: 0.06em; }
+    .ax-tick { font-family: var(--ff-mono); font-size: 10px; fill: var(--text-3); }
+    .ax-name { font-family: var(--ff-display); font-size: 11px; font-weight: 700; fill: var(--text-2); letter-spacing: 0.04em; }
+    .ax-end { font-family: var(--ff-mono); font-size: 9.5px; fill: var(--text-3); letter-spacing: 0.08em; }
+
+    /* ---- Bandeja "En integración" (debajo de la matriz) ---- */
+    .tray-card {
+      padding: 0; border: 1px dashed var(--hairline-strong);
+      background: linear-gradient(180deg, var(--canvas), var(--canvas-2));
+    }
+    .tray-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px; border-bottom: 1px dashed var(--hairline);
+    }
+    .tray-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--warn); background: var(--warn-bg);
+      border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+      padding: 3px 8px; border-radius: 3px; white-space: nowrap;
+    }
+    .tray-title { font-family: var(--ff-display); font-size: 13px; font-weight: 600; color: var(--text); }
+    .tray-note { margin-left: auto; font-size: 10.5px; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+    .tray-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px 16px; }
+    .pl-item {
+      display: flex; align-items: center; gap: 13px;
+      padding: 12px 14px; border: 1px dashed var(--hairline-strong);
+      border-radius: 8px; background: rgba(255,255,255,0.012);
+    }
+    [data-theme="mando"] .pl-item { border-radius: 6px; }
+    .pl-bubble { flex: 0 0 auto; }
+    .pl-mid { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .pl-name-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pl-name { font-size: 13px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+    .pl-sector {
+      font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+      border: 1px dashed var(--hairline-strong); color: var(--text-3); background: transparent;
+    }
+    .pl-pill {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text-3); border: 1px dashed var(--hairline-strong);
+      padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+    }
+    .pl-metrics { display: flex; align-items: baseline; gap: 12px; }
+    .pl-dash { font-family: var(--ff-mono); font-size: 18px; font-weight: 600; color: var(--text-3); line-height: 1; }
+    .pl-collect { font-size: 10px; color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+    .pl-collect .cdot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
+
+    /* ================= Riel derecho ================= */
+    .rail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .rail-card { padding: 0; }
+    .rc-head { padding: 13px 16px 11px; border-bottom: 1px solid var(--hairline); }
+    .rc-eyebrow { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.14em; }
+    .rc-title { font-family: var(--ff-display); font-size: 15px; font-weight: 600; color: var(--text); margin-top: 3px; letter-spacing: var(--letter-display); }
+    .rc-body { padding: 13px 16px; }
+
+    /* ---- leyenda "Cómo leer" ---- */
+    .legend-block + .legend-block { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+    .legend-lab { font-size: 10px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 9px; }
+    .legend-sizes { display: flex; align-items: flex-end; justify-content: space-around; gap: 6px; }
+    .legend-sizes .ls { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .legend-sizes svg { display: block; overflow: visible; }
+    .ls-val { font-family: var(--ff-mono); font-size: 10px; color: var(--text-2); font-weight: 500; }
+    .legend-swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 12px; }
+    .sw { display: flex; align-items: center; gap: 8px; }
+    .sw-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+    .sw-txt { display: flex; flex-direction: column; line-height: 1.15; }
+    .sw-name { font-size: 11px; font-weight: 600; }
+    .sw-rng { font-family: var(--ff-mono); font-size: 9px; color: var(--text-3); }
+
+    /* ---- lista "Atender ya" ---- */
+    .crit-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .crit-head-left { display: flex; align-items: center; gap: 8px; }
+    .crit-dot { width: 8px; height: 8px; background: var(--neg); flex: 0 0 auto; border-radius: 50%; }
+    .crit-title { font-family: var(--ff-display); font-size: 13.5px; font-weight: 600; color: var(--text); }
+    .crit-count { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; color: var(--neg); background: var(--neg-bg); padding: 2px 8px; border-radius: 999px; }
+    .crit-row {
+      display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center;
+      padding: 8px 16px; border-top: 1px solid var(--hairline);
+    }
+    .crit-row:first-child { border-top: none; }
+    .crit-rank { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; color: var(--text-3); text-align: center; }
+    .crit-mid { min-width: 0; }
+    .crit-name-line { display: flex; align-items: center; gap: 7px; }
+    .crit-name { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+    .crit-bar { display: flex; height: 4px; border-radius: 3px; overflow: hidden; background: rgba(125,125,125,.18); margin-top: 5px; }
+    .crit-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+    .crit-nss { font-family: var(--ff-mono); font-size: 13px; font-weight: 600; line-height: 1; }
+    .crit-vol { font-family: var(--ff-mono); font-size: 9.5px; color: var(--text-3); }
+    .pill-sm { font-size: 9px; padding: 2px 6px; }
+    .takeaway {
+      margin: 0; padding: 11px 14px; border-top: 1px solid var(--hairline);
+      background: linear-gradient(180deg, transparent, var(--neg-bg));
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .takeaway .tk-icon {
+      flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--neg-bg); color: var(--neg); display: grid; place-items: center;
+      font-size: 12px; font-weight: 700; border: 1px solid color-mix(in oklab, var(--neg) 35%, transparent);
+    }
+    .takeaway p { margin: 0; font-size: 11px; line-height: 1.42; color: var(--text-2); }
+    .takeaway b { color: var(--text); font-weight: 600; }
+    .tk-neg { color: var(--neg); font-weight: 600; }
+
+    /* ---- Top / Fondo de la tabla ---- */
+    .tf-split-label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px 7px; background: var(--canvas-2);
+      border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+    }
+    .tf-split-label:first-of-type { border-top: none; }
+    .tf-split-txt { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+    .tf-split-line { flex: 1; height: 1px; }
+    .tf-row {
+      display: grid; grid-template-columns: 20px 1fr auto auto; gap: 10px; align-items: center;
+      padding: 8px 16px; border-top: 1px solid var(--hairline);
+    }
+    .tf-row:first-child { border-top: none; }
+    .tf-pos { font-family: var(--ff-mono); font-size: 12px; font-weight: 700; color: var(--text-3); text-align: center; }
+    .tf-name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .tf-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+    .tf-name { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+    .tf-full { font-size: 9.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tf-bhi { font-family: var(--ff-numeric); font-size: 17px; font-weight: 600; line-height: 1; color: var(--text); text-align: right; }
+    .tf-pill { font-size: 9px; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="data.js"></script>
+  <script src="shell.js"></script>
+  <script>
+  (function () {
+    const M = window.MOCK;
+    const A = M.agencies;
+    const G = M.gov;
+    const f = M.fmt;
+    const hsl = (a, l) => `hsl(${a.hue} 52% ${l}%)`;
+
+    /* =====================================================================
+       1) FILA DE MODOS
+    ===================================================================== */
+    const MODES = ['Resumen ejecutivo', 'Tabla de posiciones', 'Gabinete', 'Matriz', 'Radar de crisis'];
+    const modeRow = `<div class="mode-row">` +
+      MODES.map((m, i) => `<button class="mode-chip${i === 0 ? ' active' : ''}">${m}</button>`).join('') +
+      `</div>`;
+
+    /* =====================================================================
+       2) TIRA DE KPIs DEL GOBIERNO
+    ===================================================================== */
+    function sparkSVG(arr, w, h, color) {
+      const s = M.spark(arr, w, h, 3);
+      return `<svg width="${w}" height="${h}" style="display:block;overflow:visible">
+        <path d="${s.area}" fill="${color}" opacity="0.10"/>
+        <path d="${s.line}" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${s.last[0].toFixed(1)}" cy="${s.last[1].toFixed(1)}" r="2.4" fill="${color}" stroke="var(--canvas)" stroke-width="1.2"/>
+      </svg>`;
+    }
+    function bhiDeltaHTML(d) {
+      const c = d > 0 ? 'var(--pos)' : d < 0 ? 'var(--neg)' : 'var(--text-3)';
+      const arrow = d > 0 ? '▲' : d < 0 ? '▼' : '—';
+      return `<span class="stat-delta" style="color:${c}">${arrow} ${f.signed(d)}</span>`;
+    }
+    const crisisDeltaC = G.crisisDelta > 0 ? 'var(--neg)' : G.crisisDelta < 0 ? 'var(--pos)' : 'var(--text-3)';
+    const govCB = M.crisisBand(G.crisis);
+    const govSpark = (arr, color) => sparkSVG(arr, 78, 28, color);
+
+    const stats = `
+      <div class="stat-strip">
+        <div class="card stat">
+          <div class="stat-top">
+            <span class="stat-label">Índice de Salud</span>
+            ${bhiDeltaHTML(G.bhiDelta)}
+          </div>
+          <div class="stat-row">
+            <span class="stat-num num">${G.bhi}</span>
+            ${govSpark(G.trend, 'var(--accent)')}
+          </div>
+          <div class="stat-sub">Compuesto ponderado · banda Débil</div>
+        </div>
+
+        <div class="card stat">
+          <div class="stat-top">
+            <span class="stat-label">Sentimiento Neto</span>
+            <span class="stat-delta" style="color:var(--neg)">▼ ${f.signed(G.nssDelta)}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-num num" style="color:var(--neg)">${f.signed(G.nss)}</span>
+            ${govSpark(G.nssTrend, 'var(--neg)')}
+          </div>
+          <div class="stat-sub">${G.positivePct}% pos · ${G.neutralPct}% neu · ${G.negativePct}% neg</div>
+        </div>
+
+        <div class="card stat">
+          <div class="stat-top">
+            <span class="stat-label">Riesgo de Crisis</span>
+            <span class="pill ${govCB.cls}">${govCB.label}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-num num" style="color:var(--neg)">${G.crisis.toFixed(2)}</span>
+            <span class="stat-delta" style="color:${crisisDeltaC}">▲ ${f.signed(G.crisisDelta, 2)}</span>
+          </div>
+          <div class="stat-sub">${G.inCrisis} en crisis · ${G.inAlert} en alerta</div>
+        </div>
+
+        <div class="card stat">
+          <div class="stat-top">
+            <span class="stat-label">Menciones · 7 días</span>
+            <span class="stat-delta" style="color:var(--neg)">▲ +${G.volDelta}%</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-num num">${f.compact(G.vol)}</span>
+            ${govSpark(G.trend.map((v, i) => v + (G.crisisTrend[i] * 40)), 'var(--text-2)')}
+          </div>
+          <div class="stat-sub">Alcance ${f.compact(G.reach)} personas</div>
+        </div>
+      </div>`;
+
+    /* =====================================================================
+       3-IZQ) MATRIZ ESTRATÉGICA (scatter 2×2 SVG a mano)
+    ===================================================================== */
+    const W = 824, H = 580;
+    const padL = 74, padR = 30, padT = 42, padB = 52;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    // X: Sentimiento Neto  [-55, +55]
+    const NSS_MIN = -55, NSS_MAX = 55;
+    const xScale = (nss) => padL + ((nss - NSS_MIN) / (NSS_MAX - NSS_MIN)) * plotW;
+
+    // r: sqrt(reach), clamp
+    const reaches = A.map((a) => a.reach);
+    const srMin = Math.sqrt(Math.min.apply(null, reaches));
+    const srMax = Math.sqrt(Math.max.apply(null, reaches));
+    const R_MIN = 14, R_MAX = 44;
+    const rScale = (reach) => R_MIN + ((Math.sqrt(reach) - srMin) / (srMax - srMin)) * (R_MAX - R_MIN);
+
+    // Y: Atención (volumen) sqrt, alto = arriba
+    const vols = A.map((a) => a.vol);
+    const minVol = Math.min.apply(null, vols), maxVol = Math.max.apply(null, vols);
+    const sMin = Math.sqrt(minVol), sMax = Math.sqrt(maxVol);
+    const yInsetTop = R_MAX + 8, yInsetBot = R_MIN + 12;
+    const yTopBand = padT + yInsetTop;
+    const yBotBand = (H - padB) - yInsetBot;
+    const yScale = (vol) => yBotBand - ((Math.sqrt(vol) - sMin) / (sMax - sMin)) * (yBotBand - yTopBand);
+
+    const x0 = xScale(0);
+    const ATTN_MID = 11000;
+    const yMid = yScale(ATTN_MID);
+
+    function buildMatrix() {
+      let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Matriz estratégica de agencias por sentimiento y atención">`;
+
+      s += `<defs>
+        <linearGradient id="qTL" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--neg)" stop-opacity="0.10"/>
+          <stop offset="1" stop-color="var(--neg)" stop-opacity="0.015"/>
+        </linearGradient>
+        <linearGradient id="qTR" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--pos)" stop-opacity="0.10"/>
+          <stop offset="1" stop-color="var(--pos)" stop-opacity="0.015"/>
+        </linearGradient>
+        <linearGradient id="qBL" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="var(--warn)" stop-opacity="0.085"/>
+          <stop offset="1" stop-color="var(--warn)" stop-opacity="0.012"/>
+        </linearGradient>
+        <linearGradient id="qBR" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.085"/>
+          <stop offset="1" stop-color="var(--accent)" stop-opacity="0.012"/>
+        </linearGradient>
+      </defs>`;
+
+      // marco del plot
+      s += `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" rx="8" fill="var(--canvas-2)" stroke="var(--hairline)" stroke-width="1"/>`;
+
+      // tintes de cuadrante
+      s += `<g>
+        <rect x="${padL}" y="${padT}" width="${x0 - padL}" height="${yMid - padT}" fill="url(#qTL)"/>
+        <rect x="${x0}" y="${padT}" width="${(W - padR) - x0}" height="${yMid - padT}" fill="url(#qTR)"/>
+        <rect x="${padL}" y="${yMid}" width="${x0 - padL}" height="${(H - padB) - yMid}" fill="url(#qBL)"/>
+        <rect x="${x0}" y="${yMid}" width="${(W - padR) - x0}" height="${(H - padB) - yMid}" fill="url(#qBR)"/>
+      </g>`;
+
+      // gridlines X
+      const xticks = [-40, -20, 0, 20, 40];
+      xticks.forEach((t) => {
+        const xx = xScale(t);
+        const isCenter = t === 0;
+        s += `<line x1="${xx.toFixed(1)}" y1="${padT}" x2="${xx.toFixed(1)}" y2="${H - padB}"
+                stroke="${isCenter ? 'var(--hairline-strong)' : 'var(--hairline)'}"
+                stroke-width="${isCenter ? 1.25 : 1}"
+                ${isCenter ? 'stroke-dasharray="5 4"' : 'opacity="0.5"'}/>`;
+      });
+      // línea horizontal de atención
+      s += `<line x1="${padL}" y1="${yMid.toFixed(1)}" x2="${W - padR}" y2="${yMid.toFixed(1)}"
+              stroke="var(--hairline-strong)" stroke-width="1" stroke-dasharray="5 4" opacity="0.7"/>`;
+
+      // rótulos de cuadrante
+      const qLabel = (xc, yc, anchor, color, line1, line2) =>
+        `<g opacity="0.9">
+          <text x="${xc}" y="${yc}" text-anchor="${anchor}" class="quad-label" font-size="20" fill="${color}" opacity="0.34">${line1}</text>
+          <text x="${xc}" y="${yc + 15}" text-anchor="${anchor}" class="quad-sub" font-size="9.5" fill="${color}" opacity="0.6">${line2}</text>
+        </g>`;
+      s += qLabel(padL + 16, padT + 26, 'start', 'var(--neg)', 'ATENDER YA', 'alta atención · sentimiento −');
+      s += qLabel(W - padR - 16, padT + 26, 'end', 'var(--pos)', 'AMPLIFICAR', 'alta atención · sentimiento +');
+      s += qLabel(padL + 16, H - padB - 24, 'start', 'var(--warn)', 'VIGILAR', 'baja atención · sentimiento −');
+      s += qLabel(W - padR - 16, H - padB - 24, 'end', 'var(--accent)', 'SOSTENER', 'baja atención · sentimiento +');
+
+      // ejes X: números
+      xticks.forEach((t) => {
+        const xx = xScale(t);
+        s += `<text x="${xx.toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" class="ax-tick">${f.signed(t)}</text>`;
+      });
+      s += `<text x="${(padL + (W - padR)) / 2}" y="${H - 10}" text-anchor="middle" class="ax-name">Sentimiento Neto →</text>`;
+      s += `<text x="${padL + 2}" y="${H - 10}" text-anchor="start" class="ax-end">negativo</text>`;
+      s += `<text x="${W - padR - 2}" y="${H - 10}" text-anchor="end" class="ax-end">positivo</text>`;
+
+      // eje Y
+      s += `<text x="18" y="${padT + plotH / 2}" text-anchor="middle" class="ax-name"
+              transform="rotate(-90 18 ${padT + plotH / 2})">Atención (volumen) ↑</text>`;
+      const yRefs = [
+        { v: maxVol, lab: f.compact(maxVol) },
+        { v: ATTN_MID, lab: f.compact(ATTN_MID) },
+        { v: minVol, lab: f.compact(minVol) },
+      ];
+      yRefs.forEach((rf) => {
+        const yy = yScale(rf.v);
+        s += `<line x1="${padL - 5}" y1="${yy.toFixed(1)}" x2="${padL}" y2="${yy.toFixed(1)}" stroke="var(--hairline-strong)" stroke-width="1"/>`;
+        s += `<text x="${padL - 9}" y="${(yy + 3).toFixed(1)}" text-anchor="end" class="ax-tick" style="font-size:9px">${rf.lab}</text>`;
+      });
+
+      // burbujas (mayores primero)
+      const ordered = A.slice().sort((a, b) => b.reach - a.reach);
+      const labelCfg = {
+        energia: { mode: 'in' }, salud: { mode: 'in' }, educacion: { mode: 'in' }, dtop: { mode: 'in' },
+        seguridad: { mode: 'out', place: 'above', anchor: 'mid' },
+        aaa: { mode: 'out', place: 'below', anchor: 'mid' },
+        turismo: { mode: 'out', place: 'above', anchor: 'mid' },
+        ddec: { mode: 'out', place: 'below', anchor: 'mid' },
+        drna: { mode: 'out', place: 'right', anchor: 'start' },
+        vivienda: { mode: 'out', place: 'above', anchor: 'mid' },
+        familia: { mode: 'out', place: 'left', anchor: 'end' },
+        justicia: { mode: 'out', place: 'below', anchor: 'mid' },
+        dtrh: { mode: 'out', place: 'above', anchor: 'mid' },
+      };
+
+      let bubbles = '';
+      ordered.forEach((a) => {
+        const r = rScale(a.reach);
+        const cb = M.crisisBand(a.crisis);
+        const cfg = labelCfg[a.key] || { mode: 'out', anchor: 'mid', place: 'below' };
+        const halo = a.crisis >= 0.60 ? 7 : (a.crisis >= 0.40 ? 4 : 0);
+        const m = r + halo + 2;
+        const cx = Math.max(padL + m, Math.min(W - padR - m, xScale(a.nss)));
+        const cy = Math.max(padT + m, Math.min(H - padB - m, yScale(a.vol)));
+
+        let g = `<g class="bubble-grp">`;
+        if (a.crisis >= 0.40) {
+          g += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + halo).toFixed(1)}"
+                  fill="${cb.color}" opacity="${a.crisis >= 0.60 ? 0.10 : 0.07}"/>`;
+        }
+        g += `<circle class="b-core" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}"
+                fill="${cb.color}" fill-opacity="0.22" stroke="${cb.color}" stroke-width="1.5"/>`;
+
+        if (cfg.mode === 'in') {
+          g += `<text x="${cx.toFixed(1)}" y="${(cy - 2).toFixed(1)}" text-anchor="middle" class="b-label"
+                  font-size="${r > 34 ? 13 : 12}" fill="var(--text)">${a.short}</text>`;
+          g += `<text x="${cx.toFixed(1)}" y="${(cy + 11).toFixed(1)}" text-anchor="middle" class="b-sub"
+                  font-size="9" fill="${cb.color}" opacity="0.95">Crisis ${a.crisis.toFixed(2)}</text>`;
+        } else {
+          const gap = 5;
+          let lx = cx, ly = cy;
+          const ta = cfg.anchor === 'mid' ? 'middle' : cfg.anchor;
+          if (cfg.place === 'above') { ly = cy - r - gap - 2; }
+          else if (cfg.place === 'below') { ly = cy + r + gap + 9; }
+          else if (cfg.place === 'right') { lx = cx + r + gap; ly = cy + 4; }
+          else if (cfg.place === 'left') { lx = cx - r - gap; ly = cy + 4; }
+          g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${ta}" class="b-label"
+                  font-size="11.5" fill="var(--text)">${a.short}</text>`;
+        }
+        g += `</g>`;
+        bubbles += g;
+      });
+      s += bubbles;
+      s += `</svg>`;
+      return s;
+    }
+
+    const axesMini = `
+      <div class="mc-axes-mini">
+        <div class="axis-key"><span class="k-lab">Eje X</span><span class="k-val">Sentimiento Neto</span></div>
+        <div class="sep"></div>
+        <div class="axis-key"><span class="k-lab">Eje Y</span><span class="k-val">Atención · volumen</span></div>
+      </div>`;
+
+    const matrixCard = `
+      <div class="card matrix-card">
+        <div class="mc-head">
+          <div>
+            <div class="mc-title">Matriz Estratégica — ${G.agenciesTracked} agencias</div>
+            <div class="mc-sub">Cada agencia por <b>sentimiento</b> (horizontal) y <b>atención pública</b> (vertical). El cuadrante define la acción: atender, amplificar, vigilar o sostener.</div>
+          </div>
+          ${axesMini}
+        </div>
+        <div class="mc-svg-wrap">${buildMatrix()}</div>
+      </div>`;
+
+    /* ---- Bandeja "En integración" (placeholders inline, sin coordenadas) ---- */
+    const BUILDING = [
+      { name: 'Departamento de Hacienda', short: 'Hacienda', sector: 'Económico' },
+      { name: 'Departamento de Corrección y Rehabilitación', short: 'DCR', sector: 'Seguridad' },
+    ];
+    function hollowBubble() {
+      return `<svg width="54" height="54" viewBox="0 0 54 54" class="pl-bubble">
+        <circle cx="27" cy="27" r="21" fill="none" stroke="var(--hairline-strong)" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <circle cx="27" cy="27" r="3" fill="var(--text-3)" opacity="0.5"/>
+      </svg>`;
+    }
+    const trayItems = BUILDING.map((b) => `
+      <div class="pl-item">
+        ${hollowBubble()}
+        <div class="pl-mid">
+          <div class="pl-name-line">
+            <span class="pl-name">${b.short}</span>
+            <span class="pl-sector">${b.sector}</span>
+            <span class="pl-pill">En integración</span>
+          </div>
+          <div class="pl-metrics">
+            <span class="pl-dash">—</span>
+            <span class="pl-collect"><span class="cdot pulse"></span>Recopilando data…</span>
+          </div>
+        </div>
+      </div>`).join('');
+
+    const trayCard = `
+      <div class="card tray-card">
+        <div class="tray-head">
+          <span class="tray-badge">En integración</span>
+          <span class="tray-title">Sin data aún — cobertura en construcción</span>
+          <span class="tray-note">2 agencias · entran a la matriz al completar la línea base</span>
+        </div>
+        <div class="tray-grid">${trayItems}</div>
+      </div>`;
+
+    /* =====================================================================
+       3-DER) RIEL: Cómo leer · Atender ya · Top/Fondo
+    ===================================================================== */
+    // -- Cómo leer --
+    function refCircle(reach, boxW, boxH) {
+      const r = rScale(reach);
+      return `<svg width="${boxW}" height="${boxH}">
+        <circle cx="${boxW / 2}" cy="${boxH - r - 1}" r="${r.toFixed(1)}"
+          fill="var(--text-2)" fill-opacity="0.14" stroke="var(--text-2)" stroke-width="1.25"/>
+      </svg>`;
+    }
+    const refSmall = 720000, refMed = 3200000, refLarge = 7800000;
+    const rLarge = rScale(refLarge);
+    const sizeBoxH = rLarge * 2 + 6, sizeBoxW = rLarge * 2 + 8;
+
+    const bands = [
+      { label: 'NORMAL', color: 'var(--pos)', rng: '< 0.25' },
+      { label: 'ELEVADO', color: 'var(--warn)', rng: '0.25–0.40' },
+      { label: 'ALERTA', color: 'var(--neg)', rng: '0.40–0.60' },
+      { label: 'CRISIS', color: 'var(--neg)', rng: '≥ 0.60' },
+    ];
+    const swatchHTML = bands.map((b) => `
+      <div class="sw">
+        <span class="sw-dot" style="background:${b.color};${b.label === 'CRISIS' ? 'box-shadow:0 0 0 2px var(--neg-bg);' : ''}"></span>
+        <span class="sw-txt">
+          <span class="sw-name" style="color:${b.color}">${b.label}</span>
+          <span class="sw-rng">${b.rng}</span>
+        </span>
+      </div>`).join('');
+
+    const legendCard = `
+      <div class="card rail-card">
+        <div class="rc-head">
+          <div class="rc-eyebrow">Cómo leer la matriz</div>
+          <div class="rc-title">Tamaño · Color</div>
+        </div>
+        <div class="rc-body">
+          <div class="legend-block">
+            <div class="legend-lab">Tamaño = Alcance</div>
+            <div class="legend-sizes">
+              <div class="ls">${refCircle(refSmall, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refSmall)}</span></div>
+              <div class="ls">${refCircle(refMed, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refMed)}</span></div>
+              <div class="ls">${refCircle(refLarge, sizeBoxW, sizeBoxH)}<span class="ls-val">${f.compact(refLarge)}</span></div>
+            </div>
+          </div>
+          <div class="legend-block">
+            <div class="legend-lab">Color = Riesgo de Crisis</div>
+            <div class="legend-swatches">${swatchHTML}</div>
+          </div>
+        </div>
+      </div>`;
+
+    // -- Atender ya (cuadrante alta atención + sentimiento adverso) --
+    const ATTEND_KEYS = ['energia', 'salud', 'aaa', 'educacion', 'dtop', 'seguridad'];
+    const attend = ATTEND_KEYS.map((k) => M.byKey(k)).sort((a, b) => b.crisis - a.crisis);
+    const critRows = attend.map((a, i) => {
+      const cb = M.crisisBand(a.crisis);
+      const nssColor = a.nss < 0 ? 'var(--neg)' : 'var(--pos)';
+      return `
+        <div class="crit-row">
+          <div class="crit-rank">${i + 1}</div>
+          <div class="crit-mid">
+            <div class="crit-name-line">
+              <span class="crit-name">${a.short}</span>
+              <span class="pill ${cb.cls} pill-sm">${cb.label}</span>
+            </div>
+            <div class="crit-bar">
+              <div style="flex-grow:${a.pos};background:var(--pos)"></div>
+              <div style="flex-grow:${a.neu};background:var(--text-3)"></div>
+              <div style="flex-grow:${a.neg};background:var(--neg)"></div>
+            </div>
+          </div>
+          <div class="crit-right">
+            <span class="crit-nss" style="color:${nssColor}">${f.signed(a.nss)}</span>
+            <span class="crit-vol">${f.compact(a.vol)} men.</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    const critCard = `
+      <div class="card rail-card">
+        <div class="crit-head">
+          <div class="crit-head-left">
+            <span class="crit-dot ring-pulse"></span>
+            <span class="crit-title">Atender ya</span>
+          </div>
+          <span class="crit-count">${attend.length}</span>
+        </div>
+        <div>${critRows}</div>
+        <div class="takeaway">
+          <span class="tk-icon">!</span>
+          <p>El gobierno opera en <span class="tk-neg">ALERTA</span> ponderada (Riesgo ${G.crisis.toFixed(2)}, Sentimiento ${f.signed(G.nss)}). <b>Energía</b> concentra el mayor volumen y el peor sentimiento — único caso en <span class="tk-neg">CRISIS</span> — y arrastra a Salud y AAA.</p>
+        </div>
+      </div>`;
+
+    // -- Top / Fondo de la tabla (por Índice de Salud) --
+    const byBhi = A.slice().sort((a, b) => b.bhi - a.bhi);
+    const top3 = byBhi.slice(0, 3);
+    const bottom3 = byBhi.slice(-3);
+    function tfRow(a, pos) {
+      const bb = M.bhiBand(a.bhi);
+      return `
+        <div class="tf-row">
+          <div class="tf-pos">${pos}</div>
+          <div style="min-width:0">
+            <div class="tf-name-line">
+              <span class="tf-dot" style="background:${hsl(a, 48)}"></span>
+              <span class="tf-name">${a.short}</span>
+            </div>
+            <div class="tf-full">${a.name}</div>
+          </div>
+          <div class="tf-bhi num" style="color:${bb.color}">${a.bhi}</div>
+          <span class="pill ${bb.cls} tf-pill">${bb.label}</span>
+        </div>`;
+    }
+    const N = byBhi.length;
+    const topRows = top3.map((a, i) => tfRow(a, i + 1)).join('');
+    const bottomRows = bottom3.map((a, i) => tfRow(a, N - 2 + i)).join('');
+
+    const tfCard = `
+      <div class="card rail-card">
+        <div class="rc-head">
+          <div class="rc-eyebrow">Rendición de cuentas</div>
+          <div class="rc-title">Top / Fondo de la tabla</div>
+        </div>
+        <div class="tf-split-label">
+          <span class="tf-split-txt" style="color:var(--pos)">Mejores 3 · Índice de Salud</span>
+          <span class="tf-split-line" style="background:var(--pos);opacity:.35"></span>
+        </div>
+        ${topRows}
+        <div class="tf-split-label">
+          <span class="tf-split-txt" style="color:var(--neg)">Fondo de la tabla</span>
+          <span class="tf-split-line" style="background:var(--neg);opacity:.35"></span>
+        </div>
+        ${bottomRows}
+      </div>`;
+
+    const rail = `<div class="rail">${legendCard}${critCard}${tfCard}</div>`;
+
+    /* =====================================================================
+       MONTAJE
+    ===================================================================== */
+    const body = `
+      <div class="pano-body">
+        <div class="pano-left">${matrixCard}${trayCard}</div>
+        ${rail}
+      </div>`;
+
+    const content = modeRow + stats + body;
+
+    document.getElementById('app').innerHTML = ECOShell.frame({
+      active: 'gobierno',
+      title: 'Resumen ejecutivo',
+      eyebrow: 'Vista Ejecutiva · Multi-agencia',
+      period: '7D',
+      content,
+    });
+  })();
+  </script>
+</body>
+</html>

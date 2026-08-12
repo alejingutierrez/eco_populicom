@@ -4,6 +4,7 @@ import { getSessionFromRequest } from '@/lib/session';
 // Dashboard UI + dashboard-private API routes. Everything else (public assets,
 // auth pages, auth API, health check, Leaflet tiles) passes through.
 const PROTECTED_PATHS = [
+  /^\/overview(\/.*)?$/,
   /^\/dashboard(\/.*)?$/,
   /^\/mentions(\/.*)?$/,
   /^\/sentiment(\/.*)?$/,
@@ -11,11 +12,17 @@ const PROTECTED_PATHS = [
   /^\/geography(\/.*)?$/,
   /^\/alerts(\/.*)?$/,
   /^\/settings(\/.*)?$/,
+  /^\/narratives(\/.*)?$/,
+  /^\/api\/overview(\/.*)?$/,
   /^\/api\/eco-data(\/.*)?$/,
   /^\/api\/eco-mentions(\/.*)?$/,
+  /^\/api\/eco-insights(\/.*)?$/,
+  /^\/api\/eco-metric-insight(\/.*)?$/,
   /^\/api\/alerts(\/.*)?$/,
   /^\/api\/agencies(\/.*)?$/,
   /^\/api\/users(\/.*)?$/,
+  /^\/api\/ai(\/.*)?$/,
+  /^\/api\/narratives(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -89,6 +96,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/overview/:path*',
     '/dashboard/:path*',
     '/mentions/:path*',
     '/sentiment/:path*',
@@ -96,6 +104,8 @@ export const config = {
     '/geography/:path*',
     '/alerts/:path*',
     '/settings/:path*',
+    '/narratives/:path*',
+    '/overview',
     '/dashboard',
     '/mentions',
     '/sentiment',
@@ -103,10 +113,16 @@ export const config = {
     '/geography',
     '/alerts',
     '/settings',
+    '/narratives',
+    '/api/overview/:path*',
     '/api/eco-data/:path*',
     '/api/eco-mentions/:path*',
+    '/api/eco-insights/:path*',
+    '/api/eco-metric-insight/:path*',
     '/api/alerts/:path*',
     '/api/agencies/:path*',
     '/api/users/:path*',
+    '/api/ai/:path*',
+    '/api/narratives/:path*',
   ],
 };

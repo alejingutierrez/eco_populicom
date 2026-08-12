@@ -132,9 +132,10 @@ export class ComputeStack extends cdk.Stack {
       ],
     }));
 
-    // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus + Sonnet
-    // inference profiles). Sin estos permisos, el endpoint cae al fallback
-    // rule-based de buildRuleBasedInsight.
+    // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus +
+    // Sonnet inference profiles). Sin estos permisos, el endpoint cae al
+    // fallback rule-based de buildRuleBasedInsight (sigue funcional, pero
+    // sin la interpretación AI coloquial del modal del KPI).
     taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: [

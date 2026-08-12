@@ -71,6 +71,12 @@ export const mentions = pgTable(
     nlpPertinence: varchar('nlp_pertinence', { length: 10 }),
     nlpSummary: text('nlp_summary'),
 
+    // Embedding (Titan Embed Text v2, 1024-dim cosine). Drizzle no tiene tipo
+    // nativo `vector`; el processor y los queries de similitud lo manejan vía
+    // SQL raw. Aquí solo lo declaramos para que aparezca en select queries.
+    embedding: text('embedding'),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }),
+
     // Deduplication
     textHash: varchar('text_hash', { length: 64 }),
     isDuplicate: boolean('is_duplicate').notNull().default(false),
@@ -80,6 +86,10 @@ export const mentions = pgTable(
     mediaUrls: jsonb('media_urls').$type<string[]>(),
     hasImage: boolean('has_image').notNull().default(false),
     hasVideo: boolean('has_video').notNull().default(false),
+    // Imagen representativa resuelta por el scraper (og:image / thumbnail de
+    // YouTube / media directa / avatar). Nullable — se puebla en ingesta y por
+    // el backfill de eco-migration.
+    resolvedImageUrl: text('resolved_image_url'),
 
     // Timestamps
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),

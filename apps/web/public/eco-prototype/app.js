@@ -1,7 +1,11 @@
 // App root — production mount (no tweaks panel, fixed Mando theme)
 const { useState, useEffect, useCallback } = React;
 const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
-const { DashboardScreen, MentionsScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen } = window.ECO_SCREENS;
+// Responsive breakpoint hook (defined in shell.js, loaded earlier). Screens
+// and the shell branch inline layouts on this since @media can't reach them.
+const useBreakpoint = window.ecoUseBreakpoint || (() => 'desktop');
+const ChatDrawer = (window.ECO_CHAT && window.ECO_CHAT.ChatDrawer) || (() => null);
+const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen, TablaScreen, SalaScreen, RadarScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
 // Shared state stored on window and observed by the React <ToastHost>.
@@ -72,26 +76,50 @@ function ToastHost() {
 }
 
 // Map URL path <-> active screen so deep links, browser back/forward and
-// bookmarks all work. `/` and unknown paths resolve to the dashboard.
+// bookmarks all work. `/` y rutas desconocidas resuelven a Overview (vista
+// diaria, espejo del correo). El path `/dashboard` sigue funcionando para no
+// romper bookmarks; ahora muestra el Scorecard táctico.
 const PATH_TO_SCREEN = {
-  '/': 'dashboard',
+  '/': 'overview',
+  '/overview': 'overview',
   '/dashboard': 'dashboard',
   '/mentions': 'mentions',
+  '/search': 'search',
   '/sentiment': 'sentiment',
   '/topics': 'topics',
   '/geography': 'geography',
   '/alerts': 'alerts',
   '/settings': 'settings',
+  '/narrative': 'narrative',
+  // Vista ejecutiva multi-agencia (solo cuando agency === '__all__').
+  '/exec/tabla': 'exec-tabla',
+  '/exec/sala': 'exec-sala',
+  '/exec/radar': 'exec-radar',
 };
 const SCREEN_TO_PATH = {
+  overview: '/overview',
   dashboard: '/dashboard',
   mentions: '/mentions',
+  search: '/search',
   sentiment: '/sentiment',
   topics: '/topics',
   geography: '/geography',
   alerts: '/alerts',
   settings: '/settings',
+  narrative: '/narrative',
+  'exec-tabla': '/exec/tabla',
+  'exec-sala': '/exec/sala',
+  'exec-radar': '/exec/radar',
 };
+
+// Topics has a nested drill-in route (/topics/<slug>). Resolve any such path
+// back to the 'topics' screen so deep links and browser Back/forward keep the
+// dashboard on the right tab. Exact matches win first.
+function screenFromPath(pathname) {
+  if (PATH_TO_SCREEN[pathname]) return PATH_TO_SCREEN[pathname];
+  if (pathname.indexOf('/topics/') === 0) return 'topics';
+  return null;
+}
 
 // Error boundary — without this a render crash in any screen white-screens
 // the whole dashboard.
@@ -122,49 +150,76 @@ class EcoErrorBoundary extends React.Component {
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
 const SCREEN_META = {
-  dashboard: { label: 'Dashboard',     eyebrow: 'Monitoreo · tiempo real' },
+  overview:  { label: 'Overview',      eyebrow: null },
+  dashboard: { label: 'Scorecard',     eyebrow: 'Scorecard táctico · tiempo real' },
   mentions:  { label: 'Menciones',     eyebrow: 'Flujo de conversación' },
+  search:    { label: 'Búsqueda',      eyebrow: 'Resultados en todas las menciones' },
   sentiment: { label: 'Sentimiento',   eyebrow: 'Análisis emocional' },
   topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
   settings:  { label: 'Configuración', eyebrow: 'Alertas y usuarios' },
+  narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
+  'exec-tabla': { label: 'Tabla de posiciones', eyebrow: 'Vista ejecutiva · ranking de salud digital' },
+  'exec-sala':  { label: 'Sala de mando',       eyebrow: 'Vista ejecutiva · sala de mando multi-agencia' },
+  'exec-radar': { label: 'Radar de crisis',     eyebrow: 'Vista ejecutiva · sala situacional' },
 };
 
-const AGENCIES = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || [
-  { key: 'dtop',  name: 'DTOP',  long: 'Dept. de Transportación y Obras Públicas' },
-  { key: 'dacco', name: 'DACo',  long: 'Dept. de Asuntos del Consumidor' },
-  { key: 'salud', name: 'Salud', long: 'Dept. de Salud' },
-  { key: 'ama',   name: 'AMA',   long: 'Autoridad Metropolitana de Autobuses' },
-];
+// El selector de agencias toma SIEMPRE la lista del backend
+// (`AGENCIES_FULL` viene de /api/eco-data). El fallback ya no incluye
+// menciones inventadas — si el API falla, mostramos lista vacía y la UI
+// resuelve con su empty state en lugar de fingir agencias falsas.
+const AGENCIES = (window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || [];
+
+// Sentinel de la vista ejecutiva multi-agencia. Cuando la agencia seleccionada
+// es '__all__' (solo staff — lo inyecta AGENCIES_FULL), el dashboard muestra
+// las 3 pantallas ejecutivas (Tabla / Sala / Radar) en vez de las de una sola
+// agencia. Esas pantallas consumen /api/exec-overview (NO /api/eco-data), así
+// que da igual que el slug '__all__' no resuelva en el boot de eco-data.
+const ALL_AGENCIES_KEY = '__all__';
+const EXEC_SCREENS = ['exec-tabla', 'exec-sala', 'exec-radar'];
+const DEFAULT_EXEC_SCREEN = 'exec-sala';
+function isExecScreen(key) { return EXEC_SCREENS.indexOf(key) !== -1; }
 
 function App() {
   const [theme] = useState(TWEAK_DEFAULTS.theme);
   const [mode, setMode] = useState(() => localStorage.getItem('eco.mode') || TWEAK_DEFAULTS.mode);
   const [density] = useState(TWEAK_DEFAULTS.density);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eco.collapsed') === 'true');
+  const bp = useBreakpoint();
+  // Off-canvas navigation drawer state (only meaningful at <=768px).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // On tablet the rail auto-collapses to an icon column (CSS sets 64px); on
+  // mobile it becomes a full-label off-canvas drawer; on desktop honor the
+  // user's toggle. Keeping the rendered `collapsed` in sync with the CSS grid
+  // width is what prevents labels from clipping inside a 64px column.
+  const effectiveCollapsed = bp === 'tablet' ? true : bp === 'mobile' ? false : collapsed;
+  // Close the drawer whenever we leave mobile (e.g. rotate / resize up).
+  useEffect(() => { if (bp !== 'mobile' && menuOpen) setMenuOpen(false); }, [bp, menuOpen]);
 
   // URL path is the source of truth for the active screen on initial load, so
   // deep links like /mentions or /geography work from a fresh browser.
   const [active, setActiveRaw] = useState(() => {
-    const fromPath = PATH_TO_SCREEN[location.pathname];
-    return fromPath || localStorage.getItem('eco.active') || 'dashboard';
+    const fromPath = screenFromPath(location.pathname);
+    return fromPath || localStorage.getItem('eco.active') || 'overview';
   });
   const setActive = useCallback((next) => {
-    setActiveRaw((prev) => {
-      if (prev === next) return prev;
-      const path = SCREEN_TO_PATH[next];
-      if (path && location.pathname !== path) {
-        history.pushState({ eco: next }, '', path);
-      }
-      return next;
-    });
+    const path = SCREEN_TO_PATH[next];
+    // Push the section's base path even when already on that section (e.g.
+    // clicking "Tópicos" while drilled into a topic) so nested screens can
+    // collapse their drill-in. pushState doesn't emit popstate, so we also fire
+    // a custom event that the nested screens listen for.
+    if (path && location.pathname !== path) {
+      history.pushState({ eco: next }, '', path);
+      window.dispatchEvent(new Event('eco:locationchange'));
+    }
+    setActiveRaw(next);
   }, []);
 
   // Keep the app in sync when the user presses back/forward in the browser.
   useEffect(() => {
     const handler = () => {
-      const fromPath = PATH_TO_SCREEN[location.pathname];
+      const fromPath = screenFromPath(location.pathname);
       if (fromPath) setActiveRaw(fromPath);
     };
     window.addEventListener('popstate', handler);
@@ -184,10 +239,52 @@ function App() {
     if (jwtSlug && list.some((a) => a.key === jwtSlug)) return jwtSlug;
     return (list[0] && list[0].key) || 'aaa';
   });
-  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '1M');
+  const [period, setPeriod] = useState(() => localStorage.getItem('eco.period') || '7D');
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [drawerMention, setDrawerMention] = useState(null);
   const [mentionsFilter, setMentionsFilter] = useState(null);
+  // Query del buscador global. La setea el command palette (⌘K → "ver todos
+  // los resultados") y la lee SearchScreen. Inicializa desde ?q= si el usuario
+  // entra por deep-link a /search.
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try { return new URLSearchParams(location.search).get('q') || ''; } catch (_) { return ''; }
+  });
+
+  // Sesión + RBAC: el SPA consulta /api/auth/me al boot para gatear navegación y
+  // controles (rol, capacidades, páginas permitidas por usuario). window.ECO_SESSION
+  // lo leen shell.js (filtros de nav/⌘K) y screens.js (gating de tabs de config).
+  const [session, setSession] = useState(() => window.ECO_SESSION || null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((d) => { if (!cancelled && d && d.user) { window.ECO_SESSION = d.user; setSession(d.user); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  // Guard de deep-link: si el usuario no puede ver la pantalla activa (override de
+  // páginas o capacidad insuficiente), redirige a overview.
+  useEffect(() => {
+    if (session && typeof window.ecoCanSeePage === 'function' && !window.ecoCanSeePage(active)) {
+      setActive('overview');
+    }
+  }, [session, active, setActive]);
+
+  // Coherencia agencia ↔ pantalla para la vista ejecutiva '__all__'.
+  //  • Con '__all__' seleccionada: si la pantalla activa NO es ejecutiva
+  //    (una de una sola agencia), saltar a la pantalla ejecutiva por defecto.
+  //    Esto también corre tras el reload que dispara el cambio de agencia, así
+  //    que seleccionar "TODAS" aterriza en Sala de mando.
+  //  • Con una agencia real seleccionada: si la pantalla activa es ejecutiva,
+  //    volver a overview (evita quedar atascado en una vista multi-agencia).
+  useEffect(() => {
+    if (agency === ALL_AGENCIES_KEY) {
+      if (!isExecScreen(active)) setActive(DEFAULT_EXEC_SCREEN);
+    } else if (isExecScreen(active)) {
+      setActive('overview');
+    }
+  }, [agency, active, setActive]);
 
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
   useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
@@ -228,10 +325,11 @@ function App() {
     const handler = (e) => {
       const metaKey = e.metaKey || e.ctrlKey;
       if (metaKey && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmdOpen(true); return; }
-      if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); return; }
+      if (metaKey && e.key === 'Enter') { e.preventDefault(); setChatOpen((v) => !v); return; }
+      if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); setChatOpen(false); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (!metaKey && !e.altKey) {
-        const map = { d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts' };
+        const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts', n: 'narrative' };
         const k = e.key.toLowerCase();
         if (map[k]) { setActive(map[k]); return; }
         if (e.key === '[' || e.key === ']') { setCollapsed(!collapsed); return; }
@@ -243,24 +341,31 @@ function App() {
 
   const screenMeta = SCREEN_META[active];
   const ScreenComponent = {
+    overview: OverviewScreen,
     dashboard: DashboardScreen,
     mentions: MentionsScreen,
+    search: SearchScreen,
     sentiment: SentimentScreen,
     topics: TopicsScreen,
     geography: GeographyScreen,
     alerts: AlertsScreen,
     settings: SettingsScreen,
+    narrative: NarrativeScreen,
+    'exec-tabla': TablaScreen,
+    'exec-sala': SalaScreen,
+    'exec-radar': RadarScreen,
   }[active];
 
   return (
-    <div className="eco-app" data-collapsed={collapsed} data-density={density}>
+    <div className="eco-app" data-collapsed={effectiveCollapsed} data-menu-open={menuOpen} data-density={density} data-chat-open={chatOpen}>
       <Sidebar
-        active={active} onNav={setActive}
-        collapsed={collapsed} setCollapsed={setCollapsed}
+        active={active} onNav={(k) => { setActive(k); setMenuOpen(false); }}
+        collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         onOpenCommand={() => setCmdOpen(true)}
         theme={theme} mode={mode}
       />
+      {bp === 'mobile' && menuOpen && <div className="eco-menu-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="eco-main">
         <Header
           title={screenMeta.label} eyebrow={screenMeta.eyebrow}
@@ -268,6 +373,10 @@ function App() {
           agency={agency} setAgency={setAgency}
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
+          onOpenMenu={() => setMenuOpen(true)}
+          bp={bp}
+          onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
+          onOpenChat={() => setChatOpen(true)}
           mode={mode} setMode={setMode} live={true}
         />
         <main className="eco-page"
@@ -276,8 +385,10 @@ function App() {
             onMentionClick={setDrawerMention}
             period={period} setPeriod={setPeriod}
             mentionsFilter={mentionsFilter} setMentionsFilter={setMentionsFilter}
+            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             agency={agency}
             setActive={setActive}
+            bp={bp}
           />
         </main>
       </div>
@@ -287,7 +398,9 @@ function App() {
         onNav={(k) => { setActive(k); setCmdOpen(false); }}
         onSetPeriod={(p) => { setPeriod(p); }}
         onSetMode={(m) => { setMode(m); }}
+        onMentionClick={(m) => { setDrawerMention(m); setCmdOpen(false); }}
         onOpenMentionsWithFilter={(f) => { setMentionsFilter(f); setActive('mentions'); }}
+        onSearchAll={(query) => { setSearchQuery(query); setActive('search'); setCmdOpen(false); }}
       />}
       {drawerMention && (
         <MentionDrawer
@@ -297,6 +410,15 @@ function App() {
           onMentionClick={(m) => setDrawerMention(m)}
         />
       )}
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        agency={agency}
+        period={period}
+        screen={active}
+        screenLabel={screenMeta.label}
+        filters={mentionsFilter || (searchQuery ? { q: searchQuery } : null)}
+      />
       <ToastHost />
     </div>
   );

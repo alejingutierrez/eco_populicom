@@ -2,6 +2,81 @@
 const { Icons } = window;
 const { useState, useEffect, useRef } = React;
 
+/**
+ * Responsive breakpoint hook. Inline style objects CANNOT carry @media
+ * queries, so every screen that must restructure its layout branches on the
+ * value returned here instead. Defined in shell.js because it loads before
+ * screens.js and app.js, so both can read `window.ecoUseBreakpoint`.
+ *   'mobile'  <= 768px   'tablet'  769–1024px   'desktop' > 1024px
+ * These stops mirror the CSS breakpoints in index.html.
+ */
+function useBreakpoint() {
+  const get = () => {
+    if (typeof window === 'undefined') return 'desktop';
+    const w = window.innerWidth;
+    return w <= 768 ? 'mobile' : w <= 1024 ? 'tablet' : 'desktop';
+  };
+  const [bp, setBp] = useState(get);
+  useEffect(() => {
+    let raf = null;
+    const onResize = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = null; setBp(get()); });
+    };
+    window.addEventListener('resize', onResize);
+    // Sync once on mount in case the initial state was computed before layout.
+    onResize();
+    return () => { window.removeEventListener('resize', onResize); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  return bp;
+}
+window.ecoUseBreakpoint = useBreakpoint;
+
+/**
+ * Render-time breakpoint helpers for screens.js. These read window.innerWidth
+ * at call time (not cached state), so they're always fresh — and because the
+ * App root subscribes to resize via useBreakpoint() and re-renders the whole
+ * screen tree, any descendant that calls ecoCols() re-computes on resize
+ * without needing `bp` threaded through props.
+ */
+window.ecoBp = function () {
+  if (typeof window === 'undefined') return 'desktop';
+  const w = window.innerWidth;
+  return w <= 768 ? 'mobile' : w <= 1024 ? 'tablet' : 'desktop';
+};
+// ecoCols(desktop, mobile, tablet?) → the grid-template-columns for the
+// current breakpoint. tablet falls back to desktop when omitted.
+window.ecoCols = function (desktop, mobile, tablet) {
+  const b = window.ecoBp();
+  if (b === 'mobile') return mobile;
+  if (b === 'tablet') return tablet != null ? tablet : desktop;
+  return desktop;
+};
+window.ecoIsMobile = function () { return window.ecoBp() === 'mobile'; };
+
+/**
+ * Construye los parámetros de ventana de tiempo para los endpoints de datos.
+ * Si el usuario está en rango personalizado (eco.period === 'custom' y
+ * eco.from/eco.to válidos en localStorage), retorna `{ period: 'custom',
+ * from, to }`. Si no, `{ period }`. Centralizado aquí para que
+ * CommandPalette, MentionDrawer y MentionsSliceModal envíen los mismos
+ * parámetros y queden alineados con el filtro del overview.
+ */
+function getPeriodParams() {
+  try {
+    const period = localStorage.getItem('eco.period') || '1M';
+    if (period === 'custom') {
+      const from = localStorage.getItem('eco.from') || '';
+      const to = localStorage.getItem('eco.to') || '';
+      if (from && to) return { period, from, to };
+    }
+    return { period };
+  } catch (_) {
+    return { period: '1M' };
+  }
+}
+window.ecoGetPeriodParams = getPeriodParams;
+
 // Badges are derived from real data at render time (window.ECO_DATA).
 function getNav() {
   const D = window.ECO_DATA || {};
@@ -11,7 +86,8 @@ function getNav() {
   const totalMentions = periodTotal || (D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || (D.MENTIONS && D.MENTIONS.length) || 0;
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
-    { key: 'dashboard', icon: 'Dashboard', label: 'Dashboard', shortcut: 'D' },
+    { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },
+    { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D' },
     { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
     { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
     { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
@@ -66,7 +142,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   };
 
   return (
-    <aside style={{
+    <aside className="eco-sidebar" style={{
       background: 'var(--rail-bg)',
       color: 'var(--rail-fg)',
       borderRight: '1px solid var(--rail-border)',
@@ -239,8 +315,31 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, mode, setMode, onOpenTweaks, live = true }) {
-  const PERIODS = ['1D', '5D', '1M', '3M', '6M', '1A', 'Max'];
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, mode, setMode, onOpenTweaks, live = true }) {
+  // Una sola fuente de control de periodo en TODA la aplicación: el Header.
+  // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
+  // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
+  // del usuario: "los filtros en el overview no deben estar en otro lugar
+  // diferente y ser diferentes visualmente a los que ya existen en el
+  // scorecard (que están en el header)".
+  const PERIODS = ['1D', '5D', '7D', '30D', '90D', '3M', '6M', '1A', 'Max'];
+  const isCustom = period === 'custom';
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
+  const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
+  const [draftFrom, setDraftFrom] = React.useState(lsFrom);
+  const [draftTo, setDraftTo] = React.useState(lsTo);
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  function applyCustomRange() {
+    if (!draftFrom || !draftTo || draftFrom > draftTo) return;
+    try {
+      localStorage.setItem('eco.from', draftFrom);
+      localStorage.setItem('eco.to', draftTo);
+      localStorage.setItem('eco.period', 'custom');
+    } catch (_) {}
+    window.location.reload();
+  }
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 50,
@@ -249,6 +348,16 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
       padding: '14px 28px',
       display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
     }}>
+      {/* Hamburger — opens the off-canvas nav drawer. Mobile only (CSS). */}
+      <button className="show-mobile" onClick={onOpenMenu} aria-label="Abrir menú"
+        style={{
+          alignItems: 'center', justifyContent: 'center',
+          width: 40, height: 40, flex: 'none',
+          borderRadius: 8, border: '1px solid var(--hairline)',
+          background: 'var(--canvas-2)', color: 'var(--text)',
+        }}>
+        <Icons.Menu size={18} />
+      </button>
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
@@ -281,17 +390,92 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         </select>
       </div>
 
-      {/* Period — estilo bolsa */}
+      {/* Period — estilo bolsa, único control de periodo de toda la app. */}
       <div style={{ display: 'flex', background: 'var(--canvas-2)', borderRadius: 999, padding: 3, border: '1px solid var(--hairline)' }}>
         {PERIODS.map((p) => (
-          <button key={p} onClick={() => setPeriod(p)} style={{
+          <button key={p} onClick={() => {
+            // Si el usuario venía de un rango personalizado, limpiar
+            // eco.from/eco.to antes de cambiar al preset para que el siguiente
+            // boot no envíe restos del rango anterior.
+            try {
+              localStorage.removeItem('eco.from');
+              localStorage.removeItem('eco.to');
+            } catch (_) {}
+            setPeriod(p);
+          }} style={{
             padding: '4px 10px', fontSize: 11, fontWeight: 600,
             borderRadius: 999,
-            background: period === p ? 'var(--canvas)' : 'transparent',
-            color: period === p ? 'var(--text)' : 'var(--text-3)',
-            boxShadow: period === p ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            background: (!isCustom && period === p) ? 'var(--canvas)' : 'transparent',
+            color: (!isCustom && period === p) ? 'var(--text)' : 'var(--text-3)',
+            boxShadow: (!isCustom && period === p) ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
           }}>{p}</button>
         ))}
+      </div>
+      {/* Calendar icon: abre popover con date inputs para rango custom. */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setCalendarOpen(v => !v)}
+          title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: isCustom ? 'var(--accent-fill)' : 'var(--canvas-2)',
+            color: isCustom ? 'var(--accent)' : 'var(--text-2)',
+            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline)'),
+            cursor: 'pointer',
+          }}>
+          <Icons.Calendar size={12} />
+          {isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : 'Fechas'}
+        </button>
+        {calendarOpen && (
+          <>
+            <div onClick={() => setCalendarOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+            <div className="card eco-datepop" style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
+              padding: 14, minWidth: 280,
+              boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Rango personalizado</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Desde</span>
+                  <input type="date" value={draftFrom}
+                    onChange={(e) => setDraftFrom(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+                <label style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ minWidth: 44 }}>Hasta</span>
+                  <input type="date" value={draftTo}
+                    onChange={(e) => setDraftTo(e.target.value)}
+                    max={todayIso}
+                    className="input" style={{ fontSize: 12, padding: '6px 10px' }} />
+                </label>
+              </div>
+              {draftFrom && draftTo && draftFrom > draftTo && (
+                <div style={{ fontSize: 11, color: 'var(--neg)', marginTop: 8 }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 12 }}>Cancelar</button>
+                {isCustom && (
+                  <button className="btn" onClick={() => {
+                    try {
+                      localStorage.removeItem('eco.from');
+                      localStorage.removeItem('eco.to');
+                    } catch (_) {}
+                    setPeriod('7D');
+                  }} style={{ fontSize: 12 }} title="Limpiar rango y volver a 7D">Limpiar</button>
+                )}
+                <button className="btn btn-primary" onClick={applyCustomRange}
+                  disabled={!draftFrom || !draftTo || draftFrom > draftTo}
+                  style={{ fontSize: 12, opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Quick search — abre el command palette con foco real */}
@@ -324,8 +508,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       const agency = localStorage.getItem('eco.agency') || '';
-      const period = localStorage.getItem('eco.period') || '1M';
-      const params = new URLSearchParams({ q, agency, period, limit: '8' });
+      const params = new URLSearchParams({ q, agency, limit: '8', ...getPeriodParams() });
       fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
         .then((r) => r.ok ? r.json() : { mentions: [] })
         .then((j) => setLiveResults(j.mentions || []))
@@ -343,6 +526,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     // Period (real)
     { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Últimos 7 días cerrados (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Último mes (1M)', action: () => onSetPeriod('1M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 3 meses (3M)', action: () => onSetPeriod('3M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 6 meses (6M)', action: () => onSetPeriod('6M'), icon: 'Calendar' },
@@ -440,21 +624,112 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
   );
 }
 
+/**
+ * Mini mapa Leaflet del municipio detectado en una mención. Reemplaza el SVG
+ * mock anterior (forma genérica de PR con un pin por región) por el mapa real
+ * con tiles CARTO y un círculo en las coordenadas exactas. Color del círculo
+ * según el sentimiento. Si Leaflet no cargó (CSP/red), cae a placeholder.
+ */
+function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
+  const containerRef = React.useRef(null);
+  const mapRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
+    const L = window.L;
+    const hasCoords = Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number';
+    // Encuadre por defecto: centro de PR. Si la mención tiene coords, se
+    // ajustará en la siguiente línea.
+    const center = hasCoords ? [coords[0], coords[1]] : [18.22, -66.59];
+    const zoom = hasCoords ? 10 : 8;
+
+    if (!mapRef.current) {
+      const map = L.map(containerRef.current, {
+        center, zoom,
+        zoomControl: false,
+        attributionControl: false,
+        scrollWheelZoom: false,
+        dragging: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        touchZoom: false,
+      });
+      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+      const tileUrl = mode === 'light'
+        ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
+      mapRef.current = map;
+    } else {
+      mapRef.current.setView(center, zoom);
+    }
+
+    // Limpiar marcadores previos.
+    mapRef.current.eachLayer((layer) => {
+      if (layer instanceof L.CircleMarker) mapRef.current.removeLayer(layer);
+    });
+
+    if (hasCoords) {
+      const color = sentiment === 'positivo' ? '#3FD47A' : sentiment === 'negativo' ? '#FF6A3D' : '#8A94A1';
+      L.circleMarker(center, {
+        radius: 9, color: '#0E1620', weight: 1.5,
+        fillColor: color, fillOpacity: 0.85,
+      }).addTo(mapRef.current);
+    }
+  }, [coords, sentiment]);
+
+  // Cleanup on unmount — Leaflet sobre un container reusado en React
+  // puede acumular handlers; remove() libera memoria y listeners.
+  React.useEffect(() => () => {
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+  }, []);
+
+  if (typeof window !== 'undefined' && !window.L) {
+    return (
+      <div style={{
+        height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
+        background: 'var(--canvas-2)',
+      }}>Cargando mapa…</div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', height: 140 }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      <div style={{
+        position: 'absolute', top: 6, left: 8, zIndex: 400,
+        fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase',
+        letterSpacing: '0.1em', fontWeight: 700,
+        textShadow: '0 0 4px var(--canvas), 0 0 8px var(--canvas)',
+        pointerEvents: 'none',
+      }}>
+        Puerto Rico · {region || 'PR'}
+      </div>
+    </div>
+  );
+}
+
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
-  // Fetch a handful of mentions in the same topic (or subtopic if present)
-  // whenever a mention is opened. Falls back to municipality when no topic.
+  // Relacionadas por similitud coseno sobre embeddings (Titan Embed v2). Si
+  // la mención fuente aún no tiene embedding (backfill pendiente), el backend
+  // hace fallback a "mismo topic principal".
   React.useEffect(() => {
     if (!mention) return;
     setRelated(null);
     const ctrl = new AbortController();
     const agency = (typeof window !== 'undefined' && localStorage.getItem('eco.agency')) || '';
-    const period = (typeof window !== 'undefined' && localStorage.getItem('eco.period')) || '1M';
-    const params = new URLSearchParams({ period, limit: '6' });
+    // similar_to (#41): embeddings-based similarity (la columna de pertinencia
+    // ya no se muestra; el related drawer ahora opera sobre cosine similarity).
+    // getPeriodParams (mio): respeta la ventana del usuario, así el drawer no
+    // mezcla menciones fuera del rango filtrado.
+    const params = new URLSearchParams({ similar_to: mention.id, limit: '6', ...getPeriodParams() });
     if (agency) params.set('agency', agency);
-    if (mention.topic) params.set('topic', mention.topic);
-    else if (mention.municipality) params.set('municipality', mention.municipality.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { mentions: [] })
       .then((j) => setRelated((j.mentions || []).filter((m) => m.id !== mention.id).slice(0, 5)))
@@ -476,7 +751,6 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: 'var(--text-2)' }}>
               <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
-              <span className={`pill pill-warn`}>Pertinencia {mention.pertinence}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
             <h2 style={{ margin: '4px 0 8px', fontSize: 20, fontWeight: 600, fontFamily: 'var(--ff-display)', lineHeight: 1.3 }}>
@@ -489,32 +763,52 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
 
           <hr className="hr" />
 
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Métricas</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              {[
-                { label: 'Engagement', v: mention.engagement },
-                { label: 'Likes', v: mention.likes },
-                { label: 'Comentarios', v: mention.comments },
-                { label: 'Compartidas', v: mention.shares },
-              ].map((m) => (
-                <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
-                  <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v.toLocaleString('es-PR')}</div>
+          {(() => {
+            // Solo mostrar métricas con valor > 0. Si todas son 0 (ej. tweet
+            // huérfano), ocultar toda la sección.
+            const metrics = [
+              { label: 'Engagement', v: Number(mention.engagement) || 0 },
+              { label: 'Likes', v: Number(mention.likes) || 0 },
+              { label: 'Comentarios', v: Number(mention.comments) || 0 },
+              { label: 'Compartidas', v: Number(mention.shares) || 0 },
+            ].filter((m) => m.v > 0);
+            if (metrics.length === 0) return null;
+            const cols = Math.min(4, metrics.length);
+            return (
+              <div>
+                <div className="section-eyebrow" style={{ marginBottom: 10 }}>Métricas</div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>
+                  {metrics.map((m) => (
+                    <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 8, border: '1px solid var(--hairline)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
+                      <div className="num" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{m.v.toLocaleString('es-PR')}</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
-            <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                <Icons.Sparkles size={12} /> Claude · Bedrock
               </div>
-              Denuncia colectiva sobre el deterioro de la PR-21 en Río Piedras tras las lluvias recientes. Los residentes exigen intervención inmediata de DTOP y mencionan incidentes de daños a vehículos. Tono predominantemente de frustración.
+            );
+          })()}
+
+          {mention.summary ? (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Resumen IA</div>
+              <div style={{ padding: 14, background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  <Icons.Sparkles size={12} /> Claude · Bedrock
+                </div>
+                {mention.summary}
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {mention.snippet && (mention.snippet.trim() !== (mention.title || '').trim()) ? (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 10 }}>Contenido</div>
+              <div style={{ padding: 14, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', borderRadius: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
+                {mention.snippet}
+              </div>
+            </div>
+          ) : null}
 
           {mention.emotions?.length > 0 && (
             <div>
@@ -541,7 +835,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                     <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Tópico principal</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.topicName}</div>
                   </div>
-                  <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>confianza 94%</div>
+                  <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>{typeof mention.topicConfidence === 'number' ? `confianza ${Math.round(mention.topicConfidence * 100)}%` : 'confianza —'}</div>
                 </div>
                 {mention.subtopics?.length > 0 && (
                   <div>
@@ -559,7 +853,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             </div>
           )}
 
-          {/* Geografía */}
+          {/* Geografía — mini mapa Leaflet real (issue QA: el SVG mock anterior
+              ignoraba las coordenadas exactas del municipio). */}
           {mention.municipality && (
             <div>
               <div className="section-eyebrow" style={{ marginBottom: 10 }}>Geografía detectada</div>
@@ -567,34 +862,20 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                 border: '1px solid var(--hairline)', borderRadius: 10, overflow: 'hidden',
                 background: 'var(--canvas-2)',
               }}>
-                {/* Mini mapa esquemático */}
-                <div style={{
-                  height: 120, position: 'relative',
-                  background: 'linear-gradient(135deg, #e8edf2 0%, #dce4ed 100%)',
-                  backgroundImage: `
-                    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)
-                  `,
-                  backgroundSize: '24px 24px',
-                }}>
-                  {/* Forma aproximada de PR */}
-                  <svg viewBox="0 0 400 150" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}>
-                    <path d="M30,70 Q60,50 110,55 L200,50 Q280,52 340,65 L370,80 Q340,95 280,100 L180,105 Q100,105 60,95 Q30,85 30,70 Z"
-                      fill="rgba(255,255,255,0.6)" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="3 3" />
-                    {/* Pin en ubicación aproximada */}
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="8" fill="var(--neg)" opacity="0.2" />
-                    <circle cx={mention.region === 'Sur' ? 180 : mention.region === 'Centro' ? 200 : mention.region === 'Oeste' ? 80 : mention.region === 'Este' ? 320 : 240} cy={mention.region === 'Sur' ? 90 : 70} r="4" fill="var(--neg)" />
-                  </svg>
-                  <div style={{ position: 'absolute', top: 6, left: 8, fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                    Puerto Rico · {mention.region}
-                  </div>
-                </div>
+                <MiniMunicipalityMap
+                  municipality={mention.municipality}
+                  region={mention.region}
+                  coords={mention.coords}
+                  sentiment={mention.sentiment}
+                />
                 <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--hairline)' }}>
                   <Icons.MapPin size={14} color="var(--neg)" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{mention.municipality}</div>
                     <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                      {mention.coords?.[0].toFixed(4)}°N, {Math.abs(mention.coords?.[1] ?? 0).toFixed(4)}°O · Región {mention.region}
+                      {Array.isArray(mention.coords) && typeof mention.coords[0] === 'number' && typeof mention.coords[1] === 'number'
+                        ? `${mention.coords[0].toFixed(4)}°N, ${Math.abs(mention.coords[1]).toFixed(4)}°O · Región ${mention.region}`
+                        : `Región ${mention.region || 'PR'}`}
                     </div>
                   </div>
                   <button className="btn"
@@ -661,23 +942,6 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
               disabled={!mention.url}
               onClick={() => mention.url && window.open(mention.url, '_blank', 'noopener,noreferrer')}>
               <Icons.ExternalLink size={13} /> Ver original
-            </button>
-            <button className="btn"
-              onClick={() => {
-                const url = mention.url || '';
-                const text = `${mention.title || ''}\n${url}`;
-                if (navigator.share) {
-                  navigator.share({ title: mention.title, text, url }).catch(() => {});
-                } else if (navigator.clipboard) {
-                  navigator.clipboard.writeText(text);
-                }
-              }}>
-              <Icons.ExternalLink size={13} /> Compartir
-            </button>
-            <button className="btn"
-              title="Copiar URL"
-              onClick={() => navigator.clipboard && mention.url && navigator.clipboard.writeText(mention.url)}>
-              <Icons.Download size={13} />
             </button>
           </div>
         </div>
@@ -784,6 +1048,13 @@ function TweaksPanel({ theme, setTheme, mode, setMode, density, setDensity, onCl
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  // Cuando el slice filtra por tópico, default a "primary" (top-confidence) —
+  // el conteo coincide con el row del Overview/Scorecard/TopicsScreen. Toggle
+  // permite incluir secundarias y ver el total multi-clasificación.
+  const hasTopicFilter = !!(slice && slice._filter && slice._filter.topic);
+  const [topicMode, setTopicMode] = React.useState('primary');
+  // Reset cuando cambia el slice (otro tópico, otro filtro).
+  React.useEffect(() => { setTopicMode('primary'); }, [slice]);
 
   // If a slice carries a structured filter, fetch real matching mentions from
   // /api/eco-mentions and replace the placeholder list + counts. The slice
@@ -791,22 +1062,26 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   React.useEffect(() => {
     if (!slice || !slice._filter) { setLiveSlice(null); return; }
     setLoading(true);
+    const filter = { ...slice._filter };
+    // Solo enviamos topicMode cuando hay filtro de tópico — para otros filtros
+    // (heatmap, source, day) el parámetro no aplica.
+    if (filter.topic) filter.topicMode = topicMode;
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
       Object.entries({
         agency: localStorage.getItem('eco.agency') || '',
-        period: localStorage.getItem('eco.period') || '1M',
+        ...getPeriodParams(),
         limit: '20',
-        ...slice._filter,
+        ...filter,
       }).filter(([, v]) => v != null && v !== '')
     )).toString(), { cache: 'no-store' })
       .then((r) => r.ok ? r.json() : { mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } })
       .then((j) => setLiveSlice(j))
       .catch(() => setLiveSlice({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } }))
       .finally(() => setLoading(false));
-  }, [slice]);
+  }, [slice, topicMode]);
 
   if (!slice) return null;
-  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta } = slice;
+  const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta, insightText, subcomponents, headlineValue } = slice;
   const volume = liveSlice ? liveSlice.total : slice.volume;
   const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
   const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
@@ -861,11 +1136,79 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 </span>
               </div>
             )}
+            {hasTopicFilter && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-2)' }}>
+                <span style={{ color: 'var(--text-3)' }}>
+                  {topicMode === 'primary'
+                    ? 'Mostrando solo menciones donde este tópico es el principal'
+                    : 'Mostrando todas las menciones que tocan este tópico (principal + secundario)'}
+                </span>
+                <button
+                  className="chip"
+                  onClick={() => setTopicMode((m) => (m === 'primary' ? 'all' : 'primary'))}
+                  style={{ fontSize: 10, padding: '3px 8px' }}
+                >
+                  {topicMode === 'primary' ? '+ Incluir secundarias' : '— Solo principales'}
+                </button>
+              </div>
+            )}
           </div>
           <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Insight LLM (cuando el slice viene de un click en una métrica
+              sintética como Crisis, NSS, BHI). Va arriba del histogram +
+              mentions; explica el porqué del número para esta agencia. */}
+          {(insightText || headlineValue != null) && (
+            <div className="card" style={{
+              padding: 16, background: 'var(--canvas-2)', border: '1px solid var(--hairline)',
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              {headlineValue != null && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <div className="num" style={{ fontSize: 32, fontWeight: 600, color: accent, fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                    {headlineValue}
+                  </div>
+                  {slice.headlineLabel && (
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {slice.headlineLabel}
+                    </div>
+                  )}
+                </div>
+              )}
+              {insightText && (
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}
+                  dangerouslySetInnerHTML={{ __html: insightText }} />
+              )}
+              {insightText === '__loading__' && (
+                <>
+                  <div className="skeleton" style={{ height: 14 }} />
+                  <div className="skeleton" style={{ height: 14, width: '95%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '82%' }} />
+                </>
+              )}
+              {Array.isArray(subcomponents) && subcomponents.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                  <div className="section-eyebrow" style={{ marginBottom: 4 }}>Componentes</div>
+                  {subcomponents.map((sc, i) => {
+                    const pct = Math.max(0, Math.min(100, Number(sc.value) || 0));
+                    return (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 60px', gap: 10, alignItems: 'center', fontSize: 11 }}>
+                        <span style={{ color: 'var(--text-2)' }}>{sc.label}</span>
+                        <div style={{ height: 6, borderRadius: 3, background: 'var(--canvas)', overflow: 'hidden', border: '1px solid var(--hairline)' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: sc.color || accent }} />
+                        </div>
+                        <span className="num" style={{ textAlign: 'right', color: 'var(--text)', fontWeight: 600 }}>
+                          {sc.display ?? (Number.isFinite(Number(sc.value)) ? Number(sc.value).toFixed(2) : '—')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {histogram && histogram.values?.length > 0 && (() => {
             const maxH = Math.max(...histogram.values) || 1;
             const xLabels = histogram.xLabels || [];
@@ -981,4 +1324,258 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   );
 }
 
-window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, TweaksPanel, NAV, SYSTEM_NAV };
+// =========================================================
+// MetricInsightModal — modal de drilldown para cada KPI del Scorecard.
+// Patrón visual inspirado en OverviewHighlights (banda + etiqueta + valor)
+// del Overview, ahora con serie temporal e interpretación AI coloquial.
+//
+// Props:
+//   metricKey: 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization'
+//   value:     number (valor en el periodo actual; sirve de placeholder
+//              mientras carga el fetch)
+//   label:     "Net Sentiment Score" etc.
+//   accent:    color CSS para borde superior y línea del chart
+//   period:    period activo del header (1D/7D/...)
+//   agency:    slug de la agencia activa
+// =========================================================
+function MetricInsightModal({ metricKey, value, label, accent = 'var(--accent)', period, agency, onClose }) {
+  const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
+  const [data, setData] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    // Cache por sesión: evita re-fetchear cuando el usuario abre y cierra
+    // el mismo modal varias veces sin cambiar de period. El sufijo `.v3`
+    // invalida cachés generados antes del backfill V3 (crisis sin gate +
+    // BHI escala 1-10), que se quedaban pegados en sessionStorage del
+    // tab y mostraban valores stale aún tras redeploy.
+    const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) { setData(JSON.parse(cached)); return; }
+    } catch (_) {}
+    const ctrl = new AbortController();
+    const params = new URLSearchParams({ metric: metricKey, period: period || '7D' });
+    if (agency) params.set('agency', agency);
+    fetch(`/api/ai/metric-insight?${params.toString()}`, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then((j) => {
+        setData(j);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(j)); } catch (_) {}
+      })
+      .catch((e) => { if (e?.name !== 'AbortError') setError(String(e?.message || e)); });
+    return () => ctrl.abort();
+  }, [metricKey, period, agency]);
+
+  function sanitize(html) {
+    if (!html) return '';
+    return String(html).replace(/<(?!\/?strong\b)[^>]*>/gi, '');
+  }
+
+  function formatValue(v) {
+    if (v == null) return '—';
+    if (metricKey === 'nss') return (v > 0 ? '+' : '') + Number(v).toFixed(1);
+    if (metricKey === 'crisis') return Number(v).toFixed(2);
+    // BHI: el endpoint /api/ai/metric-insight ya devuelve TODOS los campos
+    // (value, deltaVsPrev, historicalP25/P75, series.value) en escala 1-10.
+    // El placeholder inicial pasado por openMetric en screens.js también se
+    // pre-convierte. Aquí solo formateamos a 1 decimal — sin re-mapear.
+    if (metricKey === 'bhi') return Number(v).toFixed(1);
+    if (metricKey === 'polarization') return Math.round(Number(v)) + '%';
+    if (metricKey === 'volume') return Number(v).toLocaleString('es-PR');
+    return String(v);
+  }
+
+  function bandColor(band) {
+    if (!band) return 'var(--text-3)';
+    const b = String(band).toUpperCase();
+    if (['CRISIS', 'ALERTA', 'NEGATIVO', 'CRÍTICO'].includes(b)) return 'var(--neg)';
+    if (['ELEVADO', 'DÉBIL', 'MODERADA', 'EXTREMA'].includes(b)) return 'var(--warn)';
+    if (['SANO', 'POSITIVO', 'NORMAL', 'ALTA'].includes(b)) return 'var(--pos)';
+    if (['FUERTE'].includes(b)) return 'var(--accent)';
+    return 'var(--text-3)';
+  }
+
+  // Bandas para la barra gradiente — patrón replicado de OverviewHighlights
+  // crisis card (screens.js:2865). Cada métrica tiene su gradiente.
+  function bandConfig() {
+    if (metricKey === 'crisis') {
+      return {
+        labels: ['NORMAL', 'ELEVADO', 'ALERTA', 'CRISIS'],
+        gradient: 'linear-gradient(90deg, var(--pos) 0%, var(--pos) 25%, var(--warn) 25%, var(--warn) 40%, var(--neg) 40%, var(--neg) 60%, var(--neg) 100%)',
+        pct: (v) => Math.min((v ?? 0) * 100, 100),
+      };
+    }
+    if (metricKey === 'bhi') {
+      return {
+        labels: ['CRÍTICO', 'DÉBIL', 'SANO', 'FUERTE'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 40%, var(--warn) 40%, var(--warn) 60%, var(--pos) 60%, var(--pos) 80%, var(--accent) 80%, var(--accent) 100%)',
+        // Valor en escala 1-10 → posición 0-100% (clamp). Antes se multiplicaba
+        // por 100 asumiendo 0-1, lo que dejaba el marcador siempre pegado al
+        // borde derecho (cualquier valor >= 1 da pct = 100%).
+        pct: (v) => Math.min(Math.max((((v ?? 1) - 1) / 9) * 100, 0), 100),
+      };
+    }
+    if (metricKey === 'polarization') {
+      return {
+        labels: ['APÁTICA', 'MODERADA', 'ALTA', 'EXTREMA'],
+        gradient: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 50%, #8B5CF6 50%, #8B5CF6 75%, var(--neg) 75%, var(--neg) 100%)',
+        pct: (v) => Math.max(0, Math.min(v ?? 0, 100)),
+      };
+    }
+    if (metricKey === 'nss') {
+      return {
+        labels: ['MUY NEG', 'NEG', 'NEUTRAL', 'POS', 'MUY POS'],
+        gradient: 'linear-gradient(90deg, var(--neg) 0%, var(--neg) 30%, var(--warn) 30%, var(--warn) 45%, var(--text-3) 45%, var(--text-3) 55%, var(--pos) 55%, var(--pos) 70%, var(--accent) 70%, var(--accent) 100%)',
+        pct: (v) => Math.max(0, Math.min(((v ?? 0) + 100) / 2, 100)),
+      };
+    }
+    // volume — sin banda intrínseca, mostramos solo posición vs P25/P75
+    return null;
+  }
+
+  const displayValue = data ? data.value : value;
+  const displayBand = data ? data.band : null;
+  const cfg = bandConfig();
+  const series = (data && data.series) || [];
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} style={{ zIndex: 2000 }} />
+      <div role="dialog" aria-modal="true" style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto',
+        background: 'var(--canvas)', border: '1px solid var(--hairline-strong)',
+        borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+        zIndex: 2001,
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid var(--hairline)',
+          borderTop: `3px solid ${accent}`,
+          display: 'flex', alignItems: 'flex-start', gap: 16,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>
+              <span>Métrica · {period || '—'}</span>
+              {data && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 4 }}>
+                  <Icons.Sparkles size={9} /> IA
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', lineHeight: 1.25, color: 'var(--text)' }}>
+              {label}
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              <div className="num" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
+                {formatValue(displayValue)}
+              </div>
+              {displayBand && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: bandColor(displayBand), letterSpacing: '0.06em' }}>
+                  {displayBand}
+                </div>
+              )}
+              {data && data.deltaVsPrev != null && (
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+                  {data.deltaVsPrev > 0 ? '▲ +' : data.deltaVsPrev < 0 ? '▼ ' : '· '}
+                  {Math.abs(data.deltaVsPrev)} vs ventana anterior
+                </div>
+              )}
+            </div>
+          </div>
+          <button className="btn" onClick={onClose}><Icons.Close size={14} /></button>
+        </div>
+
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Banda visual — patrón Overview crisis card. */}
+          {cfg && displayValue != null && (
+            <div>
+              <div style={{ height: 8, borderRadius: 4, background: cfg.gradient, position: 'relative' }}>
+                <div style={{ position: 'absolute', left: `${cfg.pct(displayValue)}%`, top: -4, width: 14, height: 14, borderRadius: '50%', background: 'var(--canvas)', border: `2px solid ${bandColor(displayBand)}`, transform: 'translateX(-50%)' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
+                {cfg.labels.map((l) => <span key={l}>{l}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* Interpretación AI coloquial (issue #4). */}
+          <div style={{
+            padding: '14px 16px', background: 'var(--canvas-2)',
+            border: '1px solid var(--hairline)', borderRadius: 8,
+            fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
+          }}>
+            {!data && !error && (
+              <span style={{ color: 'var(--text-3)' }}>Generando interpretación…</span>
+            )}
+            {error && (
+              <span style={{ color: 'var(--neg)' }}>No se pudo generar la interpretación: {error}</span>
+            )}
+            {data && data.interpretation && (
+              <span dangerouslySetInnerHTML={{ __html: sanitize(data.interpretation) }} />
+            )}
+          </div>
+
+          {/* Serie temporal de la métrica para la ventana del period. */}
+          <div>
+            <div className="section-eyebrow" style={{ marginBottom: 8 }}>Evolución diaria</div>
+            {series.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, background: 'var(--canvas-2)', borderRadius: 6 }}>
+                Sin datos suficientes para graficar la serie.
+              </div>
+            )}
+            {series.length > 0 && (
+              <MultiLineChart
+                data={series}
+                series={[{ key: 'value', label, color: accent }]}
+                height={200}
+                /* Dominio Y absoluto por métrica: sin esto la normalización
+                   por-serie estira la línea a min/max del period y un valor
+                   como 0.12 → 0.28 (crisis NORMAL) se ve dramático, como si
+                   tocara fondo y techo. Con dominio fijo el usuario ve la
+                   posición real en la escala completa de la métrica. */
+                yDomain={
+                  metricKey === 'crisis' ? [0, 1]
+                  : metricKey === 'bhi' ? [1, 10]
+                  : metricKey === 'polarization' ? [0, 100]
+                  : metricKey === 'nss' ? [-100, 100]
+                  : null
+                }
+                valueFormat={(v) => formatValue(v)}
+              />
+            )}
+          </div>
+
+          {/* Tópicos contribuyentes (opcional). */}
+          {data && data.topContributingTopics && data.topContributingTopics.length > 0 && (
+            <div>
+              <div className="section-eyebrow" style={{ marginBottom: 8 }}>Tópicos contribuyentes</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.topContributingTopics.map((t) => (
+                  <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>{t.name}</span>
+                    <span className="num" style={{ color: 'var(--text-3)', fontSize: 11 }}>{Math.round(t.share * 100)}%</span>
+                    <div style={{ width: 80, height: 4, background: 'var(--canvas-2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.min(t.share * 100, 100)}%`, height: '100%', background: accent }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Contexto histórico — P25/P75 90d. */}
+          {data && data.historicalP25 != null && data.historicalP75 != null && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
+              Rango típico de los últimos 90 días: <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP25)}</strong> a <strong className="num" style={{ color: 'var(--text-2)' }}>{formatValue(data.historicalP75)}</strong>.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+window.ECO_SHELL = { Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };

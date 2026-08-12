@@ -5,14 +5,20 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@eco/database', '@eco/shared'],
   async rewrites() {
     return [
+      { source: '/overview', destination: '/eco-prototype/index.html' },
+      { source: '/overview/:path*', destination: '/eco-prototype/index.html' },
       { source: '/dashboard', destination: '/eco-prototype/index.html' },
       { source: '/dashboard/:path*', destination: '/eco-prototype/index.html' },
       { source: '/mentions', destination: '/eco-prototype/index.html' },
+      { source: '/search', destination: '/eco-prototype/index.html' },
       { source: '/sentiment', destination: '/eco-prototype/index.html' },
       { source: '/topics', destination: '/eco-prototype/index.html' },
+      { source: '/topics/:path*', destination: '/eco-prototype/index.html' },
       { source: '/geography', destination: '/eco-prototype/index.html' },
       { source: '/alerts', destination: '/eco-prototype/index.html' },
       { source: '/settings', destination: '/eco-prototype/index.html' },
+      { source: '/narrative', destination: '/eco-prototype/index.html' },
+      { source: '/narrative/:path*', destination: '/eco-prototype/index.html' },
     ];
   },
 };

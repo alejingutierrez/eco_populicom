@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, reportSendLog } from '@eco/database';
 import { and, desc, eq } from 'drizzle-orm';
-import { requireAdmin } from '@/lib/auth/require-admin';
+import { requireCapability } from '@/lib/auth/require-admin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
  * Devuelve los últimos envíos de reporte para una agencia.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdmin();
+  const auth = await requireCapability('manage_templates');
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);

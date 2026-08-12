@@ -11,7 +11,7 @@
  * la regla #2 del system prompt prohíbe inventar dinamismo.
  */
 
-import type { BriefingOutput } from './executive-briefing';
+import type { BriefingOutput, BriefingBaseline } from './executive-briefing';
 
 /** Tópico con su crecimiento ya calculado (segunda mitad vs primera mitad del periodo). */
 export interface EmergingTopic {
@@ -39,6 +39,8 @@ export interface EmergingBriefingAggregates {
     negative: number;
   };
   totalReach: number;
+  /** Nivel típico de 7 días (avg diario + NSS) para contexto coyuntural. Opcional. */
+  baseline7d?: BriefingBaseline | null;
 }
 
 export const EMERGING_BRIEFING_SYSTEM_PROMPT = `
@@ -64,6 +66,12 @@ REGLAS INNEGOCIABLES:
 export function buildEmergingBriefingPrompt(agg: EmergingBriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
 
+  // Contexto coyuntural: volumen del periodo vs. el nivel típico de 7 días.
+  const b7 = agg.baseline7d;
+  const baselineLine = b7 && b7.avgDailyVolume != null && b7.avgDailyVolume > 0
+    ? `NIVEL TÍPICO (7 días): ~${Math.round(b7.avgDailyVolume)} menciones/día — el periodo (${agg.totals.total}) está ${Math.round(((agg.totals.total - b7.avgDailyVolume) / b7.avgDailyVolume) * 100)}% vs. ese nivel.`
+    : '';
+
   const emergingBlock = agg.emergingTopics.length > 0
     ? agg.emergingTopics.map((t) => {
         const sign = t.deltaPct > 0 ? '+' : '';
@@ -82,7 +90,7 @@ TOTALES DEL PERIODO:
 - Neutral:  ${agg.totals.neutral}  (${pct(agg.totals.neutral, agg.totals.total)}%)
 - Positivo: ${agg.totals.positive} (${pct(agg.totals.positive, agg.totals.total)}%)
 REACH ACUMULADO: ${agg.totalReach} impresiones
-
+${baselineLine ? `${baselineLine}\n` : ''}
 TÓPICOS ORDENADOS POR CRECIMIENTO (segunda mitad vs primera mitad):
 ${emergingBlock}
 

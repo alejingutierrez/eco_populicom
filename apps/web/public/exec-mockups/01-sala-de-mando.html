@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mando" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · Sala de Mando</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      background:
+        radial-gradient(1200px 600px at 18% -8%, rgba(255,106,61,0.05), transparent 60%),
+        radial-gradient(900px 500px at 100% 110%, rgba(88,166,255,0.04), transparent 55%),
+        var(--bg);
+    }
+
+    #app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 16px 8px;
+      gap: 9px;
+    }
+
+    /* ===== 1. TOP BAR ===== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 0 0 auto;
+    }
+    .brand { display: flex; align-items: center; gap: 9px; }
+    .brand-mark {
+      width: 22px; height: 22px; border-radius: 5px;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      box-shadow: 0 0 0 1px rgba(255,106,61,0.25), 0 0 18px -4px var(--accent);
+    }
+    .brand-mark::after {
+      content: ""; width: 7px; height: 7px; border-radius: 50%;
+      background: #fff;
+    }
+    .brand-word {
+      font-family: var(--ff-display);
+      font-weight: 700; font-size: 17px; letter-spacing: 0.16em;
+      color: var(--text);
+    }
+    .bar-sep { width: 1px; height: 18px; background: var(--hairline-strong); }
+    .bar-gov { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
+    .bar-eyebrow {
+      font-family: var(--ff-mono);
+      font-size: 9px; font-weight: 500; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.18em;
+    }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .chip-period {
+      font-family: var(--ff-mono); font-size: 11px; font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .updated {
+      font-family: var(--ff-mono); font-size: 10px; color: var(--text-3);
+      letter-spacing: 0.02em;
+    }
+    .live {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-family: var(--ff-mono); font-size: 10px; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--pos);
+      padding: 4px 10px; border-radius: 3px;
+      border: 1px solid color-mix(in oklab, var(--pos) 30%, transparent);
+      background: var(--pos-bg);
+    }
+    .live .dot { background: var(--pos); box-shadow: 0 0 8px var(--pos); }
+    /* La Fortaleza monogram */
+    .seal {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 1px solid var(--hairline-strong);
+      background: radial-gradient(circle at 50% 38%, var(--canvas-2), var(--canvas));
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .seal::before {
+      content: ""; position: absolute; inset: 3px; border-radius: 50%;
+      border: 1px solid var(--hairline);
+    }
+    .seal span {
+      font-family: var(--ff-serif); font-style: italic;
+      font-size: 13px; font-weight: 600; color: var(--accent-2);
+      position: relative; z-index: 1;
+    }
+
+    /* ===== 2. COMPOSITE STRIP ===== */
+    .strip {
+      flex: 0 0 auto;
+      display: flex; align-items: stretch;
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: 6px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .stat {
+      flex: 1 1 0;
+      padding: 9px 14px;
+      border-right: 1px solid var(--hairline);
+      display: flex; flex-direction: column; gap: 3px;
+      min-width: 0;
+    }
+    .stat:last-child { border-right: 0; }
+    .stat-lbl {
+      font-family: var(--ff-mono);
+      font-size: 9px; font-weight: 500; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      white-space: nowrap;
+    }
+    .stat-row { display: flex; align-items: baseline; gap: 7px; }
+    .stat-val {
+      font-size: 22px; font-weight: 600; line-height: 1; color: var(--text);
+    }
+    .stat-delta { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; }
+    .stat-spark { margin-top: 2px; }
+    .stat.alert-stat { background: linear-gradient(180deg, rgba(255,106,61,0.07), transparent 70%); }
+    .stat-flag { /* the bold summary block */
+      flex: 1.5 1 0;
+      background: var(--canvas-2);
+      display: flex; flex-direction: column; justify-content: center; gap: 5px;
+      padding: 9px 16px;
+      border-right: 0;
+    }
+    .flag-line { display: flex; align-items: center; gap: 8px; }
+    .flag-big {
+      font-family: var(--ff-mono);
+      font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .flag-big b { color: var(--text); }
+    .flag-crisis { color: var(--neg); }
+    .flag-alert { color: var(--warn); }
+    .flag-sub {
+      font-family: var(--ff-mono); font-size: 9px; color: var(--text-3);
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .crisis-band-mini {
+      position: relative; height: 5px; border-radius: 2px;
+      background: linear-gradient(90deg,
+        var(--pos) 0%, var(--pos) 25%,
+        var(--warn) 25%, var(--warn) 40%,
+        var(--neg) 40%, var(--neg) 100%);
+      margin-top: 4px;
+    }
+    .crisis-band-mini .knob {
+      position: absolute; top: -3px; width: 11px; height: 11px; border-radius: 50%;
+      background: var(--canvas); transform: translateX(-50%);
+    }
+
+    /* ===== 3. THE WALL ===== */
+    .wall-head {
+      flex: 0 0 auto;
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 2px;
+    }
+    .wall-title {
+      font-family: var(--ff-mono);
+      font-size: 10px; font-weight: 600; color: var(--text-2);
+      text-transform: uppercase; letter-spacing: 0.18em;
+    }
+    .wall-legend { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+    .leg { display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--ff-mono); font-size: 9px; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.08em; }
+    .leg .dot { width: 7px; height: 7px; }
+
+    .wall {
+      flex: 1 1 auto;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      grid-auto-rows: 1fr;
+      gap: 9px;
+      min-height: 0;
+    }
+
+    .tile {
+      position: relative;
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-left: 3px solid var(--tile-accent, var(--hairline-strong));
+      border-radius: 6px;
+      padding: 10px 12px 9px;
+      display: flex; flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      transition: border-color 0.2s var(--ease), transform 0.15s var(--ease);
+    }
+    .tile::after {
+      /* faint band-tinted glow in the corner */
+      content: ""; position: absolute; right: -30px; top: -30px;
+      width: 80px; height: 80px; border-radius: 50%;
+      background: var(--tile-accent, transparent); opacity: 0.06;
+      pointer-events: none;
+    }
+    .tile.crisis {
+      border-color: color-mix(in oklab, var(--neg) 55%, var(--hairline));
+      background:
+        linear-gradient(180deg, rgba(255,106,61,0.10), transparent 55%),
+        var(--canvas);
+      animation: tilePulse 1.8s ease-in-out infinite;
+    }
+    @keyframes tilePulse {
+      0%, 100% { box-shadow: var(--shadow-sm), 0 0 0 0 rgba(255,106,61,0.45); }
+      50%      { box-shadow: var(--shadow-sm), 0 0 0 4px rgba(255,106,61,0); }
+    }
+
+    .tile-top {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 7px;
+    }
+    .sector-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+    .tile-name {
+      font-size: 12px; font-weight: 700; color: var(--text);
+      letter-spacing: -0.01em; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .tile-pill { margin-left: auto; flex: 0 0 auto; }
+
+    .tile-mid { display: flex; align-items: flex-end; gap: 10px; }
+    .tile-bhi {
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .bhi-num { font-size: 26px; font-weight: 600; line-height: 0.9; color: var(--text); }
+    .bhi-lbl {
+      font-family: var(--ff-mono); font-size: 8px; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .tile-nss { margin-left: auto; text-align: right; }
+    .nss-num { font-size: 16px; font-weight: 600; line-height: 1; }
+    .nss-lbl {
+      font-family: var(--ff-mono); font-size: 8px; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;
+    }
+
+    .tile-spark { margin: 7px 0 6px; }
+    .tile-spark svg { display: block; width: 100%; }
+
+    .tile-crisisbar {
+      height: 4px; border-radius: 2px; overflow: hidden;
+      background: rgba(125,125,125,0.16);
+      position: relative;
+    }
+    .tile-crisisbar > i {
+      display: block; height: 100%; border-radius: 2px;
+    }
+
+    .tile-foot {
+      margin-top: auto; padding-top: 7px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: var(--ff-mono); font-size: 10px; color: var(--text-2);
+      letter-spacing: 0.01em;
+    }
+    .tile-foot .vel { display: inline-flex; align-items: center; gap: 4px; }
+    .tile-foot .vel.hot { color: var(--neg); }
+    .tile-foot .menc { color: var(--text-3); }
+
+    /* ===== 4. TICKER ===== */
+    .ticker-wrap {
+      flex: 0 0 auto;
+      display: flex; align-items: stretch;
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .ticker-tag {
+      flex: 0 0 auto;
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 0 14px;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--ff-mono); font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      white-space: nowrap;
+    }
+    .ticker-tag .dot { background: #fff; }
+    .ticker {
+      flex: 1 1 auto;
+      display: flex; align-items: center;
+      mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 2%, #000 98%, transparent);
+    }
+    .ticker-inner {
+      animation: tickerRun 52s linear infinite;
+      font-family: var(--ff-mono); font-size: 11px;
+      padding: 9px 0; color: var(--text-2);
+    }
+    .tk { display: inline-flex; align-items: center; gap: 8px; }
+    .tk .dot { width: 7px; height: 7px; }
+    .tk-time { color: var(--text-3); }
+    .tk-agcy { font-weight: 600; color: var(--text); letter-spacing: 0.04em; }
+    .tk-title { color: var(--text-2); }
+    .tk-metric { color: var(--accent-2); }
+    .tk-sep { color: var(--text-3); opacity: 0.5; margin: 0 20px; }
+
+    /* ===== 5. FOOTER ===== */
+    .footer {
+      flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1px 4px 0;
+      font-family: var(--ff-mono);
+      font-size: 10px; color: var(--text-3); letter-spacing: 0.02em;
+    }
+    .footer .muted { color: var(--text-3); opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="data.js"></script>
+  <script>
+  (function () {
+    const M = window.MOCK;
+    const { fmt, crisisBand, bhiBand, spark } = M;
+    const sectorHue = { 'Económico': 168, 'Social': 286, 'Infraestructura': 28, 'Seguridad': 224 };
+
+    // delta color: for BHI/NSS up=good; pass invert=true for crisis/polar
+    const deltaColor = (d, invert) => {
+      if (d === 0) return 'var(--text-3)';
+      const good = invert ? d < 0 : d > 0;
+      return good ? 'var(--pos)' : 'var(--neg)';
+    };
+
+    function sparkSVG(arr, color, w, h) {
+      const s = spark(arr, w, h, 2);
+      return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none">
+        <path d="${s.area}" fill="${color}" opacity="0.10"/>
+        <path d="${s.line}" stroke="${color}" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="${s.last[0].toFixed(1)}" cy="${s.last[1].toFixed(1)}" r="2" fill="${color}"/>
+      </svg>`;
+    }
+
+    /* ---------- TOP BAR ---------- */
+    const topbar = `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-word">ECO</div>
+        </div>
+        <div class="bar-sep"></div>
+        <div>
+          <div class="bar-gov">Gobierno de Puerto Rico</div>
+          <div class="bar-eyebrow">Vista Ejecutiva · Social Listening</div>
+        </div>
+        <div class="topbar-right">
+          <span class="chip chip-period active">${M.meta.period}</span>
+          <span class="updated">Actualizado: ${M.meta.updated}</span>
+          <span class="live"><span class="dot pulse"></span>EN VIVO</span>
+          <div class="seal" title="La Fortaleza"><span>LF</span></div>
+        </div>
+      </div>`;
+
+    /* ---------- COMPOSITE STRIP ---------- */
+    const g = M.gov;
+    const stat = (lbl, valHTML, deltaHTML, sparkHTML, extraCls) => `
+      <div class="stat ${extraCls || ''}">
+        <div class="stat-lbl">${lbl}</div>
+        <div class="stat-row">${valHTML}${deltaHTML || ''}</div>
+        ${sparkHTML ? `<div class="stat-spark">${sparkHTML}</div>` : ''}
+      </div>`;
+
+    const v = (n) => `<span class="stat-val num">${n}</span>`;
+    const d = (txt, color) => `<span class="stat-delta" style="color:${color}">${txt}</span>`;
+
+    const crisisKnobPos = Math.min(g.crisis * 100, 100);
+
+    const strip = `
+      <div class="strip">
+        ${stat('Índice de Salud',
+          v(g.bhi),
+          d(fmt.signed(g.bhiDelta), deltaColor(g.bhiDelta)),
+          sparkSVG(g.trend, 'var(--accent)', 92, 22))}
+
+        ${stat('Sentimiento Neto',
+          `<span class="stat-val num" style="color:var(--neg)">${fmt.signed(g.nss)}</span>`,
+          d(fmt.signed(g.nssDelta), deltaColor(g.nssDelta)),
+          sparkSVG(g.nssTrend, 'var(--neg)', 92, 22))}
+
+        <div class="stat alert-stat">
+          <div class="stat-lbl">Riesgo de Crisis</div>
+          <div class="stat-row">
+            <span class="stat-val num" style="color:var(--neg)">${g.crisis.toFixed(2)}</span>
+            <span class="pill pill-neg">ALERTA</span>
+          </div>
+          <div class="crisis-band-mini">
+            <div class="knob" style="left:${crisisKnobPos}%;border:2px solid var(--neg)"></div>
+          </div>
+        </div>
+
+        ${stat('Polarización',
+          v(g.polar.toFixed(2)),
+          d(fmt.signed(g.polarDelta, 2), deltaColor(g.polarDelta, true)),
+          sparkSVG(g.crisisTrend, 'var(--warn)', 92, 22))}
+
+        ${stat('Menciones',
+          v(fmt.compact(g.vol)),
+          d('+' + g.volDelta + '%', 'var(--pos)'))}
+
+        ${stat('Alcance',
+          v(fmt.compact(g.reach)),
+          d('estimado', 'var(--text-3)'))}
+
+        <div class="stat-flag">
+          <div class="flag-line">
+            <span class="flag-big"><b>${g.agenciesTracked}</b> AGENCIAS</span>
+            <span class="flag-big flag-crisis">· ${g.inCrisis} EN CRISIS</span>
+            <span class="flag-big flag-alert">· ${g.inAlert} EN ALERTA</span>
+          </div>
+          <div class="flag-sub">Compuesto ponderado por volumen y alcance · Vel. interacción ${g.engVel}×</div>
+        </div>
+      </div>`;
+
+    /* ---------- THE WALL ---------- */
+    const agencies = M.agencies.slice().sort((a, b) => b.crisis - a.crisis);
+
+    const tile = (a) => {
+      const cb = crisisBand(a.crisis);
+      const bb = bhiBand(a.bhi);
+      const isCrisis = a.crisis >= 0.60;
+      const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-3)';
+      const hue = sectorHue[a.sector] || 200;
+      const hot = a.engVel >= 1.6;
+      return `
+        <div class="tile ${isCrisis ? 'crisis' : ''}" style="--tile-accent:${cb.color}">
+          <div class="tile-top">
+            <span class="sector-dot" style="background:hsl(${hue} 55% 55%)" title="${a.sector}"></span>
+            <span class="tile-name">${a.short}</span>
+            <span class="pill ${cb.cls} tile-pill">${cb.label}</span>
+          </div>
+
+          <div class="tile-mid">
+            <div class="tile-bhi">
+              <span class="bhi-num num" style="color:${bb.color}">${a.bhi}</span>
+              <span class="bhi-lbl">Índice · ${bb.label}</span>
+            </div>
+            <div class="tile-nss">
+              <div class="nss-num num" style="color:${nssColor}">${fmt.signed(a.nss)}</div>
+              <div class="nss-lbl">Sent. Neto</div>
+            </div>
+          </div>
+
+          <div class="tile-spark">${sparkSVG(a.trend, cb.color, 200, 26)}</div>
+
+          <div class="tile-crisisbar">
+            <i style="width:${Math.min(a.crisis * 100, 100)}%;background:${cb.color}"></i>
+          </div>
+
+          <div class="tile-foot">
+            <span class="vel ${hot ? 'hot' : ''}">Vel. ${a.engVel.toFixed(1)}×</span>
+            <span class="menc">${fmt.compact(a.vol)} menc.</span>
+          </div>
+        </div>`;
+    };
+
+    const wall = `
+      <div class="wall-head">
+        <span class="wall-title">El Muro · ${agencies.length} agencias · orden por riesgo</span>
+        <div class="wall-legend">
+          <span class="leg"><span class="dot" style="background:var(--neg)"></span>Crisis / Alerta</span>
+          <span class="leg"><span class="dot" style="background:var(--warn)"></span>Elevado</span>
+          <span class="leg"><span class="dot" style="background:var(--pos)"></span>Normal</span>
+        </div>
+      </div>
+      <div class="wall">${agencies.map(tile).join('')}</div>`;
+
+    /* ---------- TICKER ---------- */
+    const sevColor = { crisis: 'var(--neg)', alerta: 'var(--neg)', elevado: 'var(--warn)', positivo: 'var(--pos)' };
+    const tkItem = (f) => {
+      const ag = M.byKey(f.agency);
+      const name = (ag ? ag.short : f.agency).toUpperCase();
+      return `<span class="tk">
+        <span class="dot" style="background:${sevColor[f.sev]}"></span>
+        <span class="tk-time">${f.t}</span>
+        <span class="tk-agcy">${name}</span>
+        <span class="tk-title">— ${f.title}</span>
+        <span class="tk-metric">(${f.metric})</span>
+      </span>`;
+    };
+    const tickerItems = M.feed.map(tkItem).join('<span class="tk-sep">●</span>');
+    // duplicate inline so the -50% marquee loops seamlessly
+    const tickerContent = tickerItems + '<span class="tk-sep">●</span>' + tickerItems + '<span class="tk-sep">●</span>';
+
+    const ticker = `
+      <div class="ticker-wrap">
+        <div class="ticker-tag"><span class="dot pulse"></span>Escalamiento en vivo</div>
+        <div class="ticker">
+          <div class="ticker-inner">${tickerContent}</div>
+        </div>
+      </div>`;
+
+    /* ---------- FOOTER ---------- */
+    const footer = `
+      <div class="footer">
+        <span>${M.meta.disclaimer}</span>
+        <span class="muted">${M.meta.product} — ${M.meta.scope} · ${M.meta.principal}</span>
+      </div>`;
+
+    document.getElementById('app').innerHTML =
+      topbar + strip + wall + ticker + footer;
+  })();
+  </script>
+</body>
+</html>

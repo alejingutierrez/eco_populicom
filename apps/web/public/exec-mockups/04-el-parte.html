@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="gaceta" data-mode="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECO — Vista Ejecutiva · El Parte</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <style>
+    /* ====================================================================
+       EL PARTE — Resumen Ejecutivo de Reputación (broadsheet / red folder)
+       Tema gaceta · serif Newsreader · papel crema · navy + oro
+       ==================================================================== */
+
+    html, body { background: var(--bg); }
+
+    /* Fondo crema texturizado: grano sutil + viñeteo suave */
+    body {
+      min-height: 100vh;
+      font-family: var(--ff-serif);
+      color: var(--text);
+      padding: 40px 20px 64px;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse at top, rgba(255,255,255,0.45), transparent 62%),
+        repeating-linear-gradient(0deg, rgba(26,26,26,0.012) 0 1px, transparent 1px 3px),
+        repeating-linear-gradient(90deg, rgba(26,26,26,0.012) 0 1px, transparent 1px 3px);
+    }
+
+    /* ===== La hoja (documento centrado, tipo papel) ===== */
+    .sheet {
+      max-width: 880px;
+      margin: 0 auto;
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-top: 3px solid var(--accent);
+      box-shadow:
+        0 1px 0 rgba(26,26,26,0.04),
+        0 2px 4px rgba(26,26,26,0.05),
+        0 24px 60px -28px rgba(26,26,26,0.30);
+      padding: 52px 64px 40px;
+      position: relative;
+    }
+    /* Marca de margen tenue tipo documento oficial */
+    .sheet::before {
+      content: "";
+      position: absolute; inset: 14px;
+      border: 1px solid var(--hairline);
+      pointer-events: none;
+    }
+    .sheet > * { position: relative; }
+
+    /* ===== MASTHEAD ===== */
+    .masthead { text-align: center; }
+    .eyebrow-top {
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: var(--ff-mono);
+      font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .eyebrow-top .conf { color: var(--neg); font-weight: 500; }
+    .live-cue {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--text-2);
+    }
+    .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--pos); display: inline-block;
+    }
+
+    .seal-wrap { margin: 18px auto 14px; width: 78px; height: 78px; }
+
+    .masthead h1 {
+      font-family: var(--ff-serif);
+      font-weight: 600;
+      font-size: 46px;
+      line-height: 1.02;
+      letter-spacing: -0.015em;
+      margin: 6px 0 0;
+      color: var(--text);
+    }
+    .masthead h1 .amp {
+      font-style: italic; font-weight: 400; color: var(--accent);
+      font-size: 0.78em; padding: 0 0.06em;
+    }
+    .masthead .subtitle {
+      font-family: var(--ff-serif); font-style: italic; font-weight: 400;
+      font-size: 16px; color: var(--text-2); margin-top: 8px; letter-spacing: 0.01em;
+    }
+
+    /* Doble regla fina */
+    .rule-double {
+      border: 0; border-top: 2px solid var(--accent);
+      border-bottom: 1px solid var(--accent);
+      height: 3px; margin: 16px 0 0;
+    }
+    .dateline {
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      font-family: var(--ff-mono); font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--text-2);
+      padding: 9px 0 11px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .dateline .sep { color: var(--hairline-strong); }
+    .dateline .gold { color: var(--accent); }
+
+    /* ===== LEDE ===== */
+    .lede-block { margin: 30px 0 8px; }
+    .lede-eyebrow {
+      font-family: var(--ff-serif); font-style: italic; font-size: 14px;
+      color: var(--accent); margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .lede-eyebrow::after {
+      content: ""; flex: 1; height: 1px; background: var(--hairline);
+    }
+    .lede {
+      font-family: var(--ff-serif);
+      font-size: 22px; line-height: 1.5; font-weight: 400;
+      color: var(--text); letter-spacing: -0.005em;
+    }
+    .lede .dropcap {
+      float: left; font-family: var(--ff-serif); font-weight: 600;
+      font-size: 76px; line-height: 0.72; padding: 6px 12px 0 0;
+      color: var(--accent);
+    }
+    .sc {
+      font-variant: small-caps; letter-spacing: 0.04em; font-weight: 500;
+    }
+    .lede strong { font-weight: 600; }
+    .lede .alerta { color: var(--neg); font-weight: 600; font-variant: small-caps; letter-spacing: 0.05em; }
+    .lede .num { font-family: var(--ff-numeric); font-weight: 600; }
+    .neg-ink { color: var(--neg); }
+    .pos-ink { color: var(--pos); }
+
+    /* ===== 3-up indicadores ===== */
+    .indicators {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      margin: 30px 0 4px;
+      border-top: 1px solid var(--hairline-strong);
+      border-bottom: 1px solid var(--hairline-strong);
+    }
+    .ind {
+      padding: 18px 22px;
+      text-align: center;
+    }
+    .ind + .ind { border-left: 1px solid var(--hairline); }
+    .ind-label {
+      font-family: var(--ff-serif); font-style: italic; font-size: 13px;
+      color: var(--text-2); margin-bottom: 8px;
+    }
+    .ind-value {
+      font-family: var(--ff-numeric); font-weight: 600;
+      font-size: 44px; line-height: 1; color: var(--text);
+      letter-spacing: -0.01em;
+      display: flex; align-items: baseline; justify-content: center; gap: 8px;
+    }
+    .ind-value.alert { color: var(--neg); }
+    .ind-band {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .ind-delta {
+      font-family: var(--ff-numeric); font-size: 17px; font-weight: 500;
+    }
+    .ind-sub {
+      margin-top: 8px; font-family: var(--ff-mono); font-size: 10px;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3);
+    }
+
+    /* ===== Encabezado de sección editorial ===== */
+    .section { margin-top: 38px; }
+    .section-head {
+      display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
+    }
+    .section-head h2 {
+      font-family: var(--ff-serif); font-weight: 600; font-size: 25px;
+      letter-spacing: -0.01em; margin: 0; color: var(--text);
+    }
+    .section-head .kicker {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--text-3); white-space: nowrap;
+    }
+    .section-head::after {
+      content: ""; flex: 1; height: 1px; background: var(--hairline-strong);
+      align-self: center;
+    }
+
+    /* ===== Lista numerada — prioridades ===== */
+    .brief-item {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 0 18px;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .brief-item:first-of-type { padding-top: 14px; }
+    .roman {
+      font-family: var(--ff-serif); font-weight: 500; font-style: italic;
+      font-size: 40px; line-height: 0.9; color: var(--accent);
+      text-align: center;
+      border-right: 1px solid var(--hairline);
+      padding-right: 16px;
+      letter-spacing: -0.02em;
+    }
+    .bi-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .bi-agency {
+      font-family: var(--ff-serif); font-weight: 600; font-size: 19px;
+      color: var(--text); letter-spacing: -0.01em;
+    }
+    .bi-agency .lead {
+      font-family: var(--ff-serif); font-style: italic; font-weight: 400;
+      font-size: 13px; color: var(--text-3); margin-left: 8px;
+    }
+    .bi-pills { display: inline-flex; align-items: center; gap: 8px; }
+    .bi-body {
+      font-family: var(--ff-serif); font-size: 16px; line-height: 1.55;
+      color: var(--text-2); margin-top: 7px; max-width: 62ch;
+    }
+    .bi-body strong { color: var(--text); font-weight: 600; }
+    .bi-body .num { font-family: var(--ff-numeric); font-weight: 600; color: var(--text); }
+    .bi-metrics {
+      display: flex; gap: 22px; margin-top: 11px; align-items: center;
+    }
+    .metric {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.10em;
+      text-transform: uppercase; color: var(--text-3);
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .metric b {
+      font-family: var(--ff-numeric); font-size: 18px; font-weight: 600;
+      letter-spacing: 0; text-transform: none; color: var(--text);
+    }
+    .metric b.neg { color: var(--neg); }
+    .metric b.pos { color: var(--pos); }
+
+    /* Mini barra de sentimiento editorial */
+    .senti-bar {
+      display: flex; height: 5px; width: 120px; overflow: hidden;
+      background: rgba(125,125,125,0.16);
+    }
+    .senti-bar > div { height: 100%; }
+
+    /* ===== Buenas noticias ===== */
+    .good {
+      background: var(--pos-bg);
+      border-left: 2px solid var(--pos);
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      display: grid; grid-template-columns: 1fr auto; gap: 8px 20px;
+      align-items: center;
+    }
+    .good .g-agency {
+      font-family: var(--ff-serif); font-weight: 600; font-size: 18px; color: var(--text);
+    }
+    .good .g-agency .lead {
+      font-family: var(--ff-serif); font-style: italic; font-weight: 400;
+      font-size: 12px; color: var(--text-3); margin-left: 8px;
+    }
+    .good .g-body {
+      font-family: var(--ff-serif); font-size: 15px; line-height: 1.5;
+      color: var(--text-2); margin-top: 4px; grid-column: 1 / 2;
+    }
+    .good .g-metric {
+      grid-row: 1 / 3; align-self: center; text-align: right;
+      font-family: var(--ff-mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--pos);
+    }
+    .good .g-metric b {
+      display: block; font-family: var(--ff-numeric); font-size: 26px;
+      font-weight: 600; color: var(--pos); letter-spacing: 0; text-transform: none;
+      line-height: 1;
+    }
+    .good .g-metric small {
+      font-family: var(--ff-numeric); font-size: 12px; color: var(--pos);
+      text-transform: none; letter-spacing: 0;
+    }
+
+    /* ===== Tabla índice de agencias ===== */
+    .ledger {
+      width: 100%; border-collapse: collapse; margin-top: 12px;
+      font-family: var(--ff-serif);
+    }
+    .ledger thead th {
+      font-family: var(--ff-mono); font-size: 9.5px; font-weight: 500;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3);
+      padding: 0 10px 7px; border-bottom: 1.5px solid var(--text);
+      text-align: right;
+    }
+    .ledger thead th.l { text-align: left; }
+    .ledger tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--hairline);
+      font-size: 15px; color: var(--text);
+      text-align: right;
+      vertical-align: middle;
+    }
+    .ledger tbody tr:last-child td { border-bottom: 1px solid var(--hairline-strong); }
+    .ledger tbody tr.is-crisis td { background: var(--neg-bg); }
+    .ledger .ag-name { text-align: left; font-weight: 500; }
+    .ledger .ag-name .rank {
+      font-family: var(--ff-numeric); color: var(--text-3); font-size: 13px;
+      margin-right: 10px; display: inline-block; width: 16px; text-align: right;
+    }
+    .ledger .ag-name .sector {
+      display: block; font-family: var(--ff-mono); font-size: 9px;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3);
+      margin: 1px 0 0 26px; font-weight: 400;
+    }
+    .ledger .nval { font-family: var(--ff-numeric); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .ledger .nval.neg { color: var(--neg); }
+    .ledger .nval.pos { color: var(--pos); }
+    .ledger .band {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.10em;
+      text-transform: uppercase; font-weight: 500;
+    }
+    .ledger .band-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      margin-right: 6px; vertical-align: middle;
+    }
+    .rankdelta { font-family: var(--ff-numeric); font-size: 12px; margin-left: 8px; }
+
+    .ledger-note {
+      font-family: var(--ff-serif); font-style: italic; font-size: 12px;
+      color: var(--text-3); margin-top: 10px; text-align: right;
+    }
+
+    /* ===== Colofón ===== */
+    .colophon {
+      margin-top: 40px; padding-top: 18px;
+      border-top: 2px solid var(--accent);
+      text-align: center;
+    }
+    .colophon .mono-seal {
+      font-family: var(--ff-serif); font-style: italic; font-size: 15px;
+      color: var(--accent); margin-bottom: 8px;
+    }
+    .colophon .disc {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.06em;
+      color: var(--text-3); line-height: 1.6;
+    }
+    .colophon .gen {
+      font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-2); margin-top: 6px;
+    }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .sheet { box-shadow: none; border: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet" id="app"></div>
+
+  <script src="data.js"></script>
+  <script>
+    (function () {
+      var M = window.MOCK, fmt = M.fmt, gov = M.gov;
+
+      // ---------- sello de cera circular (monograma LF) ----------
+      function seal() {
+        return '<svg class="seal-wrap" viewBox="0 0 78 78" width="78" height="78" aria-hidden="true">' +
+          '<circle cx="39" cy="39" r="37" fill="none" stroke="var(--accent)" stroke-width="1"/>' +
+          '<circle cx="39" cy="39" r="33" fill="none" stroke="var(--accent)" stroke-width="2.5"/>' +
+          '<circle cx="39" cy="39" r="24.5" fill="none" stroke="var(--accent)" stroke-width="0.75" stroke-dasharray="1 3"/>' +
+          // texto curvo alrededor
+          '<defs>' +
+          '<path id="arc-top" d="M 14 39 A 25 25 0 0 1 64 39" />' +
+          '<path id="arc-bot" d="M 16 41 A 23 23 0 0 0 62 41" /></defs>' +
+          '<text style="font-family:var(--ff-mono);fill:var(--accent)" font-size="6.4" letter-spacing="2.4">' +
+          '<textPath href="#arc-top" startOffset="50%" text-anchor="middle">LA FORTALEZA</textPath></text>' +
+          '<text style="font-family:var(--ff-mono);fill:var(--accent)" font-size="6" letter-spacing="2">' +
+          '<textPath href="#arc-bot" startOffset="50%" text-anchor="middle">· ECO ·</textPath></text>' +
+          // estrella central pequeña sobre el monograma
+          '<g style="fill:var(--accent)" transform="translate(39 20.5)">' +
+          starPath(0,0,3.0,1.3,5) +
+          '</g>' +
+          // monograma LF
+          '<text x="39" y="49" text-anchor="middle" ' +
+          'style="font-family:var(--ff-serif);font-style:italic;font-weight:600;fill:var(--accent)" ' +
+          'font-size="22" letter-spacing="-1">LF</text>' +
+          '</svg>';
+      }
+      function starPath(cx, cy, R, r, n) {
+        var pts = [], i, ang, rad;
+        for (i = 0; i < n * 2; i++) {
+          rad = (i % 2 === 0) ? R : r;
+          ang = (Math.PI / n) * i - Math.PI / 2;
+          pts.push((cx + rad * Math.cos(ang)).toFixed(2) + ',' + (cy + rad * Math.sin(ang)).toFixed(2));
+        }
+        return '<polygon points="' + pts.join(' ') + '"/>';
+      }
+
+      // mini barra sentimiento
+      function sentiBar(a) {
+        return '<span class="senti-bar">' +
+          '<div style="width:' + a.pos + '%;background:var(--pos)"></div>' +
+          '<div style="width:' + a.neu + '%;background:var(--text-3)"></div>' +
+          '<div style="width:' + a.neg + '%;background:var(--neg)"></div>' +
+          '</span>';
+      }
+
+      // ============================================================
+      //  MASTHEAD
+      // ============================================================
+      var masthead =
+        '<header class="masthead">' +
+          '<div class="eyebrow-top">' +
+            '<span class="conf">Confidencial · La Fortaleza</span>' +
+            '<span class="live-cue"><span class="live-dot pulse"></span>En vivo · ' + M.meta.updated + '</span>' +
+          '</div>' +
+          seal() +
+          '<h1>El Parte <span class="amp">&amp;</span> Resumen Ejecutivo de Reputación</h1>' +
+          '<div class="subtitle">Estado reputacional del Gobierno de Puerto Rico en redes y medios sociales</div>' +
+          '<hr class="rule-double" />' +
+          '<div class="dateline">' +
+            '<span>Lunes</span><span class="sep">·</span>' +
+            '<span class="gold">6:00 AM AST</span><span class="sep">·</span>' +
+            '<span>Edición diaria</span><span class="sep">·</span>' +
+            '<span>' + M.meta.period + '</span>' +
+          '</div>' +
+        '</header>';
+
+      // ============================================================
+      //  LEDE — el estado en una línea
+      // ============================================================
+      var energia = M.byKey('energia');
+      var lede =
+        '<section class="lede-block">' +
+          '<div class="lede-eyebrow">El estado, en una línea</div>' +
+          '<p class="lede"><span class="dropcap">L</span>a administración amanece en ' +
+          '<span class="alerta">alerta</span> ponderada. El <span class="sc">Índice de Salud</span> de marca ' +
+          'se sitúa en <span class="num">' + gov.bhi + '</span> sobre 100 —una caída de ' +
+          '<span class="num neg-ink">' + Math.abs(gov.bhiDelta) + '</span> puntos en la semana— y el ' +
+          '<span class="sc">Sentimiento Neto</span> retrocede a <span class="num neg-ink">' +
+          fmt.signed(gov.nss) + '</span>. <strong>Energía (AEE / LUMA)</strong>, en franca ' +
+          '<span class="alerta">crisis</span> (Riesgo <span class="num neg-ink">' + energia.crisis.toFixed(2) + '</span>), ' +
+          'arrastra el promedio con <span class="num neg-ink">' + fmt.signed(energia.nss) + '</span> de sentimiento; ' +
+          'le siguen Salud, AAA, DTOP y Educación. En contraste, <strong>Turismo</strong> y <strong>DDEC</strong> ' +
+          'sostienen lo positivo y mantienen a flote la conversación económica. De <span class="num">' +
+          gov.agenciesTracked + '</span> agencias monitoreadas, <span class="num neg-ink">' + gov.inCrisis +
+          '</span> en crisis y <span class="num">' + gov.inAlert + '</span> en alerta sobre un universo de ' +
+          '<span class="num">' + fmt.int(gov.vol) + '</span> menciones (<span class="num neg-ink">' +
+          fmt.signed(gov.volDelta) + '%</span> vs. semana previa).</p>' +
+        '</section>';
+
+      // ============================================================
+      //  3-UP indicadores
+      // ============================================================
+      var cbGov = M.crisisBand(gov.crisis);
+      var indicators =
+        '<section class="indicators">' +
+          // Índice de Salud
+          '<div class="ind">' +
+            '<div class="ind-label">Índice de Salud</div>' +
+            '<div class="ind-value">' + gov.bhi +
+              '<span class="ind-delta neg-ink">' + fmt.signed(gov.bhiDelta) + '</span></div>' +
+            '<div class="ind-sub">Sano · Débil · banda 0–100</div>' +
+          '</div>' +
+          // Sentimiento Neto
+          '<div class="ind">' +
+            '<div class="ind-label">Sentimiento Neto</div>' +
+            '<div class="ind-value alert">' + fmt.signed(gov.nss) +
+              '<span class="ind-delta neg-ink">' + fmt.signed(gov.nssDelta) + '</span></div>' +
+            '<div class="ind-sub">Escala −100 … +100</div>' +
+          '</div>' +
+          // Riesgo de Crisis
+          '<div class="ind">' +
+            '<div class="ind-label">Riesgo de Crisis</div>' +
+            '<div class="ind-value alert">' + gov.crisis.toFixed(2) +
+              '<span class="ind-delta neg-ink">' + fmt.signed(gov.crisisDelta, 2) + '</span></div>' +
+            '<div class="ind-band" style="color:' + cbGov.color + ';margin-top:6px">● ' + cbGov.label + '</div>' +
+          '</div>' +
+        '</section>';
+
+      // ============================================================
+      //  SECCIÓN — Lo que requiere su atención hoy
+      // ============================================================
+      var romans = ['I', 'II', 'III'];
+      // (1) Energía  (2) AAA(Agua)+Salud  (3) Educación
+      var prio = [
+        {
+          a: M.byKey('energia'),
+          tema: M.themes[0], // apagones
+          text: function (a) {
+            return 'Apagones recurrentes y el desempeño de <strong>LUMA</strong> dominan la conversación. ' +
+              'El tema cruza hacia Salud y Educación, eleva el Riesgo de Crisis a <span class="num">' +
+              a.crisis.toFixed(2) + '</span> (banda crisis) y dispara la Velocidad de Interacción a ' +
+              '<span class="num">' + a.engVel.toFixed(1) + '×</span>. ' +
+              'El <span class="num">' + a.neg + '%</span> de las <span class="num">' + fmt.int(a.vol) +
+              '</span> menciones es negativo; la facturación sigue siendo el agravio recurrente.';
+          }
+        },
+        {
+          a: M.byKey('aaa'),
+          tema: M.themes[1], // agua
+          text: function (a) {
+            var salud = M.byKey('salud'), agua = M.themes[1];
+            return 'El racionamiento e interrupciones del servicio se extienden a varios municipios del sur y ' +
+              'se enlazan con presión sobre <strong>Salud</strong> (Riesgo <span class="num">' + salud.crisis.toFixed(2) +
+              '</span>). AAA registra Sentimiento Neto <span class="num">' + fmt.signed(a.nss) +
+              '</span> y un <span class="num">' + a.neg + '%</span> de menciones negativas; ' +
+              'la conversación del agua acumula <span class="num">' + fmt.int(agua.vol) +
+              '</span> menciones con sentimiento <span class="num">' + fmt.signed(agua.nss) + '</span>.';
+          }
+        },
+        {
+          a: M.byKey('educacion'),
+          tema: M.themes[2], // vales
+          text: function (a) {
+            return 'El debate sobre <strong>vales educativos</strong> y cierres de escuelas es el más polarizado del ' +
+              'panorama: Polarización <span class="num">' + a.polar.toFixed(2) + '</span> —la más alta entre las agencias—. ' +
+              'Tras un editorial el tema se viralizó; el Índice de Salud baja <span class="num">' + Math.abs(a.bhiDelta) +
+              '</span> puntos a <span class="num">' + a.bhi + '</span> y el Sentimiento Neto cae a <span class="num">' +
+              fmt.signed(a.nss) + '</span>. El aumento salarial a maestros no compensa el ruido.';
+          }
+        }
+      ];
+
+      var prioHtml = prio.map(function (p, i) {
+        var a = p.a, cb = M.crisisBand(a.crisis);
+        return '<article class="brief-item">' +
+            '<div class="roman">' + romans[i] + '</div>' +
+            '<div>' +
+              '<div class="bi-head">' +
+                '<div class="bi-agency">' + a.name +
+                  '<span class="lead">' + a.lead + '</span></div>' +
+                '<div class="bi-pills">' +
+                  '<span class="pill ' + cb.cls + '">' + cb.label + '</span>' +
+                '</div>' +
+              '</div>' +
+              '<p class="bi-body">' + p.text(a) + '</p>' +
+              '<div class="bi-metrics">' +
+                '<span class="metric">Riesgo de Crisis<b class="neg">' + a.crisis.toFixed(2) + '</b></span>' +
+                '<span class="metric">Sentimiento Neto<b class="' + (a.nss < 0 ? 'neg' : 'pos') + '">' + fmt.signed(a.nss) + '</b></span>' +
+                '<span class="metric">Menciones 7d<b>' + fmt.compact(a.vol) + '</b></span>' +
+                '<span class="metric">Reparto · pos/neu/neg' + sentiBar(a) + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</article>';
+      }).join('');
+
+      var attention =
+        '<section class="section">' +
+          '<div class="section-head">' +
+            '<h2>Lo que requiere su atención hoy</h2>' +
+            '<span class="kicker">Tres frentes</span>' +
+          '</div>' +
+          prioHtml +
+        '</section>';
+
+      // ============================================================
+      //  SECCIÓN — Buenas noticias para amplificar
+      // ============================================================
+      var goods = [M.byKey('turismo'), M.byKey('ddec')];
+      var goodHtml = goods.map(function (a) {
+        return '<div class="good">' +
+            '<div class="g-agency">' + a.name +
+              '<span class="lead">' + a.lead + '</span></div>' +
+            '<div class="g-body">' + a.win + '. ' +
+              'Índice de Salud <span class="num" style="font-weight:600">' + a.bhi + '</span>' +
+              (a.bhiDelta ? ' (' + fmt.signed(a.bhiDelta) + ')' : '') +
+              ', el Riesgo de Crisis se mantiene en banda ' +
+              M.crisisBand(a.crisis).label.toLowerCase() + '.</div>' +
+            '<div class="g-metric">Sentimiento Neto<b>' + fmt.signed(a.nss) + '</b>' +
+              '<small>' + fmt.signed(a.nssDelta) + ' vs. semana previa</small></div>' +
+          '</div>';
+      }).join('');
+
+      var goodNews =
+        '<section class="section">' +
+          '<div class="section-head">' +
+            '<h2>Buenas noticias para amplificar</h2>' +
+            '<span class="kicker">Activos reputacionales</span>' +
+          '</div>' +
+          goodHtml +
+        '</section>';
+
+      // ============================================================
+      //  SECCIÓN — Índice de agencias (tabla print, ordenada por BHI desc)
+      // ============================================================
+      var sorted = M.agencies.slice().sort(function (x, y) { return y.bhi - x.bhi; });
+      var rows = sorted.map(function (a, i) {
+        var cb = M.crisisBand(a.crisis), bb = M.bhiBand(a.bhi);
+        var rd = a.rankDelta;
+        var rdHtml = rd > 0 ? '<span class="rankdelta pos-ink">▲ ' + rd + '</span>' :
+                     rd < 0 ? '<span class="rankdelta neg-ink">▼ ' + Math.abs(rd) + '</span>' :
+                     '<span class="rankdelta" style="color:var(--text-3)">—</span>';
+        return '<tr' + (cb.isCrisis ? ' class="is-crisis"' : '') + '>' +
+            '<td class="ag-name">' +
+              '<span class="rank">' + (i + 1) + '</span>' + a.name + rdHtml +
+              '<span class="sector">' + a.sector + ' · ' + a.short + '</span>' +
+            '</td>' +
+            '<td><span class="nval">' + a.bhi + '</span> ' +
+              '<span style="font-family:var(--ff-serif);font-style:italic;font-size:12px;color:' + bb.color + '">' + bb.label + '</span></td>' +
+            '<td class="nval ' + (a.nss < 0 ? 'neg' : 'pos') + '">' + fmt.signed(a.nss) + '</td>' +
+            '<td class="band" style="color:' + cb.color + '">' +
+              '<span class="band-dot" style="background:' + cb.color + '"></span>' + cb.label +
+              ' <span style="font-family:var(--ff-numeric);color:var(--text-2)">' + a.crisis.toFixed(2) + '</span></td>' +
+          '</tr>';
+      }).join('');
+
+      var ledger =
+        '<section class="section">' +
+          '<div class="section-head">' +
+            '<h2>Índice de agencias</h2>' +
+            '<span class="kicker">' + gov.agenciesTracked + ' agencias · orden por Índice de Salud</span>' +
+          '</div>' +
+          '<table class="ledger">' +
+            '<thead><tr>' +
+              '<th class="l">Agencia</th>' +
+              '<th>Índice de Salud</th>' +
+              '<th>Sentimiento Neto</th>' +
+              '<th>Riesgo de Crisis</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+          '</table>' +
+          '<div class="ledger-note">Las estrellas encabezan; Energía cierra en crisis. Δ indica cambio de posición vs. la semana anterior.</div>' +
+        '</section>';
+
+      // ============================================================
+      //  COLOFÓN
+      // ============================================================
+      var colophon =
+        '<footer class="colophon">' +
+          '<div class="mono-seal">— LF —</div>' +
+          '<div class="disc">' + M.meta.disclaimer + '</div>' +
+          '<div class="gen">Generado por ECO · Social Listening · La Fortaleza</div>' +
+        '</footer>';
+
+      document.getElementById('app').innerHTML =
+        masthead + lede + indicators + attention + goodNews + ledger + colophon;
+    })();
+  </script>
+</body>
+</html>

@@ -4,8 +4,69 @@
     {
       "name": "eco-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "apps/web"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "apps/web"
+      ],
       "port": 3000
+    },
+    {
+      "name": "eco-design-system",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "/private/tmp/claude-502/-Users-alegut-MyApps-eco-populicom/bbe34d3f-a11d-4ddf-85a1-176cbbe9558a/scratchpad/serve.py"
+      ],
+      "port": 8822
+    },
+    {
+      "name": "emails-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8788",
+        "--directory",
+        "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/correos-diarios-concisos/apps/web/public/emails"
+      ],
+      "port": 8788
+    },
+    {
+      "name": "exec-mockups",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8901",
+        "--directory",
+        "/Users/alegut/MyApps/eco_populicom/apps/web/public/exec-mockups"
+      ],
+      "port": 8901
+    },
+    {
+      "name": "report-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8931",
+        "--directory",
+        "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/export-pdf/apps/web/public/report-preview"
+      ],
+      "port": 8931
+    },
+    {
+      "name": "spa-export-pdf",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8932",
+        "--directory",
+        "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/export-pdf/apps/web/public"
+      ],
+      "port": 8932
     }
   ]
 }
