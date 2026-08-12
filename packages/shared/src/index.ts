@@ -16,6 +16,7 @@ export * from './prompts/weekly-report-insights';
 export * from './prompts/weekly-summary';
 export * from './prompts/topic-description';
 export * from './prompts/executive-briefing';
+export * from './prompts/executive-summary';
 export * from './prompts/briefing-emerging';
 export * from './prompts/briefing-crisis';
 export * from './prompts/crisis-editorial';

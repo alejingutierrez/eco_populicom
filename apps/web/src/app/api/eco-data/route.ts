@@ -611,6 +611,21 @@ export async function GET(request: NextRequest) {
     // descripción y desglose de sentimiento. La descripción del subtopic
     // (poblada por el script de seed/migración) describe el cluster real
     // de menciones — la UI la muestra como subtítulo en TopicDetail.
+    //
+    // CONSISTENCIA DE CONTEO (fix ago 2026). La versión anterior hacía
+    // `COUNT(*)` sobre TODAS las filas de mention_topics del tópico, lo que
+    // producía subtópicos con MÁS menciones que su propio tópico:
+    //   (a) contaba menciones donde el tópico es SECUNDARIO, mientras que
+    //       TOPICS.count solo cuenta las primarias (top-confidence), y
+    //   (b) contaba la misma mención varias veces si tenía varias filas
+    //       mention_topics del mismo tópico con subtópicos distintos.
+    //
+    // Ahora se usa EXACTAMENTE el mismo criterio que la query de TOPICS: una
+    // sola fila por mención, la de mayor confianza, de la que salen tanto el
+    // topic_id como el subtopic_id. Así cada mención cuenta una vez, bajo un
+    // solo subtópico de un solo tópico, y la suma de los subtópicos nunca
+    // excede el total del tópico (la diferencia son las primarias cuyo top
+    // no trae subtópico asignado).
     const subtopicRowsRaw = await (pool as ReturnType<typeof getPool>).query<{
       topic_slug: string;
       sub_slug: string;
@@ -621,23 +636,36 @@ export async function GET(request: NextRequest) {
       neg: number | string;
       neu: number | string;
     }>(
-      `SELECT t.slug AS topic_slug,
+      `WITH primary_pick AS (
+         SELECT m.id AS mention_id,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                p.topic_id,
+                p.subtopic_id
+           FROM mentions m
+           CROSS JOIN LATERAL (
+             SELECT mt.topic_id, mt.subtopic_id
+               FROM mention_topics mt
+              WHERE mt.mention_id = m.id
+              ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC
+              LIMIT 1
+           ) p
+          WHERE m.agency_id = $1
+            AND m.is_duplicate = false
+            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+            AND m.published_at >= $2
+            AND m.published_at <= $3
+       )
+       SELECT t.slug AS topic_slug,
               s.slug AS sub_slug,
               s.name AS sub_name,
               s.description AS sub_description,
               COUNT(*)::int AS c,
-              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
-              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg,
-              COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) NOT IN ('positivo','positive','negativo','negative') OR COALESCE(m.nlp_sentiment, m.bw_sentiment) IS NULL)::int AS neu
-         FROM mention_topics mt
-         JOIN subtopics s ON s.id = mt.subtopic_id
-         JOIN topics t ON t.id = mt.topic_id
-         JOIN mentions m ON m.id = mt.mention_id
-        WHERE m.agency_id = $1
-          AND m.is_duplicate = false
-          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-          AND m.published_at >= $2
-          AND m.published_at <= $3
+              COUNT(*) FILTER (WHERE pp.sentiment IN ('positivo','positive'))::int AS pos,
+              COUNT(*) FILTER (WHERE pp.sentiment IN ('negativo','negative'))::int AS neg,
+              COUNT(*) FILTER (WHERE pp.sentiment NOT IN ('positivo','positive','negativo','negative') OR pp.sentiment IS NULL)::int AS neu
+         FROM primary_pick pp
+         JOIN subtopics s ON s.id = pp.subtopic_id
+         JOIN topics t ON t.id = pp.topic_id
         GROUP BY t.slug, s.slug, s.name, s.description`,
       [agencyId, since.toISOString(), until.toISOString()],
     );
@@ -761,12 +789,14 @@ export async function GET(request: NextRequest) {
     // ---- TOPIC CALENDAR (per-day dominant topic, ventana AST cerrada) ----
     // El "Calendario de tópico principal por día" antes usaba una rotación
     // determinística falsa (índice * 7 + ruido). Ahora calculamos el top-1
-    // tópico por día con su sentimiento dominante en datos reales. La
-    // ventana se ajusta al periodo seleccionado del usuario: mínimo 35 días
-    // (para que el calendario nunca quede chiquito) y máximo 365 (1 año)
-    // — periodos largos como "1A" o "Max" muestran 365 días con marcadores
-    // de cambio de mes en el frontend.
-    const calendarDays = Math.max(35, Math.min(days, 365));
+    // tópico por día con su sentimiento dominante en datos reales.
+    //
+    // La ventana es EXACTAMENTE la del periodo seleccionado (tope 365 días
+    // para "1A"/"Max"). Antes había un piso de 35 días "para que el
+    // calendario nunca quede chiquito", pero eso hacía que con el filtro en
+    // 7D el calendario mostrara 35 días — más días de los filtrados, que es
+    // justo lo que el usuario reportó como inconsistencia.
+    const calendarDays = Math.min(days, 365);
     const calendarStartYmd = addDaysYmd(endYmd, -(calendarDays - 1));
     const calendarRows = await db.execute<{
       day: string; slug: string; name: string;

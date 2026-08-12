@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, alertRules, agencies } from '@eco/database';
 import { sql, eq } from 'drizzle-orm';
 import { resolveAgencyId } from '@/lib/agency';
-import { requireCapability } from '@/lib/auth/require-admin';
+import { requireCapability, requireAlertsAccess } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,10 @@ async function resolveCallerAgencyId(request: NextRequest): Promise<string | nul
 }
 
 export async function GET(request: NextRequest) {
+  // Alertas está restringida a una lista de correos (ver ALERTS_ALLOWED_EMAILS).
+  // Ocultar la página en el SPA no basta: este endpoint es alcanzable a mano.
+  const gate = await requireAlertsAccess();
+  if (!gate.ok) return gate.response;
   // Lectura: resolveAgencyId honra el switcher (?agency=) DENTRO del set
   // permitido del usuario — antes esta ruta fijaba la agencia del JWT y la
   // pantalla mostraba reglas de una agencia con historial de otra
@@ -78,6 +82,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const access = await requireAlertsAccess();
+  if (!access.ok) return access.response;
   const gate = await requireCapability('manage_alert_rules');
   if (!gate.ok) return gate.response;
   const agencyId = await resolveCallerAgencyId(request);

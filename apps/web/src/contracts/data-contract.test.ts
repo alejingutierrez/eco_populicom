@@ -139,6 +139,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     { file: 'apps/web/src/app/api/eco-geo/route.ts', rawDup: 0, rawPert: 0, drzDup: 1, drzPert: 1 },
     { file: 'apps/web/src/app/api/eco-topic-description/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
     { file: 'apps/web/src/app/api/ai/metric-insight/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Resumen ejecutivo por periodo (ago-2026): 4 queries de contexto para el
+    // prompt — muestras, municipios, autores y crecimiento por tópico. Todas
+    // sobre el universo pertinente, igual que el resto del producto.
+    { file: 'apps/web/src/app/api/eco-executive-summary/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {
@@ -159,10 +163,15 @@ describe('tripwire — predicados de universo por endpoint', () => {
     }
   });
 
-  test('sentiment-report compartido: un pertinentSql por query (4) y tie-break canónico', () => {
+  // 5 queries desde ago-2026: las 4 originales (totals actual, totals previa,
+  // serie diaria, tabla de tópicos) + `loadHourlySeries`, la serie HORARIA que
+  // el Overview usa cuando la ventana es de un solo día (chip 1D). Comparte el
+  // MISMO pertinentSql y los MISMOS bordes AST que la serie diaria, así que la
+  // suma de las 24 horas cuadra con el total del termómetro.
+  test('sentiment-report compartido: un pertinentSql por query (5) y tie-break canónico', () => {
     const src = read('packages/shared/src/aggregations/sentiment-report.ts');
-    expect(count(src, 'pertinentSql(opts')).toBe(4);
-    expect(count(src, 'is_duplicate = false')).toBe(4);
+    expect(count(src, 'pertinentSql(opts')).toBe(5);
+    expect(count(src, 'is_duplicate = false')).toBe(5);
     expect(src).toContain('confidence DESC NULLS LAST, topic_id ASC');
   });
 });

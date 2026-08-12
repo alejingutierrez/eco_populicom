@@ -311,24 +311,41 @@ function AreaLineChart({ data, height = 180, accessor, color = 'var(--accent)', 
 //                           prioridad sobre sharedScale.
 //   valueFormat  (main)   — función custom para formatear valores en tooltip;
 //                           si no se pasa, usa el switch por key.
-function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat, a11yTitle }) {
+//   responsiveHeight (mio) — par [minH, maxH]. La altura se deriva del ANCHO
+//                           medido del contenedor manteniendo una relación de
+//                           aspecto legible (~2.6:1), acotada al par. Sin esto
+//                           la altura era fija y el chart quedaba una banda
+//                           delgada en pantallas grandes y apretada en chicas
+//                           (petición del usuario: "deben ocupar mejor su
+//                           contenedor... más dinámico su ancho de acuerdo a
+//                           que se puede estar proyectando en pantallas más
+//                           grandes o más chicas"). Tiene prioridad sobre
+//                           `height`.
+function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointClick, sharedScale = false, smooth = false, yDomain, valueFormat, a11yTitle }) {
   const [ref, w] = useChartWidth(600);
   const ids = useChartIds();
   const [hover, setHover] = React.useState(null); // index or null
+  // Altura derivada del ancho cuando se pide responsiveHeight: el chart crece
+  // con su contenedor en vez de quedarse en una franja fija.
+  const h = React.useMemo(() => {
+    if (!Array.isArray(responsiveHeight) || responsiveHeight.length !== 2) return height;
+    const [minH, maxH] = responsiveHeight;
+    return Math.round(Math.max(minH, Math.min(maxH, w / 2.6)));
+  }, [responsiveHeight, height, w]);
   // Padding left más amplio para que los Y-axis labels (números) quepan.
   // r=52: la etiqueta de último valor mide 46px y se dibuja en
   // translate(innerW + 4), así que necesita 4 + 46 = 50px. Con r=20 se
   // recortaban 30 de sus 46px y el chart cerraba mostrando un solo dígito.
   const padding = { t: 28, r: 52, b: 34, l: 44 };
   const innerW = Math.max(50, w - padding.l - padding.r);
-  const innerH = height - padding.t - padding.b;
+  const innerH = h - padding.t - padding.b;
 
   // Guard de main: sin datos o sin series activas no podemos render — antes el
   // `data[hoverIdx][s.key]` tiraba "Cannot read properties of undefined" y
   // volaba toda la pantalla (Scorecard al cambiar a period sin TIMELINE).
   if (!Array.isArray(data) || data.length === 0 || !Array.isArray(series) || series.length === 0) {
     return (
-      <div ref={ref} style={{ width: '100%', minHeight: height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
+      <div ref={ref} style={{ width: '100%', minHeight: h, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>
         Sin datos suficientes para graficar.
       </div>
     );
@@ -426,7 +443,7 @@ function MultiLineChart({ data, series, height = 260, onPointClick, sharedScale 
         })}
       </div>
 
-      <svg width={w} height={height} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
+      <svg width={w} height={h} role="img" aria-labelledby={`${ids.titleId} ${ids.descId}`}
         onMouseMove={onMove} onMouseLeave={() => setHover(null)}
         onClick={(e) => { if (!onPointClick) return; const rect = e.currentTarget.getBoundingClientRect(); const x = e.clientX - rect.left - padding.l; const idx = Math.round(x / step); if (idx >= 0 && idx < data.length) onPointClick(data[idx], idx); }}
         style={{ display: 'block', cursor: onPointClick ? 'pointer' : 'crosshair' }}>

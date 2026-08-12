@@ -3,6 +3,7 @@ import { getDb, alertHistory, alertRules } from '@eco/database';
 import { sql, eq, and } from 'drizzle-orm';
 import { PERIOD_DAYS, ymdInTimeZone, addDaysYmd } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
+import { requireAlertsAccess } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,9 @@ function bandToSeverity(band: unknown): 'alta' | 'media' | 'baja' | null {
 }
 
 export async function GET(request: NextRequest) {
+  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  const gate = await requireAlertsAccess();
+  if (!gate.ok) return gate.response;
   const { searchParams } = request.nextUrl;
   const periodKey = searchParams.get('period') ?? '1M';
   const fromParam = searchParams.get('from');

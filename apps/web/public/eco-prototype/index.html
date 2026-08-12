@@ -693,11 +693,53 @@
     outline: none;
     box-sizing: border-box;
   }
-  .narrative-search:focus { border-color: var(--accent); }
+  /* ─────────────────────────────────────────────────────────────────────
+     NARRATIVAS · el naranja (--accent) queda reservado para LINKS.
+     ─────────────────────────────────────────────────────────────────────
+     Instrucción del usuario: "el naranja debería estar reservado para links,
+     hoy no lo está". En esta página el naranja se usaba para estados de
+     selección (chip activo, item activo), foco, tags de plataforma, el pico
+     del timeline y las barras de "Top voces" — todos elementos que NO son
+     enlaces, y que competían por atención con los "Ver fuente →" reales.
+
+     Nueva regla, alcance = página de Narrativas:
+       - selección / foco / activo  → neutro (--text, --hairline-strong,
+         --canvas-2). La jerarquía la da el peso y el fondo, no el color.
+       - color semántico de estado  → el punto de color del estado de la
+         narrativa (peaking/active/…), que ya existía.
+       - naranja                    → SOLO .narrative-link y <a>.
+     ───────────────────────────────────────────────────────────────────── */
+  .narrative-search:focus { border-color: var(--text-2); }
   .narrative-status-filters {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+  }
+  /* ─────────────────────────────────────────────────────────────────────
+     NARRATIVAS · el naranja (--accent) queda reservado para LINKS.
+     ─────────────────────────────────────────────────────────────────────
+     Instrucción del usuario: "el naranja debería estar reservado para links,
+     hoy no lo está". En esta página el naranja marcaba estados de selección
+     (chip de estado activo, item de la lista activo), foco, tags de plataforma
+     y los marcadores del timeline — ninguno es un enlace, y todos competían
+     por atención con los "Ver fuente →" reales.
+
+     La selección pasa a neutro (peso + relleno en --text), que es más fuerte
+     que un tinte de color y no gasta el hue de los links. El color semántico
+     sigue viviendo en el punto de estado de la narrativa.
+
+     Nota de alcance: el usuario eligió aplicar esto SOLO a Narrativas, así que
+     la primitiva global `.chip.active` (línea ~336) no se toca; esto es un
+     override acotado a `.narrative-status-filters`. */
+  .narrative-status-filters .chip.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--canvas);
+  }
+  /* El aro del punto de estado se calculaba contra --on-accent (el relleno de
+     acento). Sobre el relleno neutro el par correcto es --canvas. */
+  .narrative-status-filters .chip.active .narrative-dot {
+    box-shadow: 0 0 0 1.5px var(--canvas);
   }
   /* .btn-chip era un SEGUNDO primitivo de chip con la representación de
      "activo" INVERTIDA respecto de .chip (tinte contra relleno sólido) a 40px
@@ -760,8 +802,9 @@
   }
   .narrative-item:hover { background: var(--canvas-2); }
   .narrative-item.active {
-    background: var(--accent-fill);
-    border-color: var(--accent);
+    background: var(--canvas-2);
+    border-color: var(--hairline-strong);
+    box-shadow: inset 2px 0 0 var(--text);
   }
   .narrative-item .narrative-dot { margin-top: 4px; align-self: flex-start; }
   .narrative-item-body { flex: 1; min-width: 0; }
@@ -901,8 +944,11 @@
   .narrative-tag-mini {
     padding: 1px 6px;
     border-radius: 4px;
-    background: var(--accent-fill);
-    color: var(--accent);
+    /* Neutro, no --accent: un tag de plataforma ("Facebook", "news") no es un
+       enlace, y en Narrativas el naranja queda reservado para links. */
+    background: var(--canvas-2);
+    border: 1px solid var(--hairline-strong);
+    color: var(--text-2);
     font-size: var(--fs-caption);
     margin-left: 4px;
   }
@@ -950,6 +996,15 @@
     /* --r-sm: la misma curvatura que las demás muestras cuadradas de leyenda. */
     border-radius: var(--r-sm);
   }
+  /* Anclas de escala del timeline (días, total, pico) — separadas de la
+     leyenda de color por un hairline para que se lean como metadatos. */
+  .narrative-stream-scale {
+    color: var(--text-2);
+    font-size: 10.5px;
+    padding-left: 12px;
+    border-left: 1px solid var(--hairline);
+    font-variant-numeric: tabular-nums;
+  }
   .narrative-stream-hint {
     margin-left: auto;
     color: var(--text-3);
@@ -967,11 +1022,16 @@
      defecto que tokens.css:349-352 documenta para HourActivityCard— mientras la
      línea y el punto del MISMO día iban en --accent; y el hover usaba ese mismo
      cian, así que hover y selección compartían hue. Ahora el hover es neutro y
-     sólo la selección usa el hue de selección de la app.
+     sólo la selección usa el hue de selección.
      `.is-selected` va DESPUÉS del hover a propósito: misma especificidad, gana
-     la última, así que el cursor sobre el día ya elegido no lo apaga. */
+     la última, así que el cursor sobre el día ya elegido no lo apaga.
+
+     Selección en NEUTRO y no en --accent-fill: en Narrativas el naranja queda
+     reservado para links (instrucción del usuario), y el día seleccionado no
+     es un enlace. El contraste lo da la mezcla sobre --text, que funciona en
+     claro y oscuro. */
   .narrative-stream-day:hover rect { fill: var(--hairline); }
-  .narrative-stream-day.is-selected rect { fill: var(--accent-fill); }
+  .narrative-stream-day.is-selected rect { fill: color-mix(in oklab, var(--text) 14%, transparent); }
 
   /* Horizontal y vertical con el MISMO token: 12/14 mezclados hacían que la
      retícula de paneles no cuadrara consigo misma, y 14 no está en la escala. */
@@ -1032,7 +1092,7 @@
   }
   .narrative-peak {
     font-size: 11px;
-    color: var(--accent);
+    color: var(--text-2);
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--hairline);
@@ -1070,8 +1130,25 @@
   .narrative-bar-fill {
     display: block;
     height: 100%;
-    background: var(--accent);
+    background: var(--text-3);
     border-radius: 3px;
+  }
+
+  /* Barra de impacto por narrativa: sitúa su volumen contra la más grande del
+     conjunto. Color = estado de la narrativa (inline), no naranja. */
+  .narrative-item-impact {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--canvas);
+    margin-top: 5px;
+    overflow: hidden;
+  }
+  .narrative-item-impact span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    opacity: 0.75;
   }
   .narrative-bar-count {
     color: var(--text-2);
@@ -1462,7 +1539,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc51';
+        s.src = base + '/' + f + '?v=prodc52';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
