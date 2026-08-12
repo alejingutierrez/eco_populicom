@@ -157,14 +157,29 @@ export async function GET(request: NextRequest) {
     'm.is_duplicate = false',
     `(m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`,
   ];
-  const windowScope = `m.published_at >= NOW() - (${daysP} || ' days')::interval`;
+  // `::int * INTERVAL '1 day'` y NO `(param || ' days')::interval`.
+  //
+  // Con la forma vieja el endpoint devolvía 500 en producción:
+  // `operator does not exist: text + unknown`. Un parámetro de bind tiene UN
+  // tipo para toda la sentencia, y `${daysP} || ' days'` lo fijaba como `text`;
+  // cuando la referencia lo volvía a usar en `(${daysP} + ${refDaysP})`, eso
+  // quedaba como `text + unknown` y Postgres no resuelve ese operador. Fijar el
+  // tipo con `::int` elimina la ambigüedad y de paso hace la aritmética en
+  // enteros, que es lo que se quería.
+  const windowScope = `m.published_at >= NOW() - (${daysP}::int * INTERVAL '1 day')`;
   // Referencia: la ventana inmediatamente anterior, de 3x la longitud, acotada
   // a [30, 180] días para que un periodo de 1D no compare contra 3 días de ruido
   // ni un periodo de 1A contra una década.
+  //
+  // El parámetro se registra SOLO en modo 'prev'. Antes se registraba siempre,
+  // así que en modo 'siblings' (cuando hay filtro de contenido) quedaba un $N
+  // declarado en la lista de valores pero ausente del texto de la query, y
+  // Postgres no puede inferir su tipo → segundo fallo, en la otra rama.
   const refDays = Math.min(180, Math.max(30, days * 3));
-  const refDaysP = P(refDays);
-  const windowRefPrev = `m.published_at >= NOW() - ((${daysP} + ${refDaysP}) || ' days')::interval
-                          AND m.published_at < NOW() - (${daysP} || ' days')::interval`;
+  const windowRefPrev = refMode === 'prev'
+    ? `m.published_at >= NOW() - ((${daysP}::int + ${P(refDays)}::int) * INTERVAL '1 day')
+                          AND m.published_at < NOW() - (${daysP}::int * INTERVAL '1 day')`
+    : '';
 
   const scopeWhere = [...baseConds, windowScope, ...contentConds].join(' AND ');
   const refWhere = refMode === 'prev'
