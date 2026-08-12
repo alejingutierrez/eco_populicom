@@ -176,6 +176,87 @@ describe('tripwire — predicados de universo por endpoint', () => {
   });
 });
 
+/**
+ * El matcher del middleware es un ALLOWLIST explícito: una ruta de API que no
+ * esté listada queda accesible SIN sesión. Y eso no falla de forma visible,
+ * porque `resolveAgencyId` sin sesión cae a una rama "public/seed" que acepta
+ * `?agency=<slug>` — así que el endpoint responde con datos de la agencia que
+ * le pidan en vez de 401.
+ *
+ * Pasó de verdad: `/api/eco-executive-summary` se desplegó a producción fuera
+ * del matcher (ago-2026). Este test enumera los directorios de rutas y exige
+ * que cada uno esté cubierto, o listado como público a propósito.
+ */
+describe('tripwire — toda ruta /api/* está en el matcher del middleware (o es pública a propósito)', () => {
+  // Rutas que DEBEN ser alcanzables sin sesión, con su razón.
+  const INTENTIONALLY_PUBLIC = new Set([
+    'auth',   // login / refresh / me: son el mecanismo de sesión
+    'health', // healthcheck del ALB y del contenedor
+  ]);
+
+  // Rutas fuera del matcher que se gatean DENTRO del handler. Verificado contra
+  // prod sin sesión: /api/admin/* → 403, /api/reports/* → 401. Se exige abajo
+  // que el gate siga existiendo en el código, para que quitarlo no las deje
+  // abiertas en silencio.
+  //
+  // `admin` NO usa sesión Cognito a propósito: lo invoca EventBridge, así que
+  // gatea por el secreto compartido `x-eco-cron-secret` (fail-closed si no está
+  // configurado). Por eso su lista de gates válidos es distinta.
+  const SESSION_GATES = ['requireCapability', 'requireRole', 'requireAdmin', 'requireAuth'];
+  const GATED_IN_ROUTE: Record<string, string[]> = {
+    admin: ['x-eco-cron-secret', ...SESSION_GATES],
+    reports: SESSION_GATES,
+  };
+
+  test('ningún endpoint nuevo queda fuera del matcher', () => {
+    const apiDir = path.join(REPO, 'apps/web/src/app/api');
+    const groups = fs
+      .readdirSync(apiDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+
+    const mw = read('apps/web/src/middleware.ts');
+    const missing = groups.filter(
+      (g) =>
+        !INTENTIONALLY_PUBLIC.has(g) &&
+        !(g in GATED_IN_ROUTE) &&
+        !mw.includes(`'/api/${g}/:path*'`),
+    );
+
+    expect({ missing }).toEqual({ missing: [] });
+  });
+
+  test('las rutas gateadas en el handler conservan su gate', () => {
+    // Recorre cada route.ts del grupo y exige al menos un gate por archivo.
+    for (const [group, gates] of Object.entries(GATED_IN_ROUTE)) {
+      const dir = path.join(REPO, 'apps/web/src/app/api', group);
+      const files: string[] = [];
+      const walk = (d: string) => {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, e.name);
+          if (e.isDirectory()) walk(p);
+          else if (e.name === 'route.ts') files.push(p);
+        }
+      };
+      walk(dir);
+      expect(files.length).toBeGreaterThan(0);
+      const ungated = files
+        .filter((f) => !gates.some((g) => fs.readFileSync(f, 'utf8').includes(g)))
+        .map((f) => path.relative(REPO, f));
+      expect({ group, ungated }).toEqual({ group, ungated: [] });
+    }
+  });
+
+  test('los endpoints sin segmentos hijos también se listan en su forma desnuda', () => {
+    // `/api/foo/:path*` no cubre `/api/foo` de forma fiable; los endpoints que
+    // se consumen en su raíz necesitan AMBAS entradas.
+    const mw = read('apps/web/src/middleware.ts');
+    for (const bare of ['exec-overview', 'eco-executive-summary']) {
+      expect(mw).toContain(`'/api/${bare}'`);
+    }
+  });
+});
+
 describe('tripwire — tokens de período del SPA vs mapa canónico', () => {
   test('ECO_PERIOD_DAYS (shell.js) es idéntico al PERIOD_DAYS de @eco/shared', () => {
     const shell = read('apps/web/public/eco-prototype/shell.js');

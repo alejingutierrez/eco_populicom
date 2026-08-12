@@ -133,6 +133,20 @@ export const config = {
     '/api/eco-insights/:path*',
     '/api/eco-metric-insight/:path*',
     '/api/eco-topic-description/:path*',
+    // Un `:path*` NO cubre la ruta desnuda en todos los casos, así que los
+    // endpoints sin segmentos hijos se listan en las DOS formas (igual que
+    // /api/exec-overview arriba). Se omitió al añadir el endpoint y quedó
+    // accesible sin sesión en prod: `resolveAgencyId` sin sesión acepta
+    // `?agency=<slug>` (rama "public/seed"), así que un anónimo podía pedir el
+    // resumen de cualquier agencia. El endpoint además tiene su propio
+    // requireAuth como defensa en profundidad.
+    '/api/eco-executive-summary/:path*',
+    '/api/eco-executive-summary',
+    // eco-terms (nube de palabras) también estaba fuera del matcher y respondía
+    // sin sesión — verificado en prod: devolvía 500 de SQL en vez de 401, que es
+    // la señal de que la query se estaba ejecutando para un anónimo.
+    '/api/eco-terms/:path*',
+    '/api/eco-terms',
     '/api/alerts/:path*',
     '/api/agencies/:path*',
     '/api/users/:path*',
