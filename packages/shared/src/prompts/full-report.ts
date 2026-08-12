@@ -201,8 +201,15 @@ const paragraphArray = (min: number, max: number, desc: string) => ({
 });
 
 // ---- 1. Resumen ejecutivo ----------------------------------
+//
+// Prefijo `Report*`: `prompts/executive-summary.ts` ya exporta un
+// `ExecutiveSummaryOutput` y un `buildExecutiveSummaryPrompt` para el resumen
+// del Overview, que es otra cosa (otra forma de salida, otro consumidor). Dos
+// símbolos con el mismo nombre en el barrel de @eco/shared no sólo dan TS2308:
+// mientras la ambigüedad existió, este route handler quedó ligado en silencio a
+// la función del OTRO módulo.
 
-export interface ExecutiveSummaryOutput {
+export interface ReportExecutiveSummaryOutput {
   /** Una frase que sostiene todo el período. Va como pull-quote en la portada. */
   headline: string;
   /** 3-4 párrafos de análisis del período. */
@@ -244,7 +251,7 @@ export const EXECUTIVE_SUMMARY_TOOL = {
   },
 };
 
-export function buildExecutiveSummaryPrompt(ctx: ReportContext): string {
+export function buildReportExecutiveSummaryPrompt(ctx: ReportContext): string {
   return `${buildSharedContext(ctx)}
 
 TAREA: redacta el RESUMEN EJECUTIVO del período para ${ctx.agencyShortName}.

@@ -39,7 +39,7 @@ import {
   buildReportDetail,
   loadMetricsForWindow,
   REPORT_SYSTEM_PROMPT,
-  buildExecutiveSummaryPrompt, EXECUTIVE_SUMMARY_TOOL,
+  buildReportExecutiveSummaryPrompt, EXECUTIVE_SUMMARY_TOOL,
   buildMetricReadingsPrompt, METRIC_READINGS_TOOL,
   buildTrendAnalysisPrompt, TREND_ANALYSIS_TOOL,
   buildSentimentAnalysisPrompt, SENTIMENT_ANALYSIS_TOOL,
@@ -56,7 +56,7 @@ import {
 } from '@eco/shared';
 import type {
   PgClientLike, ReportContext, MetricSeries,
-  ExecutiveSummaryOutput, MetricReadingsOutput, TrendAnalysisOutput,
+  ReportExecutiveSummaryOutput, MetricReadingsOutput, TrendAnalysisOutput,
   SentimentAnalysisOutput, TopicAnalysisOutput, ActorAnalysisOutput,
   GeoAnalysisOutput, RiskAnalysisOutput, SynthesisOutput,
 } from '@eco/shared';
@@ -286,7 +286,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
         //     más lenta, no la suma; después se consumen en orden de documento.
         push(renderProgress(`Analizando ${report.totals.total.toLocaleString('es-PR')} menciones con IA…`));
 
-        const pExec = analyze<ExecutiveSummaryOutput>('executive', buildExecutiveSummaryPrompt(ctx), EXECUTIVE_SUMMARY_TOOL, 2600);
+        const pExec = analyze<ReportExecutiveSummaryOutput>('executive', buildReportExecutiveSummaryPrompt(ctx), EXECUTIVE_SUMMARY_TOOL, 2600);
         const pMetrics = analyze<MetricReadingsOutput>('metrics', buildMetricReadingsPrompt(ctx), METRIC_READINGS_TOOL, 2600);
         const pTrend = analyze<TrendAnalysisOutput>('trend', buildTrendAnalysisPrompt(ctx), TREND_ANALYSIS_TOOL, 2000);
         const pSent = analyze<SentimentAnalysisOutput>('sentiment', buildSentimentAnalysisPrompt(ctx), SENTIMENT_ANALYSIS_TOOL, 2200);

@@ -16,7 +16,7 @@
 import type { ReportContext } from '../prompts/full-report';
 import type { SentimentReport } from '../aggregations/sentiment-report';
 import type {
-  ExecutiveSummaryOutput, MetricReadingsOutput, TrendAnalysisOutput,
+  ReportExecutiveSummaryOutput, MetricReadingsOutput, TrendAnalysisOutput,
   SentimentAnalysisOutput, TopicAnalysisOutput, ActorAnalysisOutput,
   GeoAnalysisOutput, RiskAnalysisOutput, SynthesisOutput,
 } from '../prompts/full-report';
@@ -242,7 +242,7 @@ export function renderToc(): string {
 // 01 · Resumen ejecutivo
 // ============================================================
 
-export function renderExecutiveSummary(ctx: ReportContext, ai: ExecutiveSummaryOutput | null): string {
+export function renderExecutiveSummary(ctx: ReportContext, ai: ReportExecutiveSummaryOutput | null): string {
   const t = ctx.report.totals;
   // La tesis abre la sección, no la portada: es una conclusión analítica y
   // necesita el resumen detrás para sostenerse.
@@ -550,6 +550,7 @@ export function renderTrend(ctx: ReportContext, ai: TrendAnalysisOutput | null):
     title: bucketed ? `Menciones por ${grain} y sentimiento` : 'Menciones por día y sentimiento',
     grain,
   })}
+  ${bucketed ? `<p class="fig-note" style="margin-top:-3mm">Cada columna agrupa ${size} días. El análisis y la tabla de días atípicos de abajo trabajan sobre la serie DIARIA, así que sus cifras son de un día y no de ${grain === 'semana' ? 'una semana' : 'un mes'} completo.</p>` : ''}
   ${ai ? aiBlock(aiParagraphs(ai.paragraphs)) : aiUnavailable()}
   ${peakTable}
   <h3 class="block">Ritmo de la conversación</h3>

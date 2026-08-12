@@ -170,10 +170,25 @@ function pertinentSql(alias = ''): string {
           AND (${alias}nlp_pertinence IS NULL OR ${alias}nlp_pertinence <> 'baja')`;
 }
 
-/** Ventana de fechas sobre published_at, con la mención como fecha de verdad. */
+/**
+ * Ventana de fechas sobre published_at, con la mención como fecha de verdad.
+ *
+ * ⚠️ La comparación va sobre el DÍA CALENDARIO EN AST, no sobre el timestamp
+ * crudo. Es la "familia B" del contrato de datos y es la que usan `loadTotals`,
+ * `loadDailySeries` y `loadMetricsForWindow`.
+ *
+ * Este helper nació con la familia A (`published_at >= $2::date AND <
+ * $3::date + 1 día`), que compara un timestamptz contra una fecha y por tanto
+ * resuelve el corte en UTC. Como AST es UTC−4, esa ventana metía las últimas 4
+ * horas del día anterior y dejaba fuera las últimas 4 del día final: contra
+ * datos reales de ddecpr (5–11 ago 2026) las tablas del reporte contaban 75
+ * menciones mientras el termómetro contaba 73, y el modelo citó ambas cifras en
+ * el mismo párrafo. Es el defecto de "dos totales en un payload" de la auditoría
+ * de consistencia 2026-08 (grupo G2 de contract-check-live).
+ */
 function windowSql(alias = '', startParam = '$2', endParam = '$3'): string {
-  return `AND ${alias}published_at >= (${startParam}::date)
-          AND ${alias}published_at <  ((${endParam}::date) + INTERVAL '1 day')`;
+  return `AND (${alias}published_at AT TIME ZONE 'America/Puerto_Rico')::date >= (${startParam}::date)
+          AND (${alias}published_at AT TIME ZONE 'America/Puerto_Rico')::date <= (${endParam}::date)`;
 }
 
 const ENGAGEMENT = `(COALESCE(likes,0) + COALESCE(comments,0) + COALESCE(shares,0))`;
