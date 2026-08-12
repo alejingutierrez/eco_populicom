@@ -97,8 +97,8 @@
   "nssDelta": -4,
   "nss7d": -19,
   "nss30d": -11,
-  "brandHealthIndex": 41,
-  "brandHealthDelta": 2.6,
+  "brandHealthIndex": 0.41,
+  "brandHealthDelta": 0.026,
   "crisisRiskScore": 0.18,
   "crisisDelta": 0.03,
   "totalMentions": 658,
@@ -129,9 +129,9 @@
    },
    "brandHealth": {
     "word": "Débil",
-    "value": 41,
-    "short": "41/100",
-    "raw": 41,
+    "value": 0.41,
+    "short": "4.7 / 10",
+    "raw": 0.41,
     "band": null,
     "tone": "warn",
     "color": "var(--warn)"
@@ -196,8 +196,8 @@
     "word": "sube",
     "direction": "up",
     "arrow": "▲",
-    "value": 2.6,
-    "magnitude": 2.6,
+    "value": 0.026,
+    "magnitude": 0.026,
     "hasBaseline": true,
     "tone": "pos"
    },
@@ -819,57 +819,57 @@
   {
    "id": "f0",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T10:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T10:00:00Z",
    "mentionCount": 4
   },
   {
    "id": "f1",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T11:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T11:00:00Z",
    "mentionCount": 3
   },
   {
    "id": "f2",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-08-03T12:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T12:00:00Z",
    "mentionCount": 24
   },
   {
    "id": "f3",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T13:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T13:00:00Z",
    "mentionCount": 7
   },
   {
    "id": "f4",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T14:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T14:00:00Z",
    "mentionCount": 4
   },
   {
    "id": "f5",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-08-03T15:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T15:00:00Z",
    "mentionCount": 3
   },
   {
    "id": "f6",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T16:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T16:00:00Z",
    "mentionCount": 24
   },
   {
    "id": "f7",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T17:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T17:00:00Z",
    "mentionCount": 7
   }
  ],

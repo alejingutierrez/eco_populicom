@@ -3,163 +3,210 @@
   {
    "id": "h0",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-07-20T09:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T09:00:00Z",
    "channel": "email",
-   "mentionCount": 4,
+   "mentionIds": [],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h1",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-07-21T10:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T10:07:00Z",
    "channel": "email",
-   "mentionCount": 3,
+   "mentionIds": [
+    "m10"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h2",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-07-22T11:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T11:14:00Z",
    "channel": "email",
-   "mentionCount": 24,
+   "mentionIds": [
+    "m20",
+    "m21"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h3",
    "ruleName": "Sentimiento negativo sostenido",
-   "severity": "low",
-   "firedAt": "2026-07-23T12:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T12:21:00Z",
    "channel": "email",
-   "mentionCount": 7,
+   "mentionIds": [
+    "m30",
+    "m31",
+    "m32"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h4",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-07-24T13:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T13:28:00Z",
    "channel": "email",
-   "mentionCount": 4,
+   "mentionIds": [
+    "m40",
+    "m41",
+    "m42",
+    "m43"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h5",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-07-25T14:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T14:35:00Z",
    "channel": "email",
-   "mentionCount": 3,
+   "mentionIds": [],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h6",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-07-26T15:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T15:42:00Z",
    "channel": "email",
-   "mentionCount": 24,
+   "mentionIds": [
+    "m60"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h7",
    "ruleName": "Sentimiento negativo sostenido",
-   "severity": "low",
-   "firedAt": "2026-07-27T16:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T16:49:00Z",
    "channel": "email",
-   "mentionCount": 7,
+   "mentionIds": [
+    "m70",
+    "m71"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h8",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-07-28T17:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T17:56:00Z",
    "channel": "email",
-   "mentionCount": 4,
+   "mentionIds": [
+    "m80",
+    "m81",
+    "m82"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h9",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-07-20T18:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T18:03:00Z",
    "channel": "email",
-   "mentionCount": 3,
+   "mentionIds": [
+    "m90",
+    "m91",
+    "m92",
+    "m93"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h10",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-07-21T19:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T19:10:00Z",
    "channel": "email",
-   "mentionCount": 24,
+   "mentionIds": [],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h11",
    "ruleName": "Sentimiento negativo sostenido",
-   "severity": "low",
-   "firedAt": "2026-07-22T20:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T20:17:00Z",
    "channel": "email",
-   "mentionCount": 7,
+   "mentionIds": [
+    "m110"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h12",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-07-23T09:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T09:24:00Z",
    "channel": "email",
-   "mentionCount": 4,
+   "mentionIds": [
+    "m120",
+    "m121"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h13",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-07-24T10:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T10:31:00Z",
    "channel": "email",
-   "mentionCount": 3,
+   "mentionIds": [
+    "m130",
+    "m131",
+    "m132"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h14",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-07-25T11:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T11:38:00Z",
    "channel": "email",
-   "mentionCount": 24,
+   "mentionIds": [
+    "m140",
+    "m141",
+    "m142",
+    "m143"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h15",
    "ruleName": "Sentimiento negativo sostenido",
-   "severity": "low",
-   "firedAt": "2026-07-26T12:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T12:45:00Z",
    "channel": "email",
-   "mentionCount": 7,
+   "mentionIds": [],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h16",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-07-27T13:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T13:52:00Z",
    "channel": "email",
-   "mentionCount": 4,
+   "mentionIds": [
+    "m160"
+   ],
    "agencySlug": "ddecpr"
   },
   {
    "id": "h17",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-07-28T14:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T14:59:00Z",
    "channel": "email",
-   "mentionCount": 3,
+   "mentionIds": [
+    "m170",
+    "m171"
+   ],
    "agencySlug": "ddecpr"
   }
  ]

@@ -397,7 +397,13 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                     className="row-hover"
                     aria-label={`${t.term}: ${t.df} menciones, ${polarityWord(t.polarity)}${t.isNew ? ', nuevo' : ''}`}
                     style={{
-                      display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 90px 56px',
+                      display: 'grid',
+                      // La pista de barra es FLUIDA. Con 90px fijos medía lo mismo
+                      // en una card de 332px que en una de 1130px, donde el único
+                      // gráfico de la fila ocupaba el 8% del ancho disponible. El
+                      // `minmax(90px, …)` mantiene el mínimo de móvil y deja que
+                      // crezca donde hay sitio; el nombre conserva su 1fr.
+                      gridTemplateColumns: 'minmax(0,1fr) minmax(90px,0.8fr) 56px',
                       alignItems: 'center', gap: 'var(--sp-3)', width: '100%',
                       padding: '6px var(--sp-2)', border: 'none', borderRadius: 'var(--r-sm)',
                       background: on ? 'var(--accent-fill)' : 'transparent',
@@ -423,6 +429,18 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
                         2.39:1 sobre el track y falla el 3:1 de WCAG 1.4.11. */}
                     <span className="bar-track" style={{ height: 6 }}>
                       <span style={{ display: 'block', height: '100%', borderRadius: 'inherit',
+                                     // LINEAL, a propósito. Con maxDf=88 quince de
+                                     // cuarenta y cuatro barras medían ≤12px y entre df 5,
+                                     // 6, 7 y 8 había UN píxel, y la tentación es comprimir
+                                     // con raíz o logaritmo. No: eso haría que una barra el
+                                     // doble de larga valiera CUATRO veces, que es el mismo
+                                     // defecto de codificación no proporcional que esta
+                                     // auditoría viene corrigiendo — y la sonda de
+                                     // proporcionalidad no lo cazaría, porque la raíz es
+                                     // monótona y la correlación sigue alta.
+                                     // El problema era la PISTA, no la escala: al pasar de
+                                     // 90px fijos a fluida, el mismo df=5 pasa de 17px a
+                                     // ~72px y entre df 5 y 8 hay 10px en vez de 1.
                                      width: `${Math.max(2, (t.df / maxDf) * 100)}%`,
                                      background: 'var(--accent)' }} />
                     </span>

@@ -182,6 +182,11 @@
 
   /* Responsive visibility helpers. */
   .show-mobile { display: none !important; }
+  /* Complemento de `.show-mobile`, que existía sin su par: una fila de
+     encabezados de tabla no cabe en 390px, pero su ausencia deja la columna sin
+     nombre. Se muestra donde hay sitio y en móvil la fila se pliega a dos líneas
+     con el rótulo dentro de cada celda. */
+  .hide-mobile { display: initial; }
 
   /* Tablet: auto-collapse the rail to an icon column to reclaim width. Paired
      in JS with collapsed=true so labels don't clip. */
@@ -209,6 +214,7 @@
     :root { --gutter-page: 12px; }
     .eco-page { padding: 14px var(--gutter-page) 36px; }
     .show-mobile { display: inline-flex !important; }
+    .hide-mobile { display: none !important; }
     .hide-mobile { display: none !important; }
     /* Larger tap targets on touch screens. */
     .btn { min-height: 44px; }
@@ -254,7 +260,23 @@
     gap: 12px;
     border-bottom: 1px solid var(--hairline);
   }
-  .card-hd > div:first-child { min-width: 0; flex: 1; }
+  /* `flex: 1 1 60%`, no `flex: 1`. El atajo `flex: 1` es `1 1 0%`: con base CERO
+     el bloque del título nunca supera el ancho de la línea, así que nunca fuerza
+     el salto que `flex-wrap` habilita — se comprimía a ~55px mientras los
+     controles no cedían nada. Con una base del 60% el título reclama su mitad y,
+     cuando no cabe con los controles, los empuja a su propia línea. */
+  .card-hd > div:first-child { min-width: 0; flex: 1 1 60%; }
+
+  /* --- CORTES RESPONSIVE — sólo DOS, y son los de ecoUseBreakpoint() ----------
+     768px   → 'mobile'   (una columna, objetivos táctiles de 44px)
+     1024px  → 'tablet'   (rejillas reducidas, drawer a pantalla completa)
+     >1024px → 'desktop'
+     Las media queries de CSS no pueden leer custom properties, así que el único
+     modo de que no vuelvan a derivar es que estén enumerados aquí y que cualquier
+     corte nuevo tenga que justificarse contra esta lista. Un `max-width` de
+     CONTENIDO (por ejemplo el de 740px del resumen de narrativa) no es un corte:
+     no cambia la maqueta, sólo limita la medida de una línea de texto.
+     ------------------------------------------------------------------------- */
   .card-hd-title { font-family: var(--ff-display); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); color: var(--text); text-transform: none; letter-spacing: var(--tracking-tight); }
   /* 12px, no 11: --fs-overline sólo cubre eyebrows en mayúsculas y ticks de eje
      (tokens.css §1) y este subtítulo es prosa en minúsculas — es justo donde vive
@@ -315,10 +337,21 @@
 
   /* Chip button */
   .chip {
-    border-radius: 3px;
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 5px 10px; border-radius: 999px;
-    font-size: 11px; font-weight: 500;
+    /* El `border-radius: 3px` que había aquí era código muerto: la línea
+       siguiente lo pisaba con 999px. El chip es el control más repetido de
+       /search (facetas, tópicos, recientes, limpiar), así que pasa a moverse con
+       los tokens en vez de con cinco literales. */
+    display: inline-flex; align-items: center; gap: var(--sp-15);
+    padding: 5px 10px; border-radius: var(--r-pill);
+    /* --fs-caption (12px), no --fs-overline (11px). El token declara que bajo 12px
+       sólo caben dos cosas: eyebrows en mayúsculas y ticks de eje densos. Un chip
+       lleva el NOMBRE de un tópico, de una faceta o de un filtro — es contenido en
+       minúsculas, no una etiqueta de sección. Medido: el 11px se había vuelto el
+       tamaño dominante de varias pantallas (70% del texto en Tópicos, 52% en el
+       Scorecard), o sea la excepción convertida en regla, y con todo el cuerpo
+       comprimido entre 11 y 12px la jerarquía interna de cada fila era un solo
+       paso de 1px. El chip es el control más repetido del producto. */
+    font-size: var(--fs-caption); font-weight: var(--fw-medium);
     /* El chip se rellenaba con el MISMO color que la card que lo contiene, así
        que los 8 chips de tópicos se leían como contornos fantasma a 1.15:1. */
     background: var(--control-bg); border: 1px solid var(--hairline-strong);
@@ -564,7 +597,12 @@
     display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
   .chat-send:disabled { opacity: 0.45; cursor: default; }
-  @media (max-width: 1100px) {
+  /* También al corte del sistema. El drawer mide 480px, así que su umbral propio
+     de 1100 era una restricción de contenedor razonable — pero convivían cuatro
+     cortes (768 / 980 / 1024 / 1100) y ninguno decía por qué era distinto de los
+     otros. A 1024 el drawer pasa a pantalla completa justo cuando el sistema deja
+     de considerar la ventana un escritorio. */
+  @media (max-width: 1024px) {
     .chat-drawer { width: 100vw; max-width: 100vw; border-left: none; }
     .eco-app[data-chat-open="true"] { padding-right: 0; }
   }
@@ -1139,7 +1177,10 @@
   .narrative-item-impact {
     display: block;
     height: 3px;
-    border-radius: 2px;
+    /* --r-pill: en una barra de 3px de alto, 2px de radio ya es una cápsula. El
+       sistema tiene un token para eso y así la micro-barra no queda como el único
+       radio fuera de escala del archivo. */
+    border-radius: var(--r-pill);
     background: var(--canvas);
     margin-top: 5px;
     overflow: hidden;
@@ -1147,7 +1188,10 @@
   .narrative-item-impact span {
     display: block;
     height: 100%;
-    border-radius: 2px;
+    /* El relleno hereda la cápsula de su pista: con 3px de alto, `inherit` y
+       --r-pill dan lo mismo, y así el relleno no puede desincronizarse del track
+       si mañana cambia el radio de la pista. */
+    border-radius: inherit;
     opacity: 0.75;
   }
   .narrative-bar-count {
@@ -1389,7 +1433,13 @@
     line-height: 1.45;
   }
 
-  @media (max-width: 980px) {
+  /* 1024px, no 980. Los cortes del sistema son DOS —768 y 1024— y son los que
+     `ecoUseBreakpoint()` devuelve como 'mobile' / 'tablet' / 'desktop'. Narrativas
+     era la única pantalla con un corte propio, así que entre 981 y 1024 el CSS ya
+     había colapsado a una columna mientras el JS seguía devolviendo 'desktop' y
+     las reglas táctiles del bloque de 768 no aplicaban: dos ideas distintas del
+     mismo ancho. */
+  @media (max-width: 1024px) {
     /* En una columna el grid ya no necesita el alto de la ventana: con
        min-height y dos filas auto, el reparto del sobrante abría 125px de vacío
        entre dos cards cuyo gap declarado es --gap-grid. */
@@ -1539,7 +1589,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc52';
+        s.src = base + '/' + f + '?v=prodc68';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

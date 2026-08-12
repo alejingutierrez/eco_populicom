@@ -126,7 +126,10 @@ REMOTE = {
     'TIMELINE': TIMELINE,
     'CURRENT_METRICS': {
         'nss': -22, 'nssDelta': -4, 'nss7d': -19, 'nss30d': -11,
-        'brandHealthIndex': 41, 'brandHealthDelta': 2.6,
+        # brandHealthIndex viene 0-1 (BrandHealthMini lo pinta con max=1 y rotula
+        # 1 + v*9): 0.41 = 4.7/10, que cae en la banda 'Débil'. Tenerlo en 41
+        # hacía que la búsqueda de banda cayera en la última, 'Fuerte'.
+        'brandHealthIndex': 0.41, 'brandHealthDelta': 0.026,
         'crisisRiskScore': 0.18, 'crisisDelta': 0.03,
         'totalMentions': sum(VOL), 'totalMentionsDelta': 12.4,
         'totalReach': 1284000, 'engagementRate': 3.4, 'engagementDelta': -1.2,
@@ -139,7 +142,7 @@ REMOTE = {
         'highPertinenceCount': 148, 'totalEngagement': 36581,
         'display': {
             'nss': disp('Negativo leve', -22, '-22', 'neg', 'var(--neg)'),
-            'brandHealth': disp('Débil', 41, '41/100', 'warn', 'var(--warn)'),
+            'brandHealth': disp('Débil', 0.41, '4.7 / 10', 'warn', 'var(--warn)'),
             'crisis': disp('Normal', 0.18, '0.18', 'pos', 'var(--pos)'),
             'polarization': disp('—', None, '—', 'neutral', 'var(--text-3)'),
             'engagementRate': disp('Moderada', 3.4, '3.4%', 'warn', 'var(--warn)'),
@@ -148,7 +151,7 @@ REMOTE = {
         },
         'deltaDisplay': {
             'nss': delta('baja', 'down', '▼', -4, 'neg'),
-            'brandHealth': delta('sube', 'up', '▲', 2.6, 'pos'),
+            'brandHealth': delta('sube', 'up', '▲', 0.026, 'pos'),
             'crisis': delta('sube', 'up', '▲', 0.03, 'neg'),
             'engagementRate': delta('baja', 'down', '▼', -1.2, 'neg'),
             'totalMentions': delta('sube', 'up', '▲', 12.4, 'neutral'),
@@ -177,11 +180,16 @@ REMOTE = {
          'active': True, 'triggered': 0, 'lastFired': None, 'channels': ['email']},
         {'id': 'a4', 'name': 'Sentimiento negativo sostenido', 'priority': 'low',
          'active': False, 'triggered': 0, 'lastFired': None, 'channels': []}],
+    # `triggeredAt` y severidad en ESPAÑOL: es el contrato real de
+    # /api/alerts/history (bandToSeverity → 'alta' | 'media' | 'baja'). El fixture
+    # traía `firedAt` y valores en inglés, y eso hacía que la columna CUÁNDO
+    # saliera vacía y que las píldoras imprimieran el enum crudo — un defecto
+    # inventado por el fixture, no del producto.
     'ALERT_FEED': [
         {'id': f'f{i}', 'ruleName': ['Pico de menciones negativas · Energía',
                                      'Crisis: NSS bajo umbral', 'Volumen anómalo'][i % 3],
-         'severity': ['critical', 'high', 'medium'][i % 3],
-         'firedAt': f'2026-08-0{1 + (i % 3)}T{10 + i:02d}:00:00Z',
+         'severity': ['alta', 'media', 'baja'][i % 3],
+         'triggeredAt': f'2026-08-0{1 + (i % 3)}T{10 + i:02d}:00:00Z',
          'mentionCount': [4, 3, 24, 7][i % 4]} for i in range(8)],
     'COMPARISON': [
         {'label': 'Esta semana', 'total': sum(VOL), 'nss': -22},

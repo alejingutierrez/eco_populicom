@@ -38,3 +38,11 @@ jobs:
 
       - name: Run contract tests
         run: npm test -w apps/web
+
+      # Guardia del sistema de diseño. Es estático (no necesita navegador ni DB) y
+      # existe porque un `var(--x)` sin declarar no resuelve a "un color raro":
+      # resuelve a NADA, y así llegaron a producción dos bandas de métrica
+      # dibujadas con un color inexistente. La sonda de color no puede verlo;
+      # comparar referencias contra declaraciones sí.
+      - name: Design tokens — referencias sin declarar
+        run: python3 apps/web/tools/design-probe/check-tokens.py

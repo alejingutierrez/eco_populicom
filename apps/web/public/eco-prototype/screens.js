@@ -44,6 +44,20 @@ function ecoBounceToSignIn() {
 // separan por saliencia: 0.40–0.60 mezclado con el canvas (menos contraste),
 // ≥0.60 a plena saturación — así la escala sigue creciendo hacia la derecha
 // tanto en modo claro como en oscuro.
+// Color de la banda en la que cae un valor. Es la ÚNICA fuente del color de un
+// veredicto, y existe porque el titular y su propia banda venían de dos sitios
+// distintos: el `tone` que calcula el backend (BAND_TONE en @eco/shared) y la
+// tabla de bandas local, que es la que dibuja la barra. Para el veredicto ALERTA
+// no coincidían, así que la palabra y la barra que está 30px debajo discrepaban
+// sobre el mismo dato. `scale` divide el valor cuando la tabla está en 0-1 y el
+// dato llega en otra escala (polarización llega 0-100).
+function bandColorAt(bands, value, scale) {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  const v = Number(value) / (scale || 1);
+  const b = bands.find((x) => v >= x.from && v < x.to) || bands[bands.length - 1];
+  return b ? b.color : null;
+}
+
 const CRISIS_BANDS = [
   { from: 0,    to: 0.25, label: 'Normal',  color: 'var(--pos)' },
   { from: 0.25, to: 0.40, label: 'Elevado', color: 'var(--warn)' },
@@ -141,7 +155,10 @@ function DeltaBadge({ info, value, metricKey = null, suffix = '%', decimals = 0 
 //    `value` como número de apoyo debajo. Para métricas 0–1 / con banda.
 //  • si no → modo número clásico (volumen, contadores).
 // `deltaInfo` (DeltaDisplay) reemplaza al `delta` numérico cuando está presente.
-function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, metricKey, children, onClick }) {
+// `valueColor` gana sobre `valueTone`: el color del veredicto tiene que salir de
+// la MISMA tabla de bandas que pinta su barra (ver bandColorAt), porque el `tone`
+// del payload lo decide el backend y no coincide con ella.
+function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaInfo, sub, icon, trendData, accent = 'var(--accent)', tone, toneLabel, highlight, invertDelta, metricKey, children, onClick }) {
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
@@ -160,7 +177,11 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       style={{
-        padding: 'var(--sp-5)', position: 'relative', overflow: 'hidden',
+        // --pad-card, no --sp-5: el paso crudo de la escala rompía el ritmo de las
+        // cards hermanas. Medido: el borde del CONTENIDO de cards en la misma
+        // rejilla caía en 248 / 265 / 268 px, un escalón visible de 3px que el ojo
+        // lee como desalineación aunque los dos valores estén en la escala.
+        padding: 'var(--pad-card)', position: 'relative', overflow: 'hidden',
         // Columna flex para que el pie de la card pueda clavarse abajo con
         // `marginTop:auto`: es lo que da una línea inferior común a las cinco
         // cards de la fila, que hoy terminan a cuatro alturas distintas.
@@ -192,7 +213,7 @@ function KpiCard({ label, value, valueWord, valueTone, delta, deltaInfo, sub, ic
       {wordMode ? (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)', lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)'), lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
             {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : null}
           </div>
           {(value || sub) && (
@@ -533,7 +554,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1.6fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
+      {/* Proporción 1.6fr de #95; padding en --pad-card para que esta card
+          comparta el borde de contenido con sus hermanas (--sp-5 es un paso crudo
+          de la escala de espaciado, no el token del ritmo de card). */}
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1.6fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
         <div>
           <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
             {/* El eyebrow ahora muestra la VENTANA del filtro, no la fecha en
@@ -639,7 +663,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
             <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
           </div>
         </KpiCard>
-        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
+        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} valueColor={bandColorAt(CRISIS_BANDS, m.crisisRiskScore, 1)} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
           onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
           {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
               + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
@@ -655,13 +679,13 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
             y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
-        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
+        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} valueColor={bandColorAt(BHI_BANDS, m.brandHealthIndex, 1)} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
           onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
           <BrandHealthMini value={m.brandHealthIndex ?? 0} />
         </KpiCard>
         {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
             Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
+        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} valueColor={bandColorAt(POLARIZATION_BANDS, m.polarizationIndex, 100)} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
           onClick={() => openMetric('polarization', 'Polarización', 'var(--metric-polarization)')}>
           {/* UNA sola gráfica por KPI. Esta era la única card con sparkline Y banda:
               dos escalas distintas para la misma cifra, y como la fila se alinea al
@@ -860,8 +884,15 @@ function BrandHealthMini({ value }) {
 // puedan divergir (era el hallazgo F6).
 const SEQ_STEPS = ['var(--seq-0)', 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
 function seqColor(intensity) {
-  const i = Math.round(Math.min(1, Math.max(0, intensity || 0)) * (SEQ_STEPS.length - 1));
-  return SEQ_STEPS[i];
+  const t = Math.min(1, Math.max(0, intensity || 0));
+  // El paso 0 queda RESERVADO al cero real. Antes cualquier valor bajo (t < 0.1)
+  // redondeaba al mismo paso que "sin actividad" y, con --seq-0 a 0.08 de alfa
+  // (1.10:1 contra --canvas), una franja CON menciones se pintaba idéntica a una
+  // vacía: el heatmap sub-reportaba la actividad de madrugada y el mapa de
+  // municipios los municipios con poco volumen. Los valores > 0 arrancan en el
+  // paso 1.
+  if (t === 0) return SEQ_STEPS[0];
+  return SEQ_STEPS[1 + Math.round(t * (SEQ_STEPS.length - 2))];
 }
 
 // Variante ATADA A LA DISTRIBUCIÓN, para datos con cola larga. `seqColor`
@@ -926,8 +957,13 @@ function HourActivityCard({ onCellClick }) {
             secuencial --seq-*. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
           <span>menos</span>
-          <div style={{ display: 'flex', gap: 'var(--sp-05)' }}>
-            {SEQ_STEPS.map((t, i) => (
+          <div style={{ display: 'flex', gap: 'var(--sp-05)', alignItems: 'center' }}>
+            {/* El paso 0 va con borde y separado del degradado: representa "sin
+                actividad", no "poca" (ver seqColor). Dentro de la rampa era
+                invisible —1.10:1 contra --canvas— así que el extremo "menos" no
+                tenía ancla y una franja vacía no se distinguía de una con datos. */}
+            <div style={{ width: 10, height: 10, background: SEQ_STEPS[0], border: '1px solid var(--hairline-strong)', borderRadius: 'var(--r-sm)', marginRight: 'var(--sp-1)' }} />
+            {SEQ_STEPS.slice(1).map((t, i) => (
               <div key={i} style={{ width: 10, height: 10, background: t, borderRadius: 'var(--r-sm)' }} />
             ))}
           </div>
@@ -1963,7 +1999,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
@@ -2428,10 +2464,10 @@ function TopicsScreen({ onMentionClick }) {
           display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
           fontSize: 11, color: 'var(--text-3)',
         }}>
-          <span style={{ fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: 10 }}>Distribución</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--pos)' }} /> Positivo</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--text-3)' }} /> Neutral</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--neg)' }} /> Negativo</span>
+          <span style={{ fontWeight: 700, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontSize: 'var(--fs-overline)' }}>Distribución</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--pos)' }} /> Positivo</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--text-3)' }} /> Neutral</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--neg)' }} /> Negativo</span>
           <span style={{ marginLeft: 'auto' }}>Δ = variación vs. período anterior</span>
         </div>
       </div>
@@ -2595,8 +2631,21 @@ function SentimentBar({ t }) {
 // --- Bubbles variant ---
 function TopicBubbles({ topics, onSelect }) {
   const max = Math.max(...topics.map(t => t.count));
-  // Lay out bubbles with deterministic pseudo-random positions within an SVG viewport
-  const W = 960, H = 360;
+  // El viewBox mide lo que mide el contenedor (1 unidad = 1 píxel), como el
+  // resto de las gráficas. Antes era 960×360 fijo con `height: 360`: en móvil
+  // (~309px de ancho útil) el SVG se escalaba a 0.32, los rótulos de 11 unidades
+  // se pintaban a 3.5px —ilegibles, y por debajo del piso de 11px que la escala
+  // fija— y el dibujo ocupaba 116px dentro de una caja de 360px. Sin escala, los
+  // tamaños de letra son los reales.
+  const [wrapRef, cw] = useChartWidth(720);
+  const isMob = window.ecoIsMobile();
+  const W = Math.max(280, Math.round(cw));
+  // En móvil la caja es vertical: cabe el mismo dibujo sin achicarlo.
+  const H = isMob ? 520 : 360;
+  // Los radios se escalan con el ÁREA de la caja para conservar la densidad del
+  // empaquetado; la RAZÓN entre radios —que es lo que codifica el dato— no
+  // cambia con el tamaño de la caja.
+  const rk = Math.sqrt((W * H) / (960 * 360));
   const positioned = React.useMemo(() => {
     const out = [];
     const rng = (i) => {
@@ -2605,7 +2654,7 @@ function TopicBubbles({ topics, onSelect }) {
       return s - Math.floor(s);
     };
     topics.forEach((t, i) => {
-      const r = 30 + (t.count / max) * 70;
+      const r = (30 + (t.count / max) * 70) * rk;
       let x = 60 + rng(i) * (W - 120);
       let y = 60 + rng(i + 7) * (H - 120);
       // Push away from prior bubbles
@@ -2623,21 +2672,24 @@ function TopicBubbles({ topics, onSelect }) {
       out.push({ ...t, x, y, r });
     });
     return out;
-  }, [topics]);
+  }, [topics, W, H, rk]);
 
   return (
-    <div style={{ position: 'relative', width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 360, display: 'block' }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
         {positioned.map((t) => {
           // Mismo mapa que el treemap y que la leyenda (un solo hue por estado).
           const color = window.ecoSentimentColor(t.dominantSentiment);
           return (
             <g key={t.slug} style={{ cursor: 'pointer' }} onClick={() => onSelect(t.slug)}>
               <circle cx={t.x} cy={t.y} r={t.r} fill={color} fillOpacity="0.18" stroke={color} strokeWidth="1.5" />
-              <text x={t.x} y={t.y - 4} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--text)" style={{ pointerEvents: 'none' }}>
-                {t.name.length > 18 ? t.name.slice(0, 17) + '…' : t.name}
+              {/* Ahora que 1 unidad = 1 píxel, estos tamaños son tamaños REALES
+                  de letra y salen de la escala (11 y 15). En móvil el rótulo se
+                  corta antes porque la burbuja también es más pequeña. */}
+              <text x={t.x} y={t.y - 4} textAnchor="middle" fontSize="var(--fs-overline)" fontWeight="700" fill="var(--text)" style={{ pointerEvents: 'none' }}>
+                {t.name.length > (isMob ? 12 : 18) ? t.name.slice(0, (isMob ? 12 : 18) - 1) + '…' : t.name}
               </text>
-              <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
+              <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="var(--fs-num-sm)" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
                 {fmt(t.count)}
               </text>
               <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="var(--fs-overline)"
@@ -2829,7 +2881,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       </div>
 
       {/* Hero stats */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 'var(--sp-5)', alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 'var(--sp-5)', alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Tópico</div>
           <div style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
@@ -2854,7 +2906,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       {/* Descripción IA: cargada del endpoint cacheado por (topic_id,
           period_start, period_end). loading → muestra placeholder; ready →
           texto; empty → mensaje neutral; error → bloque oculto. */}
-      <div className="card" style={{ padding: 'var(--sp-5)' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)' }}>
         <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
           <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA · período seleccionado
         </div>
@@ -4286,8 +4338,28 @@ function AlertsHistory({ onMentionClick }) {
         </div>
       </div>
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
+        <div className="card-hd"><div>
+          <div className="card-hd-title">Historial detallado</div>
+          {/* Denominador explícito: la card recortaba a 40 filas en silencio y era
+              la única de la pantalla sin `card-hd-sub`, mientras las otras tres
+              declaran el suyo. Un recorte que no se anuncia se lee como "esto es
+              todo lo que hubo". */}
+          <div className="card-hd-sub">
+            {rows.length > 40 ? `Mostrando 40 de ${rows.length} activaciones` : `${rows.length} activaciones`}
+          </div>
+        </div></div>
         <div className="scroll-x">
+          {/* Fila de encabezados, con la misma pauta que la tabla de Reglas: la
+              cuarta columna imprimía una fila de ceros sin nada que la nombrara. */}
+          <div className="hide-mobile" style={{
+            display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px',
+            gap: 'var(--sp-3)', padding: '0 0 var(--sp-2)',
+            fontSize: 'var(--fs-overline)', textTransform: 'uppercase',
+            letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', fontWeight: 600,
+          }}>
+            <span>Cuándo</span><span>Severidad</span><span>Regla</span>
+            <span style={{ textAlign: 'right' }}>Menciones</span>
+          </div>
           {rows.slice(0, 40).map((r, i) => (
             /* En móvil la fila se pliega a dos líneas en vez de mantener columnas
                fijas: con '120px 140px 1fr 90px' la marca de tiempo y una píldora de
@@ -4310,7 +4382,12 @@ function AlertsHistory({ onMentionClick }) {
                   tabla de Reglas el mismo componente ya llevaba justifySelf. */}
               <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{r.severity || 'media'}</span>
               <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.mentionIds?.length || 0}</span>
+              {/* "—", no "0". Dos líneas más arriba la misma pantalla ya usa la raya
+                  para "sin dato", y un cero aquí afirma "esta activación no tocó
+                  ninguna mención", que es una medición que nadie hizo. */}
+              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>
+                {r.mentionIds?.length ? r.mentionIds.length : '—'}
+              </span>
             </div>
           ))}
         </div>
@@ -4493,7 +4570,7 @@ function UsersAdmin() {
     // Display label for the Agencia column.
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
-    lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
+    lastSeen: window.ecoFmtDateTime(u.lastLogin),
     // Sin campo `avatar`: el color ya no depende del correo. La paleta
     // categórica se asigna EN ORDEN (data.js) y su último token es el gris de
     // «resto/otros», así que repartirla por hash del correo hacía que un
@@ -4657,11 +4734,25 @@ function UsersAdmin() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
-                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{r.count}</div>
+                {/* El conteo REAL. `ROLES` no define `count`, así que el hueco existía
+                    en la maqueta y salía siempre vacío: las cuatro cards eran
+                    documentación estática y no decían cuántos usuarios tiene cada
+                    rol — el dato que ya está calculado aquí al lado. */}
+                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
+                  {users.filter((u) => u.role === r.k).length}
+                </div>
               </div>
               <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', lineHeight: 1.45 }}>{r.desc}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
-                {r.perms.map(p => (
+                {/* Vacío EXPLÍCITO: "Solo lectura" tiene `perms: []` y dejaba la celda
+                    en blanco, así que de las cuatro cards una tenía otra estructura y
+                    el blanco se leía como "falta el dato" en vez de "no tiene
+                    permisos de edición". */}
+                {r.perms.length === 0 ? (
+                  <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontStyle: 'italic' }}>
+                    Sin permisos de edición
+                  </span>
+                ) : r.perms.map(p => (
                   <span key={p} className="pill" style={{ fontSize: 'var(--fs-overline)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>
                 ))}
               </div>
@@ -5278,7 +5369,13 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   const band = cb.label;
   const word = cd ? cd.word : cb.label;
   const valueLabel = cd && cd.value ? cd.value : (Math.round(score * 100) + '%');
-  const wordColor = cd ? cd.color : cb.color;
+  // El titular y su banda leen el MISMO color, y sale de CRISIS_BANDS. Antes el
+  // titular tomaba `cd.color` —el tone que calcula BAND_TONE en el backend— y la
+  // banda tomaba `cb.color` de la tabla local: para el veredicto ALERTA el
+  // backend daba --neg y la tabla otro color, así que la palabra y la barra que
+  // está 30px más abajo discrepaban sobre el mismo dato. Manda la tabla, porque
+  // es la que dibuja la barra que el usuario compara.
+  const wordColor = cb.color;
   const bandColor = cb.color;
   return (
     <button
