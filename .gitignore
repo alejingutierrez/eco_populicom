@@ -9,3 +9,6 @@ dist/
 .worktrees/
 .claude/worktrees/
 .superpowers/
+
+# Previews generados por scripts/preview-export-report.ts (artefactos de build)
+apps/web/public/report-preview/
