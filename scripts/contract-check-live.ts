@@ -199,7 +199,13 @@ SELECT
     WHERE m.agency_id = '${agencyId}' AND m.is_duplicate = true AND ${IN_WINDOW_B}) AS duplicados,
   (SELECT COUNT(*)::int FROM mentions m, w
     WHERE m.agency_id = '${agencyId}' AND ${UNIVERSE} AND ${IN_WINDOW_B}
-      AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)) AS sin_topico
+      AND NOT EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id)) AS sin_topico,
+  (SELECT COUNT(*)::int FROM mentions m, w
+    WHERE m.agency_id = '${agencyId}' AND ${UNIVERSE} AND ${IN_WINDOW_B}
+      AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS positivos,
+  (SELECT COUNT(*)::int FROM mentions m, w
+    WHERE m.agency_id = '${agencyId}' AND ${UNIVERSE} AND ${IN_WINDOW_B}
+      AND m.bw_sentiment IN ('positive','positivo')) AS bw_positivos
 ) x`;
 }
 
@@ -261,6 +267,11 @@ async function main(): Promise<void> {
         ['snapshots ≈ vivo (informativo)', true, `snap Σ=${g7.snap_sum} vs vivo pertinente=${g7.vivo_pertinente} (difieren por diseño: capa de métricas)`],
         ['share de duplicados', true, `${g7.duplicados} duplicados en ventana`],
         ['cobertura de clasificación', vivo === 0 || sinTopico / Math.max(vivo, 1) < 0.5, `${sinTopico}/${vivo} sin tópico`],
+        // Detector del caso AAA ago-2026: el NLP en 0 positivos absolutos
+        // mientras Brandwatch sí ve varios = rúbrica del prompt asfixiando la
+        // clase (ver docs/analisis-sentimiento-aaa-2026-08.md).
+        ['clasificador emite positivos', !(Number(g7.positivos) === 0 && Number(g7.bw_positivos) >= 10),
+         `nlp_pos=${g7.positivos} vs bw_pos=${g7.bw_positivos}`],
       ], true);
     }
   }
