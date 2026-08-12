@@ -180,11 +180,16 @@ REMOTE = {
          'active': True, 'triggered': 0, 'lastFired': None, 'channels': ['email']},
         {'id': 'a4', 'name': 'Sentimiento negativo sostenido', 'priority': 'low',
          'active': False, 'triggered': 0, 'lastFired': None, 'channels': []}],
+    # `triggeredAt` y severidad en ESPAÑOL: es el contrato real de
+    # /api/alerts/history (bandToSeverity → 'alta' | 'media' | 'baja'). El fixture
+    # traía `firedAt` y valores en inglés, y eso hacía que la columna CUÁNDO
+    # saliera vacía y que las píldoras imprimieran el enum crudo — un defecto
+    # inventado por el fixture, no del producto.
     'ALERT_FEED': [
         {'id': f'f{i}', 'ruleName': ['Pico de menciones negativas · Energía',
                                      'Crisis: NSS bajo umbral', 'Volumen anómalo'][i % 3],
-         'severity': ['critical', 'high', 'medium'][i % 3],
-         'firedAt': f'2026-08-0{1 + (i % 3)}T{10 + i:02d}:00:00Z',
+         'severity': ['alta', 'media', 'baja'][i % 3],
+         'triggeredAt': f'2026-08-0{1 + (i % 3)}T{10 + i:02d}:00:00Z',
          'mentionCount': [4, 3, 24, 7][i % 4]} for i in range(8)],
     'COMPARISON': [
         {'label': 'Esta semana', 'total': sum(VOL), 'nss': -22},

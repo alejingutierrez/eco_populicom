@@ -175,6 +175,35 @@ function smoothLinePath(data, w, h, accessor = (d) => d, padding = 6, minY = nul
 // callbacks are throttled) and re-measures on window resize + RO. Charts keep
 // using pixel coordinates equal to the rendered width, so click math and tick
 // spacing stay exact — no viewBox distortion.
+// Tope de eje REDONDEADO al múltiplo legible más cercano por arriba.
+//
+// Con el máximo crudo del dato el eje decía "346", y un cliente de gobierno lee
+// un número así como si fuera un umbral, no como el techo accidental de la serie
+// de esta semana. Redondear a 1 / 2 / 2.5 / 5 / 10 × 10^n da un tope que además
+// se divide limpio en cuartos, así que las cinco rejillas caen en números
+// enteros y se pueden etiquetar todas.
+function niceMax(v, divisions) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  const div = divisions || 4;
+  // Se elige primero el PASO de rejilla, no el tope: si el tope es redondo pero
+  // el paso no, las rejillas intermedias salen con decimales (un tope de 15 en
+  // cuartos da 3.75 y 11.25). Buscando el paso, las cinco etiquetas son enteras
+  // por construcción.
+  // Series de CONTEO: el paso no puede bajar de 1, o las rejillas salen en
+  // fracciones de mención. Y con tope 1 un día de UNA mención llenaba el gráfico
+  // entero, que es la lectura falsa que este redondeo viene a evitar: el piso en
+  // `div` deja esa barra al 25% y rotula 0/1/2/3/4.
+  if (n <= div) return div;
+  const target = n / div;
+  const mag = Math.pow(10, Math.floor(Math.log10(target || 1)));
+  for (const m of [1, 2, 2.5, 5, 10]) {
+    const step = m * mag;
+    if (step * div >= n) return step * div;
+  }
+  return Math.ceil(n / (10 * mag * div)) * (10 * mag * div);
+}
+
 function useChartWidth(fallback) {
   const ref = React.useRef(null);
   const [w, setW] = React.useState(fallback);
@@ -877,7 +906,9 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
     );
   }
   const totals = data.map((d) => keys.reduce((s, k) => s + (d[k] || 0), 0));
-  const max = Math.max(1, ...totals);
+  // Tope redondeado: el eje deja de anunciar el máximo del dato como si fuera un
+  // umbral, y el dominio se divide limpio entre las cinco rejillas.
+  const max = niceMax(Math.max(1, ...totals), 4);
   const step = innerW / Math.max(1, data.length - 1);
 
   const stacks = data.map((d) => {
@@ -923,7 +954,10 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const p = pts.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt[0]},${pt[1]}`).join(' ') + ' Z';
             return <path key={k} d={p} fill={colors[ki]} opacity="0.85" />;
           })}
-          {[0, 0.5, 1].map((p, i) => {
+          {/* Las cinco, no tres: con 5 rejillas y 3 etiquetas quedaban dos líneas
+              huérfanas que el ojo tiene que interpolar. Ahora que el tope es
+              redondo, los cinco valores son enteros. */}
+          {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
             const v = max * (1 - p);
             return <text key={i} x={-6} y={innerH * p + 3} fontSize="var(--fs-overline)" textAnchor="end" fill="var(--text-3)" fontFamily="var(--ff-numeric)">{Math.round(v)}</text>;
           })}

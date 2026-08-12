@@ -819,57 +819,57 @@
   {
    "id": "f0",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T10:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T10:00:00Z",
    "mentionCount": 4
   },
   {
    "id": "f1",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T11:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T11:00:00Z",
    "mentionCount": 3
   },
   {
    "id": "f2",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-08-03T12:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T12:00:00Z",
    "mentionCount": 24
   },
   {
    "id": "f3",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T13:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T13:00:00Z",
    "mentionCount": 7
   },
   {
    "id": "f4",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T14:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T14:00:00Z",
    "mentionCount": 4
   },
   {
    "id": "f5",
    "ruleName": "Volumen anómalo",
-   "severity": "medium",
-   "firedAt": "2026-08-03T15:00:00Z",
+   "severity": "baja",
+   "triggeredAt": "2026-08-03T15:00:00Z",
    "mentionCount": 3
   },
   {
    "id": "f6",
    "ruleName": "Pico de menciones negativas · Energía",
-   "severity": "critical",
-   "firedAt": "2026-08-01T16:00:00Z",
+   "severity": "alta",
+   "triggeredAt": "2026-08-01T16:00:00Z",
    "mentionCount": 24
   },
   {
    "id": "f7",
    "ruleName": "Crisis: NSS bajo umbral",
-   "severity": "high",
-   "firedAt": "2026-08-02T17:00:00Z",
+   "severity": "media",
+   "triggeredAt": "2026-08-02T17:00:00Z",
    "mentionCount": 7
   }
  ],

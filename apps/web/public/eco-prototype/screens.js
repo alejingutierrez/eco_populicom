@@ -4120,8 +4120,28 @@ function AlertsHistory({ onMentionClick }) {
         </div>
       </div>
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Historial detallado</div></div></div>
+        <div className="card-hd"><div>
+          <div className="card-hd-title">Historial detallado</div>
+          {/* Denominador explícito: la card recortaba a 40 filas en silencio y era
+              la única de la pantalla sin `card-hd-sub`, mientras las otras tres
+              declaran el suyo. Un recorte que no se anuncia se lee como "esto es
+              todo lo que hubo". */}
+          <div className="card-hd-sub">
+            {rows.length > 40 ? `Mostrando 40 de ${rows.length} activaciones` : `${rows.length} activaciones`}
+          </div>
+        </div></div>
         <div className="scroll-x">
+          {/* Fila de encabezados, con la misma pauta que la tabla de Reglas: la
+              cuarta columna imprimía una fila de ceros sin nada que la nombrara. */}
+          <div className="hide-mobile" style={{
+            display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px',
+            gap: 'var(--sp-3)', padding: '0 0 var(--sp-2)',
+            fontSize: 'var(--fs-overline)', textTransform: 'uppercase',
+            letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', fontWeight: 600,
+          }}>
+            <span>Cuándo</span><span>Severidad</span><span>Regla</span>
+            <span style={{ textAlign: 'right' }}>Menciones</span>
+          </div>
           {rows.slice(0, 40).map((r, i) => (
             /* En móvil la fila se pliega a dos líneas en vez de mantener columnas
                fijas: con '120px 140px 1fr 90px' la marca de tiempo y una píldora de
@@ -4144,7 +4164,12 @@ function AlertsHistory({ onMentionClick }) {
                   tabla de Reglas el mismo componente ya llevaba justifySelf. */}
               <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{r.severity || 'media'}</span>
               <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.mentionIds?.length || 0}</span>
+              {/* "—", no "0". Dos líneas más arriba la misma pantalla ya usa la raya
+                  para "sin dato", y un cero aquí afirma "esta activación no tocó
+                  ninguna mención", que es una medición que nadie hizo. */}
+              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>
+                {r.mentionIds?.length ? r.mentionIds.length : '—'}
+              </span>
             </div>
           ))}
         </div>
@@ -4327,7 +4352,7 @@ function UsersAdmin() {
     // Display label for the Agencia column.
     agency: u.allAgencies ? 'Todas' : (Array.isArray(u.agencies) && u.agencies.length ? u.agencies.join(', ') : '—'),
     status: u.isActive ? (u.lastLogin ? 'activo' : 'invitado') : 'suspendido',
-    lastSeen: u.lastLogin ? new Date(u.lastLogin).toLocaleString('es-PR') : '—',
+    lastSeen: window.ecoFmtDateTime(u.lastLogin),
     // Sin campo `avatar`: el color ya no depende del correo. La paleta
     // categórica se asigna EN ORDEN (data.js) y su último token es el gris de
     // «resto/otros», así que repartirla por hash del correo hacía que un
@@ -4491,11 +4516,25 @@ function UsersAdmin() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{r.l}</div>
-                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{r.count}</div>
+                {/* El conteo REAL. `ROLES` no define `count`, así que el hueco existía
+                    en la maqueta y salía siempre vacío: las cuatro cards eran
+                    documentación estática y no decían cuántos usuarios tiene cada
+                    rol — el dato que ya está calculado aquí al lado. */}
+                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
+                  {users.filter((u) => u.role === r.k).length}
+                </div>
               </div>
               <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', lineHeight: 1.45 }}>{r.desc}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
-                {r.perms.map(p => (
+                {/* Vacío EXPLÍCITO: "Solo lectura" tiene `perms: []` y dejaba la celda
+                    en blanco, así que de las cuatro cards una tenía otra estructura y
+                    el blanco se leía como "falta el dato" en vez de "no tiene
+                    permisos de edición". */}
+                {r.perms.length === 0 ? (
+                  <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontStyle: 'italic' }}>
+                    Sin permisos de edición
+                  </span>
+                ) : r.perms.map(p => (
                   <span key={p} className="pill" style={{ fontSize: 'var(--fs-overline)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>{p}</span>
                 ))}
               </div>
