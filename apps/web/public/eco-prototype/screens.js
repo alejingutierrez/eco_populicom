@@ -177,7 +177,11 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       style={{
-        padding: 'var(--sp-5)', position: 'relative', overflow: 'hidden',
+        // --pad-card, no --sp-5: el paso crudo de la escala rompía el ritmo de las
+        // cards hermanas. Medido: el borde del CONTENIDO de cards en la misma
+        // rejilla caía en 248 / 265 / 268 px, un escalón visible de 3px que el ojo
+        // lee como desalineación aunque los dos valores estén en la escala.
+        padding: 'var(--pad-card)', position: 'relative', overflow: 'hidden',
         // Columna flex para que el pie de la card pueda clavarse abajo con
         // `marginTop:auto`: es lo que da una línea inferior común a las cinco
         // cards de la fila, que hoy terminan a cuatro alturas distintas.
@@ -509,7 +513,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
         <div>
           <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
             <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -1915,7 +1919,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
@@ -2715,7 +2719,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       </div>
 
       {/* Hero stats */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 'var(--sp-5)', alignItems: 'center' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('2fr 1fr 1fr 1fr', 'repeat(2, 1fr)'), gap: 'var(--sp-5)', alignItems: 'center' }}>
         <div>
           <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Tópico</div>
           <div style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 700, fontFamily: 'var(--ff-display)', letterSpacing: 'var(--letter-display)', color: 'var(--text)' }}>{topic.name}</div>
@@ -2740,7 +2744,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
       {/* Descripción IA: cargada del endpoint cacheado por (topic_id,
           period_start, period_end). loading → muestra placeholder; ready →
           texto; empty → mensaje neutral; error → bloque oculto. */}
-      <div className="card" style={{ padding: 'var(--sp-5)' }}>
+      <div className="card" style={{ padding: 'var(--pad-card)' }}>
         <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
           <Icons.Sparkles size={11} color="var(--accent)" /> Descripción IA · período seleccionado
         </div>

@@ -326,7 +326,15 @@
        los tokens en vez de con cinco literales. */
     display: inline-flex; align-items: center; gap: var(--sp-15);
     padding: 5px 10px; border-radius: var(--r-pill);
-    font-size: var(--fs-overline); font-weight: var(--fw-medium);
+    /* --fs-caption (12px), no --fs-overline (11px). El token declara que bajo 12px
+       sólo caben dos cosas: eyebrows en mayúsculas y ticks de eje densos. Un chip
+       lleva el NOMBRE de un tópico, de una faceta o de un filtro — es contenido en
+       minúsculas, no una etiqueta de sección. Medido: el 11px se había vuelto el
+       tamaño dominante de varias pantallas (70% del texto en Tópicos, 52% en el
+       Scorecard), o sea la excepción convertida en regla, y con todo el cuerpo
+       comprimido entre 11 y 12px la jerarquía interna de cada fila era un solo
+       paso de 1px. El chip es el control más repetido del producto. */
+    font-size: var(--fs-caption); font-weight: var(--fw-medium);
     /* El chip se rellenaba con el MISMO color que la card que lo contiene, así
        que los 8 chips de tópicos se leían como contornos fantasma a 1.15:1. */
     background: var(--control-bg); border: 1px solid var(--hairline-strong);
@@ -1470,7 +1478,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc58';
+        s.src = base + '/' + f + '?v=prodc60';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
