@@ -57,13 +57,19 @@ export const EMAIL_COLORS = {
   elevado: '#D97706',
   alertSoft: '#FBE9E5',
   alertSofter: '#FFF4F1',
+
+  // Eventos institucionales (nombramientos) — violeta: no es alerta (no hay
+  // nada que contener) pero tampoco es rutina, así que no puede compartir el
+  // azul del diario ni el navy del semanal.
+  event: '#6D4AAE',
+  eventSoft: '#F1EBFA',
 } as const;
 
 // ------------------------------------------------------------
 // Tipo de correo — la señal de identidad que pidió el cliente
 // ------------------------------------------------------------
 
-export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis';
+export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis' | 'appointment';
 
 export interface EmailKindMeta {
   /** Texto del badge del header, p.ej. "Reporte diario". */
@@ -100,6 +106,12 @@ export const EMAIL_KIND_META: Record<EmailKind, EmailKindMeta> = {
     subjectTag: 'Crisis',
     color: EMAIL_COLORS.crisis,
     footerNote: 'Recibes esta alerta automática porque estás en la lista de notificación de crisis de tu agencia.',
+  },
+  appointment: {
+    label: 'Nombramiento',
+    subjectTag: 'Nombramiento',
+    color: EMAIL_COLORS.event,
+    footerNote: 'Recibes este correo una sola vez, cuando se registra un nombramiento nuevo en una agencia monitoreada. El periodo cubre desde el nombramiento hasta hoy, así que incluye el día en curso (parcial) — a diferencia del diario y el semanal, que cierran en ayer.',
   },
 };
 
