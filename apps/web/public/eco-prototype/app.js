@@ -422,6 +422,13 @@ function App() {
           onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
           onOpenChat={() => setChatOpen(true)}
           mode={mode} setMode={setMode} live={true}
+          // Narrativas NO acepta filtro de fechas: una narrativa es una entidad
+          // con ciclo de vida propio (first_seen → last_seen) y su timeline se
+          // muestra completo, así que un filtro de ventana prometía algo que la
+          // pantalla no cumple. Instrucción explícita del usuario: "en la
+          // página de narrativas no debería dejarme usar los filtros de fecha
+          // ya que no responden a esto".
+          showPeriod={active !== 'narrative'}
         />
         <main className="eco-page"
           data-screen-label={`${String(Object.keys(SCREEN_META).indexOf(active) + 1).padStart(2, '0')} ${screenMeta.label}`}>

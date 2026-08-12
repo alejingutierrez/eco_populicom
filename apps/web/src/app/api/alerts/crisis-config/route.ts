@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, alertRules, users } from '@eco/database';
 import { and, eq, sql } from 'drizzle-orm';
-import { requireCapability } from '@/lib/auth/require-admin';
+import { requireCapability, requireAlertsAccess } from '@/lib/auth/require-admin';
 import type { CrisisThresholdConfig } from '@eco/shared';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,9 @@ interface ConfigBody {
  * en blanco con defaults razonables.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  const access = await requireAlertsAccess();
+  if (!access.ok) return access.response;
   const auth = await requireCapability('manage_alert_rules');
   if (!auth.ok) return auth.response;
 
@@ -95,6 +98,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * cambios — ya lee las reglas en cada cron.
  */
 export async function PUT(request: NextRequest): Promise<NextResponse> {
+  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  const access = await requireAlertsAccess();
+  if (!access.ok) return access.response;
   const auth = await requireCapability('manage_alert_rules');
   if (!auth.ok) return auth.response;
 

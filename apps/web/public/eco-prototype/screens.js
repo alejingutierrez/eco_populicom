@@ -346,14 +346,55 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   const [slice, setSlice] = useState(null);
   const [metricModal, setMetricModal] = useState(null);
 
+  // ── Resumen ejecutivo POR PERIODO ──────────────────────────────────────
+  // El bloque leía D.BRIEFING, que para su versión IA sale de
+  // `agency_briefings` — una tabla con period_hours=24 fijo que llena un cron.
+  // Eso hacía que el resumen NO reaccionara al filtro de fechas (reportado por
+  // el usuario). Ahora pedimos /api/eco-executive-summary, que se genera y
+  // cachea por (agencia, periodo).
+  //
+  // D.BRIEFING sigue siendo el fallback: su rama rule-based SÍ es
+  // period-scoped (se deriva de TOPICS/winCur de la ventana), así que el
+  // bloque nunca queda vacío mientras el resumen IA genera ni si Bedrock falla.
+  const [periodSummary, setPeriodSummary] = useState({ phase: 'loading', modes: null });
+  useEffect(() => {
+    let cancelled = false;
+    setPeriodSummary({ phase: 'loading', modes: null });
+    const params = new URLSearchParams(window.ecoGetPeriodParams());
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+    if (ag) params.set('agency', ag);
+    fetch('/api/eco-executive-summary?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
+      .then((d) => {
+        if (cancelled) return;
+        if (d && d.status === 'ready' && d.modes) setPeriodSummary({ phase: 'ready', modes: d.modes, generatedAt: d.generatedAt });
+        else setPeriodSummary({ phase: 'empty', modes: null });
+      })
+      .catch(() => { if (!cancelled) setPeriodSummary({ phase: 'error', modes: null }); });
+    return () => { cancelled = true; };
+  }, [period, agency]);
+
   // Resumen ejecutivo activo según `focus`. Si el backend solo devolvió el
   // shape antiguo (un solo briefing), fallback a él para no romper la UI.
   const briefingByMode = (D.BRIEFING && typeof D.BRIEFING === 'object' && D.BRIEFING.signal !== undefined)
     ? D.BRIEFING
     : null;
-  const activeBriefing = briefingByMode
+  const fallbackBriefing = briefingByMode
     ? (briefingByMode[focus] || briefingByMode.signal || null)
     : D.BRIEFING;
+  // El resumen del periodo gana cuando está listo; si no, el rule-based.
+  const periodMode = periodSummary.modes && periodSummary.modes[focus];
+  const activeBriefing = periodMode
+    ? {
+        ...(fallbackBriefing || {}),
+        narrativeHtml: periodMode.narrativeHtml,
+        dominantSignal: periodMode.dominantSignal,
+        action: periodMode.action,
+        actionTone: periodMode.actionTone,
+        source: 'ai',
+        generatedAtLabel: 'este periodo',
+      }
+    : fallbackBriefing;
 
   // Helper para clicks en KPIs del Scorecard. Usa el period preset (no
   // periodStart/periodEnd) porque DashboardScreen consume /api/eco-data que
@@ -492,24 +533,37 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
+      <div className="card" style={{ padding: 'var(--sp-5)', display: 'grid', gridTemplateColumns: window.ecoCols('1.6fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
         <div>
           <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            <span>Resumen ejecutivo · {(activeBriefing && activeBriefing.eyebrow) || new Date().toLocaleDateString('es-PR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-            {activeBriefing && activeBriefing.source === 'ai' && (
+            {/* El eyebrow ahora muestra la VENTANA del filtro, no la fecha en
+                que un cron generó el briefing: el bloque reacciona al filtro. */}
+            <span>Resumen ejecutivo · {(() => {
+              const w = window.ecoResolvedWindow ? window.ecoResolvedWindow() : null;
+              return w && w.from && w.to ? `${w.from} → ${w.to}` : (period || '7D');
+            })()}</span>
+            {periodSummary.phase === 'loading' && (
+              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+                <span className="pulse" style={{ width: 6, height: 6, borderRadius: 'var(--r-circle)', background: 'var(--accent)' }} />
+                GENERANDO…
+              </span>
+            )}
+            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'ai' && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
                 <Icons.Sparkles size={9} /> IA · {activeBriefing.generatedAtLabel || 'reciente'}
               </span>
             )}
-            {activeBriefing && activeBriefing.source === 'rule' && (
+            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'rule' && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
                 Resumen automatizado
               </span>
             )}
           </div>
-          {/* Fuente reducida a 18px y line-height 1.45 (issue #1). Narrativas
-              cap a 75 palabras desde el prompt. */}
-          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-title-lg)', fontWeight: 500, lineHeight: 1.45, letterSpacing: 'var(--letter-display)', marginTop: 'var(--sp-3)', color: 'var(--text)' }}>
+          {/* Baja un paso en la escala (--fs-title-lg 17px → --fs-body-lg 15px)
+              con line-height de cuerpo y medida acotada: el prompt del resumen
+              por periodo pide 100-160 palabras en vez de ≤75, y a 17px de
+              display un párrafo así se leía como un muro. */}
+          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-body-lg)', fontWeight: 500, lineHeight: 'var(--lh-body-lg)', letterSpacing: 'var(--letter-display)', marginTop: 'var(--sp-3)', color: 'var(--text)', maxWidth: '68ch' }}>
             {activeBriefing ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} />
             ) : (
@@ -653,13 +707,19 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           </div>
         </div>
         <div className="card-bd">
-          {/* Issue #6: sin selector de timeframe local — el header global lo cubre. */}
-          <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} height={240} onPointClick={openTimelineDaySlice} />
+          {/* Issue #6: sin selector de timeframe local — el header global lo cubre.
+              responsiveHeight: la altura se deriva del ancho medido del
+              contenedor (petición del usuario: "deben ocupar mejor su
+              contenedor... de acuerdo a que se puede estar proyectando en
+              pantallas más grandes o más chicas"). */}
+          <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} responsiveHeight={[220, 420]} onPointClick={openTimelineDaySlice} />
         </div>
       </div>
 
-      {/* ── Row 3: Topics (emerging) + Sources + Heatmap ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
+      {/* ── Row 3: Topics (emerging) + Sources. El heatmap salió de esta fila a
+          su propia fila full-width: es una matriz 24×7 y en 1/3 de ancho las
+          celdas quedaban en el mínimo de objetivo táctil. ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
         <div className="card">
           <div className="card-hd">
             <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
@@ -719,8 +779,11 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           </div>
         </div>
 
-        <HourActivityCard onCellClick={openHeatmapSlice} />
       </div>
+
+      {/* ── Row 4: Heatmap full-width — las celdas se derivan del ancho del
+          contenedor (ver Heatmap en charts.js). ── */}
+      <HourActivityCard onCellClick={openHeatmapSlice} />
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
       {metricModal && MetricInsightModal && (
@@ -1855,12 +1918,24 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     });
   }
 
-  function openGroupSlice(row, sentimentType) {
-    const accent = sentimentType === 'positivo' ? 'var(--pos)' : sentimentType === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+  // openGroupSlice — click en la barra de "Sentimiento por X". Abre TODAS las
+  // menciones del grupo, sin filtrar por el segmento donde cayó el click:
+  // así el total del modal cuadra con el número de la fila y se pueden
+  // explorar los tres sentimientos de una (petición explícita del usuario:
+  // "no deberia ser asi, se abren todas, para que los conteos coincidan y
+  // sea facil explorarlas"). El desglose pos/neu/neg viaja en `sentiment`
+  // para que el modal lo muestre como resumen.
+  function openGroupSlice(row) {
     const label = row.label;
+    const pos = row.positivo || 0;
+    const neu = row.neutral || 0;
+    const neg = row.negativo || 0;
+    const total = pos + neu + neg;
+    const bias = neg > pos ? 'negativo' : pos > neg ? 'positivo' : 'neutral';
+    const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--text-3)';
     // Las tablas "Sentimiento por X" cuentan la ventana de eco-data en el
     // universo pertinente — la modal hereda la ventana.
-    const filter = { ...ecoDataWindow(), sentiment: sentimentType };
+    const filter = { ...ecoDataWindow() };
     if (groupBy === 'source') {
       filter.source = {
         'Facebook': 'facebook', 'Twitter': 'twitter', 'X / Twitter': 'twitter',
@@ -1876,8 +1951,10 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     const eyebrowLabel = { source: 'Fuente', topic: 'Tópico', subtopic: 'Subtópico', region: 'Región' }[groupBy] || 'Grupo';
     setSlice({
       eyebrow: `${eyebrowLabel} · ${label}`,
-      title: `Sentimiento ${sentimentType}`,
+      title: label,
       accent,
+      volume: total,
+      sentiment: { pos, neu, neg },
       mentions: [],
       _filter: filter,
     });
@@ -1911,9 +1988,30 @@ function SentimentScreen({ onMentionClick, period, agency }) {
               )
             )}
           </button>
-          <div style={{ fontSize: 'var(--fs-body)', color: 'var(--text-2)', marginTop: 'var(--sp-3)', maxWidth: 640, lineHeight: 1.55 }}>
-            Sentimiento neto dentro de rango positivo, pero deterioro acelerado por discurso sobre infraestructura vial. Emociones dominantes de las últimas 24 horas: <strong>frustración</strong> y <strong>enojo</strong>.
-          </div>
+          {/* Este párrafo era texto HARDCODEADO ("deterioro acelerado por
+              discurso sobre infraestructura vial… frustración y enojo") que se
+              mostraba igual para cualquier agencia y periodo — análisis
+              inventado. Ahora se deriva de los datos del periodo: emociones
+              reales del top de D.EMOTIONS y el tópico con más volumen. */}
+          {(() => {
+            const emos = (D.EMOTIONS || []).filter((e) => (e.count || 0) > 0).slice(0, 2);
+            const topTopic = (D.TOPICS || [])[0];
+            if (emos.length === 0 && !topTopic) return null;
+            return (
+              <div style={{ fontSize: 'var(--fs-body)', color: 'var(--text-2)', marginTop: 'var(--sp-3)', maxWidth: 640, lineHeight: 1.55 }}>
+                {topTopic && (
+                  <>El mayor volumen del período se concentra en <strong>{topTopic.name}</strong> ({fmt(topTopic.count)} menciones, {topTopic.negativePct}% negativas).{emos.length > 0 ? ' ' : ''}</>
+                )}
+                {emos.length > 0 && (
+                  <>Emociones dominantes: {emos.map((e, i) => (
+                    <React.Fragment key={e.emotion}>
+                      {i > 0 ? ' y ' : ''}<strong>{e.emotion}</strong>
+                    </React.Fragment>
+                  ))}.</>
+                )}
+              </div>
+            );
+          })()}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
           <div>
@@ -1977,7 +2075,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
         <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-3)' }}>
           <div>
             <div className="card-hd-title">Sentimiento por {activeGroup.l.toLowerCase()}</div>
-            <div className="card-hd-sub">Distribución normalizada · click un segmento para ver menciones</div>
+            <div className="card-hd-sub">Distribución normalizada · click una barra para ver TODAS sus menciones</div>
           </div>
           {/* Toggle de dimensión: fuente / tópico / subtópico / región.
               Mismo patrón visual que GeographyScreen (Volumen/Sentimiento). */}
@@ -2007,19 +2105,34 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             const neu = total > 0 ? Math.round((s.neutral/total)*100) : 0;
             const neg = Math.max(0, 100 - pos - neu);
             return (
-              <div key={`${groupBy}-${s.label}-${idx}`}>
+              // La fila COMPLETA es un solo botón y abre TODAS las menciones del
+              // grupo, no el segmento donde cayó el cursor. Antes cada banda era
+              // su propio botón con `sentiment` en el filtro, así que el modal
+              // mostraba solo negativas/neutras/positivas y su total no cuadraba
+              // con la cifra de la fila. Petición explícita del usuario: "se
+              // abren todas, para que los conteos coincidan y sea fácil
+              // explorarlas". Beneficio lateral de accesibilidad: un objetivo de
+              // fila completa en vez de tres bandas que a 5% de ancho medían
+              // 17px, por debajo del mínimo de WCAG 2.2 AA.
+              <button key={`${groupBy}-${s.label}-${idx}`}
+                onClick={() => openGroupSlice(s)}
+                className="row-hover"
+                aria-label={`${s.label}: ${fmt(total)} menciones, ${pos}% positivo, ${neu}% neutral, ${neg}% negativo. Ver todas las menciones.`}
+                title={`${s.label} · ${fmt(total)} menciones (${pos}% pos · ${neu}% neu · ${neg}% neg) — click para ver TODAS`}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: '4px 6px', marginInline: -6, borderRadius: 'var(--r-md)',
+                }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-caption)', marginBottom: 'var(--sp-1)' }}>
-                  <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)' }}>{s.label}</span>
+                  <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'calc(100% - 60px)', color: 'var(--text)' }}>{s.label}</span>
                   <span className="num" style={{ color: 'var(--text-3)' }}>{fmt(total)}</span>
                 </div>
                 {/* 24px de alto: mínimo de objetivo de WCAG 2.2 AA. Antes eran 12px. */}
                 <div style={{ display: 'flex', height: 24, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--canvas-2)' }}>
-                  <button onClick={() => openGroupSlice(s, 'positivo')} aria-label={`${s.label}: ${pos}% positivo, ver menciones`} title={`${pos}% positivo — click para ver menciones`}
-                    style={{ width: `${pos}%`, background: 'var(--pos)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'neutral')} aria-label={`${s.label}: ${neu}% neutral, ver menciones`} title={`${neu}% neutral — click para ver menciones`}
-                    style={{ width: `${neu}%`, background: 'var(--text-3)', border: 'none', cursor: 'pointer', padding: 0 }} />
-                  <button onClick={() => openGroupSlice(s, 'negativo')} aria-label={`${s.label}: ${neg}% negativo, ver menciones`} title={`${neg}% negativo — click para ver menciones`}
-                    style={{ width: `${neg}%`, background: 'var(--neg)', border: 'none', cursor: 'pointer', padding: 0 }} />
+                  <div style={{ width: `${pos}%`, background: 'var(--pos)' }} />
+                  <div style={{ width: `${neu}%`, background: 'var(--text-3)' }} />
+                  <div style={{ width: `${neg}%`, background: 'var(--neg)' }} />
                 </div>
                 {/* Pie en ORDEN DE LECTURA, no repartido por la fila. Con
                     justifyContent:'space-between' el "40% neu" quedaba en el
@@ -2036,7 +2149,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
                   <span><span className="num" style={{ fontWeight: 600 }}>{neu}%</span> neu</span>
                   <span><span className="num" style={{ color: 'var(--neg)', fontWeight: 600 }}>{neg}%</span> neg</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -2306,6 +2419,21 @@ function TopicsScreen({ onMentionClick }) {
               (vista por defecto) no explicaba la suya. */}
           <TopicSentimentLegend />
         </div>
+        {/* Leyenda única para las 3 vistas: la barra de distribución significa
+            lo mismo en treemap, burbujas y lista (petición del usuario:
+            "que en cualquier tipo de visualización sean más consistentes y
+            claras"). */}
+        <div style={{
+          padding: '10px 16px', borderTop: '1px solid var(--hairline)',
+          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+          fontSize: 11, color: 'var(--text-3)',
+        }}>
+          <span style={{ fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: 10 }}>Distribución</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--pos)' }} /> Positivo</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--text-3)' }} /> Neutral</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 6, borderRadius: 2, background: 'var(--neg)' }} /> Negativo</span>
+          <span style={{ marginLeft: 'auto' }}>Δ = variación vs. período anterior</span>
+        </div>
       </div>
 
       {/* Calendario de tópico principal por día */}
@@ -2360,6 +2488,19 @@ function TopicsScreen({ onMentionClick }) {
 }
 
 // --- Treemap variant (existing style, with click drill-in) ---
+//
+// Rediseño (ago 2026): la barra de sentimiento se SALÍA del tile en las
+// baldosas pequeñas. Causa: filas de 76px con padding 14 dejaban ~48px de
+// contenido, y nombre (hasta 2 líneas) + conteo + "+N también lo tocan" +
+// barra sumaban más que eso, sin `overflow: hidden` que lo contuviera.
+//
+// La forma nueva, consistente en las 3 vistas (treemap / burbujas / lista):
+//   - el tile es un grid de 2 filas: contenido (1fr) y barra (auto). La barra
+//     tiene su propia fila reservada, así que nunca compite por el espacio.
+//   - `overflow: hidden` + `minWidth: 0` contienen cualquier desborde.
+//   - el nombre se limita a 2 líneas con line-clamp (no rompe el layout).
+//   - "+N también lo tocan" solo en los tiles grandes, donde cabe.
+//   - filas de 92px: hay aire real para las tres bandas de la barra.
 function TopicTreemap({ topics, onSelect }) {
   // La fila crece con su contenido. Con `gridAutoRows: '76px'` fijo el tile
   // sumaba ~109px de contenido (32 de padding + nombre + cifra + "+N también lo
@@ -2391,6 +2532,7 @@ function TopicTreemap({ topics, onSelect }) {
         // devuelve los tópicos por primary_count DESC).
         return (
           <button key={t.slug} onClick={() => onSelect(t.slug)}
+            title={`${t.name} · ${fmt(t.count)} menciones`}
             style={{
               padding: 'var(--sp-4)', textAlign: 'left',
               background: bg, borderRadius: 'var(--r-lg)',
@@ -2414,11 +2556,6 @@ function TopicTreemap({ topics, onSelect }) {
                 <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500, marginTop: 'var(--sp-05)' }}>+{t.secondaryCount} también lo tocan</div>
               )}
             </div>
-            {/* Barra de distribución de sentimiento: ahora ocupa todo el ancho
-                disponible (flex: 1) y usa flex-grow proporcional al porcentaje
-                — esto elimina el bug donde la barra quedaba diminuta (60px
-                fijos) en tiles grandes. La altura aumentó a 6px para que
-                las tres bandas sean visibles. */}
             <SentimentBar t={t} />
           </button>
         );
@@ -2600,6 +2737,28 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   // pill-neu (no pill-warn): el ámbar del producto significa riesgo.
   const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
   const subMax = Math.max(1, ...subs.map(s => s.count));
+  // Suma de los subtópicos — con el conteo consistente (una mención, un
+  // subtópico) esto siempre es ≤ topic.count; la diferencia son las menciones
+  // primarias sin subtópico asignado.
+  const subsTotal = subs.reduce((acc, s) => acc + (s.count || 0), 0);
+
+  // Modal de menciones de un subtópico. Misma ventana y universo que la fila
+  // (ecoDataWindow + topicMode primary), así el total del modal cuadra con el
+  // número que se muestra en la tabla.
+  const [subSlice, setSubSlice] = React.useState(null);
+  function openSubSlice(s) {
+    const pos = s.positive || 0, neu = s.neutral || 0, neg = s.negative || 0;
+    const bias = neg > pos ? 'negativo' : pos > neg ? 'positivo' : 'neutral';
+    setSubSlice({
+      eyebrow: `Subtópico · ${topic.name}`,
+      title: s.name,
+      accent: bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)',
+      volume: s.count || 0,
+      sentiment: { pos, neu, neg },
+      mentions: [],
+      _filter: { ...ecoDataWindow(), topic: topic.slug, subtopic: s.name, topicMode: 'primary' },
+    });
+  }
 
   // --- (5) Descripción IA cacheada por periodo ----------------------
   // En vez de leer `topic.description` (que era un único string por tópico,
@@ -2721,20 +2880,37 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
 
       {/* Subtopics — ahora con descripción del cluster (qué cubre el subtopic)
           y pill de sentimiento dominante, para que el usuario entienda de qué
-          va cada subtopic sin tener que abrir las menciones. */}
+          va cada subtopic sin tener que abrir las menciones.
+          Cada fila es clickeable y abre el modal de menciones (el usuario ya
+          espera ese comportamiento del resto del producto). */}
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Subtópicos detectados</div><div className="card-hd-sub">{subs.length} subtópicos · cluster del periodo seleccionado</div></div>
+          <div>
+            <div className="card-hd-title">Subtópicos detectados</div>
+            <div className="card-hd-sub">
+              {subs.length} subtópicos · {fmt(subsTotal)} de {fmt(topic.count)} menciones del tópico · click una fila para ver sus menciones
+            </div>
+          </div>
         </div>
         <div className="scroll-x">
           {subs.length === 0 && <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Sin subtópicos detectados en este periodo</div>}
           {subs.map((s, i) => {
             const subSentPill = s.dominantSentiment === 'positivo' ? 'pill-pos' : s.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
             return (
-              <div key={s.slug || s.name} className="row-hover" style={{
-                display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr', minWidth: 640, gap: 'var(--sp-3)', alignItems: 'center',
-                padding: '14px 18px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-body-sm)',
-              }}>
+              // Fila clickeable: abre el modal de menciones del subtópico. Es el
+              // comportamiento que el usuario ya espera del resto del producto y
+              // que aquí faltaba.
+              <button key={s.slug || s.name} className="row-hover"
+                onClick={() => openSubSlice(s)}
+                aria-label={`${s.name}: ${fmt(s.count)} menciones. Ver menciones.`}
+                title={`${s.name} · ${fmt(s.count)} menciones — click para verlas`}
+                style={{
+                  display: 'grid', gridTemplateColumns: '28px 2fr 110px 110px 1.4fr 24px', minWidth: 640, gap: 'var(--sp-3)', alignItems: 'center',
+                  padding: '14px 18px', fontSize: 'var(--fs-body-sm)',
+                  width: '100%', textAlign: 'left', background: 'transparent',
+                  border: 'none', borderTop: '1px solid var(--hairline)',
+                  cursor: 'pointer',
+                }}>
                 <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)' }} className="mono">{String(i+1).padStart(2,'0')}</div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
@@ -2750,16 +2926,33 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
                     <div style={{ flexGrow: Math.max(0, s.neutralPct  || 0), background: 'var(--neu)' }} />
                     <div style={{ flexGrow: Math.max(0, s.negativePct || 0), background: 'var(--neg)' }} />
                   </div>
-                  <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{s.positivePct || 0}% pos</span>
-                    <span>{s.negativePct || 0}% neg</span>
+                  {/* Ahora también el % NEUTRAL: antes solo se mostraban pos y
+                      neg, y el resto quedaba sin explicar. Pie en orden de
+                      lectura (mismo criterio que "Sentimiento por X"), no
+                      repartido por la fila. */}
+                  <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', gap: 'var(--sp-2)' }}>
+                    <span><span className="num" style={{ color: 'var(--pos)', fontWeight: 600 }}>{s.positivePct || 0}%</span> pos</span>
+                    <span><span className="num" style={{ fontWeight: 600 }}>{s.neutralPct || 0}%</span> neu</span>
+                    <span><span className="num" style={{ color: 'var(--neg)', fontWeight: 600 }}>{s.negativePct || 0}%</span> neg</span>
                   </div>
                 </div>
-              </div>
+                <Icons.ChevronRight size={14} color="var(--text-3)" />
+              </button>
             );
           })}
         </div>
+        {subs.length > 0 && subsTotal < topic.count && (
+          <div style={{ padding: '10px 18px', fontSize: 11, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Cada mención cuenta una vez, bajo un solo subtópico — el mismo
+              criterio de mayor confianza que usa el conteo del tópico. Las{' '}
+              {fmt(topic.count - subsTotal)} restantes no tienen subtópico asignado.
+            </span>
+          </div>
+        )}
       </div>
+      {subSlice && <MentionsSliceModal slice={subSlice} onClose={() => setSubSlice(null)} onMentionClick={onMentionClick} />}
 
       {/* Evolution — datos reales por tópico (mention_topics × día AST). */}
       <div className="card">
@@ -2959,22 +3152,28 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                     // líneas y empujan el volumen fuera de la celda. Con 8 el
                     // corte queda marcado con puntos suspensivos y el nombre
                     // completo sigue en el tooltip y en el modal del día.
-                    const nameLimit = window.ecoIsMobile() ? 8 : 14;
-                    const nameShort = c.topicName.length > nameLimit ? c.topicName.slice(0, nameLimit - 1) + '…' : c.topicName;
+                    // (nameLimit/nameShort eliminados: la celda ya no recorta el
+                    // nombre del tópico — crece a su contenido y el texto envuelve.)
                     return (
+                      // Celda rediseñada (ago 2026), 3 correcciones del usuario:
+                      //  1. el nombre del tópico ya NO se corta con "…" — la
+                      //     celda es más alta y el texto envuelve completo.
+                      //  2. fuera el número de volumen del pie ("un numerito
+                      //     abajo que no se entiende y no debería estar"). El
+                      //     volumen sigue en el tooltip y en el modal.
+                      //  3. el número del día pasa de 10px a 15px, para que se
+                      //     entienda de qué día se habla.
                       <button key={c.date} onClick={() => onDayClick(c)}
                         title={`${c.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' })} · ${c.topicName} · ${sentLabel(c.sentiment)} · ${fmt(c.volume)} menciones`}
                         style={{
                           position: 'relative',
-                          // En móvil la celda mide ~41px de ancho: con
-                          // aspectRatio 1/1 el alto se quedaba en los 62px del
-                          // minHeight mientras el contenido (día + nombre
-                          // envuelto + volumen) suma ~88px, y `overflow:hidden`
-                          // recortaba justo la última línea — el VOLUMEN, que es
-                          // la segunda variable que promete el subtítulo. Sin
-                          // aspect-ratio la celda crece a su contenido.
-                          aspectRatio: window.ecoIsMobile() ? 'auto' : '1 / 1',
-                          minHeight: window.ecoIsMobile() ? 78 : 62,
+                          // Sin aspect-ratio: la celda crece a su contenido. El
+                          // nombre del tópico ya no se recorta (ver abajo), así
+                          // que forzar un cuadrado volvería a cortar texto. El
+                          // minHeight sube a 88 para que quepan el número de día
+                          // grande y un nombre de 2-3 líneas sin recorte.
+                          aspectRatio: 'auto',
+                          minHeight: 88,
                           padding: 'var(--sp-15)',
                           borderRadius: 'var(--r-md)',
                           // Tinte por intensidad con color-mix, no concatenando una
@@ -2986,22 +3185,38 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           // Borde más marcado en el primer día del mes para
                           // reforzar el cambio cuando ocurre mid-week.
                           border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
-                          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                          display: 'grid', gridTemplateRows: 'auto 1fr', gap: 2,
                           textAlign: 'left', cursor: 'pointer',
-                          overflow: 'hidden',
+                          overflow: 'hidden', minWidth: 0,
                         }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                          <span className="mono" style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)' }}>{dayNum}</span>
+                          {/* Número del día en --fs-num-sm (14px) y no
+                              --fs-overline (11px): era lo primero que hay que
+                              poder leer en una celda de calendario y se perdía
+                              contra el nombre del tópico, del mismo tamaño.
+                              Petición del usuario: "el número del día debería
+                              ser más grande para que se entienda mejor de qué
+                              día estamos hablando". */}
+                          <span className="mono" style={{ fontSize: 'var(--fs-num-sm)', fontWeight: 700, lineHeight: 1, color: 'var(--text)' }}>{dayNum}</span>
                           {/* Cierra la correspondencia con la leyenda "Tópicos
                               del período": el hue por tópico ya existía en el
                               producto (el modal del día lo usa desde ECO_CAT),
                               pero no aparecía en ninguna celda. */}
                           <span title={c.topicName} style={{ width: 6, height: 6, borderRadius: '50%', background: colorFor(c.topicSlug), flex: '0 0 auto', marginTop: 'var(--sp-05)' }} />
                         </div>
-                        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)', lineHeight: 1.1, textTransform: 'uppercase', letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-                          {nameShort}
+                        {/* Nombre COMPLETO, sin recorte con "…": la celda crece a
+                            su contenido (aspectRatio auto) y el texto envuelve.
+                            Antes se cortaba a nameLimit caracteres y "Desarrollo
+                            económico" y "Desarrollo social" quedaban idénticos.
+                            `overflowWrap: anywhere` evita que un término largo
+                            desborde la columna. */}
+                        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)', lineHeight: 1.15, textTransform: 'uppercase', letterSpacing: '0.02em', overflowWrap: 'anywhere', hyphens: 'auto', minWidth: 0 }}>
+                          {c.topicName}
                         </div>
-                        <div className="num" style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>{fmt(c.volume)}</div>
+                        {/* El volumen del día ya NO se imprime en la celda: era un
+                            número suelto sin rótulo que no se entendía (reporte
+                            del usuario). Sigue en el tooltip, en la leyenda de
+                            intensidad y en el modal del día. */}
                       </button>
                     );
                   })}
@@ -4763,10 +4978,12 @@ function Field({ label, required, children }) {
 //
 // Layout (top a bottom):
 //   1. Hero — período + total
-//   2. Termómetro — 3 KPIs neg/neu/pos con Δ vs ventana previa
-//   3. Highlights — NSS+Riesgo · Volúmenes · Brand Health
-//   4. Tendencia — multi-line chart con neg/neu/pos
-//   5. Tópico principal — top-7 + Otros + Sin clasificar
+//   2. Termómetro (01) — 3 KPIs neg/neu/pos con Δ vs ventana previa
+//   3. Riesgo de crisis (02)
+//   4. Tendencia (03) — multi-line neg/neu/pos; por HORA si la ventana es de
+//      un día (trendGranularity='hour'), por día en el resto
+//   5. Insights (04) — análisis IA del periodo
+//   6. Tópico principal (05) — top-7 + Otros + Sin clasificar
 //
 // Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
 // (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
@@ -4852,6 +5069,28 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
+  // openHourSlice — click en una hora del gráfico de tendencias cuando la
+  // ventana es de un solo día (granularity 'hour'). El _filter combina `day`
+  // (día calendario AST) con `hour` (EXTRACT HOUR en AST) — ambos ya
+  // soportados por /api/eco-mentions.
+  function openHourSlice(d) {
+    if (!d || !d.fullHour) return;
+    const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
+    const bias = (d.negative || 0) > (d.positive || 0) ? 'negativo'
+      : (d.positive || 0) > (d.negative || 0) ? 'positivo' : 'neutral';
+    const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
+    const hh = d.fullHour.slice(11, 13);
+    setSlice({
+      eyebrow: `${d.fullHour.slice(0, 10)} · ${hh}:00 – ${hh}:59`,
+      title: 'Conversación de la hora',
+      accent,
+      volume: total,
+      sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
+      mentions: [],
+      _filter: { day: d.fullHour.slice(0, 10), hour: Number(hh) },
+    });
+  }
+
   // openMetricInsight — abre MetricInsightModal vía helper compartido.
   function openMetricInsight(metric, value, accent) {
     const labels = {
@@ -4881,7 +5120,17 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
-      <OverviewTendencia dailySeries={data.dailySeries} onDayClick={openDaySlice} />
+      <OverviewTendencia
+        dailySeries={data.dailySeries}
+        hourlySeries={data.hourlySeries}
+        granularity={data.trendGranularity}
+        onDayClick={openDaySlice}
+        onHourClick={openHourSlice}
+      />
+      {/* Insights en posición 04, antes de Tópicos (orden explícito del
+          usuario: "los insights deben asumir la posición 4 y bajar los
+          tópicos a la posición donde están los insights"). */}
+      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       <OverviewTopicos
         rows={data.topicsTable}
         totals={data.totals}
@@ -4908,9 +5157,6 @@ function OverviewScreen({ period, agency, onMentionClick }) {
           });
         }}
       />
-      {/* Insights va al FINAL, después de Topicos (orden explícito del
-          usuario: "necesito que salga de último después de los topicos"). */}
-      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
@@ -5084,18 +5330,29 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
   );
 }
 
-function OverviewTendencia({ dailySeries, onDayClick }) {
-  // Adapta dailySeries del API al shape que MultiLineChart espera (`date` + keys de las series).
-  // Guardamos fullDate (YYYY-MM-DD) para que el onPointClick pueda filtrar
-  // las menciones del día seleccionado en MentionsSliceModal (_filter.day).
-  const chartData = (dailySeries || []).map((d) => ({
-    date: d.dayLabel,
-    fullDate: d.date,
-    negative: d.negative,
-    neutral: d.neutral,
-    positive: d.positive,
-    totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
-  }));
+function OverviewTendencia({ dailySeries, hourlySeries, granularity, onDayClick, onHourClick }) {
+  // Con ventana de UN día el API devuelve trendGranularity='hour' + hourlySeries:
+  // a nivel diario ese caso rendía un único punto sin forma. Guardamos
+  // fullDate / fullHour para que el onPointClick pueda filtrar las menciones
+  // del bucket seleccionado en MentionsSliceModal.
+  const hourly = granularity === 'hour' && Array.isArray(hourlySeries) && hourlySeries.length > 0;
+  const chartData = hourly
+    ? hourlySeries.map((d) => ({
+        date: d.hourLabel,
+        fullHour: d.hour,
+        negative: d.negative,
+        neutral: d.neutral,
+        positive: d.positive,
+        totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
+      }))
+    : (dailySeries || []).map((d) => ({
+        date: d.dayLabel,
+        fullDate: d.date,
+        negative: d.negative,
+        neutral: d.neutral,
+        positive: d.positive,
+        totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
+      }));
   const series = [
     { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
     { key: 'neutral',  label: 'Neutral',  color: 'var(--neu)' },
@@ -5113,8 +5370,12 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">03 · Tendencia · Día a día</div>
-          <div className="card-hd-sub">Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones</div>
+          <div className="card-hd-title">03 · Tendencia · {hourly ? 'Hora a hora' : 'Día a día'}</div>
+          <div className="card-hd-sub">
+            {hourly
+              ? 'Volumen por sentimiento, hora a hora (TZ Puerto Rico) · click una hora para ver sus menciones'
+              : 'Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones'}
+          </div>
         </div>
       </div>
       <div className="card-bd">
@@ -5127,8 +5388,19 @@ function OverviewTendencia({ dailySeries, onDayClick }) {
             queja que originó la normalización por serie.
             SeriesPanels separa las series en franjas que COMPARTEN el eje: cada
             una conserva su forma y su curva suave (petición explícita del
-            usuario) y las alturas sí son comparables. */}
-        <SeriesPanels data={chartData} series={series} panelHeight={72} onPointClick={onDayClick} />
+            usuario) y las alturas sí son comparables.
+
+            El handler de click cambia con la granularidad: con la ventana en un
+            solo día los puntos son HORAS y el modal filtra por day+hour. */}
+        <SeriesPanels
+          data={chartData}
+          series={series}
+          panelHeight={72}
+          onPointClick={hourly ? onHourClick : onDayClick}
+          a11yTitle={hourly
+            ? 'Volumen por sentimiento, hora a hora'
+            : 'Volumen por sentimiento, día a día'}
+        />
       </div>
     </div>
   );
@@ -5172,7 +5444,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">04 · Tópico principal</div>
+          <div className="card-hd-title">05 · Tópico principal</div>
           <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
         </div>
       </div>
@@ -5270,7 +5542,15 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
   const pollRef = React.useRef(null);
   const startedAt = React.useRef(0);
   const MAX_POLL_MS = 90 * 1000;
-  const POLL_INTERVAL_MS = 3 * 1000;
+  // Polling en rampa: 2s durante los primeros 20s (cuando es más probable que
+  // el lambda ya haya terminado — los dos llamados a Bedrock ahora corren en
+  // paralelo, ~la mitad del wall-clock que antes) y 4s después.
+  //
+  // El techo lo pone el rate limit de /api/eco-insights: 30 req/min. Con esta
+  // rampa son ~10 polls en los primeros 20s + ~17 en los 70s restantes = 27
+  // en la ventana de 90s, bajo el límite. Un intervalo fijo de 1.5s habría
+  // dado 60 polls y devuelto 429 a mitad de la generación.
+  const pollDelay = (elapsedMs) => (elapsedMs < 20_000 ? 2_000 : 4_000);
 
   React.useEffect(() => {
     if (!periodStart || !periodEnd) return;
@@ -5309,11 +5589,12 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
     async function loop() {
       const status = await fetchOnce();
       if (status === 'computing') {
-        if (Date.now() - startedAt.current > MAX_POLL_MS) {
+        const elapsed = Date.now() - startedAt.current;
+        if (elapsed > MAX_POLL_MS) {
           setState({ phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' });
           return;
         }
-        pollRef.current = setTimeout(loop, POLL_INTERVAL_MS);
+        pollRef.current = setTimeout(loop, pollDelay(elapsed));
       }
     }
     loop();
@@ -5326,7 +5607,7 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
 
   const eyebrow = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-      <div className="section-eyebrow" style={{ marginBottom: 0 }}>05 · Insights · análisis IA del periodo</div>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>04 · Insights · análisis IA del periodo</div>
       {state.phase === 'computing' && (
         <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
           <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
@@ -5686,10 +5967,16 @@ function NarrativeScreen({ agency }) {
     setFocusedId(null);
     setSelectedDay(null);
     Promise.all([
-      // Honra el selector de período del header (antes esta pantalla lo
-      // ignoraba y consultaba 730 días — auditoría 2026-08). El app recarga
-      // al cambiar período/agencia, así que leer localStorage aquí basta.
-      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500', ...window.ecoGetPeriodParams() }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      // SIN filtro de período (decisión del usuario, ago 2026): una narrativa
+      // es una entidad con ciclo de vida propio y el detalle
+      // (/api/narrative/:id) siempre devolvió su timeline COMPLETO. Pasar la
+      // ventana solo a la lista producía una página incoherente — la lista
+      // filtrada, el detalle no — que es lo que el usuario percibió como "los
+      // filtros no responden". Ahora el Header oculta el control de fechas
+      // (showPeriod=false) y la lista pide el ciclo completo, así que lista y
+      // detalle hablan del mismo universo. El eje de filtrado aquí es el
+      // ESTADO (peaking/active/emerging/…), que sí es propio de la narrativa.
+      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500' }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
       fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
     ])
       .then(([nRes, eRes]) => {
@@ -5727,6 +6014,17 @@ function NarrativeScreen({ agency }) {
     }
     return c;
   }, [narratives]);
+
+  // Total de menciones de todas las narrativas — contexto de escala del panel.
+  const totalMentionsAll = React.useMemo(
+    () => narratives.reduce((acc, n) => acc + (n.mentionCount || 0), 0),
+    [narratives],
+  );
+  // Máximo, para dimensionar la barra de impacto de cada fila.
+  const maxMentions = React.useMemo(
+    () => Math.max(1, ...narratives.map((n) => n.mentionCount || 0)),
+    [narratives],
+  );
 
   const filteredNarratives = React.useMemo(() => {
     const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
@@ -5795,7 +6093,7 @@ function NarrativeScreen({ agency }) {
           })}
         </div>
         <div className="narrative-menu-count">
-          {filteredNarratives.length} de {narratives.length} narrativas · con actividad en el período
+          {filteredNarratives.length} de {narratives.length} narrativas · {totalMentionsAll.toLocaleString('es-PR')} menciones
         </div>
         <ul className="narrative-list">
           {filteredNarratives.map((n) => (
@@ -5808,9 +6106,17 @@ function NarrativeScreen({ agency }) {
               <div className="narrative-item-body">
                 <div className="narrative-item-name">{n.name}</div>
                 <div className="narrative-item-meta">
-                  <span>{(n.mentionCount || 0).toLocaleString('es-PR')} menc</span>
+                  {/* "menciones" completo y la cifra destacada: es el indicador
+                      de impacto de la narrativa, no un metadato más. */}
+                  <span><strong style={{ color: 'var(--text-2)' }}>{(n.mentionCount || 0).toLocaleString('es-PR')}</strong> menciones</span>
                   <span>·</span>
                   <span>{narrativeStatusLabel(n.status)}</span>
+                </div>
+                {/* Barra de impacto: el conteo por sí solo no dice si 340
+                    menciones es mucho o poco en este conjunto. La barra lo
+                    sitúa contra la narrativa más grande. */}
+                <div className="narrative-item-impact" title={`${(n.mentionCount || 0).toLocaleString('es-PR')} menciones`}>
+                  <span style={{ width: `${Math.max(2, ((n.mentionCount || 0) / maxMentions) * 100)}%`, background: narrativeStatusColor(n.status) }} />
                 </div>
               </div>
               {n.sparkline && (
@@ -6148,16 +6454,44 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
   );
 }
 
+// NarrativeStreamgraph — la lectura del timeline era difícil (reporte del
+// usuario: "revisemos bien ese front y sobretodo la línea de tiempo, porque me
+// dijeron que puede ser difícil"). Esta versión combina el trabajo de la
+// auditoría de diseño (#91) con el rediseño de la escala:
+//
+//   De #91 se conserva:
+//     - coordenadas en PÍXELES reales medidas con useChartWidth, no un viewBox
+//       escalado (dentro de un viewBox --fs-overline salía a 3-8px);
+//     - ticks temporales adaptativos al span (día / 2 días / semana / mes), que
+//       antes eran solo mensuales y dejaban series cortas sin escala;
+//     - EmptyState en las ramas sin datos.
+//
+//   Qué cambia aquí, y por qué:
+//     1. Era un streamgraph CENTRADO (baseline = -total/2) y SIN eje Y: la forma
+//        no permitía leer volumen — imposible saber si el punto más ancho eran 5
+//        menciones o 500. Ahora es un área apilada desde CERO con eje Y
+//        etiquetado y gridlines: el borde superior ES el total del día y se lee
+//        contra la escala. Es además el mismo encoding que la pantalla de
+//        Sentimiento, así que se lee igual en todo el producto.
+//     2. Se añaden anclas de lectura en la leyenda (días cubiertos, total del
+//        periodo, tamaño del pico).
+//     3. El naranja (--accent) marcaba selección y pico — usos que no son links.
+//        En Narrativas queda reservado para links, así que los marcadores pasan
+//        a neutro.
+//     4. El marcador de inicio era VERDE, el mismo color que "positivo" en la
+//        leyenda de sentimiento de este mismo gráfico. Ahora es neutro.
+//     5. Pico e inicio se solapaban en narrativas cortas: el pico solo se
+//        etiqueta si queda a más de 60px del inicio.
 function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
   // Coordenadas en PÍXELES reales, no en un viewBox de 1080 escalado: dentro de
   // un viewBox el font-size de los rótulos se multiplica por la escala de
   // render, así que --fs-overline (11px) salía a 7.8px en desktop y a 3.1px a
   // 390px de viewport — el piso tipográfico de tokens.css:61-63 no llega ahí.
-  // Es el patrón del resto de las gráficas (charts.js:174-177): 1 unidad = 1
-  // píxel, y de paso desaparece el letterboxing de `meet` en pantallas anchas.
+  // Es el patrón del resto de las gráficas (charts.js): 1 unidad = 1 píxel.
   const [wrapRef, w] = useChartWidth(760);
-  const h = 240;
-  const margin = { top: 20, right: 24, bottom: 32, left: 24 };
+  const h = 260;
+  // `left` sube a 46 para dar sitio a los rótulos del eje Y.
+  const margin = { top: 18, right: 24, bottom: 34, left: 46 };
   const innerW = w - margin.left - margin.right;
   const innerH = h - margin.top - margin.bottom;
 
@@ -6194,28 +6528,34 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
   const span = Math.max(1, maxT - minT);
   const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
 
-  const maxTotal = Math.max(...timeline.map((d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0)), 1);
-  const yCenter = margin.top + innerH / 2;
-  // El apilado va de -total/2 a +total/2: el valor absoluto máximo es
-  // maxTotal/2, NO maxTotal. Dividiendo por maxTotal el día pico ocupaba
-  // 0.46·innerH y la mitad del lienzo quedaba vacía siempre, así que un día
-  // récord se dibujaba como un día mediano. La escala sigue siendo lineal y
-  // pasando por cero —las proporciones entre días no cambian—: lo único que
-  // deja de hacer es tirar la mitad de la resolución disponible.
-  const yScale = (v) => yCenter - (v / (maxTotal / 2)) * (innerH / 2) * 0.92;
+  const totalOf = (d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
+  const rawMax = Math.max(...timeline.map(totalOf), 1);
+  // Techo "redondo" para que los ticks del eje sean números legibles.
+  const niceMax = (() => {
+    const pow = Math.pow(10, Math.floor(Math.log10(rawMax)));
+    for (const m of [1, 2, 2.5, 5, 10]) {
+      const c = m * pow;
+      if (c >= rawMax) return c;
+    }
+    return 10 * pow;
+  })();
+  const yBase = margin.top + innerH;
+  const yScale = (v) => yBase - (v / niceMax) * innerH;
 
+  // Apilado desde CERO: negativo abajo, neutral, positivo arriba. El borde
+  // superior de la última capa = volumen total del día, legible contra el eje.
   const stackedPoints = timeline.map((d) => {
-    const x = xScale(d.day);
-    const total = (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
-    const baseline = -total / 2;
-    const negTop = baseline + (d.negative || 0);
+    const negTop = d.negative || 0;
     const neuTop = negTop + (d.neutral || 0);
     const posTop = neuTop + (d.positive || 0);
     return {
-      x,
+      x: xScale(d.day),
       day: d.day,
-      mentions: d.mentions || 0,
-      baseline_y: yScale(baseline),
+      total: totalOf(d),
+      negative: d.negative || 0,
+      neutral: d.neutral || 0,
+      positive: d.positive || 0,
+      base_y: yScale(0),
       neg_y: yScale(negTop),
       neu_y: yScale(neuTop),
       pos_y: yScale(posTop),
@@ -6231,9 +6571,9 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
   };
 
   const layers = [
-    { key: 'negative', d: buildLayerPath('neg_y', 'baseline_y'), color: 'var(--neg)' },
-    { key: 'neutral', d: buildLayerPath('neu_y', 'neg_y'), color: 'var(--text-3)' },
-    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'), color: 'var(--pos)' },
+    { key: 'negative', d: buildLayerPath('neg_y', 'base_y'), color: 'var(--neg)' },
+    { key: 'neutral',  d: buildLayerPath('neu_y', 'neg_y'),  color: 'var(--text-3)' },
+    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'),  color: 'var(--pos)' },
   ];
 
   // Granularidad del eje según el span. Con marcas SÓLO mensuales, una
@@ -6255,7 +6595,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
     }
   } else {
     // Se arranca un paso DESPUÉS de minT porque el borde izquierdo ya lo rotula
-    // el marcador "▸ inicio" con su fecha.
+    // el marcador "inicio" con su fecha.
     for (let t = minT + stepDays * DAY_MS; t <= maxT; t += stepDays * DAY_MS) ticks.push(new Date(t));
   }
   const tickEvery = ticks.length > 12 ? Math.ceil(ticks.length / 10) : 1;
@@ -6263,8 +6603,15 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
     ? { month: 'short', year: '2-digit' }
     : { day: 'numeric', month: 'short' };
 
-  const peak = timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
+  const peak = timeline.reduce((acc, d) => (totalOf(d) > totalOf(acc) ? d : acc), timeline[0]);
   const peakX = xScale(peak.day);
+  const startX = margin.left;
+  // Solo etiquetamos el pico si no se pisa con el marcador de inicio.
+  const showPeakLabel = peakX - startX > 60;
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(niceMax * f));
+  const dayCount = timeline.length;
+  const grandTotal = timeline.reduce((acc, d) => acc + totalOf(d), 0);
 
   return (
     <div className="narrative-stream-wrap">
@@ -6276,13 +6623,32 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
         <span className="narrative-stream-key"><i style={{ background: 'var(--pos)' }} /> Positivo</span>
         <span className="narrative-stream-key"><i style={{ background: 'var(--text-3)' }} /> Neutral</span>
         <span className="narrative-stream-key"><i style={{ background: 'var(--neg)' }} /> Negativo</span>
+        {/* Anclas de lectura: sin esto el gráfico no decía cuánto abarca ni de
+            qué tamaño es el pico. */}
+        <span className="narrative-stream-scale">
+          {dayCount} {dayCount === 1 ? 'día' : 'días'} · {grandTotal.toLocaleString('es-PR')} menciones · pico {totalOf(peak).toLocaleString('es-PR')}/día
+        </span>
         <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
       </div>
       <svg className="narrative-stream-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+        {/* Gridlines + eje Y etiquetado: el ancla que faltaba para poder leer
+            VOLUMEN y no solo forma. */}
+        {yTicks.map((t, i) => {
+          const y = yScale(t);
+          return (
+            <g key={`t${i}`} style={{ pointerEvents: 'none' }}>
+              <line x1={margin.left} y1={y} x2={margin.left + innerW} y2={y}
+                stroke="var(--hairline)" strokeWidth="1" opacity={i === 0 ? 1 : 0.55} />
+              <text x={margin.left - 8} y={y + 3} textAnchor="end" fontSize="11" fill="var(--text-3)">
+                {t}
+              </text>
+            </g>
+          );
+        })}
+
         {layers.map((L) => (
-          <path key={L.key} d={L.d} fill={L.color} opacity={0.78} />
+          <path key={L.key} d={L.d} fill={L.color} opacity={0.82} style={{ pointerEvents: 'none' }} />
         ))}
-        <line x1={margin.left} y1={yCenter} x2={margin.left + innerW} y2={yCenter} stroke="var(--hairline)" strokeWidth="0.5" opacity={0.5} />
 
         {stackedPoints.map((p, i) => {
           const prev = stackedPoints[i - 1];
@@ -6292,6 +6658,8 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           const isSelected = selectedDay === p.day;
           return (
             <g key={p.day} className={`narrative-stream-day ${isSelected ? 'is-selected' : ''}`} style={{ cursor: 'pointer' }}>
+              {/* El relleno de hover/selección lo pinta el CSS
+                  (.narrative-stream-day:hover / .is-selected), en neutro. */}
               <rect
                 x={x0}
                 y={margin.top}
@@ -6303,40 +6671,39 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
               {isSelected && (
                 <>
                   <line
-                    x1={p.x}
-                    y1={margin.top}
-                    x2={p.x}
-                    y2={margin.top + innerH}
-                    stroke="var(--accent)"
-                    strokeWidth="1"
-                    strokeDasharray="3 3"
+                    x1={p.x} y1={margin.top} x2={p.x} y2={yBase}
+                    stroke="var(--text)" strokeWidth="1" strokeDasharray="3 3"
                     style={{ pointerEvents: 'none' }}
                   />
-                  <circle cx={p.x} cy={yCenter} r="4" fill="var(--accent)" style={{ pointerEvents: 'none' }} />
+                  <circle cx={p.x} cy={p.pos_y} r="3.5" fill="var(--canvas)" stroke="var(--text)" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
                 </>
               )}
-              <title>{`${p.day} · ${p.mentions} menciones`}</title>
+              <title>
+                {`${new Date(p.day).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}\n`
+                  + `${p.total} menciones · ${p.positive} pos / ${p.neutral} neu / ${p.negative} neg`}
+              </title>
             </g>
           );
         })}
 
-        {peak && (
-          <g style={{ pointerEvents: 'none' }}>
-            <line x1={peakX} y1={margin.top} x2={peakX} y2={margin.top + innerH} stroke="var(--accent)" strokeWidth="0.5" opacity={0.4} />
-            <text x={peakX} y={margin.top + 12} textAnchor="middle" fill="var(--accent)" fontSize="var(--fs-overline)" fontWeight="600">
-              ✕ pico
-            </text>
-          </g>
-        )}
-
-        {/* Marcador de inicio de la narrativa: el timeline arranca en su primer
-            día de actividad (born_at), así que el borde izquierdo es el nacimiento.
-            Lo etiquetamos explícitamente porque antes la fecha de inicio no se
-            entendía. */}
+        {/* Pico: línea + etiqueta NEUTRAS (antes naranja, que aquí se reserva
+            para links). */}
         <g style={{ pointerEvents: 'none' }}>
-          <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerH} stroke="var(--pos)" strokeWidth="1.5" opacity={0.85} />
-          <text x={margin.left + 5} y={margin.top + innerH - 6} textAnchor="start" fill="var(--pos)" fontSize="var(--fs-overline)" fontWeight="700">
-            ▸ inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
+          <line x1={peakX} y1={margin.top} x2={peakX} y2={yBase} stroke="var(--text-2)" strokeWidth="1" strokeDasharray="2 3" opacity={0.7} />
+          {showPeakLabel && (
+            <text x={peakX} y={margin.top + 10} textAnchor="middle" fill="var(--text-2)" fontSize="11" fontWeight="700">
+              pico · {totalOf(peak)}
+            </text>
+          )}
+        </g>
+
+        {/* Marcador de inicio: el timeline arranca en el primer día de actividad
+            (born_at), así que el borde izquierdo es el nacimiento. Neutro y no
+            verde: el verde ya significa "positivo" en este mismo gráfico. */}
+        <g style={{ pointerEvents: 'none' }}>
+          <line x1={startX} y1={margin.top} x2={startX} y2={yBase} stroke="var(--text-2)" strokeWidth="1.5" opacity={0.85} />
+          <text x={startX + 5} y={margin.top + 10} textAnchor="start" fill="var(--text-2)" fontSize="11" fontWeight="700">
+            inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
           </text>
         </g>
 
@@ -6345,8 +6712,8 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           const x = xScale(d);
           return (
             <g key={i} style={{ pointerEvents: 'none' }}>
-              <line x1={x} y1={margin.top + innerH} x2={x} y2={margin.top + innerH + 4} stroke="var(--hairline-strong)" />
-              <text x={x} y={margin.top + innerH + 18} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-overline)">
+              <line x1={x} y1={yBase} x2={x} y2={yBase + 4} stroke="var(--hairline-strong)" />
+              <text x={x} y={yBase + 18} textAnchor="middle" fill="var(--text-2)" fontSize="11">
                 {d.toLocaleDateString('es', tickFormat)}
               </text>
             </g>

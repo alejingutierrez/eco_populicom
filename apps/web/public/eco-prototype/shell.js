@@ -173,6 +173,12 @@ function ecoHasCap(cap) {
 function ecoCanSeePage(key) {
   const s = ecoSession();
   if (!s) return true;
+  // Alertas: restringida por correo desde el servidor (ALERTS_ALLOWED_EMAILS →
+  // /api/auth/me expone `canSeeAlerts`). Flag propio y no un recorte de
+  // allowedPages, porque esa lista significa "vacía = todas". Sin sesión
+  // cargada NO se oculta (evita parpadeo); el corte real vive en las rutas
+  // /api/alerts/*, así que ocultarlo aquí es solo cosmético.
+  if (key === 'alerts' && s.canSeeAlerts === false) return false;
   if (key !== 'overview' && Array.isArray(s.allowedPages) && s.allowedPages.length > 0 && !s.allowedPages.includes(key)) return false;
   if (key === 'settings') {
     return ecoHasCap('manage_users') || ecoHasCap('manage_templates') || ecoHasCap('manage_alert_rules');
@@ -486,7 +492,10 @@ function HeaderSearch({ onSearch, onOpenCommand }) {
   );
 }
 
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true }) {
+// showPeriod=false oculta los chips de periodo y el calendario. Lo usa
+// Narrativas, donde la ventana de fechas no aplica (cada narrativa tiene su
+// propio ciclo de vida y su timeline se muestra completo).
+function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true, showPeriod = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
   // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
@@ -586,7 +595,22 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
         </select>
       </div>
 
+      {/* Nota en las pantallas sin filtro de fechas, para que la ausencia del
+          control se lea como una decisión y no como algo que se cayó. */}
+      {!showPeriod && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
+          padding: '5px 12px', borderRadius: 'var(--r-pill)',
+          background: 'var(--control-bg)', border: '1px solid var(--hairline-strong)',
+          fontSize: 'var(--fs-caption)', color: 'var(--text-3)',
+        }}>
+          <Icons.Info size={12} color="var(--text-3)" />
+          <span>Sin filtro de fechas · cada narrativa muestra su ciclo completo</span>
+        </div>
+      )}
+
       {/* Period — estilo bolsa, único control de periodo de toda la app. */}
+      {showPeriod && (
       <div style={{ display: 'flex', background: 'var(--control-bg)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline-strong)' }}>
         {PERIODS.map((p) => (
           <button key={p} onClick={() => {
@@ -617,7 +641,9 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           }}>{p}</button>
         ))}
       </div>
+      )}
       {/* Calendar icon: abre popover con date inputs para rango custom. */}
+      {showPeriod && (
       <div style={{ position: 'relative' }}>
         <button
           onClick={() => setCalendarOpen(v => !v)}
@@ -684,6 +710,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           </>
         )}
       </div>
+      )}
 
       {/* Acciones: se agrupan en un contenedor propio con flex:none para que
           envuelvan JUNTAS. Antes el toggle de modo era el último hijo directo

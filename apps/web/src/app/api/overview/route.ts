@@ -6,10 +6,11 @@ import {
   PERIOD_DAYS,
   formatPeriodLabel,
   loadMetricsForWindow,
+  loadHourlySentimentSeries,
   formatMetric,
   formatDelta,
 } from '@eco/shared';
-import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay } from '@eco/shared';
+import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay, HourlyPoint } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -32,6 +33,14 @@ interface OverviewResponse {
   totals: SentimentReport['totals'];
   deltaVsPrev: SentimentReport['deltaVsPrev'];
   dailySeries: SentimentReport['dailySeries'];
+  /**
+   * Granularidad de la tendencia. 'hour' cuando la ventana es de UN día
+   * (chip 1D o custom de un solo día): a nivel diario ese caso rendía un
+   * único punto sin forma. 'day' en todo lo demás.
+   */
+  trendGranularity: 'hour' | 'day';
+  /** Poblada solo cuando trendGranularity === 'hour'. */
+  hourlySeries: HourlyPoint[] | null;
   topicsTable: SentimentReport['topicsTable'];
   /**
    * Estado actual de las métricas compuestas (NSS, BHI, crisis, etc) — leído
@@ -109,6 +118,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // contra el Scorecard que sí recalculaba (0.588 para 7D).
     const winCur = await loadMetricsForWindow(pool, agencyId, startYmd, endYmd);
 
+    // Tendencia por HORA cuando la ventana es de un solo día. Mismo universo
+    // y mismos bordes AST que la serie diaria, así que la suma de las 24
+    // horas cuadra con el total del termómetro.
+    const singleDay = startYmd === endYmd;
+    const hourlySeries = singleDay
+      ? await loadHourlySentimentSeries(pool, agencyId, startYmd, endYmd)
+      : null;
+
     // Volumen y su delta salen del MISMO report que el hero/termómetro/tabla
     // (universo pertinente) — antes venían de loadMetricsForWindow (universo
     // completo) y el payload traía DOS totales distintos (auditoría 2026-08,
@@ -128,6 +145,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       totals: report.totals,
       deltaVsPrev: report.deltaVsPrev,
       dailySeries: report.dailySeries,
+      trendGranularity: singleDay ? 'hour' : 'day',
+      hourlySeries,
       topicsTable: report.topicsTable,
       currentMetrics: {
         nss: winCur.nss,
