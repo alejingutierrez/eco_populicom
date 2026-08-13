@@ -77,6 +77,11 @@ export interface WeeklySummaryRenderData {
   /** PNG externo: volumen diario de esta semana superpuesto a la anterior. */
   chartImageUrl: string;
 
+  /**
+   * Titular del cambio central de la semana (LLM). Opcional para que un bundle
+   * viejo del lambda siga renderizando sin él (ago 2026).
+   */
+  weeklyHeadline?: string;
   /** Párrafo ejecutivo de la semana (LLM). HTML inline permitido. */
   weeklySummary: string;
   /** 2–4 highlights "qué cambió esta semana" (LLM). HTML inline permitido. */
@@ -439,6 +444,9 @@ ${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
                     <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
                       ${summarySec} · La semana en un vistazo
                     </div>
+${data.weeklyHeadline && data.weeklyHeadline.trim()
+  ? `                    <p class="force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:19px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">${esc(data.weeklyHeadline.trim())}</p>`
+  : ''}
                     <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.weeklySummary}</p>
                   </td>
                 </tr>

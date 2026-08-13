@@ -1,10 +1,18 @@
 /**
- * Prompts para generación del reporte semanal (últimos 7 días)
+ * Prompts para generación del reporte diario (ventana de 7 días).
  *
- * Se ejecutan con Claude (AWS Bedrock). Todos los prompts son descriptivos:
- * describen, cuantifican y contextualizan la conversación. Nunca ofrecen
- * recomendaciones, sugerencias de acción ni juicios prescriptivos.
+ * Se ejecutan con Claude (AWS Bedrock). El estilo lo fija la constitución
+ * editorial compartida (`./constitution`); aquí solo vive lo propio de cada
+ * texto: qué tiene que contar y en qué forma sale.
+ *
+ * Reescritos en ago 2026 tras la ronda de moldes con el cliente. El resumen del
+ * día pasó de un párrafo único de 120–160 palabras a titular + párrafo corto +
+ * viñetas que explican (la «opción B»); los insights conservan los tres bloques
+ * por sentimiento (la «opción A») porque la plantilla del correo ya los tiene
+ * pintados de color.
  */
+import { formatLongDay } from '../format-period';
+import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface MentionSample {
   id: string;
@@ -70,42 +78,16 @@ export interface WeeklyAggregates {
 // SYSTEM PROMPT — guardrails compartidos
 // ============================================================
 
-export const INSIGHTS_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico con 10 años cubriendo agencias públicas. Tu trabajo NO es enumerar lo que pasó — los conteos y picos ya están en los gráficos del dashboard. Tu trabajo es ANALIZAR: identificar el MECANISMO que produjo la conversación, distinguir lo ESTRUCTURAL de lo COYUNTURAL, caracterizar el ACTOR NARRATIVO (quién impulsa la discusión y desde qué arquitectura), y revelar TENSIONES o ASIMETRÍAS que los conteos no muestran.
-
-REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
-
-1. **PROHIBIDA la enumeración descriptiva pura.** Frases como "El tópico X concentra N menciones (M% del total)" son DATO, no INSIGHT — el usuario ya las ve en el gráfico. Un insight aceptable conecta ese dato con: por qué pasó, quién lo impulsa, qué patrón revela, o cómo se compara con dinámicas similares conocidas.
-
-2. **PROHIBIDAS las recomendaciones, sugerencias de acción, consejos, juicios prescriptivos.** Frases vetadas: "se debería", "se sugiere", "convendría", "es importante que", "recomendamos", "amerita", "urge", "la agencia debe", "se podría". Reporta dinámica ajena, no opinión propia.
-
-3. **Cada insight DEBE aportar al menos UNO de estos planos analíticos:**
-   (a) **Mecanismo**: qué evento concreto disparó la conversación (anuncio, declaración, decisión institucional, cobertura mediática) y cuál fue su efecto cuantificable.
-   (b) **Actor narrativo**: quién impulsa la conversación — prensa profesional vs cuentas institucionales vs activistas vs ciudadanos sueltos vs organizaciones formales. Esto cambia cómo leer la señal: 20 menciones negativas de medios profesionales = controversia formal; 20 menciones de cuentas anónimas = ruido amplificado.
-   (c) **Estructural vs coyuntural**: ¿la negatividad/positividad se distribuye en múltiples días + múltiples autores + múltiples sub-tópicos (estructural, resistencia/respaldo organizado) o se concentra en 1-2 días + 1-2 fuentes (coyuntural, episodio aislado)?
-   (d) **Asimetría o tensión**: comparar dos tópicos/actores/momentos del MISMO periodo y explicar por qué uno se comporta distinto del otro.
-
-4. **Cada afirmación debe respaldarse con un número concreto** tomado literalmente de los datos: conteo, %, variación, engagement. Y debe **nombrar al menos un elemento propio concreto** (tópico/subtópico, autor, medio, municipio, fecha específica). Sin número Y nombre propio, la afirmación es rechazada.
-
-5. **No inventes**. Si los datos no permiten inferir mecanismo/actor/estructura, no fuerces el insight — entrega menos insights. Nunca extrapoles a "la ciudadanía", "el sector privado", "la clase política" si no está explícito en los datos.
-
-6. **Idioma**: español de Puerto Rico, frases cortas y densas, tono de informe analítico. Sin emojis, sin signos de exclamación, sin marketing-speak. No uses "preocupación" como sustantivo vacío — di QUIÉN está preocupado y POR QUÉ aparece en los datos.
-
-7. **Consistencia entre ejecuciones**: si los datos son similares, los insights deben referirse a los mismos mecanismos dominantes. No reordenes para parecer novedoso.
-
-8. **Salida**: exclusivamente un objeto JSON válido que cumpla el esquema pedido. Sin texto fuera del JSON, sin markdown fences, sin comentarios.
-
-EJEMPLOS DE INSIGHTS ACEPTABLES (referenciales — adapta al dominio):
-- "La negatividad en Permisos / Reforma (PS 1183) muestra arquitectura institucional: Junta de Planificación objeta formalmente, NotiCel y Centro de Periodismo Investigativo le dan cobertura, y organizaciones comunitarias usan el lenguaje técnico de la ley — no es opinión espontánea, es resistencia organizada con vocación de duración."
-- "El balance positivo de la semana depende de un solo evento (anuncio Amgen, 102 menciones, 78 el 4 de mayo); sin ese pico el sentimiento neto sería neutral-negativo — la 'salud reputacional' está sostenida por inversión extranjera amplificada por canales institucionales (PR Newswire, cuenta @desarrollopr), no por movilización orgánica."
-- "Críticas / Controversias tiene patrón coyuntural en LinkedIn (cuestionamientos individuales al claim de 'manufactura avanzada') mientras Permisos / Reforma tiene patrón estructural en prensa profesional — son dos negatividades de naturaleza distinta que no deberían leerse juntas."
-
-EJEMPLOS DE INSIGHTS INACEPTABLES (rechazar):
-- "El tópico Permisos / Reforma concentra 16 menciones negativas (25%)." ← enumeración pura, sin análisis.
-- "Se debería mejorar la comunicación." ← prescriptivo.
-- "La comunidad está preocupada por el servicio." ← sin número, sin actor identificado.
-- "El volumen creció 34%." ← dato sin mecanismo ni actor.
-`.trim();
+export const INSIGHTS_SYSTEM_PROMPT = buildSystemPrompt(
+  ECO_ANALYST_ROLE,
+  `
+- Estos textos van dentro de un correo que el lector abre en el teléfono a las
+  6 de la mañana. Cada oración tiene que ganarse el espacio.
+- ${HTML_INLINE_RULE}
+- No repitas entre bloques el mismo hecho con otras palabras. Si dos bloques
+  cuentan lo mismo, uno de los dos sobra: entrega menos.
+`,
+);
 
 // ============================================================
 // PROMPT 1 — Insights por sentimiento (3 bloques de hasta 2 insights)
@@ -182,39 +164,32 @@ ${samples.neutral.map((m, i) => formatSample(i + 1, m)).join('\n')}
 --- MUESTRAS POSITIVAS (${samples.positive.length}) ---
 ${samples.positive.map((m, i) => formatSample(i + 1, m)).join('\n')}
 
-TAREA — ANÁLISIS, NO ENUMERACIÓN:
-Para cada sentimiento (negative, neutral, positive) genera hasta 2 insights ANALÍTICOS — solo los de MAYOR señal. El lector es ejecutivo y lee el correo en segundos: mejor 1 insight contundente que 2 tibios. NO reportes "lo que pasó" (eso ya está en los gráficos). Revela MECANISMO + ACTOR NARRATIVO + ESTRUCTURA del periodo.
+TAREA — CUENTA QUÉ PASÓ EN CADA BLOQUE:
+El correo pinta tres bloques de color: lo negativo, lo neutral y lo positivo. Para cada uno escribe hasta 2 frases, y cada frase tiene que contar UN HECHO — algo que alguien dijo, hizo, publicó o reclamó — con su cifra detrás como apoyo.
 
-Cada insight DEBE cubrir un plano distinto — elige los 2 planos donde los datos tengan más señal:
+QUÉ CONTAR EN CADA BLOQUE:
+- NEGATIVO: qué es concretamente lo que está molestando o siendo cuestionado. No "el tópico X es negativo", sino el reclamo, la denuncia o la crítica puntual, y quién la está haciendo.
+- NEUTRAL: casi siempre es cobertura de prensa. Di QUÉ se cubrió y por qué eso deja el tono plano — un anuncio replicado, una transmisión en directo, un dato publicado sin opinión. El bloque neutral suele ser el más grande y hoy es el peor explicado: no lo despaches con "cobertura informativa".
+- POSITIVO: quién está apoyando y desde dónde. Si el apoyo viene solo de cargos o cuentas institucionales, dilo con esas palabras: es distinto de que lo diga la gente. Si no hay menciones positivas, entrega el bloque vacío en lugar de forzar una frase.
 
-PLANO A — MECANISMO Y CAUSA-EFECTO:
-Identifica el evento/decisión/cobertura concreta que DISPARÓ esta concentración de sentimiento y cuál fue su efecto cuantificable. Conecta acción → reacción. Ejemplo: "El pico de negatividad del 7 de mayo (38 menciones) responde a la defensa del secretario del DDEC ante el Senado por el PS 1183; las reacciones se concentraron en Facebook (cuentas individuales) y se replicaron en NotiCel y CPI durante las 48 horas siguientes".
+REGLAS DE FORMA:
+- Una sola oración por frase, de 20 a 45 palabras.
+- Empieza por el hecho, no por el nombre del tópico ni por el conteo.
+- Nombra al menos un medio, cargo público, organización o fecha concreta.
+- Ninguna frase puede repetir lo que ya dijo otra, ni siquiera en otro bloque.
+- Si un bloque no tiene material para 2 frases, entrega 1. Si no tiene para 1, entrega el arreglo vacío.
 
-PLANO B — ACTOR NARRATIVO:
-Caracteriza QUIÉN está impulsando la conversación y desde qué arquitectura. Distingue prensa profesional (NotiCel, El Vocero) vs cuentas institucionales (desarrollopr, PR Newswire) vs organizaciones formales (Sembrando Sentido, Junta de Planificación) vs activismo ciudadano disperso vs amplificación en redes. Si la negatividad es 100% medios + 0% ciudadanos = controversia mediática, no malestar popular. Si la positividad es 100% PR institucional = comunicación corporativa, no respaldo orgánico. Cuantifica la composición.
+EJEMPLOS DE LA FORMA CORRECTA (adáptalos, no los copies):
+- "Lo más duro de la semana no es el nombramiento sino lo que venía antes: la investigación sobre el titular saliente y los contratos de la firma cabildera sostienen la crítica por su cuenta, con 78% y 89% de menciones adversas."
+- "Los medios cubrieron el anuncio sin tomar partido: tres de cada cuatro menciones sin carga caen el lunes y el martes, cuando El Nuevo Día, Teleonce, El Vocero y Telemundo lo publicaron casi a la vez."
+- "El respaldo existe pero es de coalición: las ocho menciones favorables vienen de los alcaldes de Bayamón y San Juan, la UPR y la gobernadora. Ningún ciudadano."
 
-PLANO C — ESTRUCTURAL vs COYUNTURAL (o ASIMETRÍA):
-Decide qué versión aplica con base en los datos:
-  (a) ESTRUCTURAL vs COYUNTURAL: si el sentimiento se distribuye en >50% del periodo + en >3 autores/fuentes distintos + en múltiples sub-tópicos → estructural (patrón con vocación de duración). Si se concentra en 1-2 días + 1-2 fuentes → coyuntural (episodio).
-  (b) ASIMETRÍA: contrasta dos tópicos del mismo bloque de sentimiento y explica por qué uno se comporta distinto del otro (ej: "Inversión Extranjera positivo es institucional/anuncio puntual; Desarrollo Empresarial positivo es contenido distribuido — ambos suben pero por mecanismos opuestos").
+RECHAZA ESTAS FORMAS:
+- "El tópico Nombramientos concentra 170 menciones (53%)." → es un conteo, no un hecho.
+- "La negatividad tiene dos capas de naturaleza distinta." → es jerga de analista.
+- "Se observa preocupación en la ciudadanía." → sin hecho, sin quién, sin número.
 
-PROHIBIDO ABSOLUTAMENTE:
-- "El tópico X concentra N menciones (M%)" como único contenido del insight. Eso es DATO, no INSIGHT.
-- Listar 3 tópicos en un mismo insight sin conectarlos a un mecanismo o actor común.
-- Hablar de "preocupación", "satisfacción", "inquietud" sin nombrar la fuente concreta donde aparece.
-- Frases como "lidera el volumen", "se observa", "se detecta", "concentra" usadas como ancla principal — eso es narración, no análisis.
-
-REGLAS DE FORMA (sobre cada insight):
-- Una sola oración, 18–40 palabras. Directa: hecho/actor primero, sin muletillas ("se observa", "cabe destacar", "es notable que").
-- Al menos UN número concreto del dato Y al menos UN nombre propio del dato.
-- Si para un sentimiento no hay suficiente señal para 2 insights distintos, entrega menos (mínimo 0). Mejor 1 insight bueno que 2 mediocres.
-
-FORMATO DE SALIDA (un único objeto JSON, sin texto adicional, sin markdown fences):
-{
-  "negative": ["insight 1", "insight 2"],
-  "neutral":  ["insight 1", "insight 2"],
-  "positive": ["insight 1", "insight 2"]
-}
+SALIDA: llama la herramienta con tres arreglos de cadenas — negative, neutral, positive.
 `.trim();
 }
 
@@ -233,10 +208,13 @@ export function buildDailySummaryPrompt(
   const prevDay = idxToday > 0 ? aggregates.dailySeries[idxToday - 1] : null;
   const prevTotal = prevDay ? prevDay.negative + prevDay.neutral + prevDay.positive : 0;
   const diffPct = prevTotal > 0 ? Math.round(((totalToday - prevTotal) / prevTotal) * 100) : 0;
+  // El día en palabras — el modelo debe escribir "el miércoles", nunca el ISO.
+  const dayLabel = formatLongDay(todayDate);
+  const prevDayLabel = prevDay ? formatLongDay(prevDay.date) : null;
 
   return `
 AGENCIA: ${aggregates.agencyName}
-FECHA DEL RESUMEN: ${todayDate} (día calendario completo en America/Puerto_Rico — AST, UTC-4 sin DST). Este es el último día cerrado del periodo de 7 días. El correo se entrega la mañana siguiente a las 6:00 a.m. AST.
+DÍA QUE SE RESUME: ${dayLabel} (en tu texto llámalo así, "${dayLabel}" o "el ${dayLabel.split(' ')[0]}" — NUNCA ${todayDate}, NUNCA "hoy" ni "ayer"). Día calendario completo en America/Puerto_Rico. Es el último día cerrado del periodo de 7 días; el correo se entrega la mañana siguiente.
 
 VOLUMEN DEL DÍA REPORTADO (${todayDate}):
 - Total: ${totalToday} menciones
@@ -245,7 +223,7 @@ VOLUMEN DEL DÍA REPORTADO (${todayDate}):
 - Positivo: ${today?.positive ?? 0}
 
 COMPARACIÓN CON EL DÍA ANTERIOR:
-- Día anterior (${prevDay?.date ?? 'n/d'}): ${prevTotal} menciones
+- Día anterior (${prevDayLabel ?? 'n/d'}): ${prevTotal} menciones
 - Variación absoluta: ${totalToday - prevTotal}
 - Variación porcentual: ${signed(diffPct)}%
 - Posición del día dentro de los últimos 7 días: ${rankInWeek(aggregates, todayDate)}
@@ -256,22 +234,34 @@ ${aggregates.dailySeries.map((d) => `- ${d.date}: total=${d.negative + d.neutral
 TOP TÓPICOS DE LA SEMANA (para identificar lo estructural vs. lo coyuntural):
 ${aggregates.byTopic.slice(0, 5).map((t) => `- ${t.topic}: ${t.total} (neg ${t.negative})`).join('\n') || '- (sin datos)'}
 
-MUESTRAS DEL DÍA ${todayDate} (seleccionadas por engagement; pre-filtradas a pertinencia alta/media):
+LO QUE SE DIJO ESE DÍA (las menciones de más resonancia — úsalas para saber QUÉ pasó en concreto; no menciones jamás que son una selección):
 ${todaySamples.map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
-TAREA:
-Redacta un párrafo ÚNICO y COMPLETO de 4 a 6 oraciones (~120–160 palabras) que resuma el día reportado (${todayDate}) para ${aggregates.agencyName} con suficiente contexto para que el lector entienda qué pasó y qué significa PARA ESTA AGENCIA. Registro institucional, español de Puerto Rico. Arranca por el hecho dominante del día (evento/tópico/actor con su número) — sin aperturas genéricas tipo "La conversación estuvo marcada por" ni "Durante la jornada". El párrafo debe cubrir, con oraciones desarrolladas (no un listado telegráfico):
-1. QUÉ pasó en el día y POR QUÉ importa para ${aggregates.agencyName}: el tópico/evento dominante con sus menciones y el hecho concreto más relevante de las muestras (medio, autor o mención identificable, con número).
-2. CONTEXTO: tópicos dominantes del día, actores/medios que empujan la conversación, municipios si la concentración es clara (1–2; no fuerces geografía), y cómo se compara con lo habitual del periodo de 7 días (¿es un pico, una caída, o dentro de lo usual?).
-3. NÚMEROS CLAVE anclando el relato: volumen total del día, sentimiento neto/dominante con % explícito, y variación porcentual vs. el día anterior y vs. el resto del periodo.
-4. Etiquetas HTML inline muy limitadas: solo <strong> para nombres propios y números clave. Sin otras etiquetas.
+TAREA — TRES PIEZAS: TITULAR, PÁRRAFO Y VIÑETAS.
+Cuentas qué pasó el ${dayLabel} en la conversación pública sobre ${aggregates.agencyName}. Es lo primero que el lector ve al abrir el correo.
 
-PROHIBIDO: recomendaciones, sugerencias, consejos, "se debería", "conviene", "es importante que", llamados a la acción, juicios morales, opiniones propias. NO uses la palabra "hoy" para referirte al día reportado — usa "el día ${todayDate}", "la jornada", "el último día del periodo" o similar; el correo se entrega la mañana siguiente y "hoy" se interpretaría mal.
+1) "headline" — el titular. UNA oración de 8 a 16 palabras que diga lo más importante del día. Es un titular de prensa, no una etiqueta: tiene sujeto y verbo, y quien lea solo esa línea ya sabe qué pasó. Sin cifras dentro. Sin punto final.
+   BIEN: "Se apaga la cobertura del nombramiento y queda el cuestionamiento"
+   BIEN: "Un paro de empleados se monta sobre la crisis de agua"
+   MAL:  "Resumen del día" · "Caída de 65% en el volumen" · "Gestión / Administración"
 
-FORMATO DE SALIDA (JSON exacto, sin texto adicional, sin markdown fences):
-{
-  "summary": "<párrafo completo de 4 a 6 oraciones (~120–160 palabras)>"
-}
+2) "paragraph" — el párrafo. De 3 a 4 oraciones (60 a 90 palabras) que EXPLIQUEN lo que anuncia el titular: qué pasó, a raíz de qué, y quién lo está diciendo. Es el único lugar del correo donde el lector puede entender la historia, así que no lo gastes repitiendo conteos. Como mucho dos cifras en todo el párrafo. Arranca por el hecho.
+
+3) "highlights" — de 2 a 4 viñetas. CADA UNA CUENTA ALGO QUE PASÓ, con su cifra detrás como apoyo. No son etiquetas con números. Si una viñeta se puede leer entera sin entender qué pasó, rehazla. Elige entre estos ángulos los que el dato sostenga, sin forzar ninguno:
+   - lo que se apagó o lo que arrancó ese día, y qué lo explica;
+   - un frente que sigue vivo por su cuenta, independiente de la noticia del día;
+   - quién está empujando la conversación — prensa, cargos públicos, o gente — y en qué se nota;
+   - algo que NO apareció y uno esperaría que apareciera (una ausencia es un hallazgo).
+   Cada viñeta: una sola oración de 20 a 40 palabras.
+   BIEN: "El día más flojo de la semana fue también el más negativo: cuando se apaga la cobertura del anuncio, lo que sobrevive es la crítica."
+   MAL:  "Negatividad: 54% del total, 20 de 37 menciones."
+
+SI EL DÍA NO TIENE NOTICIA (muy pocas menciones, o ninguna historia identificable):
+Dilo con todas sus letras en el titular y en el párrafo — que la agencia casi no apareció en la conversación es información útil. Entrega 2 viñetas en vez de 4. No inventes una historia para llenar el espacio.
+
+${HTML_INLINE_RULE}
+
+SALIDA: llama la herramienta con los tres campos — headline, paragraph, highlights.
 `.trim();
 }
 

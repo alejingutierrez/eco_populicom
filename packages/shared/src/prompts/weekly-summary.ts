@@ -10,6 +10,7 @@
  */
 
 import type { MentionSample, WeeklyAggregates } from './weekly-report-insights';
+import { HTML_INLINE_RULE } from './constitution';
 
 export interface WeeklyComparisonInputs {
   /** Agregados de la semana actual (misma forma que el reporte diario). */
@@ -135,22 +136,33 @@ ${samples.neutral.slice(0, 8).map((m, i) => formatSample(i + 1, m)).join('\n') |
 --- POSITIVAS (${samples.positive.length}) ---
 ${samples.positive.slice(0, 8).map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
-TAREA — DOS SALIDAS, AMBAS CENTRADAS EN LA COMPARACIÓN:
+TAREA — TRES PIEZAS. Todo se afirma en clave de CAMBIO: qué es distinto respecto a la semana anterior.
 
-1) "summary" — UN párrafo COMPLETO de 4 a 6 oraciones (~120–160 palabras): la semana en un vistazo PARA UN LECTOR EJECUTIVO, con suficiente contexto para que entienda qué pasó y qué significa PARA ESTA AGENCIA (${current.agencyName}). Debe abrir con la TENSIÓN o el CAMBIO central de la semana vs la anterior (no con enumeración de conteos ni aperturas genéricas tipo "La conversación estuvo marcada por"), citar el volumen total y su variación (${signedPct(totals.total, prevTotals.total)}), identificar el MECANISMO dominante (evento/cobertura/actor que explica el cambio, anclado en el hecho concreto más relevante de las muestras) y cerrar con la posición de la agencia en su conversación. Usa <strong> para cifras y nombres propios clave.
+1) "headline" — el titular de la semana. UNA oración de 8 a 18 palabras que nombre el cambio central. Sujeto y verbo, sin cifras, sin punto final.
+   BIEN: "La semana en que la Secretaría cambió de titular y de conversación"
+   BIEN: "Se enfría la crisis de agua y vuelve a pesar la gestión"
+   MAL:  "Resumen semanal" · "+531% en volumen" · "Nombramientos / Designaciones"
 
-2) "highlights" — 2 a 4 oraciones independientes tipo "qué cambió esta semana", cada una sobre un CAMBIO distinto vs la semana anterior:
-   - un movimiento de volumen o sentimiento con su mecanismo (qué evento lo explica),
-   - un tópico que subió, bajó, apareció o salió — con números de ambas semanas,
-   - un indicador compuesto que se movió (usa los valores de escala pública tal cual: "36%", "6.8 / 10") y qué lo explica,
-   - opcionalmente una asimetría (canal, fuente o actor que se comporta distinto que la semana pasada).
-   Cada highlight: una sola oración, 25–50 palabras, al menos un número de CADA semana cuando compares, y al menos un nombre propio del dato. Usa <strong> para lo clave.
+2) "summary" — el párrafo. De 3 a 5 oraciones (80 a 130 palabras) que expliquen el cambio: qué lo produjo, en qué orden pasaron las cosas si hubo una secuencia, y quién empujó la conversación. Arranca por el cambio o por el hecho que lo causó, nunca por un conteo ni por "La conversación estuvo marcada por". Máximo dos cifras.
 
-REGLAS (además de las del sistema):
-- TODO se afirma en clave comparativa: "X pasó de N a M", "sube/baja/entra/sale". Nada de describir la semana actual en el vacío.
-- PRECISIÓN SOBRE CATEGORÍAS: cada afirmación debe decir QUÉ pasó o QUÉ se dijo en concreto (el anuncio, la queja, la historia — tomado de las muestras, priorizando las de mayor engagement), no solo el nombre del tópico con un conteo. "Permisos / Reforma bajó de 152 a 84" solo es aceptable si a continuación dices qué conversación concreta se apagó.
-- Si una variación es "nuevo" (la semana anterior no registraba), dilo explícitamente en lugar de inventar un porcentaje.
-- Si no hay señal suficiente para 4 highlights, entrega menos (mínimo 1). Mejor pocos y verdaderos.
-- NUNCA "hoy"/"ayer": habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}).
+3) "highlights" — de 2 a 4 viñetas: qué cambió. Cada una cuenta UN CAMBIO CONCRETO, con los números de las dos semanas como apoyo, no como sujeto. Ángulos que suelen dar señal:
+   - una conversación que apareció y antes no existía, o una que desapareció;
+   - un tema que se disparó o se apagó, y el hecho que lo explica;
+   - algo que NO cambió pese a todo lo demás — lo que la agencia arrastra semana tras semana;
+   - un indicador que se movió y qué lo movió (usa el valor tal cual viene: "50%", "3.8 / 10").
+   Cada viñeta: una sola oración de 25 a 45 palabras, con al menos un medio, cargo público u organización nombrado.
+   BIEN: "Apareció una conversación que no existía: la relación con la Legislatura pasó de cero a 51 menciones tras la reunión en el Capitolio."
+   MAL:  "Relación con la Legislatura: 51 menciones esta semana vs 0 la anterior (+nuevo)."
+
+REGLAS PROPIAS DE ESTE CORREO:
+- Di QUÉ conversación concreta subió o bajó, no solo el nombre del tema con un conteo. "Permisos bajó de 152 a 84" solo vale si a continuación dices qué discusión se apagó.
+- Si una variación es "nuevo" (la semana anterior no registraba), dilo así en lugar de inventar un porcentaje.
+- Cuando el volumen se dispare pero el tono casi no se mueva, dilo: es la señal más fácil de perder y la más útil.
+- Habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}). Nunca "hoy" ni "ayer".
+- Si no hay señal para 4 viñetas, entrega menos (mínimo 1). Mejor pocas y verdaderas.
+
+${HTML_INLINE_RULE}
+
+SALIDA: llama la herramienta con los tres campos — headline, summary, highlights.
 `.trim();
 }
