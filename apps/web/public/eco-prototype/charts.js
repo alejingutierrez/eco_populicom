@@ -594,7 +594,20 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
             const dotData = data[hoverIdx];
             return (
               <g>
-                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                {/* --chart-crosshair, no --text-3: el token existe para esto y la
+                    otra gráfica del producto ya lo usa (SeriesPanels, más abajo en
+                    este archivo), así que la MISMA guía de hover salía de dos
+                    colores en dos gráficas. Y --text-3 es además --chart-axis: la
+                    guía se pintaba con el color de los rótulos del eje. */}
+                {/* Crosshair con HALO. Un indicador de cromo tiene que verse sobre
+                    CUALQUIER color de dato, y ningún color plano lo garantiza: sobre
+                    la banda neutral —que lleva la mayor parte del volumen— el trazo
+                    quedaba en 1.1:1 contra el relleno, o sea invisible justo donde
+                    más se usa. La línea ancha en --canvas por debajo separa el trazo
+                    del relleno sea cual sea, y el trazo fino encima se lee contra ese
+                    halo. Así el crosshair deja de depender de lo que tenga detrás. */}
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--canvas)" strokeWidth="2.5" opacity="0.85" />
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {normalized.map(s => {
                   if (isGap(dotData[s.key])) return null;
                   const y = innerH - ((dotData[s.key] - s.min) / s.range) * innerH;
@@ -638,7 +651,7 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
             return (
               <g key={s.key + '-tag'} transform={`translate(${innerW + 4}, ${y})`}>
                 <rect x={0} y={-8} width={46} height={16} fill={s.color} rx={2} />
-                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill="var(--on-accent)" textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
+                <text x={23} y={3} fontSize="var(--fs-overline)" fontWeight="700" fill={window.ecoOnFill(s.color)} textAnchor="middle" fontFamily="var(--ff-numeric)">{fmtVal(s.key, v)}</text>
               </g>
             );
           })}
@@ -969,7 +982,14 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const botPts = stacks.map((s, i) => [i * step, innerH - (s[`${k}_start`] / max) * innerH]).reverse();
             const pts = [...topPts, ...botPts];
             const p = pts.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt[0]},${pt[1]}`).join(' ') + ' Z';
-            return <path key={k} d={p} fill={colors[ki]} opacity="0.85" />;
+            // Sin `opacity`. Estaba ahí como parche del defecto real: la serie
+            // neutral se pintaba con --text-3, que ES --chart-axis (tokens.css),
+            // así que el 36% del volumen salía idéntico a los ticks y al cromo, y
+            // el 0.85 era lo ÚNICO que los separaba. Con la serie en --neu —el
+            // token que existe para el gris de DATOS— la mezcla ya no hace falta,
+            // y el relleno pleno iguala al Donut y a las barras de grupo, que
+            // pintan los mismos tres colores sin atenuar.
+            return <path key={k} d={p} fill={colors[ki]} />;
           })}
           {/* Las cinco, no tres: con 5 rejillas y 3 etiquetas quedaban dos líneas
               huérfanas que el ojo tiene que interpolar. Ahora que el tope es
@@ -1013,7 +1033,7 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
             const total = keys.reduce((s, k) => s + (d[k] || 0), 0);
             return (
               <g pointerEvents="none">
-                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--text-3)" strokeWidth="0.75" strokeDasharray="3 3" />
+                <line x1={xPos} y1={0} x2={xPos} y2={innerH} stroke="var(--chart-crosshair)" strokeWidth="0.75" strokeDasharray="3 3" />
                 {keys.map((k, ki) => {
                   const yEnd = innerH - ((stacks[hover][`${k}_end`]) / max) * innerH;
                   return <circle key={k} cx={xPos} cy={yEnd} r="4" fill="var(--canvas)" stroke={colors[ki]} strokeWidth="2" />;
@@ -1096,7 +1116,13 @@ function Donut({ data, size = 120, thickness = 16, colors, total = null, a11yTit
 
 // Horizontal bar list
 function HBarList({ items, colorFn, max, labelKey = 'label', valueKey = 'value', trackHeight = 6, onItemClick }) {
-  const _max = max ?? Math.max(...items.map(i => i[valueKey]));
+  // Piso 1 en el DOMINIO, no en el dato. Con una lista de ceros `Math.max` da 0 y
+  // el ancho sale `NaN%`, que el navegador descarta sin decir nada; con lista vacía
+  // da −Infinity (inofensivo hoy, porque el .map de abajo no corre, pero es una
+  // bomba armada para el primer callsite que lea _max fuera del bucle). Con máximo
+  // 1 cada barra vale 0/1 = 0%, que es lo correcto. En cuanto el máximo real es ≥1
+  // nada cambia: la barra sigue siendo valor/máximo, proporcional.
+  const _max = max ?? Math.max(1, ...items.map(i => i[valueKey]));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
       {items.map((it, i) => {

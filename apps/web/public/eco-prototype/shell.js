@@ -332,8 +332,12 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
                   color: 'var(--accent-2)',
                   padding: '2px 5px',
                   borderRadius: 'var(--r-sm)',
-                  background: 'rgba(125,183,172,0.12)',
-                  border: '1px solid rgba(125,183,172,0.2)',
+                  // El teal (125,183,172) era residuo del tema 'gaceta', que ya no
+                  // existe: un color de otra marca sobre el rail de ésta. Pasa al
+                  // token de tinte de acento sobre rail, que se declara por modo
+                  // porque --rail-bg sí cambia entre ellos.
+                  background: 'var(--rail-tint)',
+                  border: '1px solid var(--rail-tint-border)',
                   fontFamily: 'var(--ff-numeric)',
                 }}>v2.3</span>
               )}
@@ -668,7 +672,7 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           style={{
             display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
             // Era el control más bajo del header (26px contra 38 de la pastilla).
-            padding: '0 10px', height: 'var(--control-h)', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-overline)', fontWeight: 600,
+            padding: '0 10px', height: 'var(--control-h)', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-caption)', fontWeight: 600,
             background: isCustom ? 'var(--accent-fill)' : 'var(--control-bg)',
             color: isCustom ? 'var(--accent)' : 'var(--text-2)',
             border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline-strong)'),
@@ -688,14 +692,14 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
             }}>
               <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-3)' }}>Rango personalizado</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-                <label style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                   <span style={{ minWidth: 44 }}>Desde</span>
                   <input type="date" value={draftFrom}
                     onChange={(e) => setDraftFrom(e.target.value)}
                     max={todayIso}
                     className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
                 </label>
-                <label style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                   <span style={{ minWidth: 44 }}>Hasta</span>
                   <input type="date" value={draftTo}
                     onChange={(e) => setDraftTo(e.target.value)}
@@ -703,8 +707,11 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
                     className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
                 </label>
               </div>
+              {/* --fs-caption: es una FRASE, no un eyebrow. El token declara que bajo
+                  12px sólo caben etiquetas en mayúsculas y ticks de eje densos, y un
+                  mensaje de error es justo lo que más hay que poder leer. */}
               {draftFrom && draftTo && draftFrom > draftTo && (
-                <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--neg)', marginTop: 'var(--sp-2)' }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)', marginTop: 'var(--sp-2)' }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
               )}
               <div style={{ display: 'flex', gap: 'var(--sp-15)', marginTop: 'var(--sp-3)', justifyContent: 'flex-end' }}>
                 <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 'var(--fs-caption)' }}>Cancelar</button>

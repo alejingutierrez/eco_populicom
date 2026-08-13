@@ -162,6 +162,17 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
   const IconC = icon ? I2[icon] : null;
   const deltaColor = delta == null ? 'var(--text-3)' : (invertDelta ? (delta < 0 ? 'var(--pos)' : 'var(--neg)') : (delta > 0 ? 'var(--pos)' : delta < 0 ? 'var(--neg)' : 'var(--text-3)'));
   const clickable = !!onClick;
+  // Estilo ÚNICO del valor de la card, compartido por las dos ramas (palabra y
+  // cifra). Estaba declarado dos veces con lineHeight 1.1 y 1 sobre el mismo
+  // --fs-num-xl: a 30px son 3px, y bastaba con que una card de la fila mostrara
+  // una PALABRA ("Negativo leve") y sus hermanas un número para que sus líneas
+  // base no coincidieran. Compartir el objeto hace que no puedan divergir otra
+  // vez. El 1.1 gana porque las palabras tienen descendentes; los dígitos no los
+  // tienen, así que el espacio de más es constante y no descuadra nada.
+  const valueStyle = {
+    fontSize: 'var(--fs-num-xl)', fontWeight: 600, lineHeight: 1.1,
+    fontFamily: 'var(--ff-display)',
+  };
   // 'neutral' no es un escalón de texto. Con 'var(--text-3)' (5.00:1 sobre
   // --canvas, tokens.css §5) el titular "Neutral" del Net Sentiment Score salía
   // tres veces más apagado que el "1.3K" de la card de al lado (15.30:1), y es la
@@ -213,7 +224,7 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
       {wordMode ? (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)'), lineHeight: 1.1, fontFamily: 'var(--ff-display)' }}>{valueWord}</div>
+            <div className="num" style={{ ...valueStyle, color: valueColor || (valueTone ? (TONE_C[valueTone] || 'var(--text)') : 'var(--text)') }}>{valueWord}</div>
             {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : null}
           </div>
           {(value || sub) && (
@@ -226,7 +237,7 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
       ) : (
         <>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
-          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: 'var(--text)', lineHeight: 1, fontFamily: 'var(--ff-display)' }}>{value}</div>
+          <div className="num" style={{ ...valueStyle, color: 'var(--text)' }}>{value}</div>
           {deltaInfo ? <DeltaBadge info={deltaInfo} metricKey={metricKey} /> : (delta != null && (
             <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, color: deltaColor, display: 'flex', alignItems: 'center', gap: 'var(--sp-05)' }}>
               {delta > 0 ? <I2.ArrowUp size={11} /> : delta < 0 ? <I2.ArrowDown size={11} /> : null}
@@ -443,13 +454,17 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     });
   }
 
+  // El color de cada serie sale de ECO_METRIC_COLOR (data.js), que es la fuente
+  // única ya declarada para esto: cinco de las seis lo repetían a mano aquí, así
+  // que el mapa "oficial" sólo gobernaba la polarización y cambiar el color de una
+  // métrica exigía acordarse de esta lista.
   const seriesConfig = [
-    { key: 'nss', label: 'NSS', color: 'var(--accent)' },
-    { key: 'brandHealthIndex', label: 'Brand Health', color: 'var(--pos)' },
-    { key: 'totalMentions', label: 'Menciones', color: 'var(--text-2)' },
-    { key: 'crisisRiskScore', label: 'Crisis', color: 'var(--neg)' },
+    { key: 'nss', label: 'NSS', color: window.ECO_METRIC_COLOR.nss },
+    { key: 'brandHealthIndex', label: 'Brand Health', color: window.ECO_METRIC_COLOR.brandHealthIndex },
+    { key: 'totalMentions', label: 'Menciones', color: window.ECO_METRIC_COLOR.totalMentions },
+    { key: 'crisisRiskScore', label: 'Crisis', color: window.ECO_METRIC_COLOR.crisisRiskScore },
     { key: 'polarizationIndex', label: 'Polarización', color: window.ECO_METRIC_COLOR.polarizationIndex },
-    { key: 'engagementRate', label: 'Engagement', color: 'var(--warn)' },
+    { key: 'engagementRate', label: 'Engagement', color: window.ECO_METRIC_COLOR.engagementRate },
   ];
 
   function openTimelineDaySlice(d, idx) {
@@ -674,8 +689,8 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               valueLabel={m.display.crisis.short} ariaLabel="Riesgo de crisis" />
           </div>
         </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(window.ecoPeriodMentionTotal())} deltaInfo={m.deltaDisplay.totalMentions} metricKey="totalMentions" sub="vs período ant." icon="MessageSquare" accent="var(--text-2)" trendData={D.TIMELINE.map(t => t.totalMentions)}
-          onClick={() => openMetric('volume', 'Volumen de menciones', 'var(--text-2)')} />
+        <KpiCard label="Volumen · período" value={fmt(window.ecoPeriodMentionTotal())} deltaInfo={m.deltaDisplay.totalMentions} metricKey="totalMentions" sub="vs período ant." icon="MessageSquare" accent={window.ECO_METRIC_COLOR.totalMentions} trendData={D.TIMELINE.map(t => t.totalMentions)}
+          onClick={() => openMetric('volume', 'Volumen de menciones', window.ECO_METRIC_COLOR.totalMentions)} />
         {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
             0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
             y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
@@ -721,7 +736,10 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
                   fontSize: 'var(--fs-overline)', fontWeight: 600,
                   border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
                   background: on ? s.color : 'transparent',
-                  color: on ? 'var(--on-accent)' : 'var(--text-2)',
+                  // El primer plano se DERIVA del relleno (ecoOnFill): --on-accent
+                  // es el par declarado del naranja de marca y aquí se aplicaba a
+                  // los seis rellenos por igual.
+                  color: on ? window.ecoOnFill(s.color) : 'var(--text-2)',
                 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? 'currentColor' : s.color }} />
                   {s.label}
@@ -793,7 +811,14 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
         </div>
 
         <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Fuentes top</div><div className="card-hd-sub">Por volumen · 30d</div></div></div>
+          {/* El "30d" era FALSO: TOP_SOURCES sale del mismo baseWhere que el resto de
+              /api/eco-data, o sea la ventana del selector global — con 7D las seis
+              barras suman exactamente el universo del KPI de volumen, no 30 días. La
+              ventana se lee ahora de la MISMA fuente que los datos (D.PERIOD, vía
+              ecoDataWindow), así que el rótulo ya no puede contradecirlos, y se
+              escribe con el formato que esta pantalla ya usa en el eyebrow del
+              resumen ejecutivo. */}
+          <div className="card-hd"><div><div className="card-hd-title">Fuentes top</div><div className="card-hd-sub">Por volumen · {(() => { const w = ecoDataWindow(); return w && w.from && w.to ? `${w.from} → ${w.to}` : (period || '7D'); })()}</div></div></div>
           <div className="card-bd">
             <HBarList
               items={D.TOP_SOURCES.map(s => ({ label: s.source, value: s.count, key: s.key }))}
@@ -840,19 +865,44 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               <div key={mn.id} onClick={() => onMentionClick(mn)}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '20px 2fr 130px 100px 100px', minWidth: 560, gap: 'var(--sp-3)',
+                  // A 390px las cinco columnas del desktop sólo "caben" porque la
+                  // fila fuerza 560px: el título se queda con 162px medidos (~22
+                  // caracteres de un titular de prensa) y el engagement y la hora se
+                  // van fuera de la pantalla, detrás de un scroll horizontal que en
+                  // la vista principal nadie busca. En móvil la fila se pliega en dos
+                  // renglones (ver el envoltorio de las tres celdas, más abajo) y
+                  // deja de necesitar ancho mínimo. Cuesta alto; es el mismo
+                  // intercambio que ya se aceptó en la rejilla de KPIs.
+                  display: 'grid',
+                  gridTemplateColumns: window.ecoCols('20px 2fr 130px 100px 100px', '20px 1fr'),
+                  minWidth: window.ecoIsMobile() ? 0 : 560, gap: 'var(--sp-3)',
                   alignItems: 'center', padding: '10px 16px',
                   borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                   fontSize: 'var(--fs-caption)', cursor: 'pointer',
                 }}>
                 <SIcon size={14} color="var(--text-3)" />
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
-                  <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
+                <div className="truncate">
+                  <div className="truncate" style={{ color: 'var(--text)', fontWeight: 500 }}>{mn.title}</div>
+                  {/* El autor y el dominio truncan igual que el título: sin esto la
+                      línea desbordaba su caja y la recortaba a hueso el overflow del
+                      padre (`text-overflow` no se hereda), así que se leía
+                      "facebook.co" — un dominio que no existe. */}
+                  <div className="truncate" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
                 </div>
-                <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-                <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
-                <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
+                {/* `display:contents` en desktop: las tres celdas siguen siendo items
+                    DIRECTOS de la rejilla de cinco columnas, así que el desktop no
+                    cambia ni un píxel. En móvil el mismo envoltorio se convierte en
+                    una fila flex bajo el título (columna 2, segundo renglón), que es
+                    lo que permite quitar el minWidth de 560px de la fila. */}
+                <div style={{
+                  display: window.ecoIsMobile() ? 'flex' : 'contents',
+                  gridColumn: window.ecoIsMobile() ? '2' : undefined,
+                  alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', minWidth: 0,
+                }}>
+                  <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
+                  <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
+                  <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
+                </div>
               </div>
             );
           })}
@@ -1189,7 +1239,9 @@ function MentionsScreen({ onMentionClick }) {
     setSlice({
       eyebrow: 'Menciones virales',
       title: 'Engagement ' + VIRAL_THRESHOLD_LABEL,
-      accent: 'var(--neg)',
+      // Sin `accent`: hereda el naranja de drill-down de los demás slice modals.
+      // Mismo motivo que la tarjeta: cruzar el umbral de engagement no tiene signo,
+      // y la franja roja daba el corte por negativo antes de leer una sola mención.
       _filter: { minEngagement: String(VIRAL_THRESHOLD) },
     });
   }
@@ -1204,7 +1256,12 @@ function MentionsScreen({ onMentionClick }) {
           <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
         </div>
         <div className="toggle-group">
-          {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
+          {/* Los tres VALORES de sentimiento llevan punto de color; 'Todas' no, porque
+              no es un valor sino la ausencia de filtro. El neutral usa --neu, el mismo
+              token con el que ya se pintan la barra apilada y la leyenda 'Neutral' del
+              resto del producto: era el único valor del grupo sin marca, así que se
+              leía como 'sin color = sin dato' en el chip que sí filtra. */}
+          {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral', tone: 'neu' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
             <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
             </button>
@@ -1270,10 +1327,14 @@ function MentionsScreen({ onMentionClick }) {
         <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
         <MetricQuick label="Engagement rate" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate} />
         <MetricQuick label="Velocidad" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity} note="vs período ant." />
+        {/* Sin `tone`: la cifra va en --text. 'Viral' es una MAGNITUD sin polaridad
+            —el umbral es minEngagement, sin filtro de sentiment—, así que el rojo
+            afirmaba un juicio que el dato no sostiene, y lo hacía en la tarjeta que
+            menos decide de la fila mientras Total y Alcance van en blanco. La
+            afordancia de click ya la pone el chevron del encabezado. */}
         <QuickMetric
           label={`Virales (${VIRAL_THRESHOLD_LABEL})`}
           value={viralCount == null ? '…' : fmt(viralCount)}
-          tone="neg"
           onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
         />
       </div>
@@ -1474,10 +1535,23 @@ function HL({ text, terms }) {
 }
 
 // --- Mentions: List view (dense table-row, sin columnas Engagement ni Pertinencia) ---
+// Las columnas viven en UNA constante porque el encabezado y las filas son dos
+// grids independientes: la cadena estaba escrita dos veces y basta cambiar una
+// para que los rótulos dejen de caer sobre su columna.
+// Tópico pasa de 110px fijos a minmax(110px, 1fr): con 110px se recortaban cinco
+// de los ocho nombres de la taxonomía ('Energía e infraestructura' mide ~133px a
+// 11px) mientras la columna de la mención guardaba ~250px vacíos a 1440px. Se
+// reparte por FRACCIONES y no con max-content porque cada grid mediría su propio
+// contenido —'Tópico' en el encabezado, el nombre largo en las filas— y las dos
+// rejillas dejarían de coincidir. Con 3fr/1fr el sobrante va al tópico sólo donde
+// existe: a 1440px tópico 207px y mención 622px; a 1024px, 143px y 429px; y en el
+// suelo de 620px la pista de 1fr se clava en sus 110px y la mención conserva los
+// 178px que ya tenía, así que la Lista en móvil no pierde ancho de titular.
+const LIST_COLS = '20px minmax(0, 3fr) 110px minmax(110px, 1fr) 80px 30px';
 function MentionsList({ mentions, onMentionClick, highlight }) {
   return (
     <div className="scroll-x">
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: LIST_COLS, minWidth: 620, gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
         <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
@@ -1486,7 +1560,7 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
         const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
         return (
           <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
-            style={{ display: 'grid', gridTemplateColumns: '20px 2fr 110px 110px 80px 30px', minWidth: 620, gap: 'var(--sp-3)', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)', cursor: 'pointer' }}>
+            style={{ display: 'grid', gridTemplateColumns: LIST_COLS, minWidth: 620, gap: 'var(--sp-3)', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)', cursor: 'pointer' }}>
             <SIcon size={14} color="var(--text-3)" />
             <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', overflow: 'hidden' }}>
               {(mn.image || mn.avatar) && (
@@ -1500,7 +1574,7 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
               </div>
             </div>
             <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
-            <span style={{ color: 'var(--text-2)', fontSize: 'var(--fs-overline)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
+            <span title={mn.topicName || mn.topic || undefined} style={{ color: 'var(--text-2)', fontSize: 'var(--fs-overline)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
           </div>
@@ -1704,7 +1778,7 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
   const sentChips = [
     { k: 'all', l: 'Todas', tone: null, count: data.total },
     { k: 'positivo', l: 'Positivo', tone: 'pos', count: data.sentiment.pos },
-    { k: 'neutral', l: 'Neutral', tone: null, count: data.sentiment.neu },
+    { k: 'neutral', l: 'Neutral', tone: 'neu', count: data.sentiment.neu }, // --neu: mismo punto que en /mentions
     { k: 'negativo', l: 'Negativo', tone: 'neg', count: data.sentiment.neg },
   ];
 
@@ -2051,7 +2125,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
           <div>
-            <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} />
+            <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
             {D.SENTIMENT_BREAKDOWN.map((s) => {
@@ -2095,7 +2169,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
           <div className="card-bd">
             <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
               labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
-              colors={['var(--pos)', 'var(--text-3)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
+              colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
             <div style={{ display: 'flex', gap: 'var(--sp-4)', justifyContent: 'center', marginTop: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
@@ -2325,7 +2399,19 @@ function EmotionsCard({ emotions, onEmotionClick }) {
                   // crece, no la que más se comprime.
                   display: 'grid',
                   gridTemplateColumns: window.ecoCols('22px 120px 1fr 64px 12px', '20px minmax(0, 1.1fr) minmax(0, 2fr) 52px 10px'),
-                  gap: window.ecoCols('var(--sp-3)', 'var(--sp-2)'), alignItems: 'center',
+                  // Dos filas explícitas: la 1 es el renglón que el ojo recorre
+                  // (rango · emoción · barra · conteo) y la 2 sólo cuelga el
+                  // share bajo su propio conteo. Con una sola fila, la celda de
+                  // dos líneas era la más alta y centraba a las demás contra
+                  // ella: el conteo salía ~8px por encima de la línea base de su
+                  // etiqueta y el % ~7px por debajo, y la barra flotaba en el
+                  // hueco entre los dos. La etiqueta y su cifra son el par que
+                  // se compara en las 7 filas: tienen que compartir línea.
+                  gridTemplateRows: 'auto auto',
+                  // gap se abre en dos: el de columna es el de antes, el de fila
+                  // reproduce el marginTop que llevaba el % dentro del envoltorio.
+                  columnGap: window.ecoCols('var(--sp-3)', 'var(--sp-2)'),
+                  rowGap: 'var(--sp-05)', alignItems: 'center',
                   padding: '8px 10px', marginInline: -10, borderRadius: 'var(--r-md)',
                   background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
                   fontSize: 'var(--fs-caption)',
@@ -2341,11 +2427,21 @@ function EmotionsCard({ emotions, onEmotionClick }) {
                     transition: 'width 0.3s var(--ease)',
                   }} />
                 </div>
-                <span style={{ textAlign: 'right' }}>
-                  <span className="num" style={{ display: 'block', color: 'var(--text-2)', fontWeight: 600, fontSize: 'var(--fs-caption)', lineHeight: 1.1 }}>{fmt(e.count)}</span>
-                  <span className="num" style={{ display: 'block', color: 'var(--text-3)', fontSize: 'var(--fs-overline)', marginTop: 'var(--sp-05)' }}>{pct.toFixed(1)}%</span>
-                </span>
-                <Icons.ArrowRight size={11} color="var(--text-3)" />
+                {/* Conteo y share son hijos DIRECTOS de la rejilla, no un span
+                    envoltorio: ese envoltorio de dos líneas era la celda que
+                    fijaba el alto de la fila y contra la que se centraba todo lo
+                    demás. lineHeight:1.1 se va con él — la altura de la línea la
+                    fija ahora la fila 1. */}
+                <span className="num" style={{ gridColumn: '4', gridRow: '1', textAlign: 'right', color: 'var(--text-2)', fontWeight: 600, fontSize: 'var(--fs-caption)' }}>{fmt(e.count)}</span>
+                {/* La flecha va en la fila 1, no centrada en el bloque: es el
+                    renglón que se recorre; centrada volvería a flotar entre las
+                    dos líneas. */}
+                <Icons.ArrowRight size={11} color="var(--text-3)" style={{ gridColumn: '5', gridRow: '1' }} />
+                {/* El share cuelga bajo SU columna: sigue impreso en cada fila
+                    (la barra se normaliza al máximo de la serie, no al 100%, así
+                    que este % es el único sitio donde se lee el share absoluto)
+                    pero ya no empuja la línea de la etiqueta. */}
+                <span className="num" style={{ gridColumn: '4', gridRow: '2', textAlign: 'right', color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{pct.toFixed(1)}%</span>
               </button>
             );
           })}
@@ -2460,15 +2556,25 @@ function TopicsScreen({ onMentionClick }) {
             "que en cualquier tipo de visualización sean más consistentes y
             claras"). */}
         <div style={{
-          padding: '10px 16px', borderTop: '1px solid var(--hairline)',
-          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-          fontSize: 11, color: 'var(--text-3)',
+          padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--hairline)',
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap',
+          // 11 crudo -> el token del mismo valor: check-tokens.py no ve un
+          // número inline, y era el único tamaño de letra escrito a mano en la
+          // pantalla. NO sube a --fs-caption: el 11px de leyenda es patrón de
+          // todo el producto (mapa, heatmap, calendario) y cambiarlo aquí solo
+          // desalinearía esta card del resto.
+          fontSize: 'var(--fs-overline)', color: 'var(--text-3)',
         }}>
           <span style={{ fontWeight: 700, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontSize: 'var(--fs-overline)' }}>Distribución</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--pos)' }} /> Positivo</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--text-3)' }} /> Neutral</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--neg)' }} /> Negativo</span>
-          <span style={{ marginLeft: 'auto' }}>Δ = variación vs. período anterior</span>
+          {/* La leyenda glosa los glifos que las tres vistas IMPRIMEN
+              (ecoDeltaArrow: ▲ ▼ ·). Con "Δ" explicaba un símbolo que sólo
+              aparecía en el encabezado de la lista y dejaba sin explicar el
+              "—", que es justo el que separa "sin base de comparación" de
+              "cambio cero". */}
+          <span style={{ marginLeft: 'auto' }}>▲ ▼ variación vs. período anterior · — sin base de comparación</span>
         </div>
       </div>
 
@@ -2509,7 +2615,7 @@ function TopicsScreen({ onMentionClick }) {
           y el Overview (top-confidence). Si una mención toca varios tópicos,
           cuenta una vez en su tópico principal — el "+N también lo tocan"
           señala las menciones donde ese tópico es secundario. */}
-      <div style={{ padding: '12px 16px', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
+      <div style={{ padding: 'var(--sp-3) var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
         <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 'var(--sp-05)' }} />
         <span>
           Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
@@ -2731,7 +2837,10 @@ function TopicList({ topics, onSelect }) {
   return (
     <div className="scroll-x">
       <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', padding: '8px 12px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Δ</span><span />
+        {/* "Cambio", no "Δ": era la única etiqueta de la SPA que obligaba a
+            buscar un glosario, y sólo existía en esta vista — treemap y
+            burbujas imprimen el MISMO delta sin encabezado. */}
+        <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Cambio</span><span />
       </div>
       {sorted.map((t, i) => (
         <button key={t.slug} onClick={() => onSelect(t.slug)} className="row-hover"
@@ -3166,7 +3275,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               // la izquierda dentro de una celda con 1px de borde y padding
               // var(--sp-15). Centrado, con celdas de ~130px, "MAR" quedaba a
               // ~88px de su propio "30" y se leía sobre el hueco entre celdas.
-              <div key={d} style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left', paddingLeft: 'calc(var(--sp-15) + 1px)', paddingBottom: 4 }}>{d}</div>
+              <div key={d} style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left', paddingLeft: 'calc(var(--sp-15) + 1px)', paddingBottom: 'var(--sp-1)' }}>{d}</div>
             ))}
           </div>
           {weeks.map((week, wIdx) => {
@@ -3185,7 +3294,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                 {showHeader && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
-                    marginTop: wIdx === 0 ? 0 : 10, marginBottom: 'var(--sp-1)',
+                    marginTop: wIdx === 0 ? 0 : 'var(--sp-3)', marginBottom: 'var(--sp-1)',
                     fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-2)',
                     textTransform: 'uppercase', letterSpacing: '0.08em',
                   }}>
@@ -3237,7 +3346,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                           // Borde más marcado en el primer día del mes para
                           // reforzar el cambio cuando ocurre mid-week.
                           border: isFirstOfMonth ? '1.5px solid var(--text-2)' : '1px solid var(--hairline)',
-                          display: 'grid', gridTemplateRows: 'auto 1fr', gap: 2,
+                          display: 'grid', gridTemplateRows: 'auto 1fr', gap: 'var(--sp-05)',
                           textAlign: 'left', cursor: 'pointer',
                           overflow: 'hidden', minWidth: 0,
                         }}>
@@ -3279,9 +3388,17 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
         </div>
 
         {/* Legend */}
-        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        {/* En móvil la rejilla colapsa a UNA columna y la leyenda se apila
+            DEBAJO del calendario: el filete izquierdo ya no separa dos columnas
+            —cuelga— y su sangría desalinea toda la leyenda respecto del borde
+            de las celdas que tiene encima. Apilada, el separador que
+            corresponde es el de arriba (mismo patrón que el BandScale de la
+            tarjeta de crisis). */}
+        <div style={window.ecoIsMobile()
+          ? { borderTop: '1px solid var(--hairline)', paddingTop: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }
+          : { borderLeft: '1px solid var(--hairline)', paddingLeft: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           <div>
-            <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Sentimiento del día</div>
+            <div className="section-eyebrow" style={{ margin: '0 0 var(--sp-2)' }}>Sentimiento del día</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>
               {['positivo', 'negativo', 'neutral'].map((k) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
@@ -3289,17 +3406,22 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                       el 50% del día de MÁS volumen: al tope de la rampa, las
                       celdas normales parecían sin clasificar al lado de la
                       leyenda. */}
-                  <span style={{ width: 12, height: 12, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, ${SENT_HEX[k]} ${tintPct(volRamp[1])}%, var(--canvas))`, border: `1px solid ${SENT_HEX[k]}` }} />
+                  {/* 10×10 --r-sm es el chip que ya usan las otras rampas del
+                      producto (leyenda del heatmap horario y del mapa). Las tres
+                      muestras de esta columna que retratan una CELDA —tinte de
+                      sentimiento, rampa de volumen, borde del día 1— medían 12,
+                      8 y 8: tres tallas para el mismo tipo de muestra. */}
+                  <span style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, ${SENT_HEX[k]} ${tintPct(volRamp[1])}%, var(--canvas))`, border: `1px solid ${SENT_HEX[k]}` }} />
                   <span>{sentLabel(k)}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10 }}>
-            <div className="section-eyebrow" style={{ margin: '0 0 8px' }}>Tópicos del período</div>
+          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 'var(--sp-3)' }}>
+            <div className="section-eyebrow" style={{ margin: '0 0 var(--sp-2)' }}>Tópicos del período</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', maxHeight: 168, overflowY: 'auto' }}>
               {uniqueTopics.map(t => (
-                <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', padding: '4px 6px', borderRadius: 'var(--r-md)', textAlign: 'left', cursor: 'pointer' }} className="row-hover">
+                <button key={t.slug} onClick={() => onSelect(t.slug)} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', padding: 'var(--sp-1) var(--sp-15)', borderRadius: 'var(--r-md)', textAlign: 'left', cursor: 'pointer' }} className="row-hover">
                   {/* El punto lleva el HUE del tópico (ECO_CAT, vía colorFor):
                       antes las seis entradas iban en el mismo gris justo debajo
                       de una leyenda que SÍ codifica color, así que se leía como
@@ -3310,7 +3432,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               ))}
             </div>
           </div>
-          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
+          <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 'var(--sp-3)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
               {/* La rampa se dibuja con la MISMA función que las celdas y con
                   los volúmenes reales del período. Antes eran tres cuadros al
@@ -3320,13 +3442,18 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                   hacen verificable. */}
               <span style={{ display: 'flex', gap: 'var(--sp-05)', alignItems: 'center' }}>
                 {volRamp.map((v, i) => (
-                  <span key={i} title={`${fmt(v)} menciones`} style={{ width: 8, height: 8, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, var(--neu) ${tintPct(v)}%, var(--canvas))`, border: '1px solid var(--hairline)' }} />
+                  <span key={i} title={`${fmt(v)} menciones`} style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: `color-mix(in oklab, var(--neu) ${tintPct(v)}%, var(--canvas))`, border: '1px solid var(--hairline)' }} />
                 ))}
               </span>
               Volumen del día · {fmt(volRamp[0])} → {fmt(volRamp[2])} menciones
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
-              <span style={{ width: 8, height: 8, border: '1.5px solid var(--text-2)', borderRadius: 'var(--r-sm)' }} />
+            {/* Fila de CLAVE, no de escala: misma muestra de 10 y mismo gap
+                --sp-2 que "Sentimiento del día" y "Tópicos del período", así las
+                tres etiquetas arrancan en la misma x (18px) dentro de la columna
+                de 200. La muestra va sin relleno a propósito: lo que marca el
+                día 1 en la rejilla es el BORDE, no el tinte. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              <span style={{ width: 10, height: 10, border: '1.5px solid var(--text-2)', borderRadius: 'var(--r-sm)' }} />
               Primer día del mes
             </div>
           </div>
@@ -3417,6 +3544,14 @@ function GeographyScreen({ onMentionClick }) {
     return f;
   }, [filters]);
   const hasFilters = !!(contentFilter.source || contentFilter.topic || contentFilter.subtopic);
+  // Un vacío CON filtros puestos es accionable (quítalos) y uno sin filtros es un
+  // hecho del período. Las dos cards de abajo se quedaban huecas sin decir cuál de
+  // los dos era, que es la distinción que EmptyState existe para hacer.
+  const geoEmptyReason = hasFilters ? 'filtered' : 'empty';
+  // El corte del listado vive en UNA constante para que el rótulo del header y el
+  // `slice` no puedan decir números distintos: el bug era justamente prometer 12
+  // arriba y servir 8 abajo.
+  const TOP_MUNIS = 8;
 
   // `.input` trae width:100%, así que un minWidth no impide que el select se
   // estire: los tres filtros salían a 1114px cada uno, apilados, y desktop se
@@ -3524,7 +3659,11 @@ function GeographyScreen({ onMentionClick }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       <div className="card">
         <div className="card-hd">
-          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período` : 'Sin menciones georreferenciadas en el período'} · click un municipio para ver menciones</div></div>
+          {/* La invitación a hacer click va DENTRO de la rama con datos: estaba
+              concatenada fuera del ternario, así que en el caso vacío la misma
+              línea decía "Sin menciones georreferenciadas en el período · click un
+              municipio para ver menciones" — negaba y ofrecía a la vez. */}
+          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período · click un municipio para ver menciones` : 'Sin menciones georreferenciadas en el período'}</div></div>
           <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {[{ k: 'count', l: 'Volumen' }, { k: 'nss', l: 'Sentimiento' }].map((o) => (
               <button key={o.k} onClick={() => setMetric(o.k)} className={`chip ${metric === o.k ? 'active' : ''}`}>{o.l}</button>
@@ -3546,7 +3685,10 @@ function GeographyScreen({ onMentionClick }) {
               {filters.topic && (((D.SUBTOPICS || {})[filters.topic]) || []).map((st) => <option key={st.slug || st.name} value={st.name}>{st.name}</option>)}
             </select>
             {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
-            {loadingGeo && <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>Actualizando…</span>}
+            {/* --fs-caption y no --fs-overline: tokens.css §1 reserva los 11px a
+                eyebrows en MAYÚSCULAS y a ticks de eje densos, y esto es una frase
+                en minúsculas dentro de una barra de controles. */}
+            {loadingGeo && <span style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Actualizando…</span>}
           </div>
           {/* En modo Volumen la MAGNITUD va en la escala secuencial, no en el
               acento: pintar los municipios con var(--accent) cubría Puerto Rico
@@ -3596,10 +3738,21 @@ function GeographyScreen({ onMentionClick }) {
           ~170px de fondo vacío bajo la última fila. */}
       <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
         <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">Por volumen de menciones</div></div></div>
+          {/* El corte se ROTULA. El header de la card de arriba dice "12 municipios
+              con menciones en el período" y este listado servía 8 sin nota, sin
+              "ver todos" y sin puntos suspensivos: el usuario contaba 8 donde le
+              habían prometido 12. El precedente es el "Top 7 + agrupados" de
+              Tópicos, salvo que aquí el resto no se agrupa —se deja fuera— y eso
+              es lo que hay que decir. Con 8 municipios o menos no hay corte que
+              rotular y el subtítulo se queda como estaba. */}
+          <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">{munis.length > TOP_MUNIS ? `Top ${TOP_MUNIS} de ${munis.length} · por volumen de menciones` : 'Por volumen de menciones'}</div></div></div>
           <div className="card-bd">
+            {/* Con munis=[] HBarList renderiza su contenedor flex sin hijos, así
+                que la card quedaba como un rectángulo con título y nada dentro.
+                Mismo primitivo y mismo `reason` que la card hermana. */}
+            {munis.length === 0 && <EmptyState compact reason={geoEmptyReason} />}
             <HBarList
-              items={[...munis].sort((a,b)=>b.count-a.count).slice(0,8).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
+              items={[...munis].sort((a,b)=>b.count-a.count).slice(0, TOP_MUNIS).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
               // La misma escala que el mapa. Con --accent (token de marca y de
               // acción: chip activo, rail, `.link`) el volumen se codificaba de
               // dos maneras a 40px de distancia, y contra la advertencia de
@@ -3613,6 +3766,11 @@ function GeographyScreen({ onMentionClick }) {
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Sentimiento por región</div><div className="card-hd-sub">NSS agregado</div></div></div>
           <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {/* Sin municipios no hay regiones: la cadena de .map devolvía lista
+                vacía y la card se quedaba con el título flotando sobre la nada.
+                El mismo `reason` que la card hermana, para que dos cards que
+                miran el mismo dato vacío no cuenten dos historias distintas. */}
+            {munis.length === 0 && <EmptyState compact reason={geoEmptyReason} />}
             {[...new Set((munis || []).map((m) => m.region).filter(Boolean))]
               // El orden era el de inserción del API, así que la columna de
               // cifras alineada a la derecha zigzagueaba y no servía para
@@ -3678,7 +3836,12 @@ function GeographyScreen({ onMentionClick }) {
                       {/* 13/12 y no 12/11: dos niveles separados por 1px se
                           leían como uno. */}
                       <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600 }}>{r}</div>
-                      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{regionMunis.length} municipios · {fmt(total)} menciones</div>
+                      {/* Plural resuelto, como ya lo hace el header de la propia
+                          pantalla: una región con un solo municipio imprimía
+                          "1 municipios". No hay helper de plural en data.js, así
+                          que se replica el ternario del header en vez de inventar
+                          una API global para dos usos. */}
+                      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{regionMunis.length} {regionMunis.length === 1 ? 'municipio' : 'municipios'} · {fmt(total)} {total === 1 ? 'mención' : 'menciones'}</div>
                     </div>
                     {/* La cifra en la escala NUMÉRICA. Con --fs-title-md salía
                         idéntica en tamaño, familia y peso al título de la card
@@ -4687,7 +4850,7 @@ function UsersAdmin() {
                 .map(([l, n]) => (
                   <div key={l}>
                     <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>{n}</div>
-                    <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{l}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
                   </div>
                 ))}
             </div>
@@ -4769,7 +4932,18 @@ function UsersAdmin() {
               renderizan apiladas (UserRowCard) y esta banda de 740px sólo habría
               mostrado «USUARIO AGENCIA…» sin las columnas correspondientes. */}
           <div className="hide-mobile" style={{
-            display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 'var(--sp-3)',
+            // Cada columna al LARGO de su dato, que aquí estaba invertido: la
+            // agencia es un slug de seis letras («ddecpr») y se llevaba 196px de
+            // los 923 del card, mientras la marca de tiempo —138px en mono 11px,
+            // 151px en 12px— vivía en 110px y envolvía a dos renglones en cada
+            // fila con login. La fecha pasa a su ancho medido
+            // (--w-col-datetime), la agencia baja a 1fr (~149px: «Todas» o dos
+            // slugs), ESTADO sube a 130px porque «Invitación pendiente» no cabe
+            // en 110 (y en mayúsculas se derramaba sobre la fecha), y el chevron
+            // a 32px porque el glifo mide 14. El piso de scroll sube de 740 a
+            // 820: las columnas fijas crecieron 70px y con el piso viejo el
+            // aumento lo pagaba entero el nombre del usuario.
+            display: 'grid', gridTemplateColumns: '1.6fr 1fr 110px 130px var(--w-col-datetime) 32px', minWidth: 820, gap: 'var(--sp-3)',
             padding: '10px 18px', borderTop: '1px solid var(--hairline)',
             // Mismo eje vertical que las filas de datos (que sí llevan
             // alignItems): sin esto, el rótulo de dos líneas estiraba la banda a
@@ -4778,7 +4952,7 @@ function UsersAdmin() {
             // salto de línea estaba fuera de pantalla y la banda alta parecía un
             // error de render.
             alignItems: 'center',
-            fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em',
+            fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)',
             background: 'var(--canvas-2)',
           }}>
             {/* Rol y Estado son pills: su texto arranca 9px dentro de la celda
@@ -4804,7 +4978,10 @@ function UsersAdmin() {
                 onClick={() => setDrawer({ mode: 'edit', user: u })}
                 className="row-hover"
                 style={{
-                  display: 'grid', gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px', minWidth: 740, gap: 'var(--sp-3)',
+                  // Mismo reparto que la banda de encabezado (el por qué está
+                  // allí): son dos literales gemelos y si se separan los rótulos
+                  // dejan de caer sobre sus columnas.
+                  display: 'grid', gridTemplateColumns: '1.6fr 1fr 110px 130px var(--w-col-datetime) 32px', minWidth: 820, gap: 'var(--sp-3)',
                   padding: '12px 18px', alignItems: 'center', cursor: 'pointer',
                   borderTop: '1px solid var(--hairline)',
                 }}>
@@ -4822,7 +4999,13 @@ function UsersAdmin() {
                   </span>
                 </div>
                 <div><span className={`pill pill-${st.tone} pill-name`}>{u.status === 'suspendido' && <span className="dot" style={{ background: 'var(--neg)' }} />}{st.label}</span></div>
-                <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{u.lastSeen}</div>
+                {/* 12px, no 11: tokens.css declara --fs-caption como el PISO de «metadatos,
+                    marcas de tiempo» y reserva --fs-overline para eyebrows en
+                    mayúsculas y ticks de eje densos — esto es una fecha en
+                    minúsculas. En móvil este mismo dato ya salía a 12px
+                    (UserRowCard), o sea que había dos tamaños para la misma fecha
+                    según el ancho de la pantalla. */}
+                <div className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{u.lastSeen}</div>
                 <Icons.ChevronRight size={14} color="var(--text-3)" />
               </div>
             );
@@ -4865,7 +5048,7 @@ function UserRowCard({ u, roleMeta, onOpen }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--sp-1) var(--sp-3)', paddingLeft: 42 }}>
         {[['Agencia', u.agency], ['Rol', roleMeta?.l || u.role], ['Actividad', u.lastSeen]].map(([l, v]) => (
           <div key={l} style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{l}</div>
+            <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
             <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
           </div>
         ))}
@@ -5053,7 +5236,7 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
 function Field({ label, required, children }) {
   return (
     <div>
-      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>
+      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>
         {label} {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </div>
       {children}
@@ -5104,17 +5287,23 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     return () => ctrl.abort();
   }, [period, agency]);
 
+  // Los dos estados de entrada de la pantalla dejan de ser copias a mano.
+  // El fallo va por EmptyState reason="error", que es la primitiva declarada
+  // para esto (shell.js:1336: «Nunca se debe pintar como vacío») y aporta el
+  // icono, el título en --neg y el role="alert" que la copia no tenía.
+  // La línea de carga adopta el tamaño que ya usan los otros dos «Cargando…»
+  // de pantalla completa (--sp-10 / --fs-body-sm / --text-3, :3037 y :4244);
+  // este era el único que heredaba el tamaño por defecto del cuerpo.
   if (error) {
     return (
-      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
-        <div className="section-eyebrow" style={{ color: 'var(--neg)', marginBottom: 'var(--sp-15)' }}>Error</div>
-        <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>No se pudo cargar el Overview: {error}</div>
+      <div className="card">
+        <EmptyState reason="error" title="No se pudo cargar el Overview" detail={error} />
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)' }}>
+      <div className="card" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
         Cargando…
       </div>
     );
@@ -5207,7 +5396,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+    // --gap-section, no --sp-4: el token existe declarado como «la separación
+    // entre bloques numerados del Overview» (tokens.css:117-128) y no tenía un
+    // solo consumidor, mientras esta pantalla —la única con bloques numerados—
+    // usaba el paso crudo de la escala. Un token sin consumidores no es una
+    // fuente única, es documentación.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
       <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
@@ -5255,8 +5449,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
 
 function OverviewHero({ data }) {
   const total = data.totals.total || 0;
+  // Sin padding propio: los 4px de padding-left desplazaban el H1 y el subtítulo
+  // del eje vertical en el que caen el borde izquierdo de todas las cards y la
+  // tinta de los eyebrows (.section-eyebrow no lleva padding lateral). El
+  // titular de la página era el único bloque fuera de la canaleta.
   return (
-    <div style={{ padding: '4px 4px 0' }}>
+    <div>
       {/* Sin section-eyebrow: el periodo / fechas viven en el Header (chips +
           calendar icon) y la palabra "Overview" ya está en el header / sidebar.
           Repetirlas aquí era ruido (instrucción explícita del usuario). */}
@@ -5505,13 +5703,25 @@ function OverviewTendencia({ dailySeries, hourlySeries, granularity, onDayClick,
 
 function OverviewTopicos({ rows, totals, onTopicClick }) {
   if (!rows || rows.length === 0) {
+    // El mismo primitivo que el vacío de Tendencia (:5461): dos cards de la
+    // MISMA pantalla no pueden decir «no hay nada» de dos maneras distintas.
+    // reason="empty" y no "filtered" ni "pending" porque la consulta corrió y
+    // el cero es un HECHO del periodo, no un filtro ni un cómputo que falta.
     return (
-      <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
-        Sin tópicos clasificados en el periodo.
+      <div className="card">
+        <EmptyState reason="empty" title="Sin tópicos clasificados"
+          detail="Ninguna mención del período recibió un tópico con confianza suficiente." />
       </div>
     );
   }
   const universe = totals.total || 1;
+
+  // La alineación derecha de la cifra existe para compartir borde con la columna
+  // vecina; cuando `ecoCols` colapsa la rejilla a '1fr' esa columna no existe y
+  // el número se va al borde de la card, en diagonal respecto de su etiqueta. Un
+  // solo objeto para la fila de tópico y la de TOTAL: la decisión es la misma en
+  // las dos y no puede volver a divergir.
+  const numCell = { textAlign: window.ecoCols('right', 'left') };
 
   // `scale` = qué fracción del PERIODO representa la fila (0–1). Sin él la barra
   // era siempre el 100% de la columna, porque cada fila se normalizaba a su
@@ -5559,7 +5769,10 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
               className={clickable ? 'row-hover' : undefined}
               style={{
                 display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 'var(--sp-4)',
-                padding: '14px 16px', alignItems: 'center',
+                // 14px no existe en la escala base-4; el mapa de migración de
+                // tokens.css §2 («14,16→--sp-4») manda a --sp-4, que además es el
+                // padding de .card-bd y el valor de --pad-card: un solo ritmo.
+                padding: 'var(--sp-4)', alignItems: 'center',
                 borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
                 opacity: muted ? 0.78 : 1,
                 cursor: clickable ? 'pointer' : 'default',
@@ -5579,7 +5792,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
                   </div>
                 )}
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={numCell}>
                 {/* --fs-num-md (18px) es el escalón que faltaba: la MISMA unidad
                     (menciones) salía a 30px en el termómetro y a 14px aquí, un
                     salto de 2.1x sin nada en medio y a 1px del nombre del tópico,
@@ -5597,14 +5810,25 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
         {/* Footer "Total del periodo" — debe cuadrar con el termómetro */}
         <div style={{
           display: 'grid', gridTemplateColumns: window.ecoCols('1.4fr 110px 1fr', '1fr'), gap: 'var(--sp-4)',
-          padding: '14px 16px', alignItems: 'center',
+          // Mismo ritmo que las filas de arriba (--sp-4 por el mapa de §2): la
+          // fila TOTAL es una fila más, no un bloque con su propia métrica.
+          padding: 'var(--sp-4)', alignItems: 'center',
           borderTop: '1px solid var(--hairline-strong)',
-          background: 'var(--canvas-2)',
+          // Sin relleno: --canvas-2 es MÁS OSCURO que la card en oscuro (#091018
+          // vs #0E1620), así que la fila más importante de la tabla era la única
+          // hundida — al revés de la regla que declara tokens.css:225 («en oscuro,
+          // más elevación = más CLARO»). Y es el valor exacto de .row-hover:hover
+          // (index.html:481): un color con dos significados en la misma tabla, el
+          // TOTAL en hover permanente y cualquier fila bajo el cursor con aspecto
+          // de total. --surface-raised no es alternativa: en claro vale #FFFFFF,
+          // igual que la card (1.000:1). El énfasis lo cargan el --hairline-strong
+          // de arriba, el rótulo en overline, el 700 de la cifra y la barra a
+          // escala 1 — cuatro señales que no compiten con ningún estado.
         }}>
           <div className="t-overline" style={{ color: 'var(--text-3)' }}>
             Total del periodo
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={numCell}>
             {/* Sin abreviar: `fmt` sacaba "1.3K" para el MISMO número que el hero
                 imprime "1,331", y en esta columna las ocho filas de arriba ya van
                 sin abreviar (253, 213, …). Regla: titulares y totales completos,
@@ -5617,7 +5841,11 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
           <DistributionBar neg={totals.negative} neu={totals.neutral} pos={totals.positive} t={totals.total} scale={1} />
         </div>
       </div>
-      <div style={{ padding: '12px 16px', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
+      {/* --fs-caption y no --fs-overline: esto son cuatro líneas de PROSA corrida
+          y tokens.css:63-69 restringe los 11px a eyebrows en MAYÚSCULAS y a ticks
+          de eje densos («Nada más»). 12px es el piso declarado del texto corrido.
+          El padding crudo pasa a tokens con el mapa de §2 (12→--sp-3, 16→--sp-4). */}
+      <div style={{ padding: 'var(--sp-3) var(--sp-4)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
         <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 'var(--sp-05)' }} />
         <span>
           Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
@@ -5723,8 +5951,13 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
     return (
       <div>
         {eyebrow}
-        <div className="card" style={{ padding: 'var(--sp-4)', textAlign: 'center', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
-          No fue posible cargar los insights del periodo: {state.error}
+        {/* Un fallo pintado como nota gris de 12px es el anti-patrón que
+            EmptyState reason="error" existe para cerrar (shell.js:1336-1338):
+            aquí el usuario leía el error al tamaño de un metadato y sin ninguna
+            señal de alarma. `compact` mantiene la tira delgada dentro del bloque
+            04 en vez de abrir un hueco de 120px de alto. */}
+        <div className="card">
+          <EmptyState reason="error" compact title="No se pudieron cargar los insights" detail={state.error} />
         </div>
       </div>
     );
@@ -5752,11 +5985,19 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
             <div key={col.key} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', borderTop: `2px solid ${col.accent}` }}>
               <div className="t-overline">{col.title}</div>
               {isLoading ? (
-                <>
-                  <div className="skeleton" style={{ height: 14, marginBottom: 'var(--sp-15)' }} />
-                  <div className="skeleton" style={{ height: 14, marginBottom: 'var(--sp-15)', width: '92%' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                  {/* El esqueleto declaraba el espaciado DOS veces: el gap --sp-3
+                      del contenedor de la columna MÁS un marginBottom --sp-15,
+                      que sumaban 18px entre barras cuando la lista que sustituye
+                      respira --sp-2 (8px). Con su propio contenedor el gap del
+                      esqueleto es el del contenido y la separación respecto del
+                      título la sigue poniendo la columna, igual que en el estado
+                      final: la card deja de dar un salto de alto al llegar los
+                      insights. */}
+                  <div className="skeleton" style={{ height: 14 }} />
+                  <div className="skeleton" style={{ height: 14, width: '92%' }} />
                   <div className="skeleton" style={{ height: 14, width: '78%' }} />
-                </>
+                </div>
               ) : col.items.length === 0 ? (
                 <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
                   Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
@@ -6026,7 +6267,10 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
               onClick={() => onSelect && onSelect(n.id)}
               onMouseEnter={() => setHovered(n.id)}
               onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}>
-              <title>{`${n.name} · ${(n.mentionCount || 0).toLocaleString('es-PR')} menc · ${n.status}`}</title>
+              {/* narrativeStatusLabel: este tooltip era el único sitio que se
+                  saltaba el mapa y enseñaba el enum crudo de la DB —en inglés—
+                  al usuario. Y el último "menc" de la pantalla. */}
+              <title>{`${n.name} · ${window.ecoFmtCount(n.mentionCount)} menciones · ${narrativeStatusLabel(n.status)}`}</title>
               <circle cx={p.x} cy={p.y} r={r} fill={narrativeStatusColor(n.status)}
                 fillOpacity={dim ? 0.18 : 0.9}
                 stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
@@ -6361,9 +6605,15 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
             cinco pantallas o no hay sistema. StatBox además trae la clase .num
             (tabular + lining), que es lo que este bloque replicaba a mano. */}
         <div className="narrative-header-metrics">
-          <StatBox label="Menciones" value={narrative.mentionCount.toLocaleString('es-PR')} />
+          {/* ecoFmtCount (data.js) y no `toLocaleString` a mano: es el formateador
+              de CONTEOS del producto —el mismo de la lista de narrativas— y
+              devuelve '—' cuando el dato falta, en vez de un 0 que se lee como
+              medición. La velocidad se queda con un decimal a propósito: es una
+              TASA (menciones/día), no un conteo, y forzarle la regla del conteo
+              le quitaría su única cifra significativa. */}
+          <StatBox label="Menciones" value={window.ecoFmtCount(narrative.mentionCount)} />
           <StatBox label="Vel. 24h" value={Number(narrative.velocity24h || 0).toFixed(1)} />
-          <StatBox label="Engagement" value={Number(narrative.totalEngagement || 0).toLocaleString('es-PR')} />
+          <StatBox label="Engagement" value={window.ecoFmtCount(narrative.totalEngagement)} />
         </div>
       </div>
 
@@ -6387,15 +6637,19 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           <div className="narrative-panel-label">Sentimiento</div>
           {sentimentTotals.total > 0 ? (
             <>
+              {/* Los tres colores por ecoSentimentColor (data.js) y no a mano: el
+                  neutral estaba en --text-3, que es el gris del TEXTO y además
+                  --chart-axis. Pasando por el helper, este panel ya no puede
+                  divergir del resto del producto. */}
               <div className="narrative-sentiment-bar">
-                <span style={{ flex: sentimentTotals.positive, background: 'var(--pos)' }} />
-                <span style={{ flex: sentimentTotals.neutral, background: 'var(--text-3)' }} />
-                <span style={{ flex: sentimentTotals.negative, background: 'var(--neg)' }} />
+                <span style={{ flex: sentimentTotals.positive, background: window.ecoSentimentColor('positivo') }} />
+                <span style={{ flex: sentimentTotals.neutral, background: window.ecoSentimentColor('neutral') }} />
+                <span style={{ flex: sentimentTotals.negative, background: window.ecoSentimentColor('negativo') }} />
               </div>
               <div className="narrative-sentiment-row">
-                <span><i style={{ background: 'var(--pos)' }} /> {Math.round((sentimentTotals.positive / sentimentTotals.total) * 100)}% positivo</span>
-                <span><i style={{ background: 'var(--text-3)' }} /> {Math.round((sentimentTotals.neutral / sentimentTotals.total) * 100)}% neutral</span>
-                <span><i style={{ background: 'var(--neg)' }} /> {Math.round((sentimentTotals.negative / sentimentTotals.total) * 100)}% negativo</span>
+                <span><i style={{ background: window.ecoSentimentColor('positivo') }} /> {Math.round((sentimentTotals.positive / sentimentTotals.total) * 100)}% positivo</span>
+                <span><i style={{ background: window.ecoSentimentColor('neutral') }} /> {Math.round((sentimentTotals.neutral / sentimentTotals.total) * 100)}% neutral</span>
+                <span><i style={{ background: window.ecoSentimentColor('negativo') }} /> {Math.round((sentimentTotals.negative / sentimentTotals.total) * 100)}% negativo</span>
               </div>
               {peak && <div className="narrative-peak">✕ Pico: {peak.day} ({peak.mentions} menciones)</div>}
             </>
@@ -6413,7 +6667,11 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               {topAuthors.slice(0, 6).map((a) => (
                 <li key={a.author}>
                   <span className="narrative-bar-name" title={a.author}>{a.author}</span>
-                  <span className="narrative-bar-count">{a.mentions}</span>
+                  {/* ecoFmtCount: el número crudo salía sin separador de miles,
+                      así que 1200 menciones se leían "1200" a 200px del
+                      encabezado que escribe "1,200" — el mismo dato con dos
+                      formatos en el mismo viewport. */}
+                  <span className="narrative-bar-count">{window.ecoFmtCount(a.mentions)}</span>
                 </li>
               ))}
             </ul>
@@ -6436,7 +6694,7 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                     <span className="narrative-bar-track">
                       <span className="narrative-bar-fill" style={{ width: `${(p.mentions / max) * 100}%` }} />
                     </span>
-                    <span className="narrative-bar-count">{p.mentions}</span>
+                    <span className="narrative-bar-count">{window.ecoFmtCount(p.mentions)}</span>
                   </li>
                 );
               })}
@@ -6481,7 +6739,15 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
                 <strong>{inf.author || '—'}</strong>
               </div>
               <div className="narrative-init-meta">
-                Reach {(inf.reach || 0).toLocaleString('es-PR')} · Eng {(inf.engagement || 0).toLocaleString('es-PR')}
+                {/* "Alcance", que es la palabra que el producto ya usa (Overview),
+                    no "Reach": la interfaz está en español. Y "Engagement"
+                    completo, como el StatBox del encabezado — "Eng" aquí y "eng"
+                    en el drawer eran dos abreviaturas de una unidad que no tiene
+                    ninguna. `fmt` para el alcance y `ecoFmtCount` para el
+                    engagement no es un descuido: la regla de data.js abrevia lo
+                    que es ESTIMACIÓN de orden de magnitud (reach_estimate) y
+                    escribe exacto lo que el drill-down puede reproducir. */}
+                Alcance {fmt(inf.reach)} · Engagement {window.ecoFmtCount(inf.engagement)}
               </div>
               {inf.url && (
                 <a href={inf.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
@@ -6668,9 +6934,13 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
   };
 
   const layers = [
-    { key: 'negative', d: buildLayerPath('neg_y', 'base_y'), color: 'var(--neg)' },
-    { key: 'neutral',  d: buildLayerPath('neu_y', 'neg_y'),  color: 'var(--text-3)' },
-    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'),  color: 'var(--pos)' },
+    // Color por ecoSentimentColor: la banda neutral estaba en --text-3, que ES
+    // --chart-axis, así que el bloque de volumen más grande del gráfico se
+    // pintaba del mismo gris que los ticks y los rótulos del eje Y de este mismo
+    // SVG (los rótulos siguen en --text-3 a propósito: eso sí es cromo).
+    { key: 'negative', d: buildLayerPath('neg_y', 'base_y'), color: window.ecoSentimentColor('negativo') },
+    { key: 'neutral',  d: buildLayerPath('neu_y', 'neg_y'),  color: window.ecoSentimentColor('neutral') },
+    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'),  color: window.ecoSentimentColor('positivo') },
   ];
 
   // Granularidad del eje según el span. Con marcas SÓLO mensuales, una
@@ -6717,9 +6987,11 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           gráficas de charts.js. */}
       <div ref={wrapRef}>
       <div className="narrative-stream-legend">
-        <span className="narrative-stream-key"><i style={{ background: 'var(--pos)' }} /> Positivo</span>
-        <span className="narrative-stream-key"><i style={{ background: 'var(--text-3)' }} /> Neutral</span>
-        <span className="narrative-stream-key"><i style={{ background: 'var(--neg)' }} /> Negativo</span>
+        {/* Mismo helper que las capas del SVG: una leyenda que toma el color de
+            otra fuente que la serie que describe puede dejar de describirla. */}
+        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('positivo') }} /> Positivo</span>
+        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('neutral') }} /> Neutral</span>
+        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('negativo') }} /> Negativo</span>
         {/* Anclas de lectura: sin esto el gráfico no decía cuánto abarca ni de
             qué tamaño es el pico. */}
         <span className="narrative-stream-scale">
@@ -6853,7 +7125,7 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
           <div>
             <div className="narrative-day-eyebrow">{narrative.name}</div>
             <div className="narrative-day-title">{dateLabel}</div>
-            {data && <div className="narrative-day-count">{data.totalMentions} menciones</div>}
+            {data && <div className="narrative-day-count">{window.ecoFmtCount(data.totalMentions)} menciones</div>}
           </div>
           <button className="narrative-day-close" onClick={onClose} aria-label="Cerrar">×</button>
         </div>
@@ -6867,7 +7139,9 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
               const items = (data.clusters && data.clusters[kind]) || [];
               if (items.length === 0) return null;
               const label = kind === 'sin_clasificar' ? 'Sin clasificar' : kind.charAt(0).toUpperCase() + kind.slice(1);
-              const color = kind === 'positivo' ? 'var(--pos)' : kind === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
+              // ecoSentimentColor y no un ternario a mano: era el cuarto sitio de
+              // esta pantalla que decidía por su cuenta el gris del neutral.
+              const color = window.ecoSentimentColor(kind);
               return (
                 <div key={kind} className="narrative-day-cluster">
                   <div className="narrative-day-cluster-label">
@@ -6879,9 +7153,16 @@ function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
                       <div className="narrative-day-mention-title">{m.title || '(sin título)'}</div>
                       <div className="narrative-day-mention-meta">
                         {m.author && <strong>{m.author}</strong>}
-                        {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
+                        {/* platformLabel: `page_type` es el enum crudo de la DB
+                            ('facebook_public', 'news'), el mismo campo que el
+                            panel de primera mención ya traduce tres paneles antes. */}
+                        {m.pageType && <span className="narrative-tag-mini">{platformLabel(m.pageType)}</span>}
                         <span>· {new Date(m.publishedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</span>
-                        {(m.engagement || 0) > 0 && <span>· {m.engagement} eng</span>}
+                        {/* `fmt` y la palabra completa: el mismo engagement se
+                            leía "12500" aquí y "12.5K" en la tabla de menciones
+                            del producto, y "eng" era la tercera forma de escribir
+                            una unidad que en el encabezado se llama Engagement. */}
+                        {(m.engagement || 0) > 0 && <span>· Engagement {fmt(m.engagement)}</span>}
                       </div>
                       {m.snippet && <div className="narrative-day-mention-snippet">{m.snippet}</div>}
                       {m.url && (

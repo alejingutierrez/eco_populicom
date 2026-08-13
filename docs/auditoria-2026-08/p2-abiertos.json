@@ -1,0 +1,299 @@
+[
+ {
+  "id": "T-14",
+  "axis": "estandarizacion",
+  "unit": "Tópicos (/topics) — TopicsScreen: TopicTreemap, SentimentBar, TopicBubbles, TopicList, TopicCalendar",
+  "title": "El delta y la cifra del mismo dato cambian de formato y de tamaño según la vista",
+  "evidence": "Tres gramáticas para el delta: flecha + valor absoluto con espacio en treemap y burbujas, signo sin flecha en la lista, y '—' para null en las tres (bien). El encabezado de esa columna es el símbolo \"Δ\" mientras el resto del producto usa flechas. Y la cifra de menciones —el dato principal— pasa de 30px (tile grande) a 18px (tile chico) a 14px (burbuja) a 12px heredado del row (lista): cuatro tamaños para el mismo número en una sola pantalla, ninguno tomado de --fs-num-* aunque 30 = --fs-num-xl y 18 = --fs-num-md existan literalmente.",
+  "fix": "Extraer un formateador único de delta (flecha + |valor| + %) y usarlo en las tres vistas, con el encabezado \"Cambio\" en vez de \"Δ\"; y fijar la cifra a --fs-num-md en tiles y --fs-num-sm en filas/burbujas, por token.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:2138 (\"↑ 12%\"), 2207 (\"↑ 12%\" a 9px), 2259 (\"+12%\") y 2230 (encabezado \"Δ\"); cifras en 2114 (30/18px), 2201 (14px SVG), 2236+2247 (--fs-caption 12px)"
+ },
+ {
+  "id": "T-15",
+  "axis": "estandarizacion",
+  "unit": "Tópicos (/topics) — TopicsScreen: TopicTreemap, SentimentBar, TopicBubbles, TopicList, TopicCalendar",
+  "title": "Cuatro primitivos de muestra distintos en la misma columna de leyenda de 200px",
+  "evidence": "En el mismo panel derecho del calendario convivien cuatro formas: cuadrado redondeado de 12px con borde para sentimiento, círculo de 6px para tópicos, cuadrado de 8px sin radio para la rampa de volumen y cuadrado de 8px redondeado con borde de 1.5px para \"Primer día del mes\". Se ve en topics-desktop-fold.png: las tres filas de leyenda no comparten ancho de muestra, así que sus textos (\"Positivo\", \"Desarrollo económico\", \"Opacidad = volumen del día\") arrancan en tres x distintas. Existe la clase .dot (8px círculo) que la leyenda de burbujas sí usa y esta no.",
+  "fix": "Un solo primitivo de muestra con dos variantes (chip cuadrado 10×10 --r-sm para relleno, línea/borde para estado) y un ancho fijo de columna para que todas las etiquetas compartan sangría izquierda.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:2646 (12×12, --r-sm, borde 1px), 2657 (6×6 círculo), 2666-2668 (8×8 sin radio), 2673 (8×8, --r-sm, borde 1.5px); .dot en /Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/index.html:531"
+ },
+ {
+  "id": "T-16",
+  "axis": "alineacion",
+  "unit": "Tópicos (/topics) — TopicsScreen: TopicTreemap, SentimentBar, TopicBubbles, TopicList, TopicCalendar",
+  "title": "En móvil la leyenda del calendario conserva su borde izquierdo de columna: filete colgando y sangría de 16px respecto de la rejilla",
+  "evidence": "La rejilla pasa a una columna en móvil y la leyenda se apila debajo, pero mantiene borderLeft:'1px solid var(--hairline)' y paddingLeft:16 pensados para separar dos columnas. En topics-mobile.png se ve un filete vertical a la izquierda de \"SENTIMIENTO DEL DÍA\" que no divide nada, y todo el bloque de leyenda queda sangrado 16px hacia dentro respecto del borde izquierdo de las celdas del calendario que tiene encima. Mismo bloque: paddingLeft:16, paddingTop:10, marginTop:10, maxHeight:168, margin '0 0 8px', padding '4px 6px' y paddingBottom:4 siguen en px crudos dentro del componente auditado, junto con el padding '12px 16px' de la nota al pie (2076), pese a que tokens.css:10-12 declara que ningún espaciado se escribe a mano.",
+  "fix": "Condicionar el separador al breakpoint: en móvil borderLeft:'none', paddingLeft:0 y borderTop:'1px solid var(--hairline)' con paddingTop var(--sp-4), para que la leyenda comparta el borde izquierdo con la rejilla. Y pasar los px sueltos a --sp-*.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:2563 (ecoCols('1fr 200px','1fr')) y 2640 (borderLeft + paddingLeft: 16)"
+ },
+ {
+  "id": "ALERT-13",
+  "axis": "alineacion",
+  "unit": "Alertas (/alerts) — pestaña Historial visible en capturas; pestañas Reglas / Alertas de crisis / Reportes por correo auditadas por código",
+  "title": "En móvil la barra de pestañas se parte y deja el rótulo CONFIGURACIÓN separado del chip que agrupa",
+  "evidence": "Con `flexWrap: 'wrap'` y `gap: var(--sp-15)` la fila se rompe en móvil: la línea 1 queda \"Historial · Reglas | CONFIGURACIÓN · Alertas de crisis\" y \"Reportes por correo\" cae a la línea 2, donde el spacer `flex:1` la enfrenta al CTA naranja \"Nueva regla\". El rótulo de grupo ya no está junto a todo lo que agrupa, y el divisor de 18 px no se relaciona con ninguna altura de la fila (los chips miden 26 px y el botón 33 px, medidos: chip 63×26, botón 123×33). El separador y sus márgenes son literales (`width: 1`, `height: 18`, `margin: '0 6px'`, `marginRight: 2`) fuera del sistema de tokens.",
+  "fix": "En móvil (`window.ecoIsMobile()`) apilar dos filas explícitas: \"Vista\" (Historial/Reglas) y \"Configuración\" (crisis/reportes) con su propio rótulo, dejando el CTA en una fila propia a ancho completo; y tokenizar el divisor (`height: var(--sp-5)`, `margin: 0 var(--sp-15)`).",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:3188-3203 (divisor inline `width:1, height:18, margin:'0 6px'` en :3193; rótulo en :3194; spacer `flex:1` en :3199) · captura alerts-mobile.png (y≈600-700 CSS)"
+ },
+ {
+  "id": "ALERT-14",
+  "axis": "estandarizacion",
+  "unit": "Alertas (/alerts) — pestaña Historial visible en capturas; pestañas Reglas / Alertas de crisis / Reportes por correo auditadas por código",
+  "title": "El mismo concepto de estado se renderiza por dos rutas distintas del KpiCard, con dos vocabularios y con/sin color",
+  "evidence": "\"Alertas de crisis\" usa `valueWord={isActive ? 'Activo' : 'Inactivo'}` con `valueTone`, que colorea la palabra (KpiCard:152); \"Reportes por correo\" usa `value={config?.isActive ? 'Activo' : 'Pausado'}`, rama que fija `color: 'var(--text)'` (KpiCard:165) y nunca colorea. Mismo concepto, dos pares de palabras (Activo/Inactivo vs Activo/Pausado) y dos tratamientos de color. En la misma tira, el estado del último envío se imprime en inglés crudo (\"estado: sent\") junto a etiquetas en español.",
+  "fix": "Un único par de estados (Activo/Pausado) siempre por `valueWord`+`valueTone`, y traducir/normalizar `status` con un mapa (`sent → enviado`, `failed → falló`) antes de pintarlo.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:2960-2967 (`valueWord` + `valueTone`) vs :3083-3089 (`value`) y :3107 (`estado: ${lastSendStatus}`) · KpiCard :152 vs :165 · sin ubicación en captura (pestañas de configuración)"
+ },
+ {
+  "id": "GEO-16",
+  "axis": "escala",
+  "unit": "Geografía (/geography)",
+  "title": "El control principal del mapa es el texto más pequeño del sistema (11px) y en móvil flota en 44px",
+  "evidence": "`.chip { font-size: 11px; padding: 5px 10px }` en px crudos, cuando tokens.css:59 declara --fs-label 13px como el token de \"labels de formulario, botones, chips\" y tokens.css:63 restringe los 11px a eyebrows en mayúsculas. En desktop los chips Volumen/Sentimiento miden 68×26 y 86×26 (probe.json) junto a selects de 35px y botones .btn de 32px — cuatro alturas de control en la misma pantalla (24/26/32/35). En móvil la regla `@media (pointer: coarse)` los sube a 44px sin subir el label: la captura muestra un óvalo naranja de 96×44 con 11px de texto dentro.",
+  "fix": "`.chip { font-size: var(--fs-label); padding: var(--sp-15) var(--sp-3) }` y una altura declarada por breakpoint (28px desktop / 44px táctil) alineada con .btn e .input.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/index.html:293 y 87 (uso: screens.js:2785-2788)"
+ },
+ {
+  "id": "GEO-17",
+  "axis": "estandarizacion",
+  "unit": "Geografía (/geography)",
+  "title": "Lo que no se ve no se rotula: 8 de 12 municipios sin etiqueta de truncado y sin estado vacío",
+  "evidence": "`.slice(0,8)` recorta el listado mientras el header de arriba dice \"12 municipios con menciones en el período\": el usuario ve 12 y cuenta 8, sin \"ver todos\" ni nota. En Overview el mismo concepto sí se rotula (\"Top 7 + agrupados…\", screens.js:4429). En el caso vacío la pantalla tiene tres comportamientos: el header cambia a prosa (\"Sin menciones georreferenciadas en el período\", 2784), \"Top municipios\" entra a HBarList con items=[] donde `Math.max(...[])` da −Infinity (charts.js:995) y la card de región queda como una card vacía estirada por la rejilla.",
+  "fix": "Rotular el corte en el card-hd-sub (\"Top 8 de 12 municipios\") y usar un único primitivo de vacío para las tres cards; guardar `_max` con `Math.max(1, ...)` y no renderizar la lista si items.length === 0.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:2864 (y 2784, charts.js:995)"
+ },
+ {
+  "id": "GEO-18",
+  "axis": "estandarizacion",
+  "unit": "Geografía (/geography)",
+  "title": "Tokens usados fuera de su intención y px crudos que ganan al token",
+  "evidence": "Tras la migración quedan valores crudos en los primitivos más repetidos de esta pantalla: `.card-hd-title { font-size: 15px }`, `.card-hd-sub { font-size: 11px }`, `.card-bd { padding: 16px }`, `.input { font-size: 13px }`. Peor, hay declaraciones duplicadas donde el crudo va segundo y gana: `.bar-track { border-radius: 999px }` seguido de `{ border-radius: 1px }` — por eso las barras de \"Top municipios\" salen cuadradas y --r-pill queda muerto (mismo patrón en `.card` 6px→var(--r-lg) y `.chip` 3px→999px, index.html:222/225 y 292/294). En JS, --fs-overline se usa para meta en minúsculas (\"1 municipios · 106 menciones\", 2876; \"Actualizando…\", 2806) contra su intención declarada en tokens.css:63; y esa misma meta no resuelve el plural aunque el header de la propia pantalla sí lo hace (2784).",
+  "fix": "Sustituir los cuatro crudos por --fs-title-md / --fs-overline / --pad-card / --fs-label, borrar la primera declaración de cada par duplicado, mover las metas a --fs-caption y reutilizar el helper de plural de 2784.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/index.html:242-244, 527-528 (y screens.js:2876, 2806)"
+ },
+ {
+  "id": "C-04",
+  "axis": "color",
+  "unit": "Sentimiento (/sentiment)",
+  "title": "Las mismas tres series salen 15% más oscuras en el área apilada que en el donut, la leyenda y las barras",
+  "evidence": "Muestreo de píxeles en sentiment-desktop.png: área verde #38B86D, gris #6C7686, rosa #DB4B64; el punto de la leyenda 40px más abajo es #3FD47A, el del gris #7C8798 y el segmento de la barra de grupo #FF5470. El donut de arriba también va a full (#3FD47A muestreado). Es decir, el swatch que explica la serie no tiene el color de la serie, en la misma tarjeta.",
+  "fix": "Quitar opacity=\"0.85\" del path (charts.js:893) y, si se quiere atenuación del área apilada, aplicarla al token (un --*-fill derivado) y usar ese mismo token en el punto de la leyenda.",
+  "location": "apps/web/public/eco-prototype/charts.js:893 (opacity=\"0.85\") vs screens.js:1705/1747/1798-1802"
+ },
+ {
+  "id": "A-04",
+  "axis": "alineacion",
+  "unit": "Sentimiento (/sentiment)",
+  "title": "En cada fila del ranking ninguna línea de texto comparte línea base: el conteo va 9px arriba y el % 9px abajo de la etiqueta",
+  "evidence": "La celda derecha apila conteo (12px) y porcentaje (11px) y la fila está centrada verticalmente, así que en la captura desktop la base de '294' queda ~9px por encima de la base de 'Sorpresa' y la de '29.1%' ~9px por debajo. En una lectura tabular de 7 filas, la etiqueta y su cifra —los dos datos que se comparan— no comparten ninguna referencia horizontal; sólo la barra de 8px queda centrada.",
+  "fix": "Poner el conteo en la misma línea base que la etiqueta (grid con alignItems:'baseline' y el % como segunda línea colgada, o mover el % a una cuarta columna propia).",
+  "location": "apps/web/public/eco-prototype/screens.js:1912-1913 (alignItems:'center') y 1929-1932 (celda de dos líneas)"
+ },
+ {
+  "id": "SET-E4",
+  "axis": "escala",
+  "unit": "Configuración (/settings) — SettingsScreen / UsersAdmin / UserDrawer",
+  "title": "Columnas dimensionadas al revés del contenido: 110px para una fecha de ~155px y 196px para «ddecpr»",
+  "evidence": "`gridTemplateColumns: '1.6fr 1.2fr 110px 110px 110px 40px'` sobre un card de 923px: descontando 36px de padding, 370px de columnas fijas y 60px de gaps quedan 457px repartidos 261/196 (verificado midiendo la captura: columna USUARIO 507→767.5, AGENCIA 779.5→976). Así, «ddecpr» (6 caracteres) recibe 196px mientras «07/27/2026, 6:00:00 a. m.» —~155px a 11px mono— recibe 110px y parte en dos líneas en las tres filas con login (medido: la primera línea acaba en x=1309 dentro de una columna que termina en 1341). El encabezado «ÚLTIMA ACTIVIDAD» también se parte, y es lo que infla la banda de encabezado a 49px.",
+  "fix": "Reasignar: `'1.8fr 90px 130px 110px 150px 32px'` (agencia es un slug corto, la fecha necesita ~150px) y acortar la cadena (ver SET-S5) para que quepa en una línea. El chevron no necesita 40px.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:3806 y 3821"
+ },
+ {
+  "id": "SET-S4",
+  "axis": "estandarizacion",
+  "unit": "Configuración (/settings) — SettingsScreen / UsersAdmin / UserDrawer",
+  "title": "Los tokens no llegaron al primitivo: cuatro trackings de overline, tamaños literales y .pill con reglas duplicadas contradictorias",
+  "evidence": "Tracking de overline con cuatro valores y ninguno es el token: 0.1em en el encabezado de esta tabla (screens.js:3808), 0.1em en Field (4043), 0.1em en `.section-eyebrow` (index.html), 0.08em en la tabla de Alertas (screens.js:3207); el token `--tracking-overline: 0.09em` (tokens.css:82) sólo lo consume `.t-overline` (tokens.css:457), que esta pantalla no usa. Tamaños literales sobrevivientes en el primitivo de card: `.card-hd-title { font-size: 15px }` y `.card-hd-sub { font-size: 11px }` (index.html:242-243) en vez de --fs-title-md/--fs-overline, y con `letter-spacing: -0.005em` escrito a mano donde el título inline del primer card usa `var(--letter-display)` (mismo valor, dos formas). `.pill` (index.html:248-263) arrastra declaraciones duplicadas y contradictorias: `border-radius: 3px` luego `999px`, `padding: 4px 8px` luego `3px 8px`, `font-size: 11px` dos veces; `.chip` repite el patrón.",
+  "fix": "Reemplazar los literales de index.html:242-243 y 248-263 por los tokens (--fs-title-md, --fs-overline, --tracking-overline, --r-pill), borrar las declaraciones muertas de `.pill`/`.chip`, y sustituir los tres `letterSpacing: '0.1em'` y el `'0.08em'` por `var(--tracking-overline)`.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/index.html:242-263 y screens.js:3808"
+ },
+ {
+  "id": "SET-C4",
+  "axis": "color",
+  "unit": "Configuración (/settings) — SettingsScreen / UsersAdmin / UserDrawer",
+  "title": "Tres pesos de accent en 300px y dos idiomas de «seleccionado»; en mobile la pestaña activa se vuelve una banda naranja a ancho completo",
+  "evidence": "El ítem activo del rail usa `--rail-active-bg` (accent al 18%) + texto BLANCO + borde izquierdo `--accent-2` (shell.js:157-162); la pestaña de sección activa usa `--accent-fill` (accent al 14%) + texto `--accent` naranja, sin borde (screens.js:3531-3532); y el CTA usa accent sólido (3755). Tres superficies de marca en el mismo cuadrante, y dos gramáticas distintas para «esto es lo actual». En mobile la pestaña activa pasa de 220px a 366px de ancho (probe.json settings/mobile: button w=366 h=35) y queda como una banda naranja a ancho completo justo encima del botón naranja de «Invitar usuario»: dos bloques de marca apilados, ninguno señalando de forma unívoca cuál es la acción. El contraste no es el problema (medido 5.97:1 para #FF6A3D sobre el relleno compuesto rgb(41,24,22)); la semántica sí.",
+  "fix": "Unificar el estado seleccionado: relleno --accent-fill + texto --text (no --accent) + borde izquierdo 2px --accent, igual en el rail y en la pestaña de sección, dejando el naranja saturado exclusivamente para acciones. En mobile convertir las dos secciones en un segmented control compacto (ancho por contenido, no 100%) para que el área de marca no compita con el CTA.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:3531-3532 y 3755 vs shell.js:157-162"
+ },
+ {
+  "id": "OV-15",
+  "axis": "alineacion",
+  "unit": "Overview (/overview)",
+  "title": "En móvil la rejilla de tópicos colapsa a 1 columna pero la cifra conserva textAlign:right y queda huérfana",
+  "evidence": "`window.ecoCols('1.4fr 110px 1fr', '1fr')` apila las tres celdas, pero el contenedor de la cifra mantiene `textAlign: 'right'`, que era una decisión de columna. En overview-mobile.png \"253 / 19%\" aparece pegado al borde derecho de la card, dos líneas por debajo de su etiqueta \"Desarrollo económico\" (que está a la izquierda), con la barra debajo: el ojo tiene que recorrer 300px en diagonal para emparejar etiqueta y valor. Igual en la fila TOTAL DEL PERIODO. En desktop la alineación derecha es correcta y verificada: \"253\" y \"19%\" comparten borde derecho exacto en x=1932 device px.",
+  "fix": "En móvil poner la cifra y el % en línea con la etiqueta (`display:flex; justify-content:space-between; align-items:baseline`) o alinearlas a la izquierda bajo ella: `textAlign: window.ecoCols('right','left')`.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:4425 y :4446"
+ },
+ {
+  "id": "OV-16",
+  "axis": "alineacion",
+  "unit": "Overview (/overview)",
+  "title": "El titular está desplazado ~5px del borde que comparten los eyebrows y todas las cards; los paddings de la card 04 siguen crudos y fuera de la escala de 4px",
+  "evidence": "OverviewHero envuelve el H1 en `padding: '4px 4px 0'` (valor crudo). Medido en overview-desktop.png: el borde izquierdo de todas las cards está en x=496 device (248 CSS), la tinta del eyebrow \"01\" arranca en 497 y la del H1/subtítulo en 506 → el bloque del titular queda ~5 CSS px a la derecha del eje vertical que comparte el resto de la página. En la misma sección quedaron paddings crudos fuera de la escala base-4: filas de tópico `'14px 16px'` (:4425 y :4459), nota al pie `'12px 16px'` (:4472) y `.card-hd` `14px 16px 10px` (index.html:233) — tres ritmos verticales dentro de una misma card, ninguno igual a --pad-card (16px). Los tokens creados para esto tienen cero usos: --gap-section (24px, declarado en tokens.css:109 como \"la separación entre bloques numerados del Overview\", que hoy usa --sp-4=16px medido a 32 device px), --gap-grid y --pad-page.",
+  "fix": "Quitar el padding del hero (o aplicarlo también a los eyebrows). Sustituir los paddings crudos por `var(--sp-3) var(--sp-4)` y subir la separación entre bloques numerados a var(--gap-section), que es el token que existe para eso.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:4190, :4425, :4459, :4472 (+ index.html:233)"
+ },
+ {
+  "id": "OV-17",
+  "axis": "color",
+  "unit": "Overview (/overview)",
+  "title": "La fila TOTAL usa --canvas-2, que en modo oscuro es más OSCURA que la card, y es el mismo color que el estado :hover",
+  "evidence": "tokens.css:182 declara la regla \"en oscuro, más elevación = más CLARO\", pero la fila que debe destacar usa `background: var(--canvas-2)` = #091018, medido en la captura en (9,16,24) frente a (14,22,32) de las filas normales: la fila más importante de la tabla es la más hundida. Y --canvas-2 es exactamente el fondo de `.row-hover:hover` (index.html:382), así que la fila TOTAL parece permanentemente en hover y cualquier fila bajo el cursor parece un total. El mismo token es además el fondo del canal vacío de las barras (:4396).",
+  "fix": "Usar `var(--surface-raised)` (#16202C) o el borde superior --hairline-strong ya presente como única marca de énfasis, y reservar --canvas-2 para el estado hover y los canales vacíos.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:4461 (+ index.html:382, tokens.css:182-187)"
+ },
+ {
+  "id": "OV-18",
+  "axis": "estandarizacion",
+  "unit": "Overview (/overview)",
+  "title": "Cinco tratamientos distintos de \"vacío / cargando\" en la misma pantalla; el primitivo EmptyState se usa en uno de cinco",
+  "evidence": "(1) carga global: card con padding --sp-6 y texto \"Cargando…\" al tamaño por defecto en --text-3; (2) tendencia vacía: --fs-body-sm centrado, padding --sp-6; (3) tópicos vacío: idéntico al (2) pero duplicado en otro literal; (4) insights en error: --fs-caption centrado con padding --sp-4; (5) columna de insights vacía: --fs-overline (11px) alineado a la izquierda sin padding propio. Sólo el caso \"todo vacío\" usa el componente `EmptyState` (:4609). Además el esqueleto de carga de insights (:4619-4621, tres barras de 14px con marginBottom --sp-15 dentro de un flex con gap --sp-3 → 18px entre líneas) no coincide con el ritmo del contenido que sustituye (gap --sp-2 = 8px), así que la card cambia de alto cuando llegan los insights.",
+  "fix": "Un solo `<EmptyState size=\"sm|md\" reason=… />` para los cinco casos y un `<Skeleton lines=n />` que reproduzca el gap real del contenido (--sp-2) sin marginBottom adicional.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:4082, :4350, :4383, :4589, :4609, :4624"
+ },
+ {
+  "id": "SC-16",
+  "axis": "color",
+  "unit": "Scorecard (/dashboard)",
+  "title": "La serie por defecto usa un color de texto que también es el del crosshair, y su chip activo parece deshabilitado",
+  "evidence": "\"Menciones\" es la única serie encendida por defecto y se dibuja en --text-2, exactamente el token del crosshair de la gráfica: al pasar el cursor, línea y guía son del mismo color. Su chip activo se rellena de gris claro con texto --on-accent (#1A0A04) y en la captura es el único de los seis que parece inerte/deshabilitado frente a chips saturados. Además --on-accent se aplica sobre CUALQUIER color de serie (verde, ámbar, violeta, gris), cuando tokens.css:216-222 declara un --on-* por relleno.",
+  "fix": "Dar a totalMentions un color categórico (--cat-1) y dejar --text-2 sólo para crosshair/ejes; elegir el --on-* correspondiente al relleno de cada chip en vez de --on-accent fijo.",
+  "location": "apps/web/public/eco-prototype/data.js:205 (`totalMentions: 'var(--text-2)'`) + tokens.css:370 (--chart-crosshair: var(--text-2)) + screens.js:539-548"
+ },
+ {
+  "id": "SC-17",
+  "axis": "alineacion",
+  "unit": "Scorecard (/dashboard)",
+  "title": "En móvil la tabla de menciones conserva las columnas fijas del desktop y trunca de dos maneras distintas",
+  "evidence": "probe.json (dashboard/mobile) reporta clip=11 con los 7 títulos cortados (\"DDEC anuncia inversión de $340 millones en m…\"). A 390px la columna del pill de sentimiento mantiene 130px fijos mientras el título (2fr) baja a ~150px, y engagement/hora quedan fuera del scroll horizontal interno. Peor: el título corta con elipsis pero la línea autor·dominio se corta EN SECO (\"facebook.co\", \"instagram.co\") porque `textOverflow` sólo está en el contenedor y en el título, no en la meta (638).",
+  "fix": "Fila apilada en móvil (título / meta / pill+engagement en línea) y añadir overflow+textOverflow a la línea de meta.",
+  "location": "apps/web/public/eco-prototype/screens.js:630 (grid `20px 2fr 130px 100px 100px`, minWidth 560) y 636-638"
+ },
+ {
+  "id": "SC-18",
+  "axis": "escala",
+  "unit": "Scorecard (/dashboard)",
+  "title": "\"Fuentes top\" declara una ventana de 30 días dentro de una vista de 7D, y sus hermanas declaran la ventana de tres formas",
+  "evidence": "El selector global está en 7D (captura desktop) y el KPI de volumen dice 1.3K; las seis barras de Fuentes suman 453+319+186+160+80+67 = 1,265, es decir el mismo universo de 7 días, no 30. El rótulo contradice a la vez al selector y a sus propios datos, y las tres cards de la fila declaran su periodo con contratos distintos (uno con ventana, uno con criterio de orden, uno con zona horaria).",
+  "fix": "Un contrato único para `.card-hd-sub`: [qué mide] · [ventana real derivada del periodo activo]; corregir o eliminar el \"30d\".",
+  "location": "apps/web/public/eco-prototype/screens.js:586 (\"Por volumen · 30d\"), :562 (\"Ordenados por crecimiento\"), :698 (\"Distribución por día y hora (TZ Puerto Rico)\")"
+ },
+ {
+  "id": "S-14",
+  "axis": "estandarizacion",
+  "unit": "Búsqueda (/search) — screens.js SearchScreen + shell.js Header/HeaderSearch/CommandPalette",
+  "title": "Vocabulario: tres registros para el mismo mensaje y unidades de periodo mezcladas (D/M/A/Max)",
+  "evidence": "En 350px verticales la pantalla dice tres veces casi lo mismo en tres registros y tres tamaños: kicker \"RESULTADOS EN TODAS LAS MENCIONES\" (11px mayúsculas, desde app.js:194), título \"Busca en todas las menciones\" (15px imperativo) y placeholder \"Buscar en todas las menciones — palabras clave, autor, tema…\" (15px infinitivo); además el kicker anuncia \"RESULTADOS\" cuando el cuerpo es un estado vacío. En el control de periodo, `['1D','5D','7D','30D','3M','6M','1A','Max']` mezcla abreviatura inglesa (D, M) con española (A de año) y un token que no es unidad y va en Title Case entre siete mayúsculas ('Max'); y \"Fechas\" queda como noveno control de periodo FUERA de la bolsa, con otra forma, otro tamaño (--fs-overline vs --fs-caption) y otra altura (26 vs 34).",
+  "fix": "Kicker dependiente de estado (\"BÚSQUEDA\" sin resultados, \"N RESULTADOS\" con ellos) y eliminar la duplicación título/placeholder dejando el placeholder corto (\"palabras clave, autor, URL…\"). Unificar unidades a español (1D/5D/7D/30D/3M/6M/1AÑO/TODO o bien 7 DÍAS/30 DÍAS/…) y meter \"Fechas\" dentro de la misma bolsa como pastilla final.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/app.js:194 + screens.js:1429/1445 + shell.js:378 y :488"
+ },
+ {
+  "id": "S-17",
+  "axis": "escala",
+  "unit": "Búsqueda (/search) — screens.js SearchScreen + shell.js Header/HeaderSearch/CommandPalette",
+  "title": "Móvil: el placeholder del hero se corta contra el borde del campo, sin elipsis",
+  "evidence": "Medido en search-mobile.png: el campo va de x=29 a x=361 (borde --accent detectado en x=359) y la tinta del placeholder llega a x=360.7 — se corta en \"…menciones — palab\" sin elipsis, porque un `placeholder` no hereda text-overflow. La causa es de escala: el texto está a `var(--fs-title-md)` (15px) con `paddingLeft: 42`, lo que deja ~290px útiles para una cadena de 52 caracteres. El campo del header, con el mismo cometido pero a `--fs-caption`, sí muestra su placeholder completo en el mismo viewport. `probe.clip` sale 0 porque la sonda no mira placeholders.",
+  "fix": "Placeholder corto y responsive: usar la cadena larga sólo desde tablet (`bp` ya está disponible en el shell) y \"Buscar menciones…\" en móvil; o bajar el hero a `var(--fs-body-lg)` con `paddingLeft: var(--sp-8)`. Cualquiera de las dos evita el corte.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:1429-1431"
+ },
+ {
+  "id": "S-18",
+  "axis": "color",
+  "unit": "Búsqueda (/search) — screens.js SearchScreen + shell.js Header/HeaderSearch/CommandPalette",
+  "title": "El único elemento cromático del área de contenido es un anillo --accent alrededor de un campo vacío",
+  "evidence": "`React.useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, [])` enfoca el hero al montar y `.input:focus { outline: none; border-color: var(--accent) }` convierte ese foco en un borde naranja de 1130px de largo (medido: borde en (255,106,61) en x=1394 y y=193.5/240.5 en desktop, y en x=359 en móvil). En search-desktop.png ese anillo es la ÚNICA masa de color de todo el área de contenido: lo primero que capta el ojo en la proyección es un rectángulo naranja vacío que no comunica ninguna acción ni ningún dato, y como `.input` no define estilo de error, el mismo naranja es indistinguible de una validación fallida.",
+  "fix": "Mantener el autofocus pero separar los estados: usar `:focus-visible` con `outline: 2px solid var(--accent); outline-offset: 2px` (que no se dispara en un focus programático sin interacción) y dejar el borde en `var(--hairline-strong)` mientras el campo esté vacío e inactivo. Reservar el borde --accent para cuando el usuario escribe, y definir `.input[aria-invalid]` con --neg para que el naranja no signifique error.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:1357 (focus al montar) + index.html:344 (.input:focus)"
+ },
+ {
+  "id": "S-10",
+  "axis": "color",
+  "unit": "Búsqueda (/search) — screens.js SearchScreen + shell.js Header/HeaderSearch/CommandPalette",
+  "title": "Badge v2.3: texto cálido --accent-2 sobre un relleno teal codificado a mano (residuo del tema retirado)",
+  "evidence": "El badge de versión declara `color: 'var(--accent-2)'` pero `background: 'rgba(125,183,172,0.12)'` y `border: '1px solid rgba(125,183,172,0.2)'` — (125,183,172) es el teal del tema `costa` retirado, el mismo valor que sobrevive como `--logo-border` en tokens.css:327. Medido en search-desktop.png: texto (255,138,99) = #FF8A63 sobre un relleno teal-oscuro (18,27,29). Es el único emparejamiento cálido-sobre-frío de la aplicación y queda pegado al logotipo, es decir en la zona de marca.",
+  "fix": "Sustituir por tokens coherentes: `background: var(--accent-fill)` y `border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent)`. De paso, retirar `--logo-border` teal de tokens.css o redefinirlo a partir de --accent para que el mosaico del logo no arrastre el hue del tema muerto.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/shell.js:243-248"
+ },
+ {
+  "id": "M-08",
+  "axis": "alineacion",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "45px de aire bajo la cifra en 4 de los 5 KPI y 19px en el quinto",
+  "evidence": "Medido en mentions-desktop.png: las cinco cards van de y=261 a y=383; la etiqueta ocupa y282-288 y la cifra y314-337 en todas (líneas base compartidas, eso sí está bien). Sólo VELOCIDAD tiene `sub` (tinta y356-363, screens.js:1073) y, como el grid estira las cinco a la altura de la más alta, TOTAL/ALCANCE/ENGAGEMENT RATE/VIRALES quedan con 45px de vacío bajo la cifra frente a 19px de VELOCIDAD: en cuatro de cinco la cifra flota arriba y la fila se lee desbalanceada, visible en mentions-desktop-fold.png.",
+  "fix": "Dar `sub` a las cinco (el delta vs período anterior ya existe en CURRENT_METRICS.display) o a ninguna; alternativamente fijar el bloque cifra+sub al fondo de la card (space-between con altura mínima) para que el aire quede arriba y sea igual en las cinco.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:974-989"
+ },
+ {
+  "id": "M-09",
+  "axis": "alineacion",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "La columna TÓPICO clavada en 110px recorta 5 de 8 tópicos mientras la columna 2fr guarda 249px muertos",
+  "evidence": "Grid '20px 2fr 110px 110px 80px 30px' con gap 12: a 1440px la columna 2fr recibe 719px ([297,1016]) y el titular más largo de las primeras filas llega a x=767 → 249px de columna vacía (medido en mentions-desktop.png). probe.json (mentions/desktop, clipList) lista exactamente 5 recortes y los cinco son tópicos: \"Energía e infraestructura\", \"Empleo y adiestramiento\", \"Transparencia y fondos\", \"Incentivos contributivos\", \"PyMEs y comercio local\". En la captura se ve \"Desarrollo económi…\" y \"Energía e infraestru…\" con el hueco vacío justo a su izquierda.",
+  "fix": "Repartir el sobrante donde se recorta: minmax(110px, max-content) para TÓPICO o fracciones (2fr 1fr 1fr 80px); y truncar con title/tooltip para que el valor completo siga accesible.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:1177"
+ },
+ {
+  "id": "M-10",
+  "axis": "alineacion",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "El punto de \"nuevo\" cae en el hueco entre dos palabras, no sobre la suya",
+  "evidence": "La caja del término mide measure(texto)+18px (padX 9 a cada lado, 207-212) y el texto va centrado dentro, pero el punto se ancla a top:2/right:2 de esa caja inflada. Medido en mentions-desktop.png: la tinta de \"apagón\" va de x=530 a 664 y su punto está en x=669-673 —5-9px a la derecha de la palabra y ~10px por encima de la altura de mayúscula—; el de \"ventanilla\" queda pegado a \"feria\". En mentions-desktop-fold.png los siete puntos se leen como suciedad flotando entre palabras y no como atributo de un término concreto.",
+  "fix": "Anclar la marca al final del glifo (padding real en el botón en vez de ancho inflado, o un span inline dentro del texto) y bajarla a la línea de mayúscula; o reutilizar la pill \"nuevo\" que ya usa el Ranking (377) para que el mismo atributo se marque igual en las dos vistas.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/terms-cloud.js:346-351"
+ },
+ {
+  "id": "M-14",
+  "axis": "estandarizacion",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "La nota de método y el skeleton describen la Nube incluso en vista Ranking, que es el default en móvil",
+  "evidence": "El pie \"El tamaño indica lo distintivo y el color el sentimiento medio del término. Para comparar cifras exactas usa el Ranking: en una nube el área se lee mal por naturaleza\" se renderiza igual en las dos vistas. En mentions-mobile.png se lee justo debajo del Ranking, donde ningún elemento tiene tamaño y donde el usuario ya está en el Ranking al que se le remite — y el Ranking es la vista forzada en móvil (156). El skeleton de carga es siempre el mismo: 10 bloques de 30px de alto con gap --sp-15 (312-315), mientras las filas reales del Ranking miden ~33px apiladas con gap --sp-05 (357) y el primer término de la nube mide 40px; el esqueleto no anticipa ninguna de las dos vistas.",
+  "fix": "Condicionar el texto a `view` (en Ranking: \"El color indica el sentimiento medio; la barra, las menciones\") y dar un skeleton por vista (filas apiladas para Ranking, bloques de alto variable para Nube).",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/terms-cloud.js:415-420"
+ },
+ {
+  "id": "M-17",
+  "axis": "color",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "La fila de KPI usa la paleta de alarma sin semántica de alarma",
+  "evidence": "`tone=\"neg\"` pinta el conteo de Virales en --neg #FF5470 (resuelto en 1051) cuando \"viral\" es una magnitud sin polaridad —puede ser el récord de visitantes—, y \"Acelerada\" llega con color 'var(--warn)' desde el dato (#FFC043, el token más luminoso de la fila) para decir que el engagement por mención subió 42%. En mentions-desktop-fold.png los dos únicos colores saturados de la fila están en las dos tarjetas que menos deciden, mientras TOTAL y ALCANCE —las cifras que el cliente cita en la reunión— van en blanco; y VIRALES muestra el mismo string \"1.3K\" que TOTAL, distinguido sólo por el hue.",
+  "fix": "Neutralizar Virales (cifra en --text, la afordancia de click en el chevron/pill) y usar --warn sólo cuando la velocidad cruce un umbral declarado; si sólo indica dirección, --text más flecha, reservando el ámbar para riesgo de crisis, que es donde ya significa eso en Overview.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:984-988"
+ },
+ {
+  "id": "M-18",
+  "axis": "color",
+  "unit": "Menciones (/mentions) — barrido post-migración a tokens",
+  "title": "El neutro del sentimiento se renderiza de cuatro maneras en la misma pantalla",
+  "evidence": "En los chips de filtro Positivo y Negativo llevan punto de color (--pos/--neg) y \"Neutral\" no lleva punto ninguno, aunque --neu existe (tokens.css:213) — visible en mentions-desktop-fold.png y en la captura móvil. En la nube y el Ranking el neutro es --wc-neu #A2ACBA, que es exactamente el valor de --text-2 (tokens.css:197), o sea el mismo gris del texto secundario de interfaz. En la pill de la lista el neutro es color-mix(--text-2 22%) con borde propio (index.html:275-279). Y --neu declarado en tokens apunta a --text-3 #7C8798. Cuatro grises para un mismo valor de sentimiento, uno de ellos indistinguible del texto de la interfaz.",
+  "fix": "Un único token de sentimiento neutro (--neu) con derivados -bg/-fg, consumido por el punto del chip, la pill de la lista y las escalas --wc-/--div-; y darle punto al chip \"Neutral\" para que los cuatro chips compartan gramática.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:919-921"
+ },
+ {
+  "id": "NAR-15",
+  "axis": "color",
+  "unit": "Narrativas (/narrative) — desktop 1440px + móvil 390px",
+  "title": "--accent usado como escala de magnitud y como etiqueta de categoría; el marcador \"inicio\" en el verde de \"Positivo\"",
+  "evidence": "Las 6 barras de Plataformas se pintan con el color de acción/marca —que además es el estado \"Pico\"— cuando una barra de magnitud pide --seq-* y una plataforma es categórica (--cat-*, tokens.css:302-311); la etiqueta de plataforma/pageType (.narrative-tag-mini) también va en accent, donde no es ni acción ni marca. Y dentro del mismo SVG cuya leyenda declara \"verde = Positivo\", el marcador de nacimiento de la narrativa es una línea de 1.5px + texto en --pos: el mismo verde significa sentimiento y cronología a la vez.",
+  "fix": "--seq-3/--seq-4 (o --cat-1) para el relleno de barra, --cat-* para la etiqueta de plataforma, y neutro/--info + icono para el marcador \"inicio\".",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/index.html:989-994 (.narrative-bar-fill background:var(--accent)) y :821-828 (.narrative-tag-mini accent-fill/accent); screens.js:5451-5453 (línea y texto \"▸ inicio\" en var(--pos)) frente a :5390 (leyenda: verde = Positivo)"
+ },
+ {
+  "id": "NAR-16",
+  "axis": "estandarizacion",
+  "unit": "Narrativas (/narrative) — desktop 1440px + móvil 390px",
+  "title": "Dos rankings top-6 hermanos renderizados distinto, y la pista de barra topada a 80px",
+  "evidence": "Dos paneles adyacentes muestran el mismo dato (top-6 por menciones) con dos gramáticas visuales: uno con barra y otro sin barra, así que no se comparan de un vistazo y el usuario no sabe si \"Top voces\" tiene otra unidad. Y la barra que sí existe está topada a 80 px dentro de un panel de 253 px medidos (31% del ancho): la escala de magnitud se comprime y deja la mitad del panel vacía.",
+  "fix": "Un solo componente de lista-ranking (nombre + barra a ancho completo + valor tabular a la derecha) para ambos paneles.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:5188-5196 (Top voces: nombre + número) frente a :5205-5220 (Plataformas: nombre + barra + número); index.html:981-1000 (.narrative-bar-track flex:1.2 con max-width:80px; .narrative-bar-count min-width:30px)"
+ },
+ {
+  "id": "NAR-17",
+  "axis": "estandarizacion",
+  "unit": "Narrativas (/narrative) — desktop 1440px + móvil 390px",
+  "title": "Vocabulario, unidades y formato numérico inconsistentes en la misma pantalla",
+  "evidence": "Las 7 etiquetas de estado mezclan cuatro formas gramaticales: sustantivo (Pico), adjetivos (Activa, Emergente, Revivida, Dormida), verbo conjugado (Decae) y frase (Sin clasificar) — visible como leyenda en la fila de chips de la captura. Las unidades igual: \"214 menc\" en la lista, \"MENCIONES 214\" en el KPI y \"(214 menciones)\" en la línea de pico; \"ENGAGEMENT\" vs \"Eng\" vs \"eng\"; \"Reach\" sin traducir en una interfaz en español. Y las tres cifras del KPI usan tres reglas de formato distintas (toLocaleString, toFixed(1), toLocaleString) sin sufijo de unidad: en la captura conviven \"0.0\" y \"0\" a 90 px de distancia.",
+  "fix": "Adjetivos para los 7 estados (\"En declive\" en lugar de \"Decae\"), una sola abreviatura por unidad y el fmt()/formatMetric compartido para las tres cifras.",
+  "location": "/Users/alegut/MyApps/eco_populicom/.claude/worktrees/design-audit/apps/web/public/eco-prototype/screens.js:4662-4669 (etiquetas de estado), :5008 y :5142-5150 (\"menc\" vs \"MENCIONES\"), :5177 (\"(214 menciones)\"), :5261 (\"Reach … · Eng …\"), :5533 (\"· N eng\")"
+ }
+]
