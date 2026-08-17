@@ -31,6 +31,7 @@ import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import {
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
+  coerceBulletList,
   buildDailySummaryPrompt,
   buildWeeklySummaryPrompt,
   buildAppointmentSummaryPrompt,
@@ -1054,8 +1055,7 @@ async function generateAppointmentSummary(
         },
       },
     );
-    const strings = (arr: unknown, max: number): string[] =>
-      Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, max) : [];
+    const strings = (arr: unknown, max: number): string[] => coerceBulletList(arr, max);
     return {
       headline: typeof parsed.headline === 'string' ? parsed.headline.trim() : '',
       summary: typeof parsed.summary === 'string' && parsed.summary.trim().length > 0 ? parsed.summary : fallback.summary,
@@ -1541,8 +1541,7 @@ async function generateInsights(
         },
       },
     );
-    const onlyStrings = (arr: unknown): string[] =>
-      Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string' && s.trim().length > 0) : [];
+    const onlyStrings = (arr: unknown): string[] => coerceBulletList(arr, 2);
     return {
       negative: onlyStrings(parsed.negative),
       neutral:  onlyStrings(parsed.neutral),
@@ -1606,9 +1605,7 @@ async function generateDailySummary(
     return {
       headline: str(parsed.headline, ''),
       paragraph: str(parsed.paragraph, 'Resumen no disponible.'),
-      highlights: Array.isArray(parsed.highlights)
-        ? parsed.highlights.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
-        : [],
+      highlights: coerceBulletList(parsed.highlights, 4),
     };
   } catch (err) {
     console.error('[weekly-report] daily summary generation failed:', err);
@@ -1655,9 +1652,7 @@ async function generateWeeklyComparison(
     const summary = typeof parsed.summary === 'string' && parsed.summary.trim().length > 0
       ? parsed.summary
       : fallback.summary;
-    const highlights = Array.isArray(parsed.highlights)
-      ? parsed.highlights.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
-      : [];
+    const highlights = coerceBulletList(parsed.highlights, 4);
     const headline = typeof parsed.headline === 'string' ? parsed.headline.trim() : '';
     return { headline, summary, highlights };
   } catch (err) {
