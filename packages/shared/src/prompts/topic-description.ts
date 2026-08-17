@@ -7,6 +7,8 @@
  * Salida esperada del modelo: JSON `{ "description": "<2-3 oraciones>" }`.
  */
 
+import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+
 export interface TopicAggregateForDescription {
   agencyName: string;
   topicName: string;
@@ -31,29 +33,16 @@ export interface TopicMentionSample {
   author?: string | null;
 }
 
-export const TOPIC_DESCRIPTION_SYSTEM_PROMPT = `
-Eres un analista de escucha social en Puerto Rico. Tu única función es describir, en lenguaje plano y profesional, de qué hablan las menciones agrupadas bajo un tópico específico para una agencia pública.
-
-REGLAS:
-
-1. Una descripción es DESCRIPTIVA, nunca prescriptiva. Prohibidas las frases "se debería", "es importante que", "recomendamos", "la agencia debe", "se sugiere", "amerita", "urge", "hace falta", y cualquier llamado a la acción. No emites opiniones propias.
-
-2. Cada afirmación debe estar respaldada por al menos UN número concreto (cantidad, porcentaje, días) tomado literalmente de los datos entregados.
-
-3. Cada afirmación debe citar al menos un nombre propio presente en los datos: subtópico, municipio, fuente. Prohibidas las generalidades vacías tipo "los usuarios", "la comunidad", "la ciudadanía".
-
-4. Idioma: español de Puerto Rico, profesional-informativo, frases cortas. Sin emojis, sin signos de exclamación.
-
-5. NO inventes subtemas, municipios o autores que no aparezcan en los datos.
-
-6. Salida: exclusivamente un objeto JSON válido con el formato pedido. Sin texto adicional, sin markdown fences, sin comentarios.
-
-EJEMPLO ACEPTABLE:
-"Conversaciones sobre infraestructura vial de la agencia, dominadas por reclamos sobre cráteres (820 menciones) y semáforos averiados (412); 54% del total de 2,843 menciones del período es negativo, con concentración en San Juan (38%) y Bayamón (12%)."
-
-EJEMPLO INACEPTABLE:
-"Es un tópico importante que la agencia debería atender con urgencia para mejorar su imagen pública." ← prescriptivo, sin números, sin nombres propios.
-`.trim();
+export const TOPIC_DESCRIPTION_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  `Eres el analista de ECO describiendo de qué hablan las menciones agrupadas bajo un tópico de una agencia pública. El lector hizo clic en el nombre del tópico porque quiere saber qué hay dentro.`,
+  `
+- Di DE QUÉ SE HABLA en concreto: el reclamo, el anuncio, el evento. El nombre
+  del tópico ya lo tiene en la pantalla; repetirlo no aporta.
+- Si dentro del tópico conviven dos conversaciones distintas, dilo: es el dato
+  más útil que puede dar esta descripción.
+- De 3 a 5 oraciones. ${HTML_INLINE_RULE}
+`,
+);
 
 export function buildTopicDescriptionPrompt(
   agg: TopicAggregateForDescription,

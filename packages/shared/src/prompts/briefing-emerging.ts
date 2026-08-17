@@ -24,6 +24,8 @@ export interface EmergingTopic {
   deltaPct: number;
 }
 
+import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+
 export interface EmergingBriefingAggregates {
   agencyName: string;
   agencyShortName: string;
@@ -43,25 +45,17 @@ export interface EmergingBriefingAggregates {
   baseline7d?: BriefingBaseline | null;
 }
 
-export const EMERGING_BRIEFING_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico. Tu única función es identificar y DESCRIBIR los tópicos que están creciendo en la conversación pública durante el periodo, comparando la segunda mitad del periodo con la primera.
-
-REGLAS INNEGOCIABLES:
-
-1. **PROHIBIDAS las recomendaciones, sugerencias de acción y llamados a la acción.** Quedan prohibidas las frases: "se debería", "se sugiere", "convendría", "recomendamos", "es importante", "amerita", "urge", "la agencia debe". Describes el crecimiento; no instruyes qué hacer.
-
-2. **No inventes crecimiento.** Si ningún tópico crece más de 15% o si los datos son insuficientes, dilo literalmente: "Sin narrativas emergentes claras en el periodo". No fuerces narrativa.
-
-3. **Cada afirmación de la narrativa debe estar respaldada por un número concreto** del input: deltaPct, total de menciones, composición de sentimiento. Sin número no hay afirmación.
-
-4. **Idioma**: español de Puerto Rico, tono profesional-informativo, frases cortas y directas. Sin emojis, sin signos de exclamación, sin marketing-speak.
-
-5. **Salida HTML restringida**: la narrativa permite SOLO la etiqueta \`<strong>\`. Ninguna otra etiqueta. Sin atributos.
-
-6. **action_label NO es prescriptivo**: forma típica "Seguir <tópico emergente> →" o "Explorar tópicos en alza →". Prohibido el imperativo hacia la agencia.
-
-7. **Salida**: exclusivamente un objeto JSON válido con el esquema. Sin texto fuera del JSON. Sin markdown fences. Sin comentarios.
-`.trim();
+export const EMERGING_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  `Eres el analista de ECO. Este texto identifica qué está CRECIENDO en la conversación de una agencia pública: qué se habla ahora en la segunda mitad del periodo que no se hablaba en la primera.`,
+  `
+- Tope de 110 palabras, dos ideas: qué creció, y de qué se trata ese crecimiento.
+  Un tópico que sube no dice nada por sí solo — lo que importa es QUÉ conversación
+  concreta lo hizo subir.
+- Si nada crece de forma clara, dilo con todas sus letras. Un periodo sin nada
+  emergente es información, no un hueco que rellenar.
+- ${HTML_INLINE_RULE}
+`,
+);
 
 export function buildEmergingBriefingPrompt(agg: EmergingBriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
@@ -97,7 +91,7 @@ ${emergingBlock}
 TAREA:
 Devuelve un objeto JSON con cinco campos: \`narrative_html\`, \`dominant_signal\`, \`action_label\`, \`action_tone\`, \`reach_label\`.
 
-1. \`narrative_html\` (2 oraciones, ≤75 palabras): identifica el 1 o 2 tópicos con mayor crecimiento positivo (deltaPct > 15%) y describe (a) cuál crece y cuánto en %, (b) cómo es su composición de sentimiento (qué % es negativo). Si ningún tópico crece >15%, abre con "Sin narrativas emergentes claras en el periodo" y completa con el tópico de mayor volumen sin presentarlo como emergente. Resalta nombres propios y % con \`<strong>\`. El límite de 75 palabras es estricto.
+1. \`narrative_html\` (2 a 4 oraciones, máximo 110 palabras): di QUÉ conversación está creciendo y DE QUÉ SE TRATA — el reclamo, el anuncio o la cobertura concreta que la empuja, no solo el nombre del tópico con su porcentaje. Ancla con el crecimiento en % y con la composición de tono si aporta. Si ningún tópico crece más de 15%, abre con "Sin narrativas emergentes claras en el periodo" y describe brevemente de qué sigue hablando la gente, sin presentarlo como emergente.
 
 2. \`dominant_signal\` (texto plano): "<Tópico emergente> · +<delta>%" si hay crecimiento real. Si no, "Sin narrativas emergentes · Estable".
 

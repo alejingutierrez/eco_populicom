@@ -18,6 +18,7 @@
  */
 
 import type { MentionSample, WeeklyAggregates } from './weekly-report-insights';
+import { HTML_INLINE_RULE } from './constitution';
 
 export interface AppointmentFacts {
   /** Nombre de la persona nombrada, como se le nombra en prensa. */
@@ -147,20 +148,34 @@ ${samples.neutral.slice(0, 10).map((m, i) => formatSample(i + 1, m)).join('\n') 
 --- POSITIVAS (${samples.positive.length}) ---
 ${samples.positive.slice(0, 10).map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 
-TAREA — TRES SALIDAS. El eje de TODAS es el nombramiento de ${facts.personName} como ${facts.position}, no la agencia en abstracto:
+TAREA — CUATRO PIEZAS. El sujeto de todas es el nombramiento de ${facts.personName} como ${facts.position}, no la agencia en abstracto.
 
-1) "summary" — UN párrafo COMPLETO de 4 a 6 oraciones (~120–170 palabras) para un lector ejecutivo: cómo cayó el nombramiento en la conversación pública. Debe abrir por el hallazgo central (cómo se recibió, no "se anunció el nombramiento de…" — eso el lector ya lo sabe), citar el volumen del periodo y su variación vs los días previos (${signedPct(totals.total, baselineTotals.total)}), identificar el MECANISMO dominante (qué cobertura o qué actor está produciendo el volumen) y cerrar diciendo si la discusión gira sobre la persona, sobre el cargo o sobre la administración que la nombra. Usa <strong> para cifras y nombres propios clave.
+1) "headline" — el titular. UNA oración de 8 a 18 palabras que diga el hallazgo central: cómo cayó el nombramiento. No anuncies el nombramiento (el lector ya lo sabe y sale en la ficha de arriba): di cómo se recibió. Sujeto y verbo, sin cifras, sin punto final.
+   BIEN: "El nombramiento se discute por lo que dice de la administración, no por la persona"
+   BIEN: "Mucha cobertura, poco respaldo: el relevo se cubrió en todos lados y se apoyó en pocos"
+   MAL:  "Nombramiento de ${facts.personName}" · "266 menciones en cinco días"
 
-2) "reception" — 2 a 4 oraciones independientes, cada una sobre un EJE distinto de cómo se está recibiendo el nombramiento. Los ejes útiles suelen ser: respaldo explícito (quién y desde qué posición institucional), reparo o rechazo (quién y con qué argumento concreto), lectura de la trayectoria de la persona, y el ángulo de la salida del predecesor${facts.predecessor ? ` (${facts.predecessor})` : ''}. Cada oración: 25–50 palabras, con al menos un número del dato y al menos un nombre propio (medio, cargo público u organización). Si un eje no está en los datos, NO lo inventes: entrega menos oraciones.
+2) "summary" — el párrafo. De 3 a 5 oraciones (80 a 120 palabras) que expliquen cómo cayó: de dónde salió el volumen, quién lo produjo, y sobre qué gira realmente la discusión — si sobre la persona, sobre el cargo, o sobre quien la nombró. Ojo con la trampa de este correo: un nombramiento SIEMPRE genera cobertura obligada, así que mucho volumen no es respaldo ni rechazo. Como mucho dos cifras.
 
-3) "highlights" — 2 a 4 oraciones sobre lo que el nombramiento MOVIÓ en los números, comparando contra los días previos: un salto de volumen o sentimiento con su mecanismo, un tópico que apareció o se disparó (con los números de ambas ventanas), un indicador compuesto que se movió (valores de escala pública tal cual: "36%", "6.8 / 10"), o una asimetría de canal o actor. Cada highlight: una sola oración, 25–50 palabras, número + nombre propio.
+3) "reception" — de 2 a 4 viñetas: cómo se está recibiendo. Cada una toma un ÁNGULO distinto y cuenta qué se dijo en concreto desde ahí, con su cifra de apoyo. Ángulos que suelen dar señal, sin forzar ninguno:
+   - quién apoya y desde qué posición (¿es apoyo de cargos, o hay gente respaldando?);
+   - quién pone reparos y con qué argumento puntual;
+   - qué se dice de la trayectoria de la persona;
+   - el ángulo de la salida del predecesor${facts.predecessor ? ` (${facts.predecessor})` : ''}, si sigue vivo;
+   - qué NO se está discutiendo y uno esperaría que se discutiera — el silencio sobre las competencias o sobre el plan de trabajo es un hallazgo, no un vacío.
+   Cada viñeta: una sola oración de 25 a 45 palabras, con un medio, cargo público u organización nombrado.
+   Distingue siempre lo que dicen MEDIOS de lo que dicen ACTORES POLÍTICOS de lo que dice la gente: son tres cosas distintas y aquí se confunden con facilidad.
 
-REGLAS (además de las del sistema):
-- El nombramiento es el SUJETO. Nada de describir la agencia como si el hecho no hubiera ocurrido.
-- PRECISIÓN SOBRE CATEGORÍAS: di QUÉ se dijo en concreto (el respaldo, el reparo, la comparación con su paso por el gobierno), no solo el nombre del tópico con un conteo.
-- Distingue lo que dicen MEDIOS de lo que dicen ACTORES POLÍTICOS de lo que dice el público. Un nombramiento genera cobertura obligada; el volumen alto por sí solo no es respaldo ni rechazo.
-- No caracterices la reacción como unánime si los datos muestran ambos signos; tampoco fuerces equilibrio si el dato está cargado a un lado.
-- Si una variación es "nuevo" (los días previos no registraban), dilo explícitamente en lugar de inventar un porcentaje.
-- NUNCA "hoy"/"ayer": habla de "desde el nombramiento" o de fechas concretas.
+4) "highlights" — de 2 a 4 viñetas sobre lo que el nombramiento MOVIÓ frente a los días previos. También cuentan hechos, no cifras con etiqueta: qué conversación apareció que antes no existía, qué se disparó y por qué, qué siguió igual pese al relevo.
+
+REGLAS PROPIAS DE ESTE CORREO:
+- No lo caracterices como reacción unánime si los datos muestran los dos signos; tampoco fuerces equilibrio si el dato está cargado a un lado. Reporta lo que hay.
+- Si una variación es "nuevo" (los días previos no registraban nada), dilo así en lugar de inventar un porcentaje.
+- El último día de la ventana es HOY y va parcial: no leas su caída como una caída real de la conversación, ni la menciones como si lo fuera.
+- Reporta a los actores políticos de forma factual y neutral, sin sugerir ventaja para ninguno.
+
+${HTML_INLINE_RULE}
+
+SALIDA: llama la herramienta con los cuatro campos — headline, summary, reception, highlights.
 `.trim();
 }

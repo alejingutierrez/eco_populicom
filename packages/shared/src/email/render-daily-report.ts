@@ -87,9 +87,22 @@ export interface DailyReportRenderData {
     neutral: string[];
     positive: string[];
   };
+  /**
+   * El lede del correo (ago 2026, «opción B» de la ronda de moldes con el
+   * cliente): titular + párrafo corto que explica + viñetas que también
+   * explican. Antes era un párrafo único de 120–160 palabras; se partió porque
+   * el lector lo abre en el teléfono a las 6 a.m. y no lo leía entero.
+   *
+   * `headline` y `highlights` son opcionales para que un bundle viejo del
+   * lambda (que solo manda `paragraph`) siga renderizando sin romperse.
+   */
   dailySummary: {
     label: string;
+    /** Titular de 8–16 palabras, sin cifras. Si falta, el bloque abre por el párrafo. */
+    headline?: string;
     paragraph: string;
+    /** 2–4 viñetas; cada una cuenta un hecho con su cifra de apoyo. */
+    highlights?: string[];
   };
   /**
    * Indicadores compuestos ya formateados con `formatMetric`/`formatDelta`
@@ -116,6 +129,37 @@ export interface DailyReportRenderData {
 function pct(n: number, total: number): number {
   if (!total) return 0;
   return Math.round((n / total) * 100);
+}
+
+/**
+ * Titular del lede. Se omite entero si el lambda no lo manda, para que el
+ * bloque siga abriendo por el párrafo (compatibilidad con bundles viejos).
+ */
+function summaryHeadline(headline: string | undefined): string {
+  const clean = (headline ?? '').trim();
+  if (!clean) return '';
+  return `                    <p class="force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:19px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">${esc(clean)}</p>`;
+}
+
+/**
+ * "Para resaltar" — las viñetas del lede. Cada una cuenta un hecho, no una
+ * cifra con etiqueta (ver la ley 02 de la constitución editorial).
+ */
+function summaryHighlights(items: string[] | undefined): string {
+  const clean = (items ?? []).filter((s) => s && s.trim().length > 0).slice(0, 4);
+  if (!clean.length) return '';
+  const lis = clean
+    .map(
+      (s) => `<li class="force-text-dark" style="margin:0 0 7px 0;padding:0 0 0 14px;font-size:13.5px;line-height:1.55;color:${COLORS.ink};position:relative;list-style:none;">
+                        <span style="position:absolute;left:0;top:0;color:${COLORS.accent};font-weight:700;">·</span>${s}
+                      </li>`,
+    )
+    .join('');
+  return `                    <div style="height:1px;line-height:1px;font-size:0;background:${COLORS.accent};opacity:0.45;margin:16px 0 13px 0;">&nbsp;</div>
+                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:9px;">
+                      Para resaltar
+                    </div>
+                    <ul style="margin:0;padding:0;list-style:none;">${lis}</ul>`;
 }
 
 function signedPct(n: number): string {
@@ -296,7 +340,9 @@ ${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
                     <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
                       ${esc(data.dailySummary.label)}
                     </div>
+${summaryHeadline(data.dailySummary.headline)}
                     <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.dailySummary.paragraph}</p>
+${summaryHighlights(data.dailySummary.highlights)}
                   </td>
                 </tr>
               </table>

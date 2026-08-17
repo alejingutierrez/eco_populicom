@@ -46,6 +46,7 @@ import {
   addDaysYmd,
   formatPeriodLabel,
   formatShortDay,
+  formatLongDay,
   formatDayLabel,
   formatUpdatedAtLabel,
   loadMetricsForWindow,
@@ -416,15 +417,9 @@ function fmtIntEs(n: number): string {
   return n.toLocaleString('es-PR');
 }
 
-const ES_MONTH_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const ES_DOW_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-
 /** "lunes 10 de agosto de 2026" — fecha del nombramiento en la ficha del correo. */
 function fullDateEs(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const dow = ES_DOW_LONG[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-  return `${dow} ${d} de ${ES_MONTH_LONG[m - 1]} de ${y}`;
+  return `${formatLongDay(ymd)} de ${ymd.slice(0, 4)}`;
 }
 
 /** Días naturales entre dos YYYY-MM-DD, ambos inclusive (mismo día = 1). */
@@ -497,7 +492,9 @@ async function buildDailyReportEmail(
     insights,
     dailySummary: {
       label: `Resumen del día · ${formatShortDay(endDate)}`,
-      paragraph: dailySummary,
+      headline: dailySummary.headline,
+      paragraph: dailySummary.paragraph,
+      highlights: dailySummary.highlights,
     },
     // Indicadores compuestos NUMÉRICOS — mismos valores y mismos deltas que
     // el dashboard (paridad con /api/eco-data deltaDisplay).
@@ -733,6 +730,7 @@ async function buildWeeklySummaryEmail(
     },
     metrics,
     chartImageUrl: buildWeeklyOverlayChartUrl(curReport, prevReport),
+    weeklyHeadline: ai.headline,
     weeklySummary: ai.summary,
     highlights: ai.highlights,
     topicsCompare,
@@ -988,6 +986,7 @@ async function buildAppointmentEmail(
     },
     metrics,
     chartImageUrl: buildChartImageUrl(curReport.dailySeries),
+    headline: ai.headline,
     summary: ai.summary,
     reception: ai.reception,
     highlights: ai.highlights,
@@ -1018,37 +1017,39 @@ async function buildAppointmentEmail(
 
 async function generateAppointmentSummary(
   inputs: Parameters<typeof buildAppointmentSummaryPrompt>[0],
-): Promise<{ summary: string; reception: string[]; highlights: string[] }> {
-  const fallback = { summary: 'Resumen no disponible.', reception: [] as string[], highlights: [] as string[] };
+): Promise<{ headline: string; summary: string; reception: string[]; highlights: string[] }> {
+  const fallback = { headline: '', summary: 'Resumen no disponible.', reception: [] as string[], highlights: [] as string[] };
   if (inputs.current.totals.total === 0) {
     return {
+      headline: 'Sin conversación registrada desde el nombramiento',
       summary: `Sin menciones registradas desde el nombramiento de ${inputs.facts.personName} en los canales monitoreados.`,
       reception: [], highlights: [],
     };
   }
   const prompt = buildAppointmentSummaryPrompt(inputs);
   try {
-    const parsed = await invokeClaudeWithTool<{ summary?: unknown; reception?: unknown; highlights?: unknown }>(
+    const parsed = await invokeClaudeWithTool<{ headline?: unknown; summary?: unknown; reception?: unknown; highlights?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      2000,
+      2400,
       {
         name: 'submit_appointment_summary',
-        description: 'Entrega el resumen ejecutivo del nombramiento, los ejes de recepción y los movimientos numéricos vs los días previos.',
+        description: 'Entrega el titular, el resumen de cómo cayó el nombramiento, los ejes de recepción y lo que movió vs los días previos.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 4–6 oraciones (~120–170 palabras): cómo cayó el nombramiento en la conversación pública.' },
+            headline: { type: 'string', description: 'Titular de 8 a 18 palabras sobre CÓMO se recibió el nombramiento (no que ocurrió). Sin cifras, sin punto final.' },
+            summary: { type: 'string', description: 'De 3 a 5 oraciones (80–120 palabras): de dónde salió el volumen, quién lo produjo y sobre qué gira la discusión. Máximo dos cifras.' },
             reception: {
               type: 'array', items: { type: 'string' },
-              description: '2–4 oraciones, cada una sobre un eje distinto de recepción (respaldo, reparo, trayectoria, salida del predecesor).',
+              description: '2–4 viñetas, cada una un ángulo distinto de cómo se está recibiendo, contando qué se dijo en concreto. Incluye lo que NO se discute si es señal.',
             },
             highlights: {
               type: 'array', items: { type: 'string' },
-              description: '2–4 oraciones sobre lo que el nombramiento movió en los números vs los días previos.',
+              description: '2–4 viñetas sobre lo que el nombramiento movió frente a los días previos, contadas como hechos y no como cifras con etiqueta.',
             },
           },
-          required: ['summary', 'reception', 'highlights'],
+          required: ['headline', 'summary', 'reception', 'highlights'],
           additionalProperties: false,
         },
       },
@@ -1056,6 +1057,7 @@ async function generateAppointmentSummary(
     const strings = (arr: unknown, max: number): string[] =>
       Array.isArray(arr) ? arr.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, max) : [];
     return {
+      headline: typeof parsed.headline === 'string' ? parsed.headline.trim() : '',
       summary: typeof parsed.summary === 'string' && parsed.summary.trim().length > 0 ? parsed.summary : fallback.summary,
       reception: strings(parsed.reception, 4),
       highlights: strings(parsed.highlights, 4),
@@ -1552,72 +1554,100 @@ async function generateInsights(
   }
 }
 
+/**
+ * El lede del correo diario. Desde ago 2026 son tres piezas (titular, párrafo
+ * corto, viñetas) en vez de un párrafo único — ver `buildDailySummaryPrompt`.
+ */
+interface DailyLede {
+  headline: string;
+  paragraph: string;
+  highlights: string[];
+}
+
 async function generateDailySummary(
   aggregates: WeeklyAggregates,
   todaySamples: MentionSample[],
   todayYmd: string,
-): Promise<string> {
+): Promise<DailyLede> {
   if (aggregates.totals.total === 0) {
-    return 'Sin menciones registradas hoy en los canales monitoreados.';
+    return {
+      headline: 'Sin menciones en el periodo',
+      paragraph: 'Sin menciones registradas en los canales monitoreados durante el periodo.',
+      highlights: [],
+    };
   }
   const prompt = buildDailySummaryPrompt(aggregates, todaySamples, todayYmd);
   try {
-    const parsed = await invokeClaudeWithTool<{ summary?: unknown }>(
+    const parsed = await invokeClaudeWithTool<{ headline?: unknown; paragraph?: unknown; highlights?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      1200,
+      1500,
       {
         name: 'submit_daily_summary',
-        description: 'Entrega el párrafo resumen del último día del periodo.',
+        description: 'Entrega el lede del correo diario: titular, párrafo que explica, y viñetas que también explican.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo completo de 4 a 6 oraciones (~120–160 palabras) con contexto de la agencia: qué pasó, por qué importa, tópicos/actores clave y números.' },
+            headline: { type: 'string', description: 'Titular de 8 a 16 palabras, con sujeto y verbo, sin cifras y sin punto final.' },
+            paragraph: { type: 'string', description: 'De 3 a 4 oraciones (60–90 palabras) explicando qué pasó, a raíz de qué y quién lo dice. Máximo dos cifras.' },
+            highlights: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '2 a 4 viñetas; cada una cuenta un hecho con su cifra de apoyo, nunca una cifra con etiqueta.',
+            },
           },
-          required: ['summary'],
+          required: ['headline', 'paragraph', 'highlights'],
           additionalProperties: false,
         },
       },
     );
-    return typeof parsed.summary === 'string' && parsed.summary.trim().length > 0
-      ? parsed.summary
-      : 'Resumen no disponible.';
+    const str = (v: unknown, fallback: string): string =>
+      typeof v === 'string' && v.trim().length > 0 ? v.trim() : fallback;
+    return {
+      headline: str(parsed.headline, ''),
+      paragraph: str(parsed.paragraph, 'Resumen no disponible.'),
+      highlights: Array.isArray(parsed.highlights)
+        ? parsed.highlights.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
+        : [],
+    };
   } catch (err) {
     console.error('[weekly-report] daily summary generation failed:', err);
-    return 'Resumen no disponible.';
+    return { headline: '', paragraph: 'Resumen no disponible.', highlights: [] };
   }
 }
 
 async function generateWeeklyComparison(
   inputs: Parameters<typeof buildWeeklySummaryPrompt>[0],
-): Promise<{ summary: string; highlights: string[] }> {
+): Promise<{ headline: string; summary: string; highlights: string[] }> {
   const fallback = {
+    headline: '',
     summary: 'Resumen no disponible.',
     highlights: [] as string[],
   };
   if (inputs.current.totals.total === 0 && inputs.prevTotals.total === 0) {
-    return { summary: 'Sin menciones registradas en las últimas dos semanas en los canales monitoreados.', highlights: [] };
+    return { headline: 'Sin conversación registrada en las últimas dos semanas', summary: 'Sin menciones registradas en las últimas dos semanas en los canales monitoreados.', highlights: [] };
   }
   const prompt = buildWeeklySummaryPrompt(inputs);
   try {
-    const parsed = await invokeClaudeWithTool<{ summary?: unknown; highlights?: unknown }>(
+    const parsed = await invokeClaudeWithTool<{ headline?: unknown; summary?: unknown; highlights?: unknown }>(
       INSIGHTS_SYSTEM_PROMPT,
       prompt,
-      1600,
+      2000,
       {
         name: 'submit_weekly_comparison',
-        description: 'Entrega el resumen ejecutivo semanal y los highlights de qué cambió vs la semana anterior.',
+        description: 'Entrega el titular del cambio, el resumen de la semana y las viñetas de qué cambió vs la semana anterior.',
         input_schema: {
           type: 'object',
           properties: {
-            summary: { type: 'string', description: 'Párrafo único de 4–6 oraciones (~120–160 palabras), comparativo semana vs semana.' },
+            headline: { type: 'string', description: 'Titular de 8 a 18 palabras nombrando el cambio central de la semana. Sin cifras, sin punto final.' },
+            summary: { type: 'string', description: 'De 3 a 5 oraciones (80–130 palabras) explicando el cambio y qué lo produjo. Máximo dos cifras.' },
             highlights: {
               type: 'array',
               items: { type: 'string' },
-              description: '2–4 oraciones independientes, cada una sobre un cambio distinto vs la semana anterior.',
+              description: '2–4 viñetas, cada una contando un cambio concreto vs la semana anterior como hecho, no como cifra con etiqueta.',
             },
           },
-          required: ['summary', 'highlights'],
+          required: ['headline', 'summary', 'highlights'],
           additionalProperties: false,
         },
       },
@@ -1628,7 +1658,8 @@ async function generateWeeklyComparison(
     const highlights = Array.isArray(parsed.highlights)
       ? parsed.highlights.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4)
       : [];
-    return { summary, highlights };
+    const headline = typeof parsed.headline === 'string' ? parsed.headline.trim() : '';
+    return { headline, summary, highlights };
   } catch (err) {
     console.error('[weekly-report] weekly comparison generation failed:', err);
     return fallback;

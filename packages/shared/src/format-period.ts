@@ -5,6 +5,9 @@
 
 const ES_MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const ES_DOW_SHORT = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const ES_DOW_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const ES_MONTH_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
 /** "29 abr – 5 may 2026" o "29 – 30 abr 2026" si están en el mismo mes. */
 export function formatPeriodLabel(startYmd: string, endYmd: string): string {
@@ -20,6 +23,18 @@ export function formatPeriodLabel(startYmd: string, endYmd: string): string {
 export function formatShortDay(ymd: string): string {
   const [, m, d] = ymd.split('-').map(Number);
   return `${d} ${ES_MONTH_SHORT[m - 1]}`;
+}
+
+/**
+ * "miércoles 12 de agosto" — la forma en que el día se NOMBRA dentro del texto
+ * redactado. Existe porque los prompts recibían el día en formato ISO y el
+ * modelo lo copiaba literal a la prosa ("La jornada del 2026-08-12 registró…").
+ * Ver la ley 05 de la constitución editorial.
+ */
+export function formatLongDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return `${ES_DOW_LONG[dt.getUTCDay()]} ${d} de ${ES_MONTH_LONG[m - 1]}`;
 }
 
 /** "mié 29" — etiqueta del eje X de la tendencia diaria. */

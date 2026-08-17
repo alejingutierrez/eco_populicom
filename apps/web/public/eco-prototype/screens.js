@@ -420,6 +420,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     ? {
         ...(fallbackBriefing || {}),
         narrativeHtml: periodMode.narrativeHtml,
+        points: periodMode.points || [],
         dominantSignal: periodMode.dominantSignal,
         action: periodMode.action,
         actionTone: periodMode.actionTone,
@@ -609,6 +610,19 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
               <>Sin suficientes menciones en este período para generar un resumen.</>
             )}
           </div>
+          {/* Las dos viñetas que acompañan al párrafo (ago 2026). Cada una cuenta
+              un hecho con su cifra de apoyo — no son KPIs, que ya están arriba.
+              Solo las trae el resumen por periodo; el briefing rule-based no. */}
+          {activeBriefing && Array.isArray(activeBriefing.points) && activeBriefing.points.length > 0 ? (
+            <ul style={{ listStyle: 'none', margin: 'var(--sp-4) 0 0', padding: 0, maxWidth: '68ch' }}>
+              {activeBriefing.points.map((pt, i) => (
+                <li key={i} style={{ position: 'relative', paddingLeft: 'var(--sp-4)', marginTop: i === 0 ? 0 : 'var(--sp-2)', fontSize: 'var(--fs-body)', lineHeight: 'var(--lh-body)', color: 'var(--text-2)' }}>
+                  <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, color: 'var(--accent)', fontWeight: 700 }}>·</span>
+                  <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(pt) }} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <div style={{ display: 'flex', gap: 'var(--sp-5)', marginTop: 'var(--sp-4)', fontSize: 'var(--fs-caption)', flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>

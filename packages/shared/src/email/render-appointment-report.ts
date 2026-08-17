@@ -95,6 +95,12 @@ export interface AppointmentRenderData {
   /** PNG externo: volumen diario desde el nombramiento. */
   chartImageUrl: string;
 
+  /**
+   * Titular del hallazgo: cómo cayó el nombramiento (LLM). Opcional para que un
+   * bundle viejo del lambda siga renderizando; si falta, el bloque abre por el
+   * párrafo, como antes de ago 2026.
+   */
+  headline?: string;
   /** Párrafo ejecutivo: cómo cayó el nombramiento (LLM). HTML inline permitido. */
   summary: string;
   /** 2–4 ejes de recepción (LLM). HTML inline permitido. */
@@ -538,6 +544,9 @@ ${blockHeader('1', 'Análisis numérico', `Volumen y tendencias desde el nombram
                     <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
                       ${summarySec} · Cómo cayó el nombramiento
                     </div>
+${data.headline && data.headline.trim()
+  ? `                    <p class="force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:19px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">${esc(data.headline.trim())}</p>`
+  : ''}
                     <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.summary}</p>
                   </td>
                 </tr>
