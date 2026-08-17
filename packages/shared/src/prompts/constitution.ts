@@ -155,3 +155,42 @@ pasó, quién lo está diciendo, y qué cambió respecto a lo normal.
  */
 export const HTML_INLINE_RULE =
   'Puedes usar <strong>…</strong> para resaltar como máximo dos nombres propios o cifras decisivas por párrafo. Ninguna otra etiqueta HTML, ningún markdown, ninguna viñeta dentro de los campos de texto.';
+
+/**
+ * Normaliza una lista de viñetas devuelta por el modelo.
+ *
+ * Bedrock NO garantiza el tipo dentro de un `input_schema`: verificado el 16 de
+ * agosto de 2026 contra `emit_executive_summary`, donde `signal_points` y
+ * `emerging_points` llegaron como arreglo y `crisis_points` como el MISMO
+ * arreglo serializado a string (`"[\"…\",\"…\"]"`). Un `Array.isArray(x) ? x : []`
+ * descarta ese caso en silencio: el bloque se queda sin viñetas y nada falla,
+ * así que el defecto no se ve hasta que alguien mira el correo o la pantalla.
+ *
+ * Acepta las tres formas: arreglo, string con JSON de arreglo, y string suelto
+ * (que se trata como una viñeta única).
+ */
+export function coerceBulletList(raw: unknown, max = 4): string[] {
+  const clean = (arr: unknown[]): string[] =>
+    arr
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s) => s.trim())
+      .slice(0, max);
+
+  if (Array.isArray(raw)) return clean(raw);
+
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (!t) return [];
+    if (t.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return clean(parsed);
+      } catch {
+        // No era JSON válido; cae al caso de string suelto.
+      }
+    }
+    return [t].slice(0, max);
+  }
+
+  return [];
+}

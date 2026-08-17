@@ -294,10 +294,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * inferimos de palabras señal del propio texto que ya generó. 'neu' es el
  * default y el SPA lo pinta con --accent.
  */
-/** Descarta viñetas vacías y recorta a dos; el modelo a veces manda una sola. */
+/**
+ * Normaliza las viñetas del modelo. Usa `coerceBulletList` porque Bedrock no
+ * garantiza el tipo: se ha visto devolver dos modos como arreglo y el tercero
+ * como ese mismo arreglo serializado a string.
+ */
 function cleanPoints(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 2);
+  return coerceBulletList(raw, 2);
 }
 
 function toneFor(narrative: string, mode: 'signal' | 'emerging' | 'crisis'): ModeShape['actionTone'] {
