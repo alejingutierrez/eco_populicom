@@ -68,6 +68,8 @@ function normalizeSentiment(s: string | null): 'positivo' | 'neutral' | 'negativ
 
 interface ModeShape {
   narrativeHtml: string;
+  /** Dos viñetas que explican, debajo del párrafo (ago 2026). */
+  points: string[];
   dominantSignal: string;
   action: string;
   actionTone: 'pos' | 'neg' | 'warn' | 'neu';
@@ -292,6 +294,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * inferimos de palabras señal del propio texto que ya generó. 'neu' es el
  * default y el SPA lo pinta con --accent.
  */
+/** Descarta viñetas vacías y recorta a dos; el modelo a veces manda una sola. */
+function cleanPoints(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 2);
+}
+
 function toneFor(narrative: string, mode: 'signal' | 'emerging' | 'crisis'): ModeShape['actionTone'] {
   if (mode === 'crisis') {
     return /sin señal|sin indicios|no hay señal|estable|normal/i.test(narrative) ? 'neu' : 'neg';
@@ -306,18 +314,21 @@ function toModes(p: ExecutiveSummaryOutput): Record<'signal' | 'emerging' | 'cri
   return {
     signal: {
       narrativeHtml: p.signal_narrative,
+      points: cleanPoints(p.signal_points),
       dominantSignal: p.signal_dominant,
       action: p.signal_action,
       actionTone: toneFor(p.signal_narrative, 'signal'),
     },
     emerging: {
       narrativeHtml: p.emerging_narrative,
+      points: cleanPoints(p.emerging_points),
       dominantSignal: p.emerging_dominant,
       action: p.emerging_action,
       actionTone: toneFor(p.emerging_narrative, 'emerging'),
     },
     crisis: {
       narrativeHtml: p.crisis_narrative,
+      points: cleanPoints(p.crisis_points),
       dominantSignal: p.crisis_dominant,
       action: p.crisis_action,
       actionTone: toneFor(p.crisis_narrative, 'crisis'),

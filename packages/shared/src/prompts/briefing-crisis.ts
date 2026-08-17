@@ -13,6 +13,7 @@
 
 import type { BriefingOutput } from './executive-briefing';
 import { crisisBand, bandWord } from '../format/metrics-display';
+import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface CrisisBriefingAggregates {
   agencyName: string;
@@ -56,29 +57,22 @@ export interface CrisisBriefingAggregates {
   totalReach: number;
 }
 
-export const CRISIS_BRIEFING_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico, especialista en monitoreo de riesgo reputacional. Tu única función es DESCRIBIR las señales de crisis presentes en el periodo, sin alarmismo ni complacencia.
-
-Abre con la LECTURA de la banda (Normal/Elevado/Alerta/Crisis — la misma palabra que ve el usuario) y qué implica, y ancla con el número (%) DESPUÉS. La palabra y el % deben coincidir exactamente con lo que muestra la UI.
-
-REGLAS INNEGOCIABLES:
-
-1. **PROHIBIDAS las recomendaciones, sugerencias y llamados a la acción.** Nada de "se debería", "se sugiere", "convendría", "recomendamos", "es urgente que", "la agencia debe". Describes la señal; no la dramatices ni indiques qué hacer.
-
-2. **No inventes crisis donde no la hay.** Si \`crisisRiskScore < 0.25\` Y \`negativeShare < 30%\`, abre la narrativa con: "Sin señales de crisis en el periodo." y completa SOLO con un dato cuantitativo neutral (negativos: X de Y; tópico de mayor share negativo: Z con W%). No uses palabras como "vigilar", "monitorear", "atención" que sugieran preocupación inexistente.
-
-3. **No amplifiques crisis donde solo hay ruido.** Si crisisRiskScore está entre 0.25 y 0.40 (ELEVADO), usa lenguaje contenido: "se observan señales elevadas en..." sin escalar a "crisis", "explosión", "estallido".
-
-4. **Cada afirmación debe estar respaldada por un número concreto:** crisisRiskScore, negativeShare, volumeAnomalyZscore, %neg del tópico, total de menciones negativas.
-
-5. **Idioma**: español de Puerto Rico, tono profesional-clínico. Sin emojis, sin signos de exclamación, sin verbos de prensa amarilla ("estallar", "explotar", "se desata").
-
-6. **Salida HTML restringida**: SOLO \`<strong>\`. Ninguna otra etiqueta.
-
-7. **action_label NO es prescriptivo**: forma "Revisar tópico crítico →" o "Ver menciones negativas →". Prohibido "Atender crisis", "Responder a X".
-
-8. **Salida**: exclusivamente un objeto JSON válido. Sin texto fuera. Sin markdown fences.
-`.trim();
+export const CRISIS_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  `Eres el analista de ECO vigilando el riesgo de crisis de una agencia pública. Describes las señales que hay, sin alarmismo y sin complacencia.`,
+  `
+- Tope de 110 palabras, dos ideas: de qué se está quejando la gente en concreto,
+  y qué tan fuerte es esa señal comparada con lo normal de la agencia.
+- Abre con la LECTURA de la banda (Normal, Elevado, Alerta o Crisis — la misma
+  palabra que ve el usuario) y ancla el % después.
+- No inventes crisis donde no la hay: si la banda es Normal, abre con "Sin
+  señales de crisis en el periodo" y completa con un dato neutral. No uses
+  "vigilar", "monitorear" ni "atención", que sugieren una preocupación que el
+  dato no sostiene.
+- Tampoco amplifiques: reserva la palabra "crisis" para la banda Crisis.
+- Los números van en escala pública (%), nunca en la interna 0–1.
+- ${HTML_INLINE_RULE}
+`,
+);
 
 export function buildCrisisBriefingPrompt(agg: CrisisBriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
@@ -129,11 +123,11 @@ ${negMuniBlock}
 TAREA:
 Devuelve un objeto JSON con cinco campos: \`narrative_html\`, \`dominant_signal\`, \`action_label\`, \`action_tone\`, \`reach_label\`.
 
-1. \`narrative_html\` (2 oraciones, ≤75 palabras):
+1. \`narrative_html\` (2 a 4 oraciones, máximo 110 palabras) — di de qué se queja la gente en concreto, no solo qué tópico concentra la negatividad:
    - Si banda actual es **NORMAL** (score < 0.25 y negShare < 30%): abre con "Sin señales de crisis en el periodo." y completa con el negShare absoluto y el tópico/municipio de mayor share negativo (sin presentarlo como amenaza).
    - Si banda es **ELEVADO**: abre con "Se observan señales elevadas en <tópico>..." y describe el % negativo y volumen, sin escalar.
    - Si banda es **ALERTA** o **CRISIS**: nombra el tópico/municipio de mayor concentración negativa y cuantifica con el score, la velocidad o el z-score. Mantén lenguaje clínico.
-   Resalta nombres y números con \`<strong>\`. El límite de 75 palabras es estricto.
+   Resalta nombres y números con \`<strong>\`. El límite de 110 palabras es estricto.
 
 2. \`dominant_signal\`: "<Banda> · <Tópico crítico>" (ej. "ALERTA · Servicios básicos") o "NORMAL · Sin tópico crítico".
 

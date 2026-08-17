@@ -83,6 +83,14 @@ REGLAS DE REDACCIÓN (las mismas para todo ECO — violarlas anula la respuesta)
     reporta como un día sin noticias, y eso es información. Nunca inventes un
     hecho, un lugar, una fecha, un cargo ni una cifra que no esté en los datos
     que recibes.
+    PROHIBIDA LA CONJETURA. Nada de "probablemente", "probables", "posiblemente",
+    "posibles", "seguramente", "al parecer", "todo indica que". Si un tópico se
+    llama "Medio Ambiente" y no sabes qué pasó dentro, escribe "quejas por manejo
+    ambiental" y para; no inventes "probables vertidos". Rellenar con una
+    suposición plausible es peor que quedarse corto, porque el lector no puede
+    distinguirla de un hecho.
+    TAMPOCO PROYECTES AL FUTURO: nada de "puede escalar", "subiría", "si esto
+    sigue así". Describes lo que ya pasó; lo que venga después no está en el dato.
     OJO CON LOS LUGARES: que un medio de Ponce cubra algo NO significa que
     ocurrió en Ponce. Los municipios etiquetados automáticamente no son prueba
     del lugar del hecho. Menciona un lugar solo si aparece literal en el texto

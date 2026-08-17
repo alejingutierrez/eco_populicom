@@ -13,6 +13,8 @@
  */
 
 import type { MetricKey } from './metric-insight';
+import { formatMetric, type DisplayMetricKey } from '../format/metrics-display';
+import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface MetricSnapshotSubcomponents {
   // Para crisis: severity, velocity, relevance, confidence
@@ -44,36 +46,42 @@ export interface CachedMetricInsightInput {
   totalMentionsDelta: number; // porcentaje
 }
 
-export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico con 10 años de experiencia. Tu función es DESCRIBIR el porqué de una métrica sintética (Crisis Risk, Polarización, NSS, Brand Health o Volumen) para una agencia pública en un periodo dado, basándote ESTRICTAMENTE en los datos agregados que se te entregan.
+export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  `Eres el analista de ECO explicando POR QUÉ una métrica sintética (riesgo de crisis, polarización, sentimiento neto, salud de marca o volumen) está donde está para una agencia pública en un periodo dado.`,
+  `
+- Abre por el HECHO que produce el valor, no por la métrica. La métrica es la
+  consecuencia.
+- Nunca expliques la fórmula ni sus componentes. El lector quiere el porqué del
+  mundo real, no el del cálculo.
+- Di si el valor es alto o bajo PARA ESTA AGENCIA, comparándolo con su propio
+  rango histórico. Un porcentaje suelto no informa a nadie.
+- Usa el valor EXACTAMENTE como viene en el contexto (la palabra y el número de
+  la tarjeta). NUNCA la escala interna 0–1: escribir "0.40" en vez de "40%"
+  mezcla escalas con lo que el usuario tiene en pantalla.
+- Llama a la métrica por su nombre en español, el mismo de la tarjeta. Nunca
+  "Crisis Risk Score", "Brand Health Index" ni "Net Sentiment Score".
+- NO especules sobre causas que el dato no muestra. Prohibidas todas las formas
+  de conjetura: "probablemente", "probables", "posiblemente", "posibles",
+  "seguramente", "al parecer", "todo indica que". Si el tópico se llama Medio
+  Ambiente y no sabes qué pasó dentro, di "quejas por manejo ambiental" y para —
+  no inventes "probables vertidos o descargas".
+- NO proyectes al futuro: nada de "puede subir", "si esto escala", "subiría con
+  rapidez". Describes el presente; lo que venga después no está en el dato.
+- Un párrafo de 3 a 4 oraciones, máximo 110 palabras. ${HTML_INLINE_RULE}
+`,
+);
 
-REGLAS INNEGOCIABLES (violaciones anulan la respuesta):
-
-1. **PROHIBIDAS las recomendaciones, sugerencias de acción, juicios prescriptivos y llamados a la acción.** Quedan prohibidas las frases: "se debería", "se sugiere", "convendría", "sería bueno", "es importante que", "recomendamos", "amerita", "se requiere", "hace falta", "urge", "la agencia debe/tiene que", "se podría considerar". Reporta el sentir ajeno, no el tuyo.
-
-2. **PROHIBIDO explicar la fórmula de la métrica.** El usuario quiere saber QUÉ pasó en esta agencia que llevó al número actual — los tópicos dominantes, autores destacados, municipios concentrados, eventos específicos. NO digas "el Crisis Risk Score se calcula como severity * velocity * relevance * confidence".
-
-3. **Cada afirmación debe estar respaldada por un número concreto** tomado literalmente de los datos: cantidad de menciones, porcentaje, variación, share de subcomponente. Sin número no hay afirmación.
-
-4. **Cada afirmación debe nombrar al menos un elemento propio concreto**: tópico/subtópico, autor destacado, medio/fuente, municipio, o fecha específica. Los nombres deben coincidir exactamente con los datos (acentos y capitalización).
-
-5. **Idioma**: español de Puerto Rico, tono profesional-informativo, frases cortas y directas. Sin emojis, sin signos de exclamación, sin marketing-speak.
-
-6. **Salida**: exclusivamente un objeto JSON válido con el shape pedido. Sin texto fuera del JSON. Puedes usar inline <strong> y </strong> para resaltar nombres propios y cifras clave; ningún otro HTML.
-
-EJEMPLO DE INSIGHT ACEPTABLE (referencial, para Crisis Risk de DTOP):
-"El <strong>Crisis Risk de 0.74</strong> se explica por la concentración en <strong>Infraestructura Vial</strong> (<strong>184 menciones</strong>, <strong>78%</strong> negativas) y por el <strong>+142%</strong> de volumen vs. la semana previa. <strong>Bayamón</strong> y <strong>Carolina</strong> concentran <strong>54%</strong> de las menciones negativas, lideradas por <strong>@residentespr</strong> con <strong>23</strong> menciones."
-
-EJEMPLOS INACEPTABLES:
-- "El Crisis Risk se calcula como severity por velocity..." ← explica la fórmula.
-- "DTOP debería emitir un comunicado." ← prescriptivo.
-- "Hay preocupación entre la ciudadanía." ← sin número, sin nombre propio.
-`.trim();
-
+/**
+ * Los subcomponentes llegan en la escala interna 0–1. Se muestran en % porque
+ * el modelo copiaba el estilo de lo que veía: con `severity: 0.540` delante,
+ * escribía "el riesgo en 0.40" y mezclaba escalas con la tarjeta del usuario.
+ */
 function fmtSubcomponents(subs: MetricSnapshotSubcomponents): string {
   const entries = Object.entries(subs).filter(([, v]) => v != null);
   if (entries.length === 0) return '- (sin componentes desglosados)';
-  return entries.map(([k, v]) => `- ${k}: ${typeof v === 'number' ? v.toFixed(3) : v}`).join('\n');
+  return entries
+    .map(([k, v]) => `- ${k}: ${typeof v === 'number' ? `${Math.round(v * 100)}%` : v}`)
+    .join('\n');
 }
 
 function fmtTopics(topics: CachedMetricInsightInput['topTopics']): string {
@@ -97,11 +105,14 @@ function fmtMunicipalities(munis: CachedMetricInsightInput['topMunicipalities'])
 
 function metricLabel(m: MetricKey): string {
   return ({
-    crisis: 'Crisis Risk Score',
-    polarization: 'Polarization Index',
-    nss: 'Net Sentiment Score (NSS)',
-    bhi: 'Brand Health Index (BHI)',
-    volume: 'Volumen del periodo',
+    // Los nombres que ve el usuario en la tarjeta. Antes eran los internos en
+    // inglés y el modelo los copiaba literal al texto ("el Brand Health Index
+    // en 4.7"), que no es como se llama nada en la interfaz.
+    crisis: 'el riesgo de crisis',
+    polarization: 'la polarización',
+    nss: 'el sentimiento neto',
+    bhi: 'la salud de marca',
+    volume: 'el volumen del periodo',
   } as const)[m];
 }
 
@@ -136,7 +147,17 @@ function metricInterpretation(m: MetricKey, value: number | null): string {
 
 export function buildCachedMetricInsightPrompt(input: CachedMetricInsightInput): string {
   const interp = metricInterpretation(input.metric, input.value);
-  const valueLabel = input.value == null ? '—' : input.value.toFixed(input.metric === 'crisis' ? 2 : (input.metric === 'bhi' ? 1 : 1));
+  // Escala PÚBLICA — la misma que el usuario tiene en la tarjeta (formatMetric es
+  // la única fuente). Antes se pasaba el crudo 0–1 y el modelo lo citaba literal
+  // ("el Crisis Risk Score en 0.40"), mezclando escalas con lo que muestra la UI.
+  const valueLabel = input.value == null
+    ? '—'
+    : input.metric === 'volume'
+      ? `${Math.round(input.value).toLocaleString('es-PR')} menciones`
+      : (() => {
+          const d = formatMetric(input.metric as DisplayMetricKey, input.value);
+          return d.value ? `${d.word} · ${d.value}` : d.word;
+        })();
   const signedDelta = input.totalMentionsDelta > 0 ? `+${input.totalMentionsDelta.toFixed(0)}` : `${input.totalMentionsDelta.toFixed(0)}`;
 
   return `
@@ -160,14 +181,17 @@ CONCENTRACIÓN GEOGRÁFICA (top municipios por negativo):
 ${fmtMunicipalities(input.topMunicipalities)}
 
 TAREA:
-Redacta UN párrafo único de 3 a 5 oraciones explicando POR QUÉ el ${metricLabel(input.metric)} está en ${valueLabel} para ${input.agencyShortName} en este periodo. Cumple TODOS estos criterios:
+Explica en UN párrafo de 3 a 4 oraciones POR QUÉ ${metricLabel(input.metric)} está en ${valueLabel} para ${input.agencyShortName} en este periodo.
 
-a. Cada afirmación tiene 1+ número concreto tomado de los datos.
-b. Cada afirmación nombra 1+ elemento propio concreto (tópico/autor/municipio/medio/fecha).
-c. Describe el "qué pasó en la conversación" que llevó al número, no la fórmula.
-d. Puedes usar <strong> y </strong> inline para resaltar nombres propios y cifras clave.
-e. Tono profesional, sin recomendaciones ni juicios prescriptivos.
+1. ABRE POR EL HECHO, no por la métrica. Qué está pasando en la conversación: el reclamo, el evento, la cobertura o el conflicto concreto que produce este valor. Sale de los tópicos, autores y municipios de arriba.
+2. La métrica es la CONSECUENCIA, y aparece después: "eso es lo que tiene el ${metricLabel(input.metric)} en ${valueLabel}".
+3. Di si ese valor es alto o bajo PARA ESTA AGENCIA, comparándolo con la ventana previa (${signedDelta}%) o con su rango habitual. Un número suelto no le dice nada a nadie.
+4. Si hay dos cosas distintas empujando el valor, dilo: eso es más útil que enumerar cinco tópicos.
 
-SALIDA: usa la tool emit_cached_metric_insight con el campo "insight" (1 párrafo, 3-5 oraciones).
+MAL: "El riesgo de crisis está en alerta porque el tópico Gestión concentra 128 menciones con 63% negativas."
+BIEN: "Un paro de la unión de empleados se montó sobre la crisis de agua que ya venía, y la conversación no ha vuelto a bajar desde entonces. Eso es lo que tiene el riesgo de crisis en alerta, por encima de lo habitual de la agencia."
+
+Nunca expliques la fórmula ni sus componentes.
+
 `.trim();
 }

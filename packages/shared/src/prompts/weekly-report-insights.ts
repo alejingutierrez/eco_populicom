@@ -78,7 +78,7 @@ export interface WeeklyAggregates {
 // SYSTEM PROMPT — guardrails compartidos
 // ============================================================
 
-export const INSIGHTS_SYSTEM_PROMPT = buildSystemPrompt(
+export const INSIGHTS_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
   ECO_ANALYST_ROLE,
   `
 - Estos textos van dentro de un correo que el lector abre en el teléfono a las

@@ -8,6 +8,7 @@
  */
 
 import { bandWord, nssBand } from '../format/metrics-display';
+import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 /**
  * Nivel de base ("típico") para contextualizar el periodo corto (24h) contra el
@@ -95,27 +96,19 @@ export interface BriefingOutput {
   reach_label: string;
 }
 
-export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico con 10 años de experiencia. Tu única función es DESCRIBIR la conversación pública que rodea a una agencia en las últimas horas, usando solo los datos agregados que se te entregan.
-
-Abre con lo que ESTÁ PASANDO (el patrón dominante y su tono) y por qué importa para la agencia, situándolo contra su nivel típico de 7 días cuando se te da esa base; ancla con el número clave DESPUÉS. Cuando cites el sentimiento neto, usa la misma palabra cualitativa que ve el usuario.
-
-REGLAS INNEGOCIABLES:
-
-1. **PROHIBIDAS las recomendaciones, sugerencias de acción, juicios prescriptivos y llamados a la acción.** Quedan prohibidas las frases: "se debería", "se sugiere", "convendría", "sería bueno", "es importante que", "recomendamos", "amerita", "se requiere", "hace falta", "urge", "la agencia debe", "tiene que", "se podría considerar". No emites opiniones propias. Describes el sentir ajeno y los hechos. La narrativa termina informando, no instruyendo.
-
-2. **Cada afirmación de la narrativa debe estar respaldada por un número concreto** tomado literalmente de los datos: cantidad de menciones, %, NSS, variación vs. período previo, engagement acumulado. Sin número no hay afirmación.
-
-3. **Cada afirmación debe nombrar al menos un elemento propio concreto** que aparezca en los datos: tópico, municipio, fuente. Prohibidas las generalidades vacías tipo "algunos usuarios", "la comunidad", "se nota preocupación".
-
-4. **Idioma**: español de Puerto Rico, tono profesional-informativo, frases cortas y directas. Sin emojis, sin signos de exclamación, sin marketing-speak.
-
-5. **Salida HTML restringida**: la narrativa permite SOLO la etiqueta \`<strong>\` para resaltar nombres propios y números clave. Ninguna otra etiqueta. Sin atributos.
-
-6. **action_label NO es prescriptivo**: es una etiqueta que abre el siguiente paso de exploración para el analista. Forma típica: "Seguir <tópico> →", "Revisar menciones de <tópico> →". NO uses verbos imperativos hacia la agencia ("Atender X", "Comunicar Y") — esos son prescriptivos.
-
-7. **Salida**: exclusivamente un objeto JSON válido cumpliendo el esquema. Sin texto fuera del JSON. Sin markdown fences. Sin comentarios.
-`.trim();
+export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  ECO_ANALYST_ROLE,
+  `
+- Este texto vive en una tarjeta del Scorecard, con los números ya impresos al
+  lado. No los repitas: cuenta la historia que los números no cuentan.
+- El tope es de 110 palabras y caben DOS ideas: qué pasó, y la reacción o el
+  contexto que lo completa. Antes el tope era de 75 palabras y eso obligaba a
+  comprimir en categorías de analista — de ahí salía la jerga. Con 110 no hay
+  excusa para escribir "patrón estructural" en vez de explicarlo.
+- Mejor una idea bien contada que tres comprimidas. Si solo hay una, entrega una.
+- ${HTML_INLINE_RULE}
+`,
+);
 
 export function buildExecutiveBriefingPrompt(agg: BriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
@@ -201,7 +194,10 @@ ${mentionBlock}
 TAREA:
 Devuelve un objeto JSON con cuatro campos: \`narrative_html\`, \`dominant_signal\`, \`action_label\`, \`action_tone\`, \`reach_label\`.
 
-1. \`narrative_html\` (2 a 3 oraciones, ≤75 palabras): describe la conversación pública de las últimas ${agg.periodHours} horas para la agencia. Debe (a) abrir con el patrón dominante (tópico con más volumen y su % negativo) y qué implica, (b) anclar con un número clave del periodo (variación, NSS, reach) y, si hay base disponible, situarlo vs. su nivel típico de 7 días ("por encima/por debajo de su nivel habitual"), (c) opcionalmente citar un municipio o autor SOLO si la concentración es clara. Resalta nombres propios y números con \`<strong>\`. No abras con la palabra "Hoy"; usa "En las últimas horas", "Durante el periodo", "El último ciclo". El límite de 75 palabras es estricto — sé más conciso.
+1. \`narrative_html\` (2 a 4 oraciones, máximo 110 palabras): cuenta qué está pasando en la conversación de la agencia. Dos ideas como mucho:
+   - La PRIMERA es el hecho: qué se dijo, quién lo dijo o qué evento lo produjo. Sale de las menciones destacadas, no de la tabla de tópicos.
+   - La SEGUNDA completa el cuadro: la reacción que provocó, quién más se sumó, o cómo se compara con lo habitual de esta agencia si tienes su nivel típico.
+   Ancla con un número, no más de dos en todo el texto. No abras con "Hoy" ni con una cifra: usa "En las últimas horas", "Durante el periodo".
 
 2. \`dominant_signal\` (texto plano): "<Tópico dominante> · <Tono>" — donde Tono es "Positiva", "Negativa", "Mixta" o "Neutral" según el balance del tópico dominante. Si no hay tópico claro, "Sin señal dominante · Neutral".
 

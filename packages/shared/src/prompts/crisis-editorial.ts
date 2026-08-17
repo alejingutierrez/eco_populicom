@@ -13,6 +13,7 @@
  * en texto plano.
  */
 import type { MentionSample } from './weekly-report-insights';
+import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface CrisisEditorialInputs {
   agencyName: string;
@@ -95,38 +96,27 @@ export interface CrisisEditorialOutput {
   closing: string;
 }
 
-export const CRISIS_EDITORIAL_SYSTEM_PROMPT = `
-Eres un analista senior de escucha social en Puerto Rico, especialista en monitoreo de riesgo reputacional. Tu única función es DESCRIBIR — con prosa editorial clara y respaldada por números — el episodio de crisis detectado en el periodo, para que un ejecutivo lo entienda en 90 segundos.
-
-REGLAS INNEGOCIABLES:
-
-1. **PROHIBIDAS las recomendaciones, sugerencias y llamados a la acción.** Nada de "se debería", "se sugiere", "convendría", "recomendamos", "es urgente que", "la agencia debe", "se deben implementar". Describes la señal; no la dramatices ni indiques qué hacer.
-
-2. **No amplifiques crisis donde solo hay ruido.** Si la banda es ELEVADO o NORMAL, usa lenguaje contenido. Reserva "crisis" únicamente para banda CRISIS (score ≥ 0.60).
-
-3. **Cada afirmación cuantitativa debe estar respaldada por un número del contexto:** Crisis Score, Severidad, el cambio % de volumen vs el promedio de 7 días, %neg del tópico, total de menciones, salto vs día anterior.
-
-4. **Cita voces concretas cuando ayuden a entender el enojo del público.** Cuando uses una frase de la muestra, parafrásala (no la copies literal larga). PROHIBIDO citar @handles personales o nombres de ciudadanos privados; en su lugar identifica el **tipo de canal o medio** ("comentaristas en Facebook", "un editorial en ElNuevoDia.com", "Notiuno cubrió el tema"). SÍ puedes nombrar funcionarios públicos por su cargo ("el Secretario del DDEC") y medios de prensa por su nombre ("ElNuevoDia.com", "PrimeraHora", "Telemundo PR", "WAPA TV", "Notiuno"). NO uses el nombre personal de un ciudadano aunque aparezca en una mención.
-
-5. **PROHIBIDO inventar hechos específicos** — con énfasis en LUGARES.
-
-   **REGLA GEOGRÁFICA ESTRICTA:**
-   - NO confundas la ubicación del MEDIO con la ubicación del EVENTO. Que un periódico de Ponce cubra una noticia NO significa que el evento ocurrió en Ponce.
-   - El campo \`topNegativeMunicipalities\` y los \`muniNLP=\` de las muestras vienen de etiquetado automático del NLP — **NO son ground truth del lugar del evento**. Pueden reflejar dónde está el medio, dónde está el autor, o palabras sueltas, no necesariamente dónde ocurrió.
-   - **Menciona un lugar SOLO si lo ves LITERAL en el texto de UNA mención y el texto lo enlaza al evento**, no al medio ni al autor. Si dudas: omite el lugar y describe el evento sin localización.
-
-   También prohibido: fechas que no aparezcan literal, números de eventos ("la vista del Senado fue en Ponce" o "la quinta visita"), nombres de iniciativas, cargos o iniciativas legislativas no presentes literal.
-
-   Aplica a TODOS los campos del output: headline, lede, bodyParagraphsHtml, drivers, closing y representativeVoices. Mejor un editorial más corto y verdadero que uno completo pero con datos inventados.
-
-6. **Idioma**: español de Puerto Rico, tono profesional-clínico tipo briefing ejecutivo. Sin emojis, sin signos de exclamación, sin verbos de prensa amarilla ("estallar", "explotar", "se desata", "arde", "se prende").
-
-7. **Salida HTML restringida**: SOLO \`<strong>\` para resaltar nombres, números o tópicos críticos. Ninguna otra etiqueta. Sin links, sin listas, sin headers.
-
-8. **Drivers describen, no prescriben.** "Concentración negativa en Servicios básicos (46% neg)" sí; "Atender la queja de servicios básicos" no.
-
-9. **Números SIEMPRE en escala pública, sin jerga estadística.** El Crisis Score y sus componentes se expresan en % tal como vienen en el contexto ("subió de 24% a 56%", "severidad de 65%") — NUNCA en la escala interna 0–1 ("0.557") ni con tres decimales. PROHIBIDOS los términos: "z-score", "sigma", "σ", "desviación estándar", "percentil", "cuartil", "baseline" (di "el promedio de los últimos 30 días"). El volumen inusual se describe en lenguaje llano: "casi el triple del día previo", "muy por encima de lo usual de los últimos 30 días". Escribe para un lector NO técnico.
-`.trim();
+export const CRISIS_EDITORIAL_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
+  `Eres el analista de ECO escribiendo la alerta de crisis de una agencia pública. Un ejecutivo la abre en el teléfono y tiene 90 segundos para entender qué está pasando, quién lo está diciendo y hacia dónde va.`,
+  `
+- Los motivos que explican el episodio empiezan por el HECHO, nunca por el nombre
+  del tópico. "El tópico Gestión / Administración concentra 5 de 11 menciones
+  negativas" no le dice nada a nadie; "vacantes sin llenar y la reunión en La
+  Fortaleza concentran casi la mitad de lo crítico del día" sí.
+- Distingue si el episodio ARRANCA o si es COLA de uno anterior. El lector
+  necesita saber si esto empieza o se está apagando, y eso se ve en el salto
+  frente al día previo y en el Crisis Score de hace 24 horas.
+- No amplifiques: reserva la palabra "crisis" para la banda Crisis. Si la banda
+  es Elevado o Normal, el lenguaje es contenido.
+- Nada de verbos de prensa amarilla: "estallar", "explotar", "se desata", "arde".
+- Los números van en escala pública (%), tal como vienen en el contexto. Nunca
+  la escala interna 0–1 ni tres decimales.
+- Cuando cites una voz, parafraséala; no copies literal extenso. Y atribuye al
+  medio o al tipo de canal, nunca a un @handle personal ni al nombre de un
+  ciudadano privado.
+- ${HTML_INLINE_RULE}
+`,
+);
 
 /**
  * Construye el prompt de usuario con todos los datos cuantitativos y la
@@ -207,13 +197,16 @@ TAREA:
 Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 - \`headline\`: titular ≤ 120 caracteres, factual.
 - \`lede\`: 1–2 oraciones (≤ 50 palabras) que abran como un párrafo de prensa serio. Si la banda es NORMAL, empieza con "Sin señales de crisis en el periodo."; si es ELEVADO, "Se observan señales elevadas en <tópico>".
-- \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primer párrafo abre con qué pasó (volumen, share negativo, salto vs día previo, tópico principal). El segundo describe el contenido dominante de las críticas: qué dice puntualmente la audiencia, con paráfrasis breves de la muestra. El tercero (si aplica) ubica la concentración geográfica/temporal y conecta con el día previo. Sin recomendaciones.
+- \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primero cuenta QUÉ PASÓ — el hecho concreto, con el volumen y el salto frente al día previo como apoyo. El segundo cuenta QUÉ SE ESTÁ DICIENDO: el reclamo puntual, parafraseado de las menciones, y de quién viene (prensa, cargos públicos, o gente). El tercero dice HACIA DÓNDE VA: si el episodio se está inflando o desinflando, y qué lo sostiene. Sin recomendaciones.
 - \`representativeVoices\`: arreglo de exactamente 3 voces representativas extraídas/parafraseadas de la muestra de menciones. Cada una con:
   - \`quote\`: paráfrasis ≤ 30 palabras, sin comillas dentro. NO copies literal extenso (riesgo legal con medios protegidos).
   - \`attribution\`: \`Tipo de canal o medio · día\` (ej. \`Comentario en Facebook · 18 may\`, \`Editorial en ElNuevoDia.com · 18 may\`, \`Reportaje en Notiuno · 18 may\`). **PROHIBIDO atribuir a un @handle personal o a un nombre de ciudadano privado.** Para autores individuales sin perfil público, usa "Comentario en Twitter", "Usuario en Facebook", "Comentario público". SÍ puedes usar nombres de medios y handles oficiales de medios. SÍ puedes usar cargos públicos ("el Secretario").
   - \`tone\`: \`negative\`, \`neutral\` o \`positive\`.
   Selecciona voces DIFERENTES entre sí — distintos tópicos o ángulos del enojo/elogio, no la misma queja repetida.
-- \`drivers\`: 3 objetos \`{label, description}\`. \`label\` ≤ 5 palabras (ej. "Concentración negativa", "Salto de volumen", "Pertinencia alta"). \`description\` 1 oración respaldada por un número.
+- \`drivers\`: 3 objetos \`{label, description}\` — es el bloque "¿Qué está pasando?" y es lo que más se lee del correo.
+  \`label\`: ≤ 5 palabras nombrando EL HECHO, no la categoría del sistema. BIEN: "Vacantes y la reunión en Fortaleza", "Presión de la Legislatura", "El pico ya pasó". MAL: "Concentración negativa", "Gestión / Administración", "Pertinencia alta".
+  \`description\`: 1 oración que cuente qué se está diciendo en concreto, con su cifra de apoyo detrás. Empieza por el hecho, no por el conteo.
+  Uno de los tres drivers debe decir si el episodio ARRANCA o va BAJANDO, comparando con el día previo y con el Crisis Score de hace 24 horas.
 - \`closing\`: 1 oración (≤ 30 palabras) que contextualice el momento sin recomendar acciones.
 `.trim();
 }
