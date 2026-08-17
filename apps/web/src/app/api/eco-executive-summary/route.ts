@@ -32,6 +32,7 @@ import {
   EXECUTIVE_SUMMARY_SYSTEM_PROMPT,
   EXECUTIVE_SUMMARY_TOOL_SCHEMA,
   buildExecutiveSummaryPrompt,
+  coerceBulletList,
   type PgClientLike,
   type ExecutiveSummaryAggregates,
   type ExecutiveSummaryMentionSample,
