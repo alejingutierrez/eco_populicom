@@ -72,7 +72,7 @@ const ses = new SESClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
 const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com';
+const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://citizenecho.com';
 
 /** template_key con el que el SEMANAL se registra en report_send_log. El
  *  diario usa el template_key de la config ('daily-sentiment-summary'). */

@@ -1589,13 +1589,23 @@
 
   (async function () {
     const params = new URLSearchParams(location.search);
-    const agency = params.get('agency') || localStorage.getItem('eco.agency') || '';
+    // Deep-link de correo: /overview?agency=sgpr. Hasta ahora el parámetro
+    // alimentaba SÓLO esta petición de arranque; el estado vivo del SPA es
+    // localStorage (`eco.agency`), que app.js lee para el selector y que CADA
+    // pantalla vuelve a leer en sus propios fetches. Resultado: quien tenía
+    // otra agencia guardada abría el correo de SGPR y veía la cabecera, el
+    // selector y todas las pantallas perezosas en la agencia anterior. Se
+    // promueve a localStorage más abajo (con el slug que el backend REALMENTE
+    // sirvió) y se limpia de la URL.
+    const urlAgency = params.get('agency');
+    const agency = urlAgency || localStorage.getItem('eco.agency') || '';
     // ECO_DEFAULT_PERIOD: mismo default que usa el estado de la barra en
     // app.js. Antes el boot pedía '1M' y el chip arrancaba en '7D', así que
     // en cada sesión limpia —y `ecoSignOut` hace localStorage.clear(), o sea
     // en cada login tras cerrar sesión— la barra decía 7D mientras los datos
     // eran de 30 días.
-    const period = params.get('period') || localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD;
+    const urlPeriod = params.get('period');
+    const period = urlPeriod || localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD;
     // Rango personalizado: cuando period === 'custom', el OverviewFilterBar
     // habrá guardado eco.from y eco.to en localStorage. Se envían como query
     // params para que /api/eco-data sobrescriba la ventana derivada de period.
@@ -1638,6 +1648,32 @@
       apiFailed = true;
       apiError = 'No hay conexión con el servidor. Revisa tu red.';
     }
+    // Los parámetros de la URL mandan sobre el estado guardado, pero sólo para
+    // esta entrada: se copian a localStorage —única fuente que leen app.js y
+    // las pantallas— y se borran de la barra de direcciones. Borrarlos importa
+    // tanto como copiarlos: cambiar de agencia dispara `location.reload()`, y
+    // con `?agency=` todavía en la URL el arranque resucitaba la agencia del
+    // correo y el cambio parecía no surtir efecto.
+    if (urlAgency) {
+      // El backend puede NO servir la agencia pedida (tenencia: /api/eco-data
+      // cae a la agencia primaria si el usuario no tiene acceso). Se guarda la
+      // que de verdad respondió para que selector y datos nunca discrepen.
+      const served = (window.ECO_DATA_REMOTE && window.ECO_DATA_REMOTE.USER_AGENCY_SLUG) || urlAgency;
+      localStorage.setItem('eco.agency', served);
+    }
+    if (urlPeriod) {
+      localStorage.setItem('eco.period', urlPeriod);
+      if (urlPeriod === 'custom' && params.get('from') && params.get('to')) {
+        localStorage.setItem('eco.from', params.get('from'));
+        localStorage.setItem('eco.to', params.get('to'));
+      }
+    }
+    if (urlAgency || urlPeriod || params.get('from') || params.get('to')) {
+      const rest = new URLSearchParams(location.search);
+      ['agency', 'period', 'from', 'to'].forEach(function (k) { rest.delete(k); });
+      const qs = rest.toString();
+      history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+    }
     // Keep-alive: renueva el idToken (~1h de vida) cada 20 min mientras la
     // pestaña está abierta, para que la sesión no expire en medio del trabajo
     // y expulse al usuario al login al cambiar de período/agencia.
@@ -1655,7 +1691,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc75';
+        s.src = base + '/' + f + '?v=prodc76';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

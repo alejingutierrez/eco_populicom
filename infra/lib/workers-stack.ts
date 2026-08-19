@@ -23,6 +23,18 @@ export interface WorkersStackProps extends cdk.StackProps {
   alertsQueue: sqs.IQueue;
 }
 
+/**
+ * Origen canónico del dashboard para los CTA de los correos. Debe ser el mismo
+ * host por el que entra el usuario a diario: el enlace de un correo no sólo
+ * tiene que abrir la app, tiene que abrirla en el MISMO origen donde vive su
+ * sesión y su `localStorage` (que es donde el SPA guarda la agencia y el
+ * periodo). Apuntando al ALB por HTTP los correos aterrizaban en un origen
+ * distinto de citizenecho.com, con su propio almacenamiento y su propia
+ * agencia recordada. Se dejó a mano en los tres lambdas más de una vez; vive
+ * aquí para que un `cdk deploy EcoWorkers` no vuelva a revertirlo.
+ */
+const DASHBOARD_BASE_URL = 'https://citizenecho.com';
+
 export class WorkersStack extends cdk.Stack {
   public readonly ingestionFunction: NodejsFunction;
   public readonly processorFunction: NodejsFunction;
@@ -188,7 +200,7 @@ export class WorkersStack extends cdk.Stack {
       environment: {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         SES_FROM_EMAIL: 'noreply@populicom.com',
-        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
+        DASHBOARD_BASE_URL: DASHBOARD_BASE_URL,
       },
       logGroup: importLogGroup('AlertsLogGroup', 'eco-alerts'),
       bundling: bundlingOptions,
@@ -233,7 +245,7 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         SES_FROM_EMAIL: 'agutierrez@populicom.com',
         SES_FROM_NAME: 'ECO Radar',
-        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
+        DASHBOARD_BASE_URL: DASHBOARD_BASE_URL,
       },
       logGroup: importLogGroup('MetricsCalcLogGroup', 'eco-metrics-calculator'),
       bundling: bundlingOptions,
@@ -305,7 +317,7 @@ export class WorkersStack extends cdk.Stack {
         SES_FROM_NAME: 'ECO Radar',
         REPORT_RECIPIENTS: 'agutierrez@populicom.com',
         AGENCY_SLUG: 'ddecpr',
-        DASHBOARD_BASE_URL: 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com',
+        DASHBOARD_BASE_URL: DASHBOARD_BASE_URL,
       },
       logGroup: importLogGroup('WeeklyReportLogGroup', 'eco-weekly-report'),
       bundling: bundlingOptions,

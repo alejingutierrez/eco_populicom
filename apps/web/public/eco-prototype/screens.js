@@ -6024,7 +6024,14 @@ function OverviewInsights({ periodStart, periodEnd, agency }) {
                   {col.items.map((it, i) => (
                     <li key={i} style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 'var(--sp-2)' }}>
                       <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 'var(--sp-15)' }} />
-                      <span>{it}</span>
+                      {/* La constitución editorial autoriza <strong> en las
+                          viñetas (packages/shared/src/prompts/constitution.ts),
+                          y las filas de overview_period_insights lo traen. Como
+                          texto plano el lector veía la etiqueta literal
+                          ("<strong>Francisco Domenech</strong>") en medio de la
+                          frase. Mismo saneado que la columna de resumen: sólo
+                          sobrevive <strong>. */}
+                      <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(it) }} />
                     </li>
                   ))}
                 </ul>
