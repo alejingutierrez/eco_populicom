@@ -26,7 +26,7 @@ const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'noreply@populicom.com';
 const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com';
+const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://citizenecho.com';
 const ALERT_TIMEZONE = 'America/Puerto_Rico';
 
 let dbUrl: string | null = null;
