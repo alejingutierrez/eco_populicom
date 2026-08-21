@@ -108,6 +108,25 @@ ln -sfn /Users/alegut/MyApps/eco_populicom/node_modules \
   /Users/alegut/MyApps/eco_populicom/.claude/worktrees/<worktree>/node_modules
 ```
 
+**Arreglo para que `cdk synth`/`diff`/`deploy` funcione desde el worktree**
+(ago-2026): en vez de copiar archivos al monorepo principal, poner un override
+de resolución en `infra/node_modules/@eco`. Node y esbuild suben directorio por
+directorio buscando `node_modules`, así que `<worktree>/infra/node_modules`
+gana antes de llegar al symlink de la raíz:
+
+```bash
+W=/Users/alegut/MyApps/eco_populicom/.claude/worktrees/<worktree>
+mkdir -p $W/infra/node_modules/@eco
+for p in shared database brandwatch; do ln -sfn $W/packages/$p $W/infra/node_modules/@eco/$p; done
+```
+
+Sin esto, `cdk diff <cualquier-stack>` revienta al bundlear EcoWorkers —
+CDK sintetiza TODA la app, así que un `@eco/shared` stale en el monorepo
+principal rompe el diff de stacks que no tienen ni un lambda (ej. EcoAuth),
+con errores del tipo `No matching export in packages/shared/src/index.ts`.
+Ventaja sobre el patrón de `git checkout origin/<branch> -- <files>`: no toca
+el working tree del monorepo principal (que suele tener trabajo sin commitear).
+
 ### Deploy de un cambio del worktree (Lambdas, infra)
 
 Patrón seguro: copiar los archivos del worktree al monorepo principal con
@@ -326,12 +345,82 @@ defecto (Chart.js v2) no respeta `plugins.legend.display=false`.
 
 ## SES
 
-- Sender verificado: `agutierrez@populicom.com`. Para usar otro hay que
-  verificarlo desde la consola SES primero.
+- **Fuera del sandbox desde el 21-ago-2026** (caso `178733164900725`,
+  `ReviewDetails.Status = GRANTED`). Cuota: 50,000/día, 14/seg. Ya **no** hay
+  que verificar destinatarios uno por uno: SES entrega a cualquier dirección.
+  Comprobar con `aws sesv2 get-account` → `ProductionAccessEnabled`.
+- Antes de eso, el sandbox era la causa de que **la activación de usuarios
+  nuevos no funcionara**: la cuenta se creaba en Cognito con contraseña
+  temporal, pero SES rechazaba la invitación con
+  `MessageRejected: Email address is not verified` y el correo nunca salía.
+  Síntoma en la DB: usuario en `FORCE_CHANGE_PASSWORD` con `last_login = NULL`.
+  Síntoma en `report_send_log`: `error: partial: <emails>`.
+- Remitentes: `alerts@citizenecho.com` para **todo** (reportes, alertas y
+  también las invitaciones/códigos de Cognito).
+- **No enviar nunca desde `@populicom.com` vía SES.** Ese dominio sigue en
+  Google Workspace con SPF `include:_spf.google.com ~all` (no autoriza a
+  Amazon SES) y sin CNAMEs de DKIM de SES → falla SPF *y* DKIM y cae en spam.
+  `citizenecho.com` sí está alineado: Easy DKIM verificado y SPF con
+  `include:amazonses.com`.
 - El lambda envía un correo individual por destinatario (no `BCC`) porque
-  en SES sandbox una dirección no verificada tumba el mensaje entero si
-  va en TO compartido. El loop por destinatario permite que los
-  verificados reciban aunque otros fallen.
+  una dirección que falle tumbaría el mensaje entero si va en TO compartido.
+  El loop por destinatario permite que los demás reciban aunque uno falle.
+- Pendiente de DNS (GoDaddy, no lo puede hacer el agente): **falta el registro
+  DMARC** en `citizenecho.com` y en `populicom.com`. Y el SPF de
+  `citizenecho.com` termina en `-all` sin `include:spf.protection.outlook.com`
+  — si alguien envía desde un buzón `@citizenecho.com` (el dominio recibe por
+  Microsoft 365: `MX = citizenecho-com.mail.protection.outlook.com`), ese
+  correo falla SPF en duro. El correo automático de ECO no se ve afectado
+  porque sale por SES.
+
+### Cognito manda sus correos por SES (gotcha de la identity policy)
+
+El pool `eco-users` (`us-east-1_exuhIKYQ8`) usa
+`EmailSendingAccount: DEVELOPER`, o sea envía por SES y no por el correo
+default de Cognito (`no-reply@verificationemail.com`, que Workspace filtra).
+
+Para que eso funcione, la identidad remitente necesita una **policy de
+recurso** que autorice a `cognito-idp.amazonaws.com`. **CloudFormation no tiene
+recurso para eso**, así que NO está en CDK y hay que ponerla a mano — si se
+cambia el remitente y se olvida, Cognito deja de enviar del todo:
+
+```bash
+aws sesv2 create-email-identity-policy \
+  --email-identity alerts@citizenecho.com \
+  --policy-name AllowCognitoUserPoolSending \
+  --policy '{"Version":"2008-10-17","Statement":[{"Sid":"AllowCognitoUserPoolSending","Effect":"Allow","Principal":{"Service":"cognito-idp.amazonaws.com"},"Action":["ses:SendEmail","ses:SendRawEmail"],"Resource":"arn:aws:ses:us-east-1:863956448838:identity/alerts@citizenecho.com","Condition":{"StringEquals":{"aws:SourceAccount":"863956448838"},"ArnLike":{"aws:SourceArn":"arn:aws:cognito-idp:us-east-1:863956448838:userpool/us-east-1_exuhIKYQ8"}}}]}'
+# verificar:
+aws sesv2 get-email-identity-policies --email-identity alerts@citizenecho.com
+```
+
+Ya está puesta en `alerts@citizenecho.com` y en `citizenecho.com`.
+
+### Reenviar una invitación que no llegó
+
+La contraseña temporal se generó cuando se creó la cuenta; si el correo no
+salió, hay que reenviarlo (no basta con esperar):
+
+```bash
+aws cognito-idp admin-create-user --user-pool-id us-east-1_exuhIKYQ8 \
+  --username persona@populicom.com --message-action RESEND \
+  --desired-delivery-mediums EMAIL
+```
+
+Solo funciona en `FORCE_CHANGE_PASSWORD`. Si ya está `CONFIRMED`, la persona
+debe usar "olvidé mi contraseña" en `/sign-in`.
+
+### Verificar entrega sin acceso al buzón
+
+No hay configuration set con event destination, pero las métricas de cuenta
+sirven de prueba objetiva:
+
+```bash
+aws cloudwatch get-metric-statistics --namespace AWS/SES \
+  --metric-name Delivery --start-time "$(date -u -v-3H +%Y-%m-%dT%H:%M:%S)" \
+  --end-time "$(date -u +%Y-%m-%dT%H:%M:%S)" --period 10800 --statistics Sum
+```
+`Send` vs `Delivery` vs `Bounce`/`Reject`. `Delivery` = el MTA destino aceptó
+(no distingue bandeja de entrada de spam).
 
 ---
 
