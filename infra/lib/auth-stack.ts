@@ -21,10 +21,12 @@ export class AuthStack extends cdk.Stack {
     // desde un worktree no resuelve @eco/shared de forma fiable.
     // {username} = correo de la cuenta; {####} = contraseña temporal
     // (invitación) o código de un solo uso (recuperación).
-    // El dominio app.populicom.com aún no está cableado (sin DNS/cert; el ALB
-    // solo tiene listener HTTP:80). Hasta que se cablee, los correos apuntan a
-    // la URL del ALB — que es donde la app realmente vive y responde 200.
-    const SIGN_IN_URL = 'http://eco-alb-1881782703.us-east-1.elb.amazonaws.com/sign-in';
+    // citizenecho.com es el dominio canónico y ya sirve HTTPS (listener 443).
+    // Los correos de reporte/alerta ya apuntan aquí vía DASHBOARD_BASE_URL; estas
+    // plantillas viven en la config del pool y se habían quedado en la URL del
+    // ALB por HTTP — una pantalla de contraseña sobre HTTP que el navegador marca
+    // insegura y que los filtros de correo penalizan.
+    const SIGN_IN_URL = 'https://citizenecho.com/sign-in';
     const C = {
       page: '#F5F6F8', surface: '#FFFFFF', border: '#E6E8EC', borderSoft: '#EEF0F4',
       ink: '#0E1E2C', inkSoft: '#4A5563', inkMute: '#8A93A0',
@@ -142,15 +144,19 @@ export class AuthStack extends cdk.Stack {
     // Cognito User Pool
     this.userPool = new cognito.UserPool(this, 'EcoUserPool', {
       userPoolName: 'eco-users',
-      // Envía la invitación y los códigos de recuperación por SES desde el
-      // remitente verificado (el mismo del correo de alerta/diario), en vez del
+      // Envía la invitación y los códigos de recuperación por SES, no por el
       // correo default de Cognito (no-reply@verificationemail.com) que los
-      // dominios Workspace como @populicom.com filtran como spam — causa real de
-      // que la invitación no llegara. SES en sandbox solo entrega a destinatarios
-      // verificados; los usuarios del panel son @populicom.com (verificados).
+      // dominios Workspace filtran como spam.
+      //
+      // El remitente es alerts@citizenecho.com — el mismo de los correos de
+      // reporte y alerta. NO puede ser @populicom.com: ese dominio sigue en
+      // Google Workspace con SPF 'include:_spf.google.com ~all', que no autoriza
+      // a Amazon SES, y no tiene CNAMEs de DKIM de SES. Un correo enviado por SES
+      // con From: @populicom.com falla SPF *y* DKIM y cae en spam. citizenecho.com
+      // sí está alineado: DKIM verificado en SES y SPF con include:amazonses.com.
       email: cognito.UserPoolEmail.withSES({
-        fromEmail: 'agutierrez@populicom.com',
-        fromName: 'ECO — Populicom',
+        fromEmail: 'alerts@citizenecho.com',
+        fromName: 'ECO Radar',
         replyTo: 'agutierrez@populicom.com',
         sesRegion: 'us-east-1',
       }),
