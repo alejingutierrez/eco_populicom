@@ -1494,6 +1494,13 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
 
   if (!slice) return null;
   const { eyebrow, title, highlight, accent = 'var(--accent)', ctaLabel, ctaIcon, onCta, insightText, subcomponents, headlineValue } = slice;
+  // El botón "Crear alerta" del pie escribe con POST /api/alerts, que exige la
+  // capacidad manage_alert_rules (admin/editor). Sin este gate un analyst o un
+  // viewer veían el botón, escribían el nombre en el prompt y se comían un 403:
+  // mismo criterio que ya aplican "Nueva regla" y la pestaña de crisis en
+  // screens.js. ecoHasCap devuelve true mientras la sesión no ha cargado, para
+  // no hacer parpadear el botón en cada apertura del drill-down.
+  const canCreateAlert = ecoHasCap('manage_alert_rules');
   const volume = liveSlice ? liveSlice.total : slice.volume;
   const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
   const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
@@ -1742,57 +1749,64 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 'var(--sp-2)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
-            {ctaLabel && onCta && (() => {
-              const CtaIcon = ctaIcon ? Icons[ctaIcon] : null;
-              return (
-                <button className="btn btn-primary" onClick={onCta} style={{ flex: 1, justifyContent: 'center' }}>
-                  {CtaIcon && <CtaIcon size={13} />} {ctaLabel}
+          {/* La fila de acciones solo existe si va a llevar algo: sin CTA y sin
+              permiso de alertas quedaba como una franja vacía con su borde
+              superior colgando del último subcomponente. */}
+          {((ctaLabel && onCta) || canCreateAlert) && (
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
+              {ctaLabel && onCta && (() => {
+                const CtaIcon = ctaIcon ? Icons[ctaIcon] : null;
+                return (
+                  <button className="btn btn-primary" onClick={onCta} style={{ flex: 1, justifyContent: 'center' }}>
+                    {CtaIcon && <CtaIcon size={13} />} {ctaLabel}
+                  </button>
+                );
+              })()}
+              {/* El botón "Exportar" (CSV del slice) se retiró: la exportación es
+                  ahora una sola acción de nivel de aplicación — el reporte
+                  analítico en PDF del header, que responde a los filtros
+                  vigentes. Tener dos exportaciones con alcance distinto (un CSV
+                  de 50 filas aquí, un reporte completo allá) bajo la misma
+                  palabra era el problema. */}
+              {canCreateAlert && (
+                <button className="btn"
+                  onClick={async () => {
+                    // La regla se deriva del slice activo (slice._filter + slice.title);
+                    // antes referenciaba una variable `mention` inexistente y lanzaba
+                    // ReferenceError al primer clic en cualquier drill-down.
+                    const f = (slice && slice._filter) || {};
+                    const label = (slice && (slice.title || slice.eyebrow)) || 'filtro actual';
+                    const name = prompt('Nombre de la alerta', 'Menciones · ' + label);
+                    if (!name || !name.trim()) return;
+                    // config.type debe pertenecer a KNOWN_CONFIG_TYPES del backend o
+                    // /api/alerts responde 422. negative_sentiment para slices
+                    // negativos; volume_spike para cualquier otro segmento.
+                    const type = (f.sentiment === 'negativo' || f.sentiment === 'negative') ? 'negative_sentiment' : 'volume_spike';
+                    const config = { type, threshold: { volumeMinutes: 60, minMentions: 5 } };
+                    ['topic', 'municipality', 'sentiment', 'source', 'emotion', 'region', 'minEngagement', 'day', 'dow', 'hour'].forEach((k) => {
+                      if (f[k] != null && f[k] !== '') config[k] = f[k];
+                    });
+                    try {
+                      const res = await fetch('/api/alerts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({
+                          name: name.trim(),
+                          description: 'Creada desde: ' + label,
+                          config,
+                          notifyEmails: [],
+                        }),
+                      });
+                      if (res.ok) (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
+                      else (window.ecoToast || (() => {}))('err', 'No se pudo crear la alerta (' + res.status + ')');
+                    } catch (_) { (window.ecoToast || (() => {}))('err', 'Error creando la alerta'); }
+                  }}>
+                  <Icons.Bell size={13} /> Crear alerta
                 </button>
-              );
-            })()}
-            {/* El botón "Exportar" (CSV del slice) se retiró: la exportación es
-                ahora una sola acción de nivel de aplicación — el reporte
-                analítico en PDF del header, que responde a los filtros
-                vigentes. Tener dos exportaciones con alcance distinto (un CSV
-                de 50 filas aquí, un reporte completo allá) bajo la misma
-                palabra era el problema. */}
-            <button className="btn"
-              onClick={async () => {
-                // La regla se deriva del slice activo (slice._filter + slice.title);
-                // antes referenciaba una variable `mention` inexistente y lanzaba
-                // ReferenceError al primer clic en cualquier drill-down.
-                const f = (slice && slice._filter) || {};
-                const label = (slice && (slice.title || slice.eyebrow)) || 'filtro actual';
-                const name = prompt('Nombre de la alerta', 'Menciones · ' + label);
-                if (!name || !name.trim()) return;
-                // config.type debe pertenecer a KNOWN_CONFIG_TYPES del backend o
-                // /api/alerts responde 422. negative_sentiment para slices
-                // negativos; volume_spike para cualquier otro segmento.
-                const type = (f.sentiment === 'negativo' || f.sentiment === 'negative') ? 'negative_sentiment' : 'volume_spike';
-                const config = { type, threshold: { volumeMinutes: 60, minMentions: 5 } };
-                ['topic', 'municipality', 'sentiment', 'source', 'emotion', 'region', 'minEngagement', 'day', 'dow', 'hour'].forEach((k) => {
-                  if (f[k] != null && f[k] !== '') config[k] = f[k];
-                });
-                try {
-                  const res = await fetch('/api/alerts', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                      name: name.trim(),
-                      description: 'Creada desde: ' + label,
-                      config,
-                      notifyEmails: [],
-                    }),
-                  });
-                  if (res.ok) (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
-                  else (window.ecoToast || (() => {}))('err', 'No se pudo crear la alerta (' + res.status + ')');
-                } catch (_) { (window.ecoToast || (() => {}))('err', 'Error creando la alerta'); }
-              }}>
-              <Icons.Bell size={13} /> Crear alerta
-            </button>
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
