@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, alertRules, agencies } from '@eco/database';
+import { getDb, alertRules } from '@eco/database';
 import { sql, eq } from 'drizzle-orm';
-import { resolveAgencyId } from '@/lib/agency';
+import { resolveAgencyId, resolveCallerAgencyId } from '@/lib/agency';
 import { requireCapability, requireAlertsAccess } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
 
@@ -24,23 +24,6 @@ function validateAlertConfig(cfg: Record<string, unknown>): { ok: true } | { ok:
     if (typeof cfg.threshold !== 'number' || !Number.isFinite(cfg.threshold)) return { ok: false, error: 'threshold numérico requerido' };
   }
   return { ok: true };
-}
-
-/** Resolve the agency the authenticated caller is allowed to act on. Prefers
- *  the slug pinned to their Cognito claims (header set by middleware); falls
- *  back to the URL param for read-only GETs. Never trusts body.agencyId. */
-async function resolveCallerAgencyId(request: NextRequest): Promise<string | null> {
-  const sessionSlug = request.headers.get('x-eco-user-agency');
-  if (sessionSlug) {
-    const db = getDb();
-    const [row] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.slug, sessionSlug))
-      .limit(1);
-    if (row?.id) return row.id;
-  }
-  return resolveAgencyId(request.nextUrl.searchParams);
 }
 
 export async function GET(request: NextRequest) {

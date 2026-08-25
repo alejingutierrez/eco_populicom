@@ -4139,6 +4139,8 @@ function AlertsScreen({ onMentionClick }) {
   // un día y una semana. Cambiar de período recarga la página (app.js), así que
   // basta leerlo una vez por montaje.
   const [fireStats, setFireStats] = useState({ fired: null, lastFired: null });
+  // Regla cuyo toggle está en vuelo, para no encadenar clics sobre la misma.
+  const [savingRule, setSavingRule] = useState(null);
   const firePeriod = (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams().period : '7D';
   React.useEffect(() => {
     const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
@@ -4171,6 +4173,33 @@ function AlertsScreen({ onMentionClick }) {
   function fireToast(kind, text) {
     setToast({ kind, text });
     setTimeout(() => setToast(null), 3600);
+  }
+
+  // El toggle Activa/Inactiva de la tabla de reglas solo movía estado local: se
+  // veía como un control que guarda, se quedaba puesto hasta recargar y la regla
+  // seguía disparando igual. Ahora escribe en PATCH /api/alerts/[id].
+  // Optimista —el switch responde al instante— con vuelta atrás y aviso si el
+  // servidor lo rechaza, que es lo que pasaba en silencio hasta ahora.
+  async function toggleRule(id) {
+    if (savingRule) return;
+    const next = !ruleActive[id];
+    setSavingRule(id);
+    setRuleActive((s) => ({ ...s, [id]: next }));
+    try {
+      const res = await fetch('/api/alerts/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ isActive: next }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      fireToast('ok', next ? 'Regla activada.' : 'Regla desactivada.');
+    } catch (e) {
+      setRuleActive((s) => ({ ...s, [id]: !next }));
+      fireToast('err', 'No se pudo cambiar la regla (' + (e.message || e) + ')');
+    } finally {
+      setSavingRule(null);
+    }
   }
 
   return (
@@ -4216,14 +4245,25 @@ function AlertsScreen({ onMentionClick }) {
                   que un "0" aquí no significa "cero activaciones" sino "sin dato":
                   se rinde como raya hasta que el endpoint lo calcule. */}
               <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered ? a.triggered : '—'}</span>
-              <label
-                onClick={() => setRuleActive((s) => ({ ...s, [a.id]: !s[a.id] }))}
-                style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', cursor: 'pointer' }}>
-                <div style={{ width: 28, height: 16, borderRadius: 'var(--r-lg)', background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
-                  <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
-                </div>
-                <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
-              </label>
+              {/* Sin manage_alert_rules el PATCH responde 403, así que el
+                  switch no se ofrece: se muestra el estado y ya. */}
+              {canRules ? (
+                <button
+                  onClick={() => toggleRule(a.id)}
+                  disabled={savingRule === a.id}
+                  aria-pressed={!!ruleActive[a.id]}
+                  title={ruleActive[a.id] ? 'Desactivar esta regla' : 'Activar esta regla'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', cursor: savingRule === a.id ? 'wait' : 'pointer', background: 'none', border: 0, padding: 0, opacity: savingRule === a.id ? 0.6 : 1 }}>
+                  <div style={{ width: 28, height: 16, borderRadius: 'var(--r-lg)', background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
+                    <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
+                  </div>
+                  <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
+                </button>
+              ) : (
+                <span className={`pill ${ruleActive[a.id] ? 'pill-pos' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>
+                  {ruleActive[a.id] ? 'Activa' : 'Inactiva'}
+                </span>
+              )}
               <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
                 {a.channels.map((c) => {
                   const IconC = { email: Icons.Mail, slack: Icons.Slack, sms: Icons.Phone }[c];

@@ -63,6 +63,7 @@ import type {
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
+import { requireCapability } from '@/lib/auth/require-admin';
 
 export const dynamic = 'force-dynamic';
 // El documento completo puede tardar ~40-70 s entre las nueve llamadas a
@@ -159,6 +160,14 @@ async function analyze<T>(
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
+  // El middleware ya exige sesión para /api/export/*, pero la sesión sola no
+  // basta: este documento es el período COMPLETO de la agencia (indicadores,
+  // menciones determinantes y nueve análisis de Opus). La capacidad `export`
+  // existía en la matriz de roles y no la comprobaba nadie, así que un `viewer`
+  // —que por definición no la tiene— podía descargarlo entrando por la URL.
+  const gate = await requireCapability('export');
+  if (!gate.ok) return gate.response;
+
   // Límite estricto: cada reporte son nueve invocaciones de Opus. No es un
   // endpoint de dashboard que se pueda llamar en bucle.
   const rl = consume('export-report:' + clientKey(request), { limit: 6, windowMs: 10 * 60_000 });
