@@ -62,6 +62,17 @@ working tree del monorepo principal (sucio). Usa SIEMPRE
 - Cron diario `eco-processor-reprocess-unclassified-manual` (08:30 UTC) es
   TEMPORAL: bórralo cuando un deploy de CDK EcoWorkers cree
   `ProcessorReprocessUnclassifiedDaily` (ya está en workers-stack.ts).
+- `report_configs.recipients` es **UNA sola lista para el diario Y el semanal**
+  (`infra/lambda/weekly-report/index.ts` la lee igual para los dos tipos). No
+  hay destinatarios por tipo: meter a alguien ahí le manda AMBOS correos. Si
+  alguien debe recibir solo uno, la salida es una regla de EventBridge con
+  invocación dirigida y `recipients` override — el handler ignora hora y día
+  cuando el payload trae `agencySlug`.
+- Cron `eco-weekly-report-ddecpr-vero-manual` (viernes 19:00 UTC = 3:00 PM AST)
+  es exactamente eso: manda el SEMANAL solo a `vero@eficiencia.pr.gov` (DDEC,
+  clienta externa, rol analyst) sin darle el diario. Está FUERA de CDK, igual
+  que el cron del processor. Bórralo si algún día existen listas por tipo, o si
+  se decide meterla en `report_configs.recipients`.
 - `eco-narrative-cluster` corre con timeout 900s y env
   `NARRATIVE_CANDIDATE_POOL_LIMIT=12000` (cap del DBSCAN O(n²)).
 
