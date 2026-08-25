@@ -180,3 +180,27 @@ export async function resolveAllowedAgencySlugs(): Promise<string[] | null> {
   const allowed = access.allowedIds;
   return active.filter((a) => allowed.has(a.id)).map((a) => a.slug);
 }
+
+/**
+ * La agencia sobre la que el llamante puede ESCRIBIR. Prefiere el slug fijado a
+ * sus claims de Cognito (cabecera que pone el middleware) y solo cae al
+ * parámetro de la URL cuando no hay sesión con agencia — nunca confía en el
+ * cuerpo de la petición.
+ *
+ * Vive aquí y no en cada ruta porque la tenencia no se duplica: tres rutas de
+ * escritura (/api/alerts, /api/alerts/[id], /api/users) necesitaban la misma
+ * resolución, y tener tres copias significa que endurecer una deja las otras
+ * atrás. Para LECTURAS usa `resolveAgencyId`, que sí honra el switcher `?agency=`
+ * dentro del conjunto permitido del usuario.
+ */
+export async function resolveCallerAgencyId(request: {
+  headers: { get(name: string): string | null };
+  nextUrl: { searchParams: URLSearchParams };
+}): Promise<string | null> {
+  const sessionSlug = request.headers.get('x-eco-user-agency');
+  if (sessionSlug) {
+    const id = await slugToId(sessionSlug);
+    if (id) return id;
+  }
+  return resolveAgencyId(request.nextUrl.searchParams);
+}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, users, agencies } from '@eco/database';
-import { eq, desc, inArray } from 'drizzle-orm';
-import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
+import { desc, inArray } from 'drizzle-orm';
+import { resolveAgencyId, resolveAllowedAgencySlugs, resolveCallerAgencyId } from '@/lib/agency';
 import { setUserAgencyAccess, agencySlugsByUser } from '@/lib/provision';
 import { requireRole } from '@/lib/auth/require-admin';
 import { provisionCognitoUser } from '@/lib/auth/cognito-admin';
@@ -15,20 +15,6 @@ function parseAllowedPages(v: unknown): string[] | null | undefined {
   if (v === null) return null;
   if (Array.isArray(v)) return v.filter((s): s is string => typeof s === 'string');
   return undefined; // ausente → no tocar
-}
-
-async function resolveCallerAgencyId(request: NextRequest): Promise<string | null> {
-  const sessionSlug = request.headers.get('x-eco-user-agency');
-  if (sessionSlug) {
-    const db = getDb();
-    const [row] = await db
-      .select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.slug, sessionSlug))
-      .limit(1);
-    if (row?.id) return row.id;
-  }
-  return resolveAgencyId(request.nextUrl.searchParams);
 }
 
 /** agency ids for a list of slugs (active agencies only). */

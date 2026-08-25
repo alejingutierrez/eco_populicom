@@ -747,13 +747,19 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
             en ventana nueva" funcionan como en cualquier enlace.
             El href se arma con los filtros VIGENTES del header (agencia,
             período y, si el período es custom, el rango de fechas), que es
-            exactamente lo que el endpoint resuelve con resolveWindow. */}
-        <a className="btn" href={exportHref} target="_blank" rel="noopener"
-          title={`Exportar reporte analítico en PDF · ${isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : period}`}
-          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', textDecoration: 'none' }}>
-          <Icons.Download size={14} color="var(--accent)" />
-          <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Exportar</span>
-        </a>
+            exactamente lo que el endpoint resuelve con resolveWindow.
+            Gateado por la capacidad `export`: el documento es el período
+            completo de la agencia, y un viewer no la tiene. El corte que manda
+            está en /api/export/report; esto solo evita ofrecer un enlace que
+            responde 403. */}
+        {ecoHasCap('export') && (
+          <a className="btn" href={exportHref} target="_blank" rel="noopener"
+            title={`Exportar reporte analítico en PDF · ${isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : period}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', textDecoration: 'none' }}>
+            <Icons.Download size={14} color="var(--accent)" />
+            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Exportar</span>
+          </a>
+        )}
         {onOpenChat && (
           <button className="btn" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)"
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
