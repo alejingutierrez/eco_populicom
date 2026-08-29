@@ -91,8 +91,8 @@ async function computeEdgesForAgency(
             )) AS strength
        FROM narrative_mentions nm1
        JOIN narrative_mentions nm2 ON nm2.mention_id = nm1.mention_id
-       JOIN narratives n1 ON n1.id = nm1.narrative_id AND n1.agency_id = $1
-       JOIN narratives n2 ON n2.id = nm2.narrative_id AND n2.agency_id = $1
+       JOIN narratives n1 ON n1.id = nm1.narrative_id AND n1.agency_id = $1 AND n1.merged_into_id IS NULL
+       JOIN narratives n2 ON n2.id = nm2.narrative_id AND n2.agency_id = $1 AND n2.merged_into_id IS NULL
        WHERE nm1.narrative_id < nm2.narrative_id
        GROUP BY nm1.narrative_id, nm2.narrative_id
        HAVING COUNT(*) >= $2
@@ -107,7 +107,7 @@ async function computeEdgesForAgency(
        SELECT nm.narrative_id, m.author
          FROM narrative_mentions nm
          JOIN mentions m ON m.id = nm.mention_id
-         JOIN narratives n ON n.id = nm.narrative_id AND n.agency_id = $1
+         JOIN narratives n ON n.id = nm.narrative_id AND n.agency_id = $1 AND n.merged_into_id IS NULL
          WHERE nm.is_primary = true AND m.author IS NOT NULL
          GROUP BY nm.narrative_id, m.author
      ),
@@ -139,6 +139,10 @@ async function computeEdgesForAgency(
        FROM narratives n1
        JOIN narratives n2 ON n2.id > n1.id AND n2.agency_id = n1.agency_id
        WHERE n1.agency_id = $1
+         -- N8: no se tienden aristas hacia narrativas absorbidas. Apuntarían a
+         -- nodos que la lista ya no devuelve, y la tabla acumularía basura que
+         -- el front tendría que descartar en cada carga.
+         AND n1.merged_into_id IS NULL AND n2.merged_into_id IS NULL
          AND n1.centroid IS NOT NULL AND n2.centroid IS NOT NULL
          AND (1 - (n1.centroid <=> n2.centroid)) >= $2
      ON CONFLICT (source_narrative_id, target_narrative_id, edge_type) DO NOTHING`,

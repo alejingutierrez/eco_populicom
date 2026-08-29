@@ -132,12 +132,20 @@ function getNav() {
     : ((D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || 0);
   const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
+    // Orden pedido por el usuario (ago-2026): Overview, Tópicos, Narrativas y
+    // después el resto en su orden previo. La lectura va de "qué pasó" a "de
+    // qué se habla" a "cómo se está contando", antes de bajar al detalle.
+    // ESTE ARRAY ES LA FUENTE ÚNICA del orden: el rail de escritorio, el drawer
+    // off-canvas de móvil (mismo <Sidebar>, movido por CSS) y la sección "Ir a"
+    // del ⌘K lo iteran sin reordenar. Si cambias este orden, actualiza también
+    // PAGE_OPTIONS (screens.js) y SCREEN_META (app.js), que son las dos únicas
+    // copias con orden significativo.
     { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },
+    { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
+    { key: 'narrative', icon: 'Branches', label: 'Narrativas', shortcut: 'N' },
     { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D' },
     { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
     { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
-    { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
-    { key: 'narrative', icon: 'Branches', label: 'Narrativas', shortcut: 'N' },
     { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G' },
     { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', badge: activeAlerts || null, urgent: activeAlerts > 0 },
   ];
@@ -496,9 +504,12 @@ function HeaderSearch({ onSearch, onOpenCommand }) {
   );
 }
 
-// showPeriod=false oculta los chips de periodo y el calendario. Lo usa
-// Narrativas, donde la ventana de fechas no aplica (cada narrativa tiene su
-// propio ciclo de vida y su timeline se muestra completo).
+// showPeriod=false oculta los chips de periodo y el calendario, y en su lugar
+// pinta una nota explicando la ausencia. Hoy NINGUNA pantalla lo usa: Narrativas
+// era la única y recuperó el control de fechas en ago-2026, cuando la ventana
+// pasó a viajar también al endpoint de detalle. Se conserva el prop para no
+// tener que reconstruir el mecanismo si vuelve a aparecer una pantalla sin
+// ventana.
 function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true, showPeriod = true }) {
   // Una sola fuente de control de periodo en TODA la aplicación: el Header.
   // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en

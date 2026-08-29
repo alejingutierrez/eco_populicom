@@ -33,13 +33,22 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) return NextResponse.json({ error: 'No agency' }, { status: 404 });
 
-  // Verificar que la narrativa pertenece a la agencia (defensa)
+  // Verificar que la narrativa pertenece a la agencia (defensa) y resolver el
+  // puntero de fusión: si la narrativa fue absorbida, sus filas de
+  // narrative_mentions SIGUEN existiendo con is_primary=true, así que sin el
+  // COALESCE este endpoint devolvería el subconjunto pre-fusión mientras la
+  // cabecera y el timeline de la MISMA pantalla —que sí resuelven al
+  // superviviente— cuentan la unión. Dos paneles, dos números.
   const pgPool = getPool();
-  const owned = await pgPool.query(
-    'SELECT 1 FROM narratives WHERE id = $1 AND agency_id = $2',
+  const owned = await pgPool.query<{ id: string }>(
+    `SELECT COALESCE(req.merged_into_id, req.id) AS id
+       FROM narratives req
+       JOIN narratives n ON n.id = COALESCE(req.merged_into_id, req.id)
+      WHERE req.id = $1 AND req.agency_id = $2 AND n.agency_id = $2`,
     [id, agencyId],
   );
   if (owned.rowCount === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const effectiveId = owned.rows[0].id;
 
   // Trae menciones de ese día (AST timezone) asignadas como primarias
   const mentions = await pgPool.query(
@@ -57,7 +66,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
          AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
        ORDER BY engagement DESC NULLS LAST, m.published_at DESC
        LIMIT 200`,
-    [id, date],
+    [effectiveId, date],
   );
 
   // Cluster por sentimiento

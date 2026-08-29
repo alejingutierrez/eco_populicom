@@ -392,12 +392,14 @@ export class WorkersStack extends cdk.Stack {
     briefingRule.addTarget(new targets.LambdaFunction(this.aiTasksFunction));
 
     // ---- eco-narrative-cluster Lambda ----
-    // Feature de narrativas (clusters emergentes de menciones). Cada hora:
+    // Feature de narrativas (clusters emergentes de menciones). Cada 30 min:
     //   1. Asigna menciones nuevas (con embedding) a la narrativa más cercana
-    //      por coseno (≥0.78) usando pgvector + EWMA update del centroide.
+    //      por coseno (≥0.70) usando pgvector + EWMA update del centroide.
     //   2. Acumula no-matches en `narrative_candidates` y aplica DBSCAN; cada
-    //      cluster denso de ≥10 menciones spawnea una narrativa nueva, nombrada
-    //      con Bedrock Claude (tool-use).
+    //      cluster denso de ≥7 menciones se compara ANTES contra las narrativas
+    //      vivas: si ya existe una a menos de NARRATIVE_MERGE_DISTANCE se le
+    //      suma, y solo si no hay ninguna nace una nueva nombrada con Bedrock.
+    //   3. Consolida las gemelas que hayan convergido por EWMA.
     //   3. Recalcula lifecycle states (emerging/active/peaking/declining/dormant/revived).
     //   4. Calcula iniciadores (primero cronológico ya en INSERT; influencer
     //      después de 24h con mayor reach × engagement).
@@ -428,15 +430,28 @@ export class WorkersStack extends cdk.Stack {
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         // Tunables (defaults sensatos en el código si faltan)
-        NARRATIVE_THRESHOLD: '0.78',
+        //
+        // N8 (ago-2026) — LOS DOS RADIOS TIENEN QUE SER COHERENTES. El 0.78 que
+        // vivía aquí pisaba el 0.70 del código y dejaba la ASIGNACIÓN más
+        // estricta que el NACIMIENTO: en la banda intermedia el sistema se
+        // negaba a sumar la mención a la narrativa existente pero sí aceptaba
+        // parir una nueva con esas mismas menciones. Medido sobre el pool real,
+        // la mejor similitud de una mención pendiente contra cualquier centroide
+        // tiene mediana 0.40-0.50 y p90 0.68: con el corte en 0.78 solo pegaba
+        // el 1.3% y todo desembocaba en nacimientos duplicados.
+        NARRATIVE_THRESHOLD: '0.70',
         NARRATIVE_EWMA_ALPHA: '0.05',
-        // Detección temprana más rápida y precisa: baja el umbral de nacimiento
-        // (10→7 menciones) para no esperar tanto a que emerja una narrativa, y
-        // ajusta el radio DBSCAN (0.22→0.19) para clusters más cohesivos. Validar
-        // con dryRun tras el deploy.
         NARRATIVE_MIN_MENTIONS_BIRTH: '7',
-        NARRATIVE_DBSCAN_EPS: '0.19',
+        // NARRATIVE_DBSCAN_EPS ya no se declara: era código muerto. El eps real
+        // lo calcula autoEps() por percentil de la k-distancia y lo recorta a
+        // [EPS_MIN, EPS_MAX] = [0.22, 0.34], así que el 0.19 que había aquí
+        // quedaba SIEMPRE por debajo del piso y no se usaba nunca. Para volver
+        // al eps fijo hay que poner NARRATIVE_EPS_AUTO='false'.
         NARRATIVE_TOP_N_MATCHES: '3',
+        // Radio de fusión entre narrativas: por debajo de esta distancia son la
+        // misma historia y la más pequeña se absorbe en la mayor.
+        NARRATIVE_MERGE_DISTANCE: '0.20',
+        NARRATIVE_MAX_MERGES_PER_RUN: '10',
         NARRATIVE_INFLUENCE_WINDOW_HOURS: '24',
         NARRATIVE_PER_AGENCY_LIMIT: '5000',
         NARRATIVE_MAX_NEW_PER_RUN: '20',

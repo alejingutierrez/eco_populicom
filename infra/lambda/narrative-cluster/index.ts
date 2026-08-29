@@ -99,6 +99,24 @@ const EPS_PERCENTILE = Number(process.env.NARRATIVE_EPS_PERCENTILE ?? 0.25);
 const EPS_MIN = Number(process.env.NARRATIVE_EPS_MIN ?? 0.22);
 const EPS_MAX = Number(process.env.NARRATIVE_EPS_MAX ?? 0.34);
 const MAX_NEW_PER_RUN = Number(process.env.NARRATIVE_MAX_NEW_PER_RUN ?? 20);
+// N8: radio de FUSIÓN entre narrativas, en distancia coseno. Dos narrativas
+// más cercanas que esto son la misma historia contada dos veces.
+//
+// Por qué existe: el radio de NACIMIENTO (eps auto en [0.22, 0.34]) es más
+// LAXO que el umbral de ASIGNACIÓN (0.70 de similitud = 0.30 de distancia).
+// En la banda intermedia el sistema se negaba a sumar la mención a la
+// narrativa existente pero SÍ aceptaba parir una nueva con esas mismas
+// menciones — una máquina de fragmentar. Medido en prod (ago-2026): 24% de
+// las narrativas de DDEC y 34% de las de gobernadora tenían una gemela, y
+// "Emergencia por sequía" existía CUATRO veces.
+//
+// 0.20 se eligió sobre el barrido real de centroides: consolida las gemelas
+// sin tocar el escalón de 0.30, donde ya aparecen historias vecinas pero
+// distintas (dos ferias de empleo diferentes).
+const MERGE_DISTANCE = Number(process.env.NARRATIVE_MERGE_DISTANCE ?? 0.20);
+// Tope de fusiones por corrida: cada una hace varios UPDATEs y un recálculo de
+// agregados. En régimen normal son 0-2; el tope solo acota un lote anómalo.
+const MAX_MERGES_PER_RUN = Number(process.env.NARRATIVE_MAX_MERGES_PER_RUN ?? 10);
 
 /**
  * Limpia strings antes de pasarlos a jsonb. pg rechaza JSON con surrogates
@@ -131,6 +149,10 @@ interface ClusterStats {
   queuedAsCandidates: number;
   newNarratives: number;
   namesGenerated: number;
+  /** Clusters que en vez de fundar narrativa se sumaron a una ya existente. */
+  absorbedClusters: number;
+  /** Narrativas ya vivas que convergieron y se consolidaron en esta corrida. */
+  twinsMerged: number;
   lifecycleUpdated: number;
   influencersComputed: number;
   errors: number;
@@ -188,6 +210,8 @@ export const handler = async (event: ClusterEvent = {}): Promise<{ statusCode: n
           queuedAsCandidates: 0,
           newNarratives: 0,
           namesGenerated: 0,
+          absorbedClusters: 0,
+          twinsMerged: 0,
           lifecycleUpdated: 0,
           influencersComputed: 0,
           errors: 1,
@@ -221,6 +245,8 @@ async function clusterForAgency(
     queuedAsCandidates: 0,
     newNarratives: 0,
     namesGenerated: 0,
+    absorbedClusters: 0,
+    twinsMerged: 0,
     lifecycleUpdated: 0,
     influencersComputed: 0,
     errors: 0,
@@ -278,6 +304,10 @@ async function clusterForAgency(
            FROM narratives
            WHERE agency_id = $2
              AND centroid IS NOT NULL
+             -- N8: una narrativa absorbida por otra ya no es un destino válido.
+             -- Sin este filtro el matching seguiría alimentando la gemela muerta
+             -- y la superviviente se quedaría corta.
+             AND merged_into_id IS NULL
              AND (
                status <> 'dormant'
                OR last_mention_at >= NOW() - ($4 || ' days')::interval
@@ -362,7 +392,7 @@ async function clusterForAgency(
 
   // 3. Spawn narratives from candidates pool
   if (!event.dryRun) {
-    const { created, named } = await spawnNarrativesFromCandidates(
+    const { created, named, absorbed } = await spawnNarrativesFromCandidates(
       client,
       agency,
       event.maxNewNarratives ?? MAX_NEW_PER_RUN,
@@ -370,6 +400,8 @@ async function clusterForAgency(
     );
     stats.newNarratives = created;
     stats.namesGenerated = named;
+    stats.absorbedClusters = absorbed;
+    stats.twinsMerged = await mergeTwinNarratives(client, agency, MAX_MERGES_PER_RUN);
   }
 
   // 4. Recompute lifecycle states
@@ -391,7 +423,7 @@ async function spawnNarrativesFromCandidates(
   agency: Agency,
   maxNew: number,
   skipNaming: boolean,
-): Promise<{ created: number; named: number }> {
+): Promise<{ created: number; named: number; absorbed: number }> {
   // Poda de candidatos rancios: un candidato lleva ≥7 días en el pool sin
   // clusterizar Y su mención tiene >30 días — ya no va a parir narrativa de
   // actualidad. Sin la poda, el pool crece sin tope y los rancios bloquean la
@@ -435,7 +467,7 @@ async function spawnNarrativesFromCandidates(
   );
 
   if (candRes.rows.length < MIN_MENTIONS_BIRTH) {
-    return { created: 0, named: 0 };
+    return { created: 0, named: 0, absorbed: 0 };
   }
 
   type Point = { row: CandidateRow; vec: number[] };
@@ -472,11 +504,82 @@ async function spawnNarrativesFromCandidates(
 
   let created = 0;
   let named = 0;
+  let absorbed = 0;
   for (const cluster of clusters) {
     if (created >= maxNew) break;
     if (cluster.length < MIN_MENTIONS_BIRTH) continue;
 
     try {
+      const centroid = vectorMean(cluster.map((p) => p.vec));
+      const centroidLit = toVectorLiteral(centroid);
+
+      // N8: ABSORCIÓN ANTES DE NACER. Antes de crear nada, se pregunta si esta
+      // conversación ya tiene narrativa. El único chequeo previo al INSERT era
+      // la colisión de SLUG, y se "resolvía" creando la gemela con un sufijo
+      // aleatorio: el sistema detectaba el duplicado y lo creaba igual.
+      //
+      // Se compara el centroide del cluster nuevo contra los de la agencia. Si
+      // alguno queda dentro de MERGE_DISTANCE, las menciones se suman a esa
+      // narrativa en vez de fundar una nueva. Va ANTES del naming para no
+      // gastar la llamada a Bedrock en una narrativa que no va a existir.
+      const twin = await client.query<{ id: string; name: string; dist: string }>(
+        `SELECT id, name, (centroid <=> $1::vector) AS dist
+           FROM narratives
+           WHERE agency_id = $2
+             AND centroid IS NOT NULL
+             AND merged_into_id IS NULL
+             AND (centroid <=> $1::vector) < $3
+           ORDER BY centroid <=> $1::vector
+           LIMIT 1`,
+        [centroidLit, agency.id, MERGE_DISTANCE],
+      );
+
+      if (twin.rows.length > 0) {
+        const host = twin.rows[0];
+        {
+          const absorbedIds: string[] = [];
+          for (const p of cluster) {
+            const sim = cosineSimilarity(p.vec, centroid);
+            await client.query(
+              `INSERT INTO narrative_mentions (narrative_id, mention_id, similarity, is_primary)
+               VALUES ($1, $2, $3, true)
+               ON CONFLICT (narrative_id, mention_id) DO NOTHING`,
+              [host.id, p.row.id, sim],
+            );
+            absorbedIds.push(p.row.id);
+          }
+          // Los agregados se RECALCULAN sobre la unión real en vez de sumarse:
+          // los contadores de la tabla solo se incrementan y nunca se corrigen,
+          // así que sumar arrastraría cualquier desvío previo.
+          await client.query(
+            `UPDATE narratives n SET
+                mention_count = agg.cnt,
+                total_engagement = agg.eng,
+                total_reach = agg.reach,
+                last_mention_at = GREATEST(COALESCE(n.last_mention_at, agg.last_at), agg.last_at),
+                updated_at = NOW()
+               FROM (
+                 SELECT COUNT(*)::int AS cnt,
+                        COALESCE(SUM(m.engagement_score), 0)::bigint AS eng,
+                        COALESCE(SUM(m.reach_estimate), 0)::bigint AS reach,
+                        MAX(m.published_at) AS last_at
+                   FROM narrative_mentions nm
+                   JOIN mentions m ON m.id = nm.mention_id
+                  WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.is_duplicate = false
+               ) agg
+              WHERE n.id = $1 AND agg.cnt > 0`,
+            [host.id],
+          );
+          await client.query(
+            `DELETE FROM narrative_candidates WHERE mention_id = ANY($1::uuid[])`,
+            [absorbedIds],
+          );
+        }
+        absorbed += 1;
+        console.log(`[${agency.slug}] cluster de ${cluster.length} menciones absorbido por "${host.name}" (dist ${Number(host.dist).toFixed(3)}) en vez de nacer`);
+        continue;
+      }
+
       const samples: NarrativeSample[] = pickRepresentativeSamples(
         cluster.map((p) => ({
           title: p.row.title,
@@ -504,9 +607,6 @@ async function spawnNarrativesFromCandidates(
         naming = await nameNarrative(bedrock, samples);
         named += 1;
       }
-
-      const centroid = vectorMean(cluster.map((p) => p.vec));
-      const centroidLit = toVectorLiteral(centroid);
 
       const sorted = [...cluster].sort(
         (a, b) => new Date(a.row.published_at).getTime() - new Date(b.row.published_at).getTime(),
@@ -603,7 +703,159 @@ async function spawnNarrativesFromCandidates(
     }
   }
 
-  return { created, named };
+  return { created, named, absorbed };
+}
+
+/**
+ * N8: consolidación continua. La absorción pre-nacimiento evita que nazcan
+ * gemelas, pero dos narrativas ya vivas pueden ACERCARSE con el tiempo: el
+ * centroide se mueve por EWMA con cada mención, así que dos hilos que empiezan
+ * distintos pueden converger en la misma historia.
+ *
+ * Se recorren los pares por distancia ascendente y se colapsa el más pequeño
+ * dentro del más grande. NO DESTRUCTIVO: la absorbida conserva su fila y sus
+ * enlaces, y queda marcada con merged_into_id; todas las lecturas filtran por
+ * esa columna. Tope por corrida para que un lote raro no dispare el tiempo.
+ */
+async function mergeTwinNarratives(
+  client: import('pg').Client,
+  agency: Agency,
+  maxMerges: number,
+): Promise<number> {
+  const pairs = await client.query<{ a: string; b: string; dist: string }>(
+    `SELECT n1.id AS a, n2.id AS b, (n1.centroid <=> n2.centroid) AS dist
+       FROM narratives n1
+       JOIN narratives n2
+         ON n2.agency_id = n1.agency_id
+        AND n2.id <> n1.id
+        AND n2.merged_into_id IS NULL
+        AND n2.centroid IS NOT NULL
+        -- Una sola orientación por par. Con un <= a secas, dos gemelas de igual
+        -- conteo aparecían DOS veces (A,B) y (B,A): el LIMIT se gastaba en
+        -- espejos y la elección de superviviente dependía del orden que
+        -- devolviera el planificador. El desempate por id la hace determinista.
+        AND (n2.mention_count < n1.mention_count
+             OR (n2.mention_count = n1.mention_count AND n2.id < n1.id))
+      WHERE n1.agency_id = $1
+        AND n1.merged_into_id IS NULL
+        AND n1.centroid IS NOT NULL
+        AND (n1.centroid <=> n2.centroid) < $2
+      ORDER BY dist ASC
+      LIMIT $3`,
+    [agency.id, MERGE_DISTANCE, maxMerges],
+  );
+
+  const touched = new Set<string>();
+  let merged = 0;
+  for (const pair of pairs.rows) {
+    // Una narrativa no puede ser a la vez superviviente y absorbida en la misma
+    // corrida: los agregados se recalcularían sobre un estado a medio escribir.
+    if (touched.has(pair.a) || touched.has(pair.b)) continue;
+    touched.add(pair.a);
+    touched.add(pair.b);
+
+    await client.query(
+      `INSERT INTO narrative_mentions (narrative_id, mention_id, similarity, is_primary, assigned_at)
+       SELECT $1, nm.mention_id, nm.similarity, nm.is_primary, nm.assigned_at
+         FROM narrative_mentions nm
+        WHERE nm.narrative_id = $2
+       ON CONFLICT (narrative_id, mention_id) DO NOTHING`,
+      [pair.a, pair.b],
+    );
+    await client.query(
+      `UPDATE narratives SET merged_into_id = $1, merged_at = NOW(), updated_at = NOW() WHERE id = $2`,
+      [pair.a, pair.b],
+    );
+    // Reapunta las que ya colgaban de la absorbida: la cadena nunca encadena
+    // más de un salto, así que merged_into_id siempre apunta a una narrativa viva.
+    await client.query(
+      `UPDATE narratives SET merged_into_id = $1 WHERE merged_into_id = $2`,
+      [pair.a, pair.b],
+    );
+    // is_primary es único por mención entre narrativas VIVAS, y el INSERT de
+    // arriba no lo transfiere: si la superviviente ya tenía una fila para esa
+    // mención (con is_primary=false) el ON CONFLICT la deja intacta y la marca
+    // primaria se queda en la absorbida. La superviviente quedaría con CERO
+    // menciones primarias y desaparecería de todas las vistas, que filtran por
+    // is_primary. Medido en prod: 20 narrativas de DDEC y 755 menciones así.
+    // Se promueve la fila de la superviviente para las menciones que se hayan
+    // quedado sin primaria viva.
+    await client.query(
+      `UPDATE narrative_mentions nm
+          SET is_primary = true
+        WHERE nm.narrative_id = $1
+          AND nm.is_primary = false
+          AND NOT EXISTS (
+            SELECT 1 FROM narrative_mentions p
+            JOIN narratives pn ON pn.id = p.narrative_id AND pn.merged_into_id IS NULL
+             WHERE p.mention_id = nm.mention_id AND p.is_primary = true
+          )`,
+      [pair.a],
+    );
+    await client.query(
+      `UPDATE narratives n SET
+          mention_count = agg.cnt,
+          total_engagement = agg.eng,
+          total_reach = agg.reach,
+          born_at = LEAST(n.born_at, agg.first_at),
+          last_mention_at = GREATEST(COALESCE(n.last_mention_at, agg.last_at), agg.last_at),
+          updated_at = NOW()
+         FROM (
+           SELECT COUNT(*)::int AS cnt,
+                  COALESCE(SUM(m.engagement_score), 0)::bigint AS eng,
+                  COALESCE(SUM(m.reach_estimate), 0)::bigint AS reach,
+                  MIN(m.published_at) AS first_at,
+                  MAX(m.published_at) AS last_at
+             FROM narrative_mentions nm
+             JOIN mentions m ON m.id = nm.mention_id
+            WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.is_duplicate = false
+         ) agg
+        WHERE n.id = $1 AND agg.cnt > 0`,
+      [pair.a],
+    );
+    // born_at retrocede a la primera mención de la unión, así que el iniciador
+    // tiene que recalcularse o la ficha diría "empezó el 3 de mayo" mostrando
+    // al autor de junio.
+    await client.query(
+      `UPDATE narratives n SET
+          first_mention_id = f.id,
+          initiator_first = jsonb_build_object(
+            'author', f.author,
+            'platform', f.page_type,
+            'publishedAt', to_char(f.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+            'url', f.url,
+            'snippet', left(f.snippet, 220)
+          ),
+          updated_at = NOW()
+         FROM (
+           SELECT m.id, m.author, m.page_type, m.published_at, m.url, m.snippet
+             FROM narrative_mentions nm
+             JOIN mentions m ON m.id = nm.mention_id
+            WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.is_duplicate = false
+            ORDER BY m.published_at ASC
+            LIMIT 1
+         ) f
+        WHERE n.id = $1`,
+      [pair.a],
+    );
+    merged += 1;
+    console.log(`[${agency.slug}] fusionadas dos narrativas gemelas (dist ${Number(pair.dist).toFixed(3)})`);
+  }
+
+  // Las aristas que apuntan a una absorbida quedan colgando; el pase diario de
+  // eco-narrative-edges las regenera sobre las vivas.
+  if (merged > 0) {
+    await client.query(
+      `DELETE FROM narrative_edges e
+        USING narratives n
+        WHERE n.merged_into_id IS NOT NULL
+          AND e.agency_id = $1
+          AND (e.source_narrative_id = n.id OR e.target_narrative_id = n.id)`,
+      [agency.id],
+    );
+  }
+
+  return merged;
 }
 
 async function updateLifecycleStates(

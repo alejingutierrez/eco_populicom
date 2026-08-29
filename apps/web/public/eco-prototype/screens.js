@@ -4746,12 +4746,15 @@ const roleGridCols = () => (window.ecoIsMobile() ? 2 : 4);
 // Páginas del menú para el control de visibilidad por-usuario (allowed_pages).
 // Las claves coinciden con NAV/SYSTEM_NAV en shell.js.
 const PAGE_OPTIONS = [
+  // Mismo orden que getNav() en shell.js — esta rejilla promete espejar el menú
+  // ("Controla qué páginas ve este usuario en el menú"), así que si diverge el
+  // admin marca casillas en un orden y el usuario ve otro.
   { k: 'overview', l: 'Overview' },
+  { k: 'topics', l: 'Tópicos' },
+  { k: 'narrative', l: 'Narrativas' },
   { k: 'dashboard', l: 'Scorecard' },
   { k: 'mentions', l: 'Menciones' },
   { k: 'sentiment', l: 'Sentimiento' },
-  { k: 'topics', l: 'Tópicos' },
-  { k: 'narrative', l: 'Narrativas' },
   { k: 'geography', l: 'Geografía' },
   { k: 'alerts', l: 'Alertas' },
   { k: 'settings', l: 'Configuración' },
@@ -6351,7 +6354,7 @@ function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
   );
 }
 
-function NarrativeScreen({ agency }) {
+function NarrativeScreen({ agency, period }) {
   const [narratives, setNarratives] = React.useState([]);
   const [edges, setEdges] = React.useState([]);
   const [focusedId, setFocusedId] = React.useState(null);
@@ -6368,18 +6371,28 @@ function NarrativeScreen({ agency }) {
     setError(null);
     setFocusedId(null);
     setSelectedDay(null);
+    // CON filtro de período (ago 2026, segunda pasada). En la primera se quitó
+    // el control de fechas porque "no respondía": la ventana llegaba solo a la
+    // lista y el detalle seguía mostrando toda la vida, así que la página se
+    // contradecía. La causa era esa incoherencia, no la ventana en sí.
+    //
+    // Ahora la ventana viaja a AMBOS endpoints y significa lo mismo en los dos:
+    // aparecen las narrativas con AL MENOS UNA mención en el período, y las
+    // cifras son las del período. El detalle mantiene el timeline completo —
+    // ese arco es lo que aporta— pero sus autores, plataformas y menciones
+    // recientes se acotan a la misma ventana. El filtro por ESTADO sigue
+    // estando, ahora como segundo eje.
+    const win = (typeof window.ecoResolvedWindow === 'function') ? window.ecoResolvedWindow() : null;
+    const windowParams = {};
+    if (win && win.from && win.to) {
+      windowParams.from = win.from;
+      windowParams.to = win.to;
+    } else if (period) {
+      windowParams.period = period;
+    }
     Promise.all([
-      // SIN filtro de período (decisión del usuario, ago 2026): una narrativa
-      // es una entidad con ciclo de vida propio y el detalle
-      // (/api/narrative/:id) siempre devolvió su timeline COMPLETO. Pasar la
-      // ventana solo a la lista producía una página incoherente — la lista
-      // filtrada, el detalle no — que es lo que el usuario percibió como "los
-      // filtros no responden". Ahora el Header oculta el control de fechas
-      // (showPeriod=false) y la lista pide el ciclo completo, así que lista y
-      // detalle hablan del mismo universo. El eje de filtrado aquí es el
-      // ESTADO (peaking/active/emerging/…), que sí es propio de la narrativa.
-      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500' }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
-      fetch(`/api/narrative/edges?agency=${agency || ''}&minStrength=0.15`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
+      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500', ...windowParams }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
+      fetch(`/api/narrative/edges?` + new URLSearchParams({ agency: agency || '', minStrength: '0.15' }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
     ])
       .then(([nRes, eRes]) => {
         if (cancelled) return;
@@ -6404,7 +6417,7 @@ function NarrativeScreen({ agency }) {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [agency]);
+  }, [agency, period]);
 
   const statusCounts = React.useMemo(() => {
     // Se cuenta por la clave NORMALIZADA, así que todo status fuera del enum cae
@@ -6558,6 +6571,7 @@ function NarrativeScreen({ agency }) {
                 edges={edges}
                 allNarratives={narratives}
                 agency={agency}
+                period={period}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
                 onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
@@ -6579,53 +6593,89 @@ function NarrativeScreen({ agency }) {
   );
 }
 
-function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDay, onSelectDay, onSelectNarrative }) {
+function NarrativeAnalysis({ narrative, edges, allNarratives, agency, period, selectedDay, onSelectDay, onSelectNarrative }) {
   const [detail, setDetail] = React.useState(null);
   const [detailLoading, setDetailLoading] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
     setDetailLoading(true);
-    fetch(`/api/narrative/${narrative.id}?agency=${agency || ''}`, { credentials: 'same-origin' })
+    // MISMA ventana que la lista: sin esto la lista dice "12 menciones" y el
+    // detalle dice "340", que es justo la incoherencia por la que se había
+    // quitado el filtro de fechas de esta pantalla.
+    const win = (typeof window.ecoResolvedWindow === 'function') ? window.ecoResolvedWindow() : null;
+    const qs = { agency: agency || '' };
+    if (win && win.from && win.to) { qs.from = win.from; qs.to = win.to; }
+    else if (period) { qs.period = period; }
+    fetch(`/api/narrative/${narrative.id}?` + new URLSearchParams(qs).toString(), { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancelled) { setDetail(d); setDetailLoading(false); } })
       .catch(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
-  }, [narrative.id, agency]);
+  }, [narrative.id, agency, period]);
 
   const timeline = detail?.timeline || [];
   const topAuthors = detail?.topAuthors || [];
   const platforms = detail?.platforms || [];
   const recent = detail?.recentMentions || [];
 
+  // El vecino se buscaba SOLO en la lista, y desde que la lista está acotada al
+  // período una narrativa relacionada sin menciones en la ventana desaparecía:
+  // el panel de relacionadas se vaciaba justo al usar el filtro. Ahora la arista
+  // trae nombre y estado, así que el vecino fuera de ventana se sigue mostrando,
+  // marcado con `outsideWindow` para que la UI no prometa cifras del período.
   const related = React.useMemo(() => {
     return edges
       .filter((e) => e.source === narrative.id || e.target === narrative.id)
       .map((e) => {
-        const otherId = e.source === narrative.id ? e.target : e.source;
-        const other = allNarratives.find((n) => n.id === otherId);
-        if (!other) return null;
-        return { ...other, edgeType: e.type, strength: e.strength };
+        const isSource = e.source === narrative.id;
+        const otherId = isSource ? e.target : e.source;
+        const inList = allNarratives.find((n) => n.id === otherId);
+        if (inList) return { ...inList, edgeType: e.type, strength: e.strength, outsideWindow: false };
+        const name = isSource ? e.targetName : e.sourceName;
+        if (!name) return null;
+        return {
+          id: otherId,
+          name,
+          status: isSource ? e.targetStatus : e.sourceStatus,
+          mentionCount: 0,
+          edgeType: e.type,
+          strength: e.strength,
+          outsideWindow: true,
+        };
       })
       .filter(Boolean)
       .sort((a, b) => b.strength - a.strength)
       .slice(0, 6);
   }, [edges, allNarratives, narrative.id]);
 
+  // El STREAMGRAPH dibuja el arco completo a propósito — ese es el aporte del
+  // detalle. Pero las DERIVADAS (sentimiento, pico) tienen que hablar de la
+  // misma ventana que los KPIs de arriba, o el panel se contradice: la caja
+  // dice "12 menciones" (ventana) y el donut de sentimiento suma 340 (vida).
+  // `day` viene como YYYY-MM-DD en hora PR y win.from/to en el mismo formato,
+  // así que la comparación de strings es correcta.
+  const win = detail && detail.window;
+  const windowTimeline = React.useMemo(() => (
+    (win && win.from && win.to)
+      ? timeline.filter((d) => d.day >= win.from && d.day <= win.to)
+      : timeline
+  ), [timeline, win]);
+
   const sentimentTotals = React.useMemo(() => {
     let p = 0, neu = 0, neg = 0;
-    for (const d of timeline) {
+    for (const d of windowTimeline) {
       p += d.positive || 0;
       neu += d.neutral || 0;
       neg += d.negative || 0;
     }
     return { positive: p, neutral: neu, negative: neg, total: p + neu + neg };
-  }, [timeline]);
+  }, [windowTimeline]);
 
   const peak = React.useMemo(() => {
-    if (timeline.length === 0) return null;
-    return timeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), timeline[0]);
-  }, [timeline]);
+    if (windowTimeline.length === 0) return null;
+    return windowTimeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), windowTimeline[0]);
+  }, [windowTimeline]);
 
   const init = narrative.initiatorFirst;
   const inf = narrative.initiatorInfluencer;
@@ -6672,8 +6722,14 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
               medición. La velocidad se queda con un decimal a propósito: es una
               TASA (menciones/día), no un conteo, y forzarle la regla del conteo
               le quitaría su única cifra significativa. */}
+          {/* Las tres cifras son de la VENTANA seleccionada. 'Vel. 24h' vivía
+              aquí anclada a NOW() —la calcula el lambda sobre las últimas 24 h
+              reales—, así que en una fila que ahora habla del período elegido
+              se leía como si fuera de ese período: al mirar marzo mostraba la
+              velocidad de hoy. Se sustituye por la tasa de la propia ventana,
+              que es la lectura que la fila promete. */}
           <StatBox label="Menciones" value={window.ecoFmtCount(narrative.mentionCount)} />
-          <StatBox label="Vel. 24h" value={Number(narrative.velocity24h || 0).toFixed(1)} />
+          <StatBox label="Menc./día" value={(narrative.mentionCount / Math.max(1, (win && win.days) || 1)).toFixed(1)} />
           <StatBox label="Engagement" value={window.ecoFmtCount(narrative.totalEngagement)} />
         </div>
       </div>
@@ -6856,17 +6912,26 @@ function NarrativeAnalysis({ narrative, edges, allNarratives, agency, selectedDa
           <div className="narrative-panel-label">Narrativas relacionadas</div>
           {related.length === 0 ? <EmptyState reason="empty" title="Sin datos" compact /> : (
           <ul className="narrative-related-list">
+            {/* Una relacionada fuera de la ventana no está en la lista, así que
+                seleccionarla dejaría el panel vacío: se muestra con su vínculo
+                pero sin click, y se dice por qué. Un enlace muerto es peor que
+                un elemento honestamente inactivo. */}
             {related.map((r) => (
               <li key={r.id}>
                 <button
                   type="button"
                   className="narrative-related-btn"
-                  onClick={() => onSelectNarrative(r.id)}
-                  title={`${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` (${strengthPct(r.strength)})` : ''}`}
+                  disabled={r.outsideWindow}
+                  onClick={() => { if (!r.outsideWindow) onSelectNarrative(r.id); }}
+                  title={r.outsideWindow
+                    ? `${r.name} — sin menciones en el período seleccionado`
+                    : `${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` (${strengthPct(r.strength)})` : ''}`}
                 >
                   <NarrativeStatusDot status={r.status} />
                   <span className="narrative-related-name">{r.name}</span>
-                  <span className="narrative-related-meta">{edgeTypeLabel(r.edgeType)}{strengthPct(r.strength) ? ` · ${strengthPct(r.strength)}` : ''}</span>
+                  <span className="narrative-related-meta">
+                    {r.outsideWindow ? 'fuera del período' : `${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` · ${strengthPct(r.strength)}` : ''}`}
+                  </span>
                 </button>
               </li>
             ))}
@@ -7055,8 +7120,12 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
         <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('negativo') }} /> Negativo</span>
         {/* Anclas de lectura: sin esto el gráfico no decía cuánto abarca ni de
             qué tamaño es el pico. */}
+        {/* "de vida" y "en total" son explícitos a propósito: el streamgraph
+            dibuja el arco COMPLETO de la narrativa mientras los StatBox de
+            arriba muestran la ventana elegida. Sin el rótulo, dos cifras
+            distintas a 100 px una de otra se leen como la misma. */}
         <span className="narrative-stream-scale">
-          {dayCount} {dayCount === 1 ? 'día' : 'días'} · {grandTotal.toLocaleString('es-PR')} menciones · pico {totalOf(peak).toLocaleString('es-PR')}/día
+          {dayCount} {dayCount === 1 ? 'día' : 'días'} de vida · {grandTotal.toLocaleString('es-PR')} menciones en total · pico {totalOf(peak).toLocaleString('es-PR')}/día
         </span>
         <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
       </div>

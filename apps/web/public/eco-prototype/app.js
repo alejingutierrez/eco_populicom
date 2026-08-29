@@ -187,17 +187,21 @@ class EcoErrorBoundary extends React.Component {
 // depende de él: los tokens viven en :root incondicional.
 const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
 
+// El ORDEN de las claves importa: app.js lo usa como secuencia para el prefijo
+// numérico de data-screen-label (Object.keys(...).indexOf(active) + 1). Se
+// mantiene alineado con getNav() de shell.js; 'search' y las exec-* van al final
+// porque no están en el rail de análisis.
 const SCREEN_META = {
   overview:  { label: 'Overview',      eyebrow: null },
+  topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
+  narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
   dashboard: { label: 'Scorecard',     eyebrow: 'Scorecard táctico · tiempo real' },
   mentions:  { label: 'Menciones',     eyebrow: 'Flujo de conversación' },
-  search:    { label: 'Búsqueda',      eyebrow: 'Resultados en todas las menciones' },
   sentiment: { label: 'Sentimiento',   eyebrow: 'Análisis emocional' },
-  topics:    { label: 'Tópicos',       eyebrow: 'Temas detectados' },
   geography: { label: 'Geografía',     eyebrow: '78 municipios · Puerto Rico' },
   alerts:    { label: 'Alertas',       eyebrow: 'Reglas y vigilancia activa' },
   settings:  { label: 'Configuración', eyebrow: 'Usuarios y plantillas' },
-  narrative: { label: 'Narrativas',    eyebrow: 'Clusters emergentes · ramificaciones' },
+  search:    { label: 'Búsqueda',      eyebrow: 'Resultados en todas las menciones' },
   'exec-tabla': { label: 'Tabla de posiciones', eyebrow: 'Vista ejecutiva · ranking de salud digital' },
   'exec-sala':  { label: 'Sala de mando',       eyebrow: 'Vista ejecutiva · sala de mando multi-agencia' },
   'exec-radar': { label: 'Radar de crisis',     eyebrow: 'Vista ejecutiva · sala situacional' },
@@ -422,13 +426,15 @@ function App() {
           onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
           onOpenChat={() => setChatOpen(true)}
           mode={mode} setMode={setMode} live={true}
-          // Narrativas NO acepta filtro de fechas: una narrativa es una entidad
-          // con ciclo de vida propio (first_seen → last_seen) y su timeline se
-          // muestra completo, así que un filtro de ventana prometía algo que la
-          // pantalla no cumple. Instrucción explícita del usuario: "en la
-          // página de narrativas no debería dejarme usar los filtros de fecha
-          // ya que no responden a esto".
-          showPeriod={active !== 'narrative'}
+          // Narrativas VUELVE a tener filtro de fechas (ago 2026). Se había
+          // quitado porque "no respondía": la ventana llegaba solo a la lista y
+          // el detalle seguía mostrando toda la vida de la narrativa, así que la
+          // página se contradecía a sí misma. Ahora la ventana viaja a los dos
+          // endpoints con la misma semántica —narrativas con menciones EN el
+          // período, y cifras del período— así que el control cumple lo que
+          // promete. Ya no hay ninguna pantalla sin control de fechas, pero el
+          // prop showPeriod se conserva por si vuelve a hacer falta.
+          showPeriod
         />
         <main className="eco-page"
           data-screen-label={`${String(Object.keys(SCREEN_META).indexOf(active) + 1).padStart(2, '0')} ${screenMeta.label}`}>

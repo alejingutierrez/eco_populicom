@@ -246,6 +246,29 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'add-narrative-merge-columns') {
+      // Para tablas YA creadas: el CREATE TABLE IF NOT EXISTS de
+      // create-narratives-schema es no-op sobre una tabla existente, así que
+      // añadir columnas exige su propia acción (mismo patrón que
+      // add-resolved-image-column).
+      const stmts = [
+        `ALTER TABLE narratives ADD COLUMN IF NOT EXISTS merged_into_id UUID REFERENCES narratives(id) ON DELETE SET NULL`,
+        `ALTER TABLE narratives ADD COLUMN IF NOT EXISTS merged_at TIMESTAMPTZ`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_merged_into ON narratives(merged_into_id) WHERE merged_into_id IS NOT NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_narratives_agency_alive ON narratives(agency_id, status) WHERE merged_into_id IS NULL`,
+      ];
+      for (const stmt of stmts) await client.query(stmt);
+      const cols = await client.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'narratives' AND column_name IN ('merged_into_id','merged_at')
+          ORDER BY column_name`,
+      );
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ applied: stmts, columns: cols.rows.map((r: { column_name: string }) => r.column_name) }, null, 2),
+      };
+    }
+
     if (action === 'create-narratives-schema') {
       // Crea las tablas del feature "narrativas": narratives, narrative_mentions,
       // narrative_edges, narrative_candidates. Requiere pgvector ya activo (lo
@@ -266,6 +289,11 @@ export const handler = async (event: { action?: string; query?: string; queryIds
           centroid_at_naming vector(1024),
           status VARCHAR(16) NOT NULL DEFAULT 'emerging'
             CHECK (status IN ('emerging','active','peaking','declining','dormant','revived')),
+          -- N8: puntero de consolidación. Una narrativa absorbida por otra
+          -- conserva su fila y sus enlaces y solo apunta a la superviviente;
+          -- TODA lectura filtra merged_into_id IS NULL.
+          merged_into_id UUID REFERENCES narratives(id) ON DELETE SET NULL,
+          merged_at TIMESTAMPTZ,
           first_mention_id UUID REFERENCES mentions(id) ON DELETE SET NULL,
           initiator_first JSONB,
           initiator_influencer JSONB,

@@ -110,6 +110,9 @@ async function driftForAgency(
        FROM narratives
        WHERE agency_id = $1
          AND status != 'dormant'
+         -- N8: renombrar una narrativa absorbida gasta una llamada a Bedrock en
+         -- algo que ya no se muestra en ninguna pantalla.
+         AND merged_into_id IS NULL
          AND centroid IS NOT NULL
          AND centroid_at_naming IS NOT NULL`,
     [agency.id],

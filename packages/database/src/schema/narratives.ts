@@ -38,6 +38,13 @@ export const narratives = pgTable(
     centroid: text('centroid'),
     centroidAtNaming: text('centroid_at_naming'),
     status: varchar('status', { length: 16 }).notNull().default('emerging'),
+    // N8: puntero de consolidación. Cuando dos narrativas resultan ser la misma
+    // historia, la más pequeña se marca apuntando a la superviviente en vez de
+    // borrarse: conserva su fila y sus enlaces, y la fusión es reversible.
+    // TODA lectura de narrativas debe filtrar `merged_into_id IS NULL`, o la
+    // absorbida reaparece en la lista y las menciones se cuentan dos veces.
+    mergedIntoId: uuid('merged_into_id'),
+    mergedAt: timestamp('merged_at', { withTimezone: true }),
     firstMentionId: uuid('first_mention_id').references(() => mentions.id, { onDelete: 'set null' }),
     initiatorFirst: jsonb('initiator_first').$type<{
       author?: string;
