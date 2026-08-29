@@ -1,6 +1,680 @@
 {
- "timeline": [],
- "topAuthors": [],
- "platforms": [],
- "recentMentions": []
+  "timeline": [
+    {
+      "day": "2026-06-15",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-06-16",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-06-17",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-06-18",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-06-19",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-06-20",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-06-21",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-06-22",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-06-23",
+      "mentions": 4,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 1,
+      "engagement": 52,
+      "reach": 1800
+    },
+    {
+      "day": "2026-06-24",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-06-25",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-06-26",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-06-27",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-06-28",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-06-29",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-06-30",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-07-01",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-07-02",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-07-03",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-07-04",
+      "mentions": 40,
+      "positive": 13,
+      "neutral": 17,
+      "negative": 10,
+      "engagement": 520,
+      "reach": 18000
+    },
+    {
+      "day": "2026-07-05",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-07-06",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-07-07",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-07-08",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-07-09",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-07-10",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-07-11",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-07-12",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-07-13",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-07-14",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-07-15",
+      "mentions": 4,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 1,
+      "engagement": 52,
+      "reach": 1800
+    },
+    {
+      "day": "2026-07-16",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-07-17",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-07-18",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-07-19",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-07-20",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-07-21",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-07-22",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-07-23",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-07-24",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-07-25",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-07-26",
+      "mentions": 4,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 1,
+      "engagement": 52,
+      "reach": 1800
+    },
+    {
+      "day": "2026-07-27",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-07-28",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-07-29",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-07-30",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-07-31",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-08-01",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-08-02",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-08-03",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-08-04",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-08-05",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-08-06",
+      "mentions": 4,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 1,
+      "engagement": 52,
+      "reach": 1800
+    },
+    {
+      "day": "2026-08-07",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-08-08",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-08-09",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-08-10",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-08-11",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-08-12",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-08-13",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-08-14",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-08-15",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-08-16",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    },
+    {
+      "day": "2026-08-17",
+      "mentions": 4,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 1,
+      "engagement": 52,
+      "reach": 1800
+    },
+    {
+      "day": "2026-08-18",
+      "mentions": 11,
+      "positive": 3,
+      "neutral": 6,
+      "negative": 2,
+      "engagement": 143,
+      "reach": 4950
+    },
+    {
+      "day": "2026-08-19",
+      "mentions": 7,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 1,
+      "engagement": 91,
+      "reach": 3150
+    },
+    {
+      "day": "2026-08-20",
+      "mentions": 3,
+      "positive": 1,
+      "neutral": 2,
+      "negative": 0,
+      "engagement": 39,
+      "reach": 1350
+    },
+    {
+      "day": "2026-08-21",
+      "mentions": 10,
+      "positive": 3,
+      "neutral": 5,
+      "negative": 2,
+      "engagement": 130,
+      "reach": 4500
+    },
+    {
+      "day": "2026-08-22",
+      "mentions": 6,
+      "positive": 2,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 78,
+      "reach": 2700
+    },
+    {
+      "day": "2026-08-23",
+      "mentions": 13,
+      "positive": 4,
+      "neutral": 6,
+      "negative": 3,
+      "engagement": 169,
+      "reach": 5850
+    },
+    {
+      "day": "2026-08-24",
+      "mentions": 9,
+      "positive": 3,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 117,
+      "reach": 4050
+    },
+    {
+      "day": "2026-08-25",
+      "mentions": 5,
+      "positive": 1,
+      "neutral": 3,
+      "negative": 1,
+      "engagement": 65,
+      "reach": 2250
+    },
+    {
+      "day": "2026-08-26",
+      "mentions": 12,
+      "positive": 4,
+      "neutral": 5,
+      "negative": 3,
+      "engagement": 156,
+      "reach": 5400
+    },
+    {
+      "day": "2026-08-27",
+      "mentions": 8,
+      "positive": 2,
+      "neutral": 4,
+      "negative": 2,
+      "engagement": 104,
+      "reach": 3600
+    }
+  ],
+  "topAuthors": [],
+  "platforms": [],
+  "recentMentions": [],
+  "window": {
+    "period": "30D",
+    "from": "2026-07-29",
+    "to": "2026-08-27",
+    "days": 30,
+    "custom": false
+  }
 }

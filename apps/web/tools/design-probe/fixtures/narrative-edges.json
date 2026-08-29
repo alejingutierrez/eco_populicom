@@ -1,22 +1,44 @@
 {
- "edges": [
-  {
-   "source": "n1",
-   "target": "n8",
-   "type": "co-ocurrencia",
-   "strength": 0.42
-  },
-  {
-   "source": "n1",
-   "target": "n6",
-   "type": "co-ocurrencia",
-   "strength": 0.19
-  },
-  {
-   "source": "n2",
-   "target": "n3",
-   "type": "co-ocurrencia",
-   "strength": null
-  }
- ]
+  "edges": [
+    {
+      "source": "n1",
+      "target": "n8",
+      "type": "co-ocurrencia",
+      "strength": 0.42,
+      "sourceName": "Apagones y confianza en LUMA",
+      "sourceStatus": "peaking",
+      "targetName": "Cierres en Calle Loíza",
+      "targetStatus": "sin_clasificar"
+    },
+    {
+      "source": "n1",
+      "target": "n6",
+      "type": "co-ocurrencia",
+      "strength": 0.19,
+      "sourceName": "Apagones y confianza en LUMA",
+      "sourceStatus": "peaking",
+      "targetName": "Auditoría de fondos CDBG-DR",
+      "targetStatus": "dormant"
+    },
+    {
+      "source": "n2",
+      "target": "n3",
+      "type": "co-ocurrencia",
+      "strength": null,
+      "sourceName": "Récord de visitantes 2026",
+      "sourceStatus": "active",
+      "targetName": "Inversión farmacéutica en el norte",
+      "targetStatus": "emerging"
+    },
+    {
+      "source": "n1",
+      "target": "fuera-de-ventana-1",
+      "type": "semantic",
+      "strength": 0.71,
+      "sourceName": "Apagones y confianza en LUMA",
+      "sourceStatus": "peaking",
+      "targetName": "Narrativa dormida fuera del período",
+      "targetStatus": "dormant"
+    }
+  ]
 }

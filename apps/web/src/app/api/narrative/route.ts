@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
-import { PERIOD_DAYS } from '@eco/shared';
+import { PERIOD_DAYS, resolveWindow } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-// PERIOD_DAYS: mapa canónico de @eco/shared. El local anterior no tenía
-// 7D/30D/90D y esos chips caían en silencio a 730 días (auditoría 2026-08).
-// El filtro sigue siendo por RECENCIA de actividad (last_mention_at), no una
-// ventana de conteo — las narrativas son entidades vivas, no agregados.
+const TZ = 'America/Puerto_Rico';
+// AST no tiene horario de verano: el offset es -04:00 todo el año, así que los
+// bordes de la ventana se pueden construir por concatenación sin ambigüedad.
+const AST = '-04:00';
+
+// N8 (ago-2026): la ventana ahora FILTRA Y CUENTA. Antes había dos semánticas
+// incompatibles —presets por recencia rolling de last_mention_at, from/to por
+// solape de vida— y ninguna era la del resto del producto; encima el SPA no
+// mandaba ninguna de las dos, así que todo el bloque era código muerto y la
+// pantalla ignoraba el selector de período.
+//
+// Semántica única, la misma que /api/overview: ventana CERRADA de N días
+// terminando AYER en AST (resolveWindow de @eco/shared). Una narrativa aparece
+// si tiene AL MENOS UNA mención pertinente dentro de la ventana, y todas sus
+// cifras —conteo, engagement, alcance, sparkline— son de la ventana, no de su
+// vida entera. Es lo que hace que los números cuadren con Menciones y Tópicos.
 
 interface NarrativeListItem {
   id: string;
@@ -19,6 +31,7 @@ interface NarrativeListItem {
   keywords: string[];
   status: string;
   mentionCount: number;
+  lifetimeMentionCount: number;
   velocity24h: number;
   totalEngagement: number;
   totalReach: number;
@@ -30,13 +43,14 @@ interface NarrativeListItem {
 }
 
 /**
- * GET /api/narratives — lista narrativas para el grafo.
+ * GET /api/narrative — lista narrativas con actividad en la ventana.
  *
  * Query params:
  *   agency        slug (default vía resolveAgencyId)
  *   status        comma-separated, ej. "active,peaking,emerging"
- *   period        1D|5D|1M|3M|6M|1A|Max (default Max)
- *   minMentions   filtra mention_count >= N
+ *   period        clave de PERIOD_DAYS (1D…Max). Ventana cerrada terminando ayer.
+ *   from,to       YYYY-MM-DD inclusivos; ganan sobre period.
+ *   minMentions   filtra por menciones EN LA VENTANA >= N
  *   limit         default 250, max 500
  */
 export async function GET(request: NextRequest) {
@@ -50,10 +64,27 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const periodKey = searchParams.get('period') ?? 'Max';
-  const days = PERIOD_DAYS[periodKey] ?? 730;
+  const win = resolveWindow({
+    period: periodKey,
+    from: searchParams.get('from'),
+    to: searchParams.get('to'),
+    timeZone: TZ,
+  });
+  if (!win) {
+    return NextResponse.json(
+      { error: `Unsupported period: ${periodKey}. Valid: ${Object.keys(PERIOD_DAYS).join(', ')}, or pass from/to.` },
+      { status: 400 },
+    );
+  }
+
   const statusFilter = (searchParams.get('status') ?? '').split(',').filter(Boolean);
-  const minMentions = Math.max(0, Number(searchParams.get('minMentions') ?? 0));
-  const limit = Math.min(500, Math.max(1, Number(searchParams.get('limit') ?? 250)));
+  // Number('abc') es NaN y Math.min/max lo propagan: el NaN llegaba hasta
+  // `LIMIT $n` y Postgres respondía 22P02, así que un query param con basura
+  // devolvía 500 en vez de caer al default.
+  const rawMin = Number(searchParams.get('minMentions'));
+  const minMentions = Number.isFinite(rawMin) ? Math.max(0, rawMin) : 0;
+  const rawLimit = Number(searchParams.get('limit') ?? 250);
+  const limit = Number.isFinite(rawLimit) ? Math.min(500, Math.max(1, rawLimit)) : 250;
 
   // Sin fallback a "primera agencia activa": resolveAgencyId ya resuelve
   // dentro del set PERMITIDO del usuario; null = set vacío, y servir otra
@@ -65,48 +96,58 @@ export async function GET(request: NextRequest) {
 
   const pgPool = getPool();
 
-  const params: unknown[] = [agencyId];
-  let where = 'n.agency_id = $1';
+  const startTs = `${win.startYmd}T00:00:00${AST}`;
+  // Borde superior EXCLUSIVO: el día `to` entero entra, sin depender de cuántos
+  // decimales de segundo traiga published_at.
+  const endTsExcl = `${win.endYmd}T23:59:59.999${AST}`;
+
+  const params: unknown[] = [agencyId, startTs, endTsExcl];
+  let where = 'n.agency_id = $1 AND n.merged_into_id IS NULL';
   if (statusFilter.length > 0) {
     params.push(statusFilter);
     where += ` AND n.status = ANY($${params.length}::text[])`;
   }
-  // Ventana: from/to (rango custom del calendario) filtra por SOLAPE de la
-  // vida de la narrativa con el rango (last_mention_at >= from Y born_at <=
-  // to, días AST). Presets = recencia de actividad (comportamiento
-  // histórico). Antes la pantalla ignoraba el selector de período por
-  // completo (auditoría 2026-08, P0-12 parcial).
-  const fromParam = searchParams.get('from');
-  const toParam = searchParams.get('to');
-  const YMD = /^\d{4}-\d{2}-\d{2}$/;
-  if (fromParam && toParam && YMD.test(fromParam) && YMD.test(toParam) && fromParam <= toParam) {
-    params.push(`${fromParam}T00:00:00-04:00`);
-    where += ` AND (n.last_mention_at IS NULL OR n.last_mention_at >= $${params.length})`;
-    params.push(`${toParam}T23:59:59.999-04:00`);
-    where += ` AND n.born_at <= $${params.length}`;
-  } else if (days < 730) {
-    where += ` AND (n.last_mention_at IS NULL OR n.last_mention_at >= NOW() - INTERVAL '${days} days')`;
-  }
   if (minMentions > 0) {
     params.push(minMentions);
-    where += ` AND n.mention_count >= $${params.length}`;
+    where += ` AND w.cnt >= $${params.length}`;
   }
   params.push(limit);
 
+  // `win` agrega UNA vez por narrativa sobre las menciones de la ventana; el
+  // JOIN (no LEFT JOIN) es lo que impone "solo narrativas con actividad en el
+  // período". El filtro por agencia va también sobre mentions para que el
+  // planner pode antes de agrupar.
   const result = await pgPool.query(
-    `SELECT n.id, n.name, n.slug, n.summary, n.keywords, n.status,
-            n.mention_count AS "mentionCount",
-            n.velocity_24h  AS "velocity24h",
-            n.total_engagement AS "totalEngagement",
-            n.total_reach   AS "totalReach",
-            n.born_at       AS "bornAt",
-            n.last_mention_at AS "lastMentionAt",
-            n.peaked_at     AS "peakedAt",
+    `WITH win AS (
+       SELECT nm.narrative_id,
+              COUNT(*)::int AS cnt,
+              COALESCE(SUM(m.engagement_score), 0)::bigint AS eng,
+              COALESCE(SUM(m.reach_estimate), 0)::bigint AS reach,
+              MAX(m.published_at) AS last_at
+         FROM narrative_mentions nm
+         JOIN mentions m ON m.id = nm.mention_id
+        WHERE nm.is_primary = true
+          AND m.is_duplicate = false
+          AND m.agency_id = $1
+          AND m.published_at >= $2::timestamptz
+          AND m.published_at <= $3::timestamptz
+        GROUP BY nm.narrative_id
+     )
+     SELECT n.id, n.name, n.slug, n.summary, n.keywords, n.status,
+            w.cnt            AS "mentionCount",
+            n.mention_count  AS "lifetimeMentionCount",
+            n.velocity_24h   AS "velocity24h",
+            w.eng            AS "totalEngagement",
+            w.reach          AS "totalReach",
+            n.born_at        AS "bornAt",
+            w.last_at        AS "lastMentionAt",
+            n.peaked_at      AS "peakedAt",
             n.initiator_first AS "initiatorFirst",
             n.initiator_influencer AS "initiatorInfluencer"
        FROM narratives n
+       JOIN win w ON w.narrative_id = n.id
        WHERE ${where}
-       ORDER BY n.mention_count DESC, n.born_at DESC
+       ORDER BY w.cnt DESC, n.born_at DESC
        LIMIT $${params.length}`,
     params,
   );
@@ -114,44 +155,69 @@ export async function GET(request: NextRequest) {
   const narratives = (result.rows as NarrativeListItem[]).map((r) => ({
     ...r,
     mentionCount: Number(r.mentionCount ?? 0),
+    lifetimeMentionCount: Number(r.lifetimeMentionCount ?? 0),
     velocity24h: Number(r.velocity24h ?? 0),
     totalEngagement: Number(r.totalEngagement ?? 0),
     totalReach: Number(r.totalReach ?? 0),
     keywords: Array.isArray(r.keywords) ? r.keywords : [],
   }));
 
-  // Sparklines: últimas 30 día de menciones/día por narrativa. Una sola query
-  // (left join generate_series) para no hacer N+1 al frontend.
+  // Sparkline: la miniserie sigue la VENTANA, no unos 30 días fijos. Antes
+  // estaba clavada a CURRENT_DATE-29d, así que una narrativa dormida desde hacía
+  // meses se veía como una línea plana en cero al lado de "1,240 menciones".
+  //
+  // Con ventanas largas se agrupa en cubos de varios días para no devolver 730
+  // puntos a un SVG de 56×18. `bucketDays` se calcula aquí y viaja como
+  // parámetro para que el agrupado ocurra en SQL.
+  const bucketDays = Math.max(1, Math.ceil(win.days / 60));
   const sparklineRows = narratives.length > 0
     ? await pgPool.query(
-        `WITH days AS (
-           SELECT generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, '1 day')::date AS day
+        `WITH buckets AS (
+           -- El paso va como $4::int * INTERVAL '1 day'. Construirlo concatenando
+           -- el parámetro con la palabra days lo fija como text y revienta en
+           -- cuanto se reusa en aritmética — aquí se reusa dos veces más abajo
+           -- como ::int. Hay un test de contrato que prohíbe esa otra forma.
+           SELECT generate_series(
+                    $2::date,
+                    $3::date,
+                    ($4::int * INTERVAL '1 day')
+                  )::date AS bstart
+         ),
+         hits AS (
+           SELECT nm.narrative_id,
+                  $2::date + (
+                    (((m.published_at AT TIME ZONE '${TZ}')::date - $2::date) / $4::int) * $4::int
+                  ) AS bstart,
+                  COUNT(*)::int AS cnt
+             FROM narrative_mentions nm
+             JOIN mentions m ON m.id = nm.mention_id
+            WHERE nm.narrative_id = ANY($1::uuid[])
+              AND nm.is_primary = true
+              AND m.is_duplicate = false
+              AND (m.published_at AT TIME ZONE '${TZ}')::date BETWEEN $2::date AND $3::date
+            GROUP BY 1, 2
          )
          SELECT n.id AS narrative_id,
-                to_char(d.day, 'YYYY-MM-DD') AS day,
-                COALESCE(COUNT(m.id), 0)::int AS cnt
-           FROM narratives n
-           CROSS JOIN days d
-           LEFT JOIN narrative_mentions nm ON nm.narrative_id = n.id AND nm.is_primary = true
-           LEFT JOIN mentions m ON m.id = nm.mention_id
-             AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = d.day
-           WHERE n.id = ANY($1::uuid[])
-           GROUP BY n.id, d.day
-           ORDER BY n.id, d.day`,
-        [narratives.map((n) => n.id)],
+                to_char(b.bstart, 'YYYY-MM-DD') AS day,
+                COALESCE(h.cnt, 0)::int AS cnt
+           FROM unnest($1::uuid[]) AS n(id)
+           CROSS JOIN buckets b
+           LEFT JOIN hits h ON h.narrative_id = n.id AND h.bstart = b.bstart
+          ORDER BY n.id, b.bstart`,
+        [narratives.map((n) => n.id), win.startYmd, win.endYmd, bucketDays],
       )
     : { rows: [] as Array<{ narrative_id: string; day: string; cnt: number }> };
 
-  // Group by narrative_id → ordered array of 30 counts
   const sparklineByNarrative: Record<string, number[]> = {};
   for (const row of sparklineRows.rows as Array<{ narrative_id: string; day: string; cnt: number }>) {
     if (!sparklineByNarrative[row.narrative_id]) sparklineByNarrative[row.narrative_id] = [];
     sparklineByNarrative[row.narrative_id].push(Number(row.cnt));
   }
+  const bucketCount = Math.max(1, Math.floor((win.days - 1) / bucketDays) + 1);
 
   const narrativesWithSpark = narratives.map((n) => ({
     ...n,
-    sparkline: sparklineByNarrative[n.id] || new Array(30).fill(0),
+    sparkline: sparklineByNarrative[n.id] || new Array(bucketCount).fill(0),
   }));
 
   return NextResponse.json({
@@ -159,6 +225,11 @@ export async function GET(request: NextRequest) {
     meta: {
       total: narrativesWithSpark.length,
       period: periodKey,
+      from: win.startYmd,
+      to: win.endYmd,
+      days: win.days,
+      custom: win.custom,
+      bucketDays,
       statusFilter: statusFilter.length > 0 ? statusFilter : null,
     },
   });
