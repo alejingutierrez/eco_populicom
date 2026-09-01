@@ -23,7 +23,10 @@ export async function GET() {
   // Restrict to the agencies this user may see (null = all). Per-user, so this
   // must NOT be shared-cached — that would leak one user's list to another.
   const allowedSlugs = await resolveAllowedAgencySlugs();
-  const visible = allowedSlugs ? result.filter((a) => allowedSlugs.includes(a.slug)) : result;
+  const visible = (allowedSlugs ? result.filter((a) => allowedSlugs.includes(a.slug)) : result)
+    // Ver la nota en /api/eco-data: sin proyecto de Brandwatch la agencia sigue
+    // visible para consultar el histórico, pero ya no entra al pipeline.
+    .map((a) => ({ ...a, archived: a.brandwatchProjectId == null }));
 
   return NextResponse.json(visible, {
     headers: { 'Cache-Control': 'private, no-store' },
