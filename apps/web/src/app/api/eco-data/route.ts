@@ -217,7 +217,12 @@ export async function GET(request: NextRequest) {
   try {
     // ---- AGENCIES (the ones this user may switch between) ----
     const agencyRows = await db
-      .select({ id: agencies.id, name: agencies.name, slug: agencies.slug })
+      .select({
+        id: agencies.id,
+        name: agencies.name,
+        slug: agencies.slug,
+        brandwatchProjectId: agencies.brandwatchProjectId,
+      })
       .from(agencies)
       .where(eq(agencies.isActive, true));
 
@@ -229,17 +234,25 @@ export async function GET(request: NextRequest) {
       ? agencyRows.filter((a) => allowedSlugs.includes(a.slug))
       : agencyRows;
 
+    // `archived` = la agencia dejó de recolectar, pero su histórico se sigue
+    // consultando. No hay columna propia para esto: el `exec-write` del lambda
+    // de migración solo acepta UPDATE/INSERT/DELETE, así que se deriva de la
+    // única señal que ya existe Y que además frena el ETL por sí sola —
+    // eco-ingestion selecciona con `WHERE brandwatch_project_id IS NOT NULL`,
+    // de modo que vaciar ese campo la saca del pipeline sin sacarla del
+    // dashboard. El front pinta el aviso de que no se actualiza.
     const AGENCIES_FULL = visibleAgencies.map((a) => ({
       key: a.slug,
       name: (a.slug || '').toUpperCase().slice(0, 6),
       long: a.name,
+      archived: a.brandwatchProjectId == null,
     }));
 
     // Sentinel "TODAS" para la vista ejecutiva multi-agencia — solo staff
     // (allowedSlugs === null ≡ ve todas las agencias) puede seleccionarla.
     // El frontend rutea la selección __all__ a /api/exec-overview.
     if (allowedSlugs === null) {
-      AGENCIES_FULL.unshift({ key: '__all__', name: 'TODAS', long: 'Todas las agencias' });
+      AGENCIES_FULL.unshift({ key: '__all__', name: 'TODAS', long: 'Todas las agencias', archived: false });
     }
 
     // ---- TIMELINE: conteos VIVOS + métricas de snapshots ----

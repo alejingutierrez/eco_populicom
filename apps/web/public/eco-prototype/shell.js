@@ -623,9 +623,28 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
           // colapsa a 20 px de ancho — bajo el mínimo táctil AA de 24 (SC
           // 2.5.8) — y deja de ser accionable justo cuando hace falta.
           style={{ background: 'none', border: 'none', fontSize: 'var(--fs-caption)', fontWeight: 500, color: 'var(--text)', maxWidth: 140, minWidth: 64 }}>
-          {agencies.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
+          {agencies.map((a) => <option key={a.key} value={a.key}>{a.archived ? a.name + ' · archivada' : a.name}</option>)}
         </select>
       </div>
+
+      {/* Agencia archivada: dejó de recolectar. El histórico se sigue
+          consultando, pero el aviso tiene que ir junto al control de periodo o
+          las cifras se leen como si fueran de hoy. */}
+      {(() => {
+        const current = (agencies || []).find((x) => x.key === agency);
+        if (!current || !current.archived) return null;
+        return (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
+            padding: '5px 12px', borderRadius: 'var(--r-pill)',
+            background: 'var(--control-bg)', border: '1px solid var(--neg)',
+            fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500,
+          }}>
+            <Icons.Info size={12} color="var(--neg)" />
+            <span>Archivada · ya no se actualiza, solo histórico</span>
+          </div>
+        );
+      })()}
 
       {/* Nota en las pantallas sin filtro de fechas, para que la ausencia del
           control se lea como una decisión y no como algo que se cayó. */}
