@@ -20,7 +20,7 @@ import {
   loadSentimentTotals,
   loadDailySentimentSeries,
 } from '@eco/shared';
-import { resolveAgencyId, resolveAllowedAgencySlugs } from '@/lib/agency';
+import { resolveAgencyId, resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -230,9 +230,11 @@ export async function GET(request: NextRequest) {
     // restrict the switcher to the user's granted set so they can't switch into
     // an agency they aren't allowed to read.
     const allowedSlugs = await resolveAllowedAgencySlugs();
-    const visibleAgencies = allowedSlugs
-      ? agencyRows.filter((a) => allowedSlugs.includes(a.slug))
-      : agencyRows;
+    // `filterAgenciesForCaller` se aplica SIEMPRE, incluso cuando allowedSlugs
+    // es null (staff): una agencia restringida no entra en el "ve todas".
+    const visibleAgencies = await filterAgenciesForCaller(
+      allowedSlugs ? agencyRows.filter((a) => allowedSlugs.includes(a.slug)) : agencyRows,
+    );
 
     // `archived` = la agencia dejó de recolectar, pero su histórico se sigue
     // consultando. No hay columna propia para esto: el `exec-write` del lambda

@@ -14,7 +14,13 @@
  * boundary — a user must never resolve to an agency outside their grants.
  */
 import { headers } from 'next/headers';
-import { resolveAgencyId, resolveAllowedAgencySlugs, clearAccessCache } from './agency';
+import {
+  resolveAgencyId,
+  resolveAllowedAgencySlugs,
+  clearAccessCache,
+  agencyVisibleTo,
+  filterAgenciesForCaller,
+} from './agency';
 
 jest.mock('next/headers', () => ({ headers: jest.fn() }));
 jest.mock('drizzle-orm', () => ({
@@ -170,6 +176,83 @@ describe('resolveAgencyId — no users row yet (domain fallback)', () => {
   });
   test('non-staff resolveAllowedAgencySlugs → only their JWT agency', async () => {
     session({ sub: 'sub-y', email: 'someone@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAllowedAgencySlugs()).toEqual(['ddecpr']);
+  });
+});
+
+
+/**
+ * Agencias restringidas: la trampa es que `all_agencies` significa TODAS las
+ * agencias activas, y hoy lo tienen los diez correos @populicom.com. Una
+ * agencia restringida no puede entrar en ese "todas" ni por el switcher, ni por
+ * el fallback de primaria, ni por el de "primera activa".
+ */
+describe('agencias restringidas', () => {
+  const RESTRICTED = 'zzz-restringida';
+
+  beforeEach(() => {
+    mockAgenciesRows = [
+      ...mockAgenciesRows,
+      { id: RESTRICTED, slug: 'medalla', isActive: true, name: 'Medalla' },
+    ];
+  });
+
+  test('agencyVisibleTo: solo el correo de la lista', () => {
+    expect(agencyVisibleTo('medalla', 'agutierrez@populicom.com')).toBe(true);
+    expect(agencyVisibleTo('medalla', 'AGUTIERREZ@POPULICOM.COM')).toBe(true);
+    expect(agencyVisibleTo('medalla', 'otro@populicom.com')).toBe(false);
+    expect(agencyVisibleTo('medalla', null)).toBe(false);
+    // Una agencia no restringida no cambia de comportamiento.
+    expect(agencyVisibleTo('aaa', 'otro@populicom.com')).toBe(true);
+    expect(agencyVisibleTo('aaa', null)).toBe(true);
+  });
+
+  test('staff con all_agencies NO puede entrar por el switcher', async () => {
+    mockUsersRows = [{ id: 'u3', cognitoSub: 'sub-3', email: 'otro@populicom.com', allAgencies: true, agencyId: DDEC }];
+    session({ sub: 'sub-3', email: 'otro@populicom.com', slug: 'ddecpr' });
+    // se le niega y cae a su primaria
+    expect(await resolveAgencyId(params('agency=medalla'))).toBe(DDEC);
+  });
+
+  test('el correo autorizado SÍ entra', async () => {
+    mockUsersRows = [{ id: 'u4', cognitoSub: 'sub-4', email: 'agutierrez@populicom.com', allAgencies: true, agencyId: DDEC }];
+    session({ sub: 'sub-4', email: 'agutierrez@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=medalla'))).toBe(RESTRICTED);
+  });
+
+  test('sin sesión nunca se sirve una restringida', async () => {
+    noSession();
+    expect(await resolveAgencyId(params('agency=medalla'))).toBe(AAA); // cae al default
+  });
+
+  test('el fallback de "primera activa" no aterriza en una restringida', async () => {
+    // única activa restringida + una normal: staff no autorizado debe caer en la normal
+    mockAgenciesRows = [
+      { id: RESTRICTED, slug: 'medalla', isActive: true, name: 'Medalla' },
+      { id: OTHER, slug: 'other', isActive: true, name: 'Other' },
+    ];
+    mockUsersRows = [{ id: 'u5', cognitoSub: 'sub-5', email: 'otro@populicom.com', allAgencies: true, agencyId: null }];
+    session({ sub: 'sub-5', email: 'otro@populicom.com', slug: null });
+    expect(await resolveAgencyId(params(''))).toBe(OTHER);
+  });
+
+  test('filterAgenciesForCaller la quita del selector del staff no autorizado', async () => {
+    session({ sub: 'sub-3', email: 'otro@populicom.com', slug: 'ddecpr' });
+    const rows = [{ slug: 'aaa' }, { slug: 'medalla' }, { slug: 'ddecpr' }];
+    expect(await filterAgenciesForCaller(rows)).toEqual([{ slug: 'aaa' }, { slug: 'ddecpr' }]);
+  });
+
+  test('filterAgenciesForCaller la deja para el correo autorizado', async () => {
+    session({ sub: 'sub-4', email: 'agutierrez@populicom.com', slug: 'ddecpr' });
+    const rows = [{ slug: 'aaa' }, { slug: 'medalla' }];
+    expect(await filterAgenciesForCaller(rows)).toEqual([{ slug: 'aaa' }, { slug: 'medalla' }]);
+  });
+
+  test('un grant explícito no basta si el correo no está en la lista', async () => {
+    mockUsersRows = [{ id: 'u6', cognitoSub: 'sub-6', email: 'cliente@ddec.pr.gov', allAgencies: false, agencyId: DDEC }];
+    mockUserAgenciesRows = [{ userId: 'u6', agencyId: RESTRICTED }];
+    session({ sub: 'sub-6', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=medalla'))).toBe(DDEC);
     expect(await resolveAllowedAgencySlugs()).toEqual(['ddecpr']);
   });
 });

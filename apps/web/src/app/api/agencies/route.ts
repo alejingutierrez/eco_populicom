@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { agencies } from '@eco/database';
 import { eq } from 'drizzle-orm';
-import { resolveAllowedAgencySlugs } from '@/lib/agency';
+import { resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,9 @@ export async function GET() {
   // Restrict to the agencies this user may see (null = all). Per-user, so this
   // must NOT be shared-cached — that would leak one user's list to another.
   const allowedSlugs = await resolveAllowedAgencySlugs();
-  const visible = (allowedSlugs ? result.filter((a) => allowedSlugs.includes(a.slug)) : result)
+  const visible = (await filterAgenciesForCaller(
+    allowedSlugs ? result.filter((a) => allowedSlugs.includes(a.slug)) : result,
+  ))
     // Ver la nota en /api/eco-data: sin proyecto de Brandwatch la agencia sigue
     // visible para consultar el histórico, pero ya no entra al pipeline.
     .map((a) => ({ ...a, archived: a.brandwatchProjectId == null }));
