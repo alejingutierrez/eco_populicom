@@ -12,6 +12,37 @@ const DEFAULT_AGENCY_SLUG = 'aaa';
  */
 export const STAFF_EMAIL_DOMAIN = '@populicom.com';
 
+/**
+ * Agencias de acceso restringido: NO entran en el "ve todas" de
+ * `all_agencies` ni en el fallback de dominio de staff. Solo las ve el correo
+ * listado aquí.
+ *
+ * Hace falta porque `all_agencies` significa literalmente *todas* las agencias
+ * activas, y hoy lo tienen los diez correos @populicom.com: sin esta lista, dar
+ * de alta una agencia la publica para todo el staff.
+ *
+ * Es una constante en código y no una columna de `agencies` por dos razones:
+ * el `exec-write` del lambda `eco-migration` rechaza DDL (añadir la columna
+ * exigiría parchear su bundle en producción), y estos casos son temporales por
+ * naturaleza — una marca en evaluación que después se va a otro front. Mismo
+ * patrón que la lista blanca de correos de /api/alerts.
+ */
+export const RESTRICTED_AGENCIES: Record<string, readonly string[]> = {
+  medalla: ['agutierrez@populicom.com'],
+};
+
+/**
+ * ¿Este correo puede ver esta agencia? Las agencias que no están en
+ * RESTRICTED_AGENCIES son visibles para todo el mundo (comportamiento previo).
+ * Sin sesión no se ve ninguna restringida.
+ */
+export function agencyVisibleTo(slug: string, email: string | null | undefined): boolean {
+  const allow = RESTRICTED_AGENCIES[slug];
+  if (!allow) return true;
+  if (!email) return false;
+  return allow.includes(email.toLowerCase());
+}
+
 async function slugToId(slug: string | undefined | null): Promise<string | null> {
   if (!slug) return null;
   const db = getDb();
@@ -23,13 +54,16 @@ async function slugToId(slug: string | undefined | null): Promise<string | null>
   return row?.id ?? null;
 }
 
-async function firstActiveAgencyId(): Promise<string | null> {
+async function firstActiveAgencyId(email: string | null = null): Promise<string | null> {
   const db = getDb();
-  const [first] = await db
-    .select({ id: agencies.id })
+  // Se piden slugs además del id porque el fallback no puede aterrizar en una
+  // agencia restringida: sería una fuga por la puerta de atrás justo cuando el
+  // resto de la resolución ya la había descartado.
+  const rows = await db
+    .select({ id: agencies.id, slug: agencies.slug })
     .from(agencies)
-    .where(eq(agencies.isActive, true))
-    .limit(1);
+    .where(eq(agencies.isActive, true));
+  const first = rows.find((a) => agencyVisibleTo(a.slug, email));
   return first?.id ?? null;
 }
 
@@ -140,19 +174,27 @@ export async function resolveAgencyId(params: URLSearchParams): Promise<string |
   const { sub, email, slug } = await sessionFromHeaders();
   const access = await getUserAccess(sub, email, slug);
 
-  // No session → public/seed behavior (unchanged from before user-scoping).
+  // No session → public/seed behavior (unchanged from before user-scoping),
+  // salvo que una agencia restringida nunca se sirve sin sesión.
   if (!access) {
-    if (param) {
+    if (param && agencyVisibleTo(param, null)) {
       const paramId = await slugToId(param);
       if (paramId) return paramId;
     }
     const def = await slugToId(DEFAULT_AGENCY_SLUG);
     if (def) return def;
-    return firstActiveAgencyId();
+    return firstActiveAgencyId(null);
   }
 
+  // Mapa id→slug de las activas: la restricción se expresa por slug pero la
+  // tenencia se compara por id, y `primaryId` puede apuntar a una restringida.
+  const active = await listActiveAgencies();
+  const slugOf = new Map(active.map((a) => [a.id, a.slug]));
+  const visible = (id: string | null): boolean =>
+    !!id && agencyVisibleTo(slugOf.get(id) ?? '', email);
+
   const isAllowed = (id: string | null): id is string =>
-    !!id && (access.allowedIds === 'all' || access.allowedIds.has(id));
+    !!id && visible(id) && (access.allowedIds === 'all' || access.allowedIds.has(id));
 
   // 1. Switcher selection, honored only if the user may see that agency.
   if (param) {
@@ -162,9 +204,11 @@ export async function resolveAgencyId(params: URLSearchParams): Promise<string |
   // 2. The user's primary agency (default landing).
   if (isAllowed(access.primaryId)) return access.primaryId;
   // 3. Primary missing/disallowed → first agency the user can actually see.
-  if (access.allowedIds === 'all') return firstActiveAgencyId();
-  const firstAllowed = access.allowedIds.values().next().value;
-  return firstAllowed ?? null;
+  if (access.allowedIds === 'all') return firstActiveAgencyId(email);
+  for (const id of access.allowedIds) {
+    if (visible(id)) return id;
+  }
+  return null;
 }
 
 /**
@@ -175,10 +219,28 @@ export async function resolveAgencyId(params: URLSearchParams): Promise<string |
 export async function resolveAllowedAgencySlugs(): Promise<string[] | null> {
   const { sub, email, slug } = await sessionFromHeaders();
   const access = await getUserAccess(sub, email, slug);
+  // `null` sigue significando "ve todas" — tres rutas dependen de esa señal
+  // (el centinela __all__ de la vista ejecutiva, /api/users y /api/users/[id]),
+  // así que NO se convierte en lista aquí. Las agencias restringidas se sacan
+  // en `filterAgenciesForCaller`, que es por donde pasan las listas que el
+  // usuario ve.
   if (!access || access.allowedIds === 'all') return null;
   const active = await listActiveAgencies();
   const allowed = access.allowedIds;
-  return active.filter((a) => allowed.has(a.id)).map((a) => a.slug);
+  return active
+    .filter((a) => allowed.has(a.id) && agencyVisibleTo(a.slug, email))
+    .map((a) => a.slug);
+}
+
+/**
+ * Quita de una lista de agencias las restringidas que el llamante no puede ver.
+ * Va aparte de `resolveAllowedAgencySlugs` porque ese contrato usa `null` para
+ * "ve todas" y, con agencias restringidas, "todas" ya no es todas: las rutas que
+ * construyen el selector tienen que filtrar aunque el usuario sea staff.
+ */
+export async function filterAgenciesForCaller<T extends { slug: string }>(rows: T[]): Promise<T[]> {
+  const { email } = await sessionFromHeaders();
+  return rows.filter((a) => agencyVisibleTo(a.slug, email));
 }
 
 /**
