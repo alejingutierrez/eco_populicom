@@ -4,7 +4,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -21,6 +21,19 @@ const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.a
 // milliseconds to avoid hammering a quota that's been consumed for the day.
 const PRIMARY_COOLDOWN_MS = 5 * 60 * 1000;
 let primaryCooldownUntil = 0;
+
+/**
+ * Tope de texto de artículo que se le pasa a Claude. Se GUARDA el cuerpo
+ * completo (lo hace eco-article-fetch / la UPDATE de abajo), pero el prompt
+ * solo recibe los primeros N caracteres: el lead y el desarrollo llevan toda
+ * la señal de sentimiento, pertinencia y tópicos, mientras que un mensaje de
+ * presupuesto de 60,000 caracteres multiplicaría el coste de Bedrock por 25
+ * sin mejorar la clasificación.
+ */
+const NLP_TEXT_LIMIT = Number(process.env.NLP_TEXT_LIMIT ?? 8000);
+
+/** page_types donde vale la pena intentar el fetch del cuerpo. */
+const FULLTEXT_PAGE_TYPES = new Set(['news', 'blog', 'forum']);
 
 function isThrottlingError(err: unknown): boolean {
   const e = err as { name?: string; message?: string };
@@ -194,7 +207,26 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     return;
   }
 
-  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency);
+  // Cuerpo completo del artículo ANTES del NLP. Brandwatch entrega `snippet`
+  // truncado a ~255 caracteres (promedio medido sobre 59k menciones news) y el
+  // artículo real tiene 2,000–9,000: hasta ahora todo el análisis corría sobre
+  // el 3–10% del texto. Se hace aquí, y no solo en el barrido de
+  // eco-article-fetch, porque si el texto llegara después el NLP ya estaría
+  // calculado sobre el snippet y nadie lo recalcularía.
+  //
+  // Los 10 registros del lote corren en Promise.allSettled, así que este fetch
+  // suma latencia MÁXIMA (~12s de timeout), no acumulada. Nunca lanza.
+  let article: ArticleTextResult | null = null;
+  if (mention.url && FULLTEXT_PAGE_TYPES.has((mention.pageType ?? '').toLowerCase())) {
+    try {
+      article = await fetchArticleText(mention.url);
+    } catch {
+      article = null;
+    }
+  }
+  const fullText = article?.ok ? article.text : null;
+
+  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency, fullText);
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
@@ -280,6 +312,35 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     return;
   }
   const mentionId = mentionResult.rows[0].id;
+
+  // Persistencia del cuerpo en una UPDATE aparte, no en el INSERT: el INSERT
+  // ya lleva 46 parámetros posicionales y renumerarlos por ocho columnas más
+  // es la clase de cambio que rompe una mención entera por un off-by-one. El
+  // mismo patrón que usa el embedding unas líneas más abajo.
+  if (article) {
+    const label = article.ok
+      ? 'ok'
+      : article.reason === 'http-error'
+        ? (article.status === 429 ? 'http-error-429' : article.status >= 500 ? 'http-error-5xx' : `http-error-${article.status}`)
+        : (article.reason ?? 'unknown');
+    try {
+      await pgClient.query(
+        `UPDATE mentions
+            SET full_text = $2, full_text_chars = $3, full_text_words = $4,
+                full_text_method = $5, full_text_status = $6,
+                full_text_http_status = $7, full_text_fetched_at = NOW(),
+                full_text_attempts = 1
+          WHERE id = $1`,
+        [mentionId, fullText, fullText?.length ?? null, article.ok ? article.words : null,
+         article.ok ? article.method : null, label, article.status || null],
+      );
+    } catch (err) {
+      // Si las columnas aún no existen (processor desplegado antes del primer
+      // arranque de eco-article-fetch, que es quien las crea), la mención se
+      // guarda igual y el barrido la recogerá después.
+      console.warn(`[${agency.slug}] full_text UPDATE falló para ${mentionId}: ${(err as Error).message}`);
+    }
+  }
 
   // Best-effort: generar embedding del contenido para "menciones similares".
   // No bloquea el resto del procesamiento — si Bedrock falla, la mención
@@ -371,7 +432,11 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   console.log(`[${agency.slug}] Mention ${resourceId} processed: sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}, topics=${nlp.topics.length}`);
 }
 
-async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo): Promise<NlpAnalysis> {
+async function analyzeWithClaude(
+  mention: BrandwatchMention,
+  agency: AgencyInfo,
+  fullText: string | null = null,
+): Promise<NlpAnalysis> {
   const agencyTopics = TOPICS_BY_AGENCY[agency.slug] ?? [];
   const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
   const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
@@ -396,12 +461,20 @@ async function analyzeWithClaude(mention: BrandwatchMention, agency: AgencyInfo)
     ? `\nSentimiento Brandwatch (referencia): ${mention.sentiment}`
     : '';
 
+  // Cuando hay cuerpo del artículo, ese es el texto a analizar y el snippet
+  // sobra (es su prefijo). Se marca como recortado cuando se pasa del tope
+  // para que Claude sepa que el final falta y no lo interprete como un corte
+  // abrupto del autor.
+  const textoAnalizado = fullText
+    ? fullText.slice(0, NLP_TEXT_LIMIT) + (fullText.length > NLP_TEXT_LIMIT ? '\n[…texto recortado]' : '')
+    : (mention.snippet ?? '(sin texto)');
+
   const prompt = `Eres un analista de social listening especializado en Puerto Rico.
 Analiza esta mención sobre ${agency.name}.
 
 MENCIÓN:
 Título: ${mention.title ?? '(sin título)'}
-Texto: ${mention.snippet ?? '(sin texto)'}
+Texto: ${textoAnalizado}
 Fuente: ${mention.contentSourceName ?? mention.domain} (${mention.domain})
 Autor: ${mention.author ?? 'Desconocido'}
 Fecha: ${mention.date}${bwSentimentHint}
