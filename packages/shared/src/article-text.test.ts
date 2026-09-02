@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 import {
   extractArticleText, extractContainer, extractJsonLd, extractParagraphs,
   decodeEntities, isBotChallengeUrl, isRetryableStatus, createDomainLimiter,
+  fetchArticleText,
 } from './article-text';
 
 /**
@@ -175,6 +176,20 @@ test('limitador: un fallo no rompe la fila del host', async () => {
   const fallo = run('https://a.com/1', async () => { throw new Error('boom'); });
   await assert.rejects(fallo, /boom/);
   assert.equal(await run('https://a.com/2', async () => 'ok'), 'ok');
+});
+
+// ── garantía de terminación
+test('fetchArticleText siempre resuelve, incluso si la red no responde nunca', async () => {
+  // Puerto cerrado en una IP no ruteable: el socket queda esperando. Sin la
+  // carrera contra el temporizador, esta promesa no resolvía nunca — y una
+  // sola url así colgaba la cola entera de su dominio en el barrido.
+  const t0 = Date.now();
+  const res = await fetchArticleText('http://192.0.2.1:81/nunca-responde', { timeoutMs: 1500 });
+  const elapsed = Date.now() - t0;
+  assert.equal(res.ok, false);
+  assert.ok(res.reason === 'timeout' || res.reason === 'network', `razón inesperada: ${res.reason}`);
+  assert.ok(res.retryable, 'un cuelgue de red es reintentable');
+  assert.ok(elapsed < 8000, `debió cortar pronto, tardó ${elapsed}ms`);
 });
 
 // ── sanidad general

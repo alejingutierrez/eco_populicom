@@ -21,7 +21,7 @@
  * eco-migration, cuyo `exec-write` solo acepta UPDATE/INSERT/DELETE.
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 import { fetchArticleText, createDomainLimiter, type ArticleTextResult } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
@@ -98,7 +98,7 @@ interface PendingRow {
  * PG11+ (no reescribe la tabla), así que es seguro correrlo en cada arranque
  * sobre las 123k filas de `mentions`.
  */
-async function ensureFullTextSchema(client: Client): Promise<void> {
+async function ensureFullTextSchema(client: Pool): Promise<void> {
   await client.query(`
     ALTER TABLE mentions
       ADD COLUMN IF NOT EXISTS full_text text,
@@ -129,7 +129,7 @@ function shouldSkipUrl(url: string): boolean {
   return SKIP_URL_PATTERNS.some((re) => re.test(url));
 }
 
-async function selectRows(client: Client, ev: FetchEvent): Promise<PendingRow[]> {
+async function selectRows(client: Pool, ev: FetchEvent): Promise<PendingRow[]> {
   const limit = Math.max(1, Math.min(5000, Number(ev.limit ?? 100)));
   const domainFilter = ev.domain ? 'AND domain = $2' : '';
   const params: unknown[] = [limit];
@@ -205,7 +205,7 @@ async function mapLimit<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): 
   return out;
 }
 
-async function reportStats(client: Client) {
+async function reportStats(client: Pool) {
   const byStatus = await client.query(
     `SELECT coalesce(full_text_status, '(sin intentar)') AS status, count(*)::int AS n
        FROM mentions
@@ -252,14 +252,26 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
   const gapMsReq = Number(event.gapMs ?? 1500);
   const deadline = t0 + remaining - timeSafetyMs(concurrencyReq, gapMsReq);
 
+  // POOL, no Client único. `pg.Client` ENCOLA las queries concurrentes sobre
+  // una sola conexión, así que los 20 workers se serializaban detrás de ella:
+  // una tanda de 300 filas tardaba 858 s en el Lambda mientras la misma
+  // muestra de 324 URLs con idéntica concurrencia y gap tardaba 69.7 s en la
+  // sonda local, que no escribe en la DB. Esa bisección es la que señaló aquí.
+  // (El `DeprecationWarning: Calling client.query() when the client is already
+  // executing a query` que emite el processor es el mismo problema, sin
+  // arreglar todavía en ese lambda.)
+  //
   // `ssl.rejectUnauthorized: false` es el mismo ajuste que usan processor y
   // weekly-report: la RDS exige TLS (pg_hba la rechaza en claro) pero el
   // certificado es el de AWS y no se valida cadena desde el Lambda.
-  const client = new Client({
+  const client = new Pool({
     connectionString: await getDatabaseUrl(),
     ssl: { rejectUnauthorized: false },
+    // Una conexión por worker más margen. db.t4g.medium aguanta ~340 y este
+    // lambda corre con reservedConcurrentExecutions: 1.
+    max: 24,
+    idleTimeoutMillis: 10_000,
   });
-  await client.connect();
 
   try {
     await ensureFullTextSchema(client);

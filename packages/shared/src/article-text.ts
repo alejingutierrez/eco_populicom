@@ -464,8 +464,39 @@ export async function fetchArticleText(
   url: string,
   opts: { timeoutMs?: number; maxBytes?: number; minChars?: number } = {},
 ): Promise<ArticleTextResult> {
-  const { timeoutMs = 12_000, maxBytes = MAX_BYTES, minChars = MIN_BODY_CHARS } = opts;
+  const { timeoutMs = 12_000 } = opts;
   const t0 = Date.now();
+
+  // GARANTÍA DURA DE TERMINACIÓN. El AbortController aborta el `fetch`, pero
+  // no cubre todo lo que puede quedarse esperando después: `reader.read()` en
+  // una carrera perdida con el abort, o `reader.cancel()` sobre un stream a
+  // medio leer. Bastaba UNA url así para colgar una tanda entera del barrido:
+  // el limitador encadena por host, así que la promesa que nunca resuelve
+  // bloquea a todas las filas siguientes de ese dominio. El síntoma era
+  // inconfundible visto de cerca — `procesadas` salía SIEMPRE exactamente en
+  // `seleccionadas - 1` (299/300, 1499/1500, 1999/2000).
+  //
+  // La carrera funciona porque lo que se cuelga es E/S asíncrona, no CPU: la
+  // extracción tarda 2-14 ms sobre documentos de 1 MB (medido), así que nunca
+  // bloquea el event loop y el temporizador siempre llega a dispararse.
+  return Promise.race([
+    fetchArticleTextInner(url, opts, t0),
+    new Promise<ArticleTextResult>((resolve) => {
+      setTimeout(() => resolve({
+        ok: false, reason: 'timeout', status: 0, text: null, method: 'none',
+        chars: 0, words: 0, title: null, publishedAt: null, bytes: 0,
+        ms: Date.now() - t0, retryable: true,
+      }), timeoutMs + 5_000);
+    }),
+  ]);
+}
+
+async function fetchArticleTextInner(
+  url: string,
+  opts: { timeoutMs?: number; maxBytes?: number; minChars?: number },
+  t0: number,
+): Promise<ArticleTextResult> {
+  const { timeoutMs = 12_000, maxBytes = MAX_BYTES, minChars = MIN_BODY_CHARS } = opts;
   const fail = (reason: FetchFailReason, status = 0, bytes = 0): ArticleTextResult => ({
     ok: false, reason, status, text: null, method: 'none',
     chars: 0, words: 0, title: null, publishedAt: null, bytes, ms: Date.now() - t0,
