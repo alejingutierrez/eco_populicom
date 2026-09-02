@@ -22,15 +22,16 @@ total_ok=0
 while :; do
   ronda=$((ronda + 1))
   out=$(mktemp)
-  # --cli-read-timeout 0 es OBLIGATORIO: el AWS CLI corta la lectura a los 60 s
-  # por defecto y una tanda de 3,000 URLs tarda ~6 min. Sin esto el CLI
-  # abandona, el driver lo lee como error y reintenta mientras la invocación
-  # anterior SIGUE corriendo en el servidor — con concurrencia reservada 1 el
-  # reintento se estrangula y el log miente sobre el progreso.
+  # El AWS CLI corta la lectura a los 60 s por defecto y una tanda tarda
+  # varios minutos, así que hay que subirlo — pero NO a 0. Con 0 no hay red de
+  # seguridad: un invoke se quedó 25 minutos colgado sin que el lambda llegara
+  # a arrancar (el slot estaba libre, comprobado con una invocación paralela),
+  # y el driver esperó sin más. 960 s queda por encima del timeout del lambda
+  # (900 s) y por debajo del infinito.
   aws lambda invoke --function-name eco-article-fetch \
     --payload "{\"mode\":\"$MODE\",\"limit\":$LIMIT,\"concurrency\":$CONC,\"gapMs\":$GAP}" \
     --cli-binary-format raw-in-base64-out \
-    --cli-read-timeout 0 --cli-connect-timeout 60 \
+    --cli-read-timeout 960 --cli-connect-timeout 30 \
     "$out" 2>/tmp/backfill-invoke.err >/dev/null
 
   read -r sel ok secs corte <<<"$(python3 - "$out" <<'PY'
@@ -62,7 +63,7 @@ PY
       rm -f /tmp/bf-count.json
       hechas=$(aws lambda invoke --function-name eco-migration \
         --payload '{"action":"custom-query","query":"SELECT count(full_text_fetched_at)::int AS n FROM mentions"}' \
-        --cli-binary-format raw-in-base64-out --cli-read-timeout 0 /tmp/bf-count.json >/dev/null 2>&1 \
+        --cli-binary-format raw-in-base64-out --cli-read-timeout 60 /tmp/bf-count.json >/dev/null 2>&1 \
         && python3 -c "import json;print(json.loads(json.load(open('/tmp/bf-count.json'))['body'])['rows'][0]['n'])" 2>/dev/null || echo '?')
       echo "ronda $ronda: slot ocupado por una invocación previa que sigue trabajando (intentadas=$hechas) — espero 60s" | tee -a "$LOG"
       sleep 60

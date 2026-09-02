@@ -25,7 +25,7 @@ leer() {
   rm -f /tmp/watch-bf.json
   aws lambda invoke --function-name eco-migration \
     --payload "file://$PAYLOAD" --cli-binary-format raw-in-base64-out \
-    --cli-read-timeout 0 \
+    --cli-read-timeout 60 --cli-connect-timeout 15 \
     /tmp/watch-bf.json >/dev/null 2>&1 || return 1
   python3 -c "
 import json,sys
