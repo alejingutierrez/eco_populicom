@@ -49,8 +49,22 @@ PY
   rm -f "$out"
 
   if [ "$sel" = "ERR" ]; then
-    echo "ronda $ronda: ERROR del lambda ($corte) — reintentando en 30s" | tee -a "$LOG"
-    sleep 30
+    # Throttling NO es un error: con reservedConcurrentExecutions=1, una
+    # invocación anterior que siga viva ocupa el único slot — y es ella la que
+    # está haciendo el trabajo. Un CLI interrumpido no mata la invocación en el
+    # servidor, así que esto pasa cada vez que se corta el driver a media ronda.
+    # Se distingue en el log para no leerlo como fallo del lambda.
+    if grep -q 'ReservedFunctionConcurrentInvocationLimitExceeded' /tmp/backfill-invoke.err 2>/dev/null; then
+      hechas=$(aws lambda invoke --function-name eco-migration \
+        --payload '{"action":"custom-query","query":"SELECT count(full_text_fetched_at)::int AS n FROM mentions"}' \
+        --cli-binary-format raw-in-base64-out --cli-read-timeout 0 /tmp/bf-count.json >/dev/null 2>&1 \
+        && python3 -c "import json;print(json.loads(json.load(open('/tmp/bf-count.json'))['body'])['rows'][0]['n'])" 2>/dev/null || echo '?')
+      echo "ronda $ronda: slot ocupado por una invocación previa que sigue trabajando (intentadas=$hechas) — espero 60s" | tee -a "$LOG"
+      sleep 60
+    else
+      echo "ronda $ronda: ERROR del lambda ($corte) — reintentando en 30s" | tee -a "$LOG"
+      sleep 30
+    fi
     continue
   fi
 
