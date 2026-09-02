@@ -35,8 +35,21 @@ const MAX_ATTEMPTS = 3;
  * contra páginas patológicas que concatenan un sitio entero. */
 const MAX_STORED_CHARS = 120_000;
 
-/** Margen antes del timeout del Lambda para cerrar y devolver el progreso. */
-const TIME_SAFETY_MS = 20_000;
+/**
+ * Margen antes del timeout del Lambda para cerrar y devolver el progreso.
+ *
+ * NO es una constante: al cruzar el deadline hay hasta `concurrency` peticiones
+ * ya encoladas en el limitador y, si caen en el mismo host, drenan de a una
+ * cada `gapMs`. Con concurrency 20 y gap 1800 eso son 36 s de cola — más que
+ * los 20 s fijos que tenía antes, así que el handler no llegaba a devolver y
+ * el Lambda moría con `Status: timeout` (memoria en 777/2048, o sea ya no era
+ * el OOM). Las UPDATE ya estaban commiteadas, pero se perdía el resumen y el
+ * driver lo leía como error.
+ */
+function timeSafetyMs(concurrency: number, gapMs: number): number {
+  // cola del limitador + un fetch completo en vuelo + cierre de la conexión.
+  return Math.min(180_000, Math.max(30_000, concurrency * gapMs + 20_000));
+}
 
 /**
  * URLs que nunca tienen cuerpo de artículo. Filtrarlas por patrón ahorra el
@@ -221,7 +234,9 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
   // El presupuesto real lo da el runtime. Sin contexto (tests locales) se asume
   // el timeout configurado de 15 min.
   const remaining = context?.getRemainingTimeInMillis?.() ?? 900_000;
-  const deadline = t0 + remaining - TIME_SAFETY_MS;
+  const concurrencyReq = Math.max(1, Math.min(20, Number(event.concurrency ?? 8)));
+  const gapMsReq = Number(event.gapMs ?? 1500);
+  const deadline = t0 + remaining - timeSafetyMs(concurrencyReq, gapMsReq);
 
   // `ssl.rejectUnauthorized: false` es el mismo ajuste que usan processor y
   // weekly-report: la RDS exige TLS (pg_hba la rechaza en claro) pero el
@@ -240,8 +255,8 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
     // La concurrencia es ENTRE dominios; el limitador serializa cada host. Con
     // concurrencia global y sin limitador, cuatro URLs del mismo sitio salen a
     // la vez y disparan el CAPTCHA de rate de TownNews (medido en la sonda).
-    const concurrency = Math.max(1, Math.min(20, Number(event.concurrency ?? 8)));
-    const limiter = createDomainLimiter(Number(event.gapMs ?? 1500));
+    const concurrency = concurrencyReq;
+    const limiter = createDomainLimiter(gapMsReq);
 
     const tally: Record<string, number> = {};
     let stored = 0;
