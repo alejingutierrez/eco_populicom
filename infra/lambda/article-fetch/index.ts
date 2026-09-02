@@ -263,8 +263,19 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
     let skipped = 0;
     let charsTotal = 0;
     let stoppedEarly = false;
+    let done = 0;
 
-    await mapLimit(rows, concurrency, async (row) => {
+    // PARADA DURA. El guardia por-item (`Date.now() > deadline`) solo evita
+    // EMPEZAR filas nuevas: si un worker se queda clavado —un reader que no
+    // cede, un eslabón del limitador que no resuelve— el `mapLimit` no
+    // resuelve y el Lambda muere con `Status: timeout` sin devolver nada. Dos
+    // invocaciones agotaron los 900 s con memoria de sobra (777 y 613 MB de
+    // 2048) exactamente así.
+    //
+    // Con el race el handler SIEMPRE devuelve. Las UPDATE se commitean fila a
+    // fila, así que lo ya hecho queda; las filas en vuelo se quedan
+    // pendientes y las recoge la ronda siguiente.
+    const lote = mapLimit(rows, concurrency, async (row) => {
       if (Date.now() > deadline) { stoppedEarly = true; return; }
 
       if (shouldSkipUrl(row.url)) {
@@ -284,6 +295,13 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
       }
 
       const res = await limiter(row.url, () => fetchArticleText(row.url));
+      // Latido cada 200 filas: sin esto, una invocación que muere por timeout
+      // no deja rastro de cuán lejos llegó ni a qué ritmo iba, y desde fuera
+      // se ve igual que una colgada.
+      if (++done % 200 === 0) {
+        const s0 = (Date.now() - t0) / 1000;
+        console.log(`progreso ${done}/${rows.length} · ${stored} guardadas · ${(done / s0).toFixed(1)} URL/s · ${s0.toFixed(0)}s`);
+      }
       const label = statusLabel(res);
       tally[label] = (tally[label] ?? 0) + 1;
       if (res.ok && res.text) charsTotal += res.chars;
@@ -308,11 +326,24 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
       if (text) stored += 1;
     });
 
+    const cortePorRace = await Promise.race([
+      lote.then(() => false),
+      new Promise<boolean>((r) => {
+        const ms = Math.max(1000, deadline - Date.now());
+        setTimeout(() => r(true), ms).unref?.();
+      }),
+    ]);
+    if (cortePorRace) {
+      stoppedEarly = true;
+      console.log(`parada dura a los ${((Date.now() - t0) / 1000).toFixed(0)}s con ${done}/${rows.length} filas procesadas`);
+    }
+
     const elapsed = (Date.now() - t0) / 1000;
     const result = {
       mode: event.mode ?? 'pending',
       dryRun: !!event.dryRun,
       seleccionadas: rows.length,
+      procesadas: done + skipped,
       guardadas: stored,
       saltadas: skipped,
       exito: rows.length ? `${Math.round((100 * stored) / rows.length)}%` : '—',
