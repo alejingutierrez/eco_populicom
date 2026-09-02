@@ -76,9 +76,20 @@ export function isBotChallengeUrl(finalUrl: string): boolean {
   return CHALLENGE_PATTERNS.some((re) => re.test(finalUrl));
 }
 
-/** Códigos que valen un reintento más tarde (el contenido probablemente existe). */
+/**
+ * Códigos que valen un reintento más tarde (el contenido probablemente existe).
+ *
+ * Los 3xx entran aquí aunque el fetch va con `redirect: 'follow'`: un redirect
+ * que llega al caller es uno que NO se pudo resolver — sin `Location` o en
+ * bucle. El WAF de Sucuri (cabecera `x-sucuri-id`) responde 307 pelado cuando
+ * throttlea, y las mismas URLs devuelven 200 minutos después. Sin esto,
+ * cubaenmiami.com, departamento19.hn y diasporadominicana.com quedaban
+ * marcadas como fallo permanente por un límite de tasa pasajero.
+ */
 export function isRetryableStatus(status: number): boolean {
-  return status === 429 || status === 408 || (status >= 500 && status < 600);
+  if (status === 429 || status === 408) return true;
+  if (status >= 300 && status < 400) return true;
+  return status >= 500 && status < 600;
 }
 
 export interface ArticleTextResult {

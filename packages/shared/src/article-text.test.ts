@@ -134,11 +134,18 @@ test('A5: reconoce el reto de TownNews/BLOX y los de Cloudflare', () => {
   assert.ok(!isBotChallengeUrl('https://sanjuandailystar.com/2026/09/the-water-challenge-explained/'));
 });
 
-test('A5: 429 y 5xx son reintentables; 403 y 404 no', () => {
+test('A5: 429, 5xx y 3xx son reintentables; 403 y 404 no', () => {
   assert.ok(isRetryableStatus(429));
   assert.ok(isRetryableStatus(503));
+  // Un 3xx que llega al caller es uno que redirect:'follow' NO pudo resolver
+  // (sin Location, o en bucle). El WAF de Sucuri throttlea con 307 pelado y
+  // las mismas URLs dan 200 minutos después.
+  assert.ok(isRetryableStatus(307), '307 de Sucuri es un throttle, no un fallo permanente');
+  assert.ok(isRetryableStatus(302));
+  // Permanentes: el contenido no está o no nos lo van a dar.
   assert.ok(!isRetryableStatus(403));
   assert.ok(!isRetryableStatus(404));
+  assert.ok(!isRetryableStatus(410));
 });
 
 // ── limitador por dominio

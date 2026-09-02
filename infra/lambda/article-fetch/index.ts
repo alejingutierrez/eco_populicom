@@ -113,7 +113,12 @@ async function selectRows(client: Client, ev: FetchEvent): Promise<PendingRow[]>
     ? `full_text IS NULL
        AND full_text_fetched_at IS NOT NULL
        AND full_text_attempts < ${MAX_ATTEMPTS}
-       AND full_text_status IN ('network','timeout','http-error-429','http-error-5xx')`
+       AND full_text_status IN (
+             'network','timeout','http-error-429','http-error-5xx','http-error-3xx',
+             -- Etiquetas por código que escribieron las corridas previas al
+             -- agrupamiento en 'http-error-3xx'.
+             'http-error-307','http-error-302','http-error-301','http-error-308'
+           )`
     : `full_text_fetched_at IS NULL`;
 
   // ORDEN INTERCALADO POR DOMINIO, no por fecha.
@@ -153,6 +158,9 @@ function statusLabel(res: ArticleTextResult): string {
   if (res.reason === 'http-error') {
     if (res.status === 429) return 'http-error-429';
     if (res.status >= 500) return 'http-error-5xx';
+    // Los 3xx se agrupan igual que los 5xx: son throttles de WAF (Sucuri
+    // responde 307 pelado) y no vale la pena una etiqueta por código.
+    if (res.status >= 300 && res.status < 400) return 'http-error-3xx';
     return `http-error-${res.status}`;
   }
   return res.reason ?? 'unknown';
