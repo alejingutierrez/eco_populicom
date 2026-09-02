@@ -55,6 +55,11 @@ PY
     # servidor, así que esto pasa cada vez que se corta el driver a media ronda.
     # Se distingue en el log para no leerlo como fallo del lambda.
     if grep -q 'ReservedFunctionConcurrentInvocationLimitExceeded' /tmp/backfill-invoke.err 2>/dev/null; then
+      # `rm -f` ANTES de invocar: si la invocación falla, el CLI deja intacto el
+      # archivo de la corrida anterior y el lector devuelve un número viejo
+      # como si fuera fresco. Es el mismo fallo que hizo creer que el backfill
+      # no había escrito nada cuando sí lo había hecho.
+      rm -f /tmp/bf-count.json
       hechas=$(aws lambda invoke --function-name eco-migration \
         --payload '{"action":"custom-query","query":"SELECT count(full_text_fetched_at)::int AS n FROM mentions"}' \
         --cli-binary-format raw-in-base64-out --cli-read-timeout 0 /tmp/bf-count.json >/dev/null 2>&1 \
