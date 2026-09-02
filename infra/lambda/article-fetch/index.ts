@@ -36,6 +36,18 @@ const MAX_ATTEMPTS = 3;
 const MAX_STORED_CHARS = 120_000;
 
 /**
+ * Timeout por petición en el barrido: 8 s, no los 12 s por defecto del extractor.
+ *
+ * Las peticiones que SÍ funcionan terminan en 100-2,000 ms (medido en los
+ * latidos: 1,400 filas en 101 s). Los 12 s solo los consumen las que van a
+ * fallar — y como el limitador serializa por host, las últimas ~100 filas de
+ * una tanda, que caen todas en los mismos dominios grandes, necesitaban
+ * 100 x 12 s = 1,200 s. Eso hacía que una tanda de 1,500 completara 1,400
+ * filas en 101 s y luego se arrastrara 799 s más hasta morir por timeout.
+ */
+const SWEEP_FETCH_TIMEOUT_MS = 8_000;
+
+/**
  * Margen antes del timeout del Lambda para cerrar y devolver el progreso.
  *
  * NO es una constante: al cruzar el deadline hay hasta `concurrency` peticiones
@@ -68,6 +80,8 @@ interface FetchEvent {
   concurrency?: number;
   gapMs?: number;
   domain?: string;
+  /** Timeout por petición; por defecto SWEEP_FETCH_TIMEOUT_MS. */
+  timeoutMs?: number;
   /** No escribe en la DB; solo reporta lo que habría hecho. */
   dryRun?: boolean;
 }
@@ -294,7 +308,9 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
         return;
       }
 
-      const res = await limiter(row.url, () => fetchArticleText(row.url));
+      const res = await limiter(row.url, () => fetchArticleText(row.url, {
+        timeoutMs: Number(event.timeoutMs ?? SWEEP_FETCH_TIMEOUT_MS),
+      }));
       // Latido cada 200 filas: sin esto, una invocación que muere por timeout
       // no deja rastro de cuán lejos llegó ni a qué ritmo iba, y desde fuera
       // se ve igual que una colgada.
@@ -330,7 +346,11 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
       lote.then(() => false),
       new Promise<boolean>((r) => {
         const ms = Math.max(1000, deadline - Date.now());
-        setTimeout(() => r(true), ms).unref?.();
+        // SIN .unref(): `unref` le dice al event loop que este temporizador no
+        // cuenta para mantenerlo vivo — y es justo el único que puede salvar la
+        // invocación. Con él puesto, una tanda que se quedaba en las últimas
+        // filas llegaba a los 900 s y moría por timeout sin devolver nada.
+        setTimeout(() => r(true), ms);
       }),
     ]);
     if (cortePorRace) {
