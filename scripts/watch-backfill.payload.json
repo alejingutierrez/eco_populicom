@@ -1,0 +1,1 @@
+{"action":"custom-query","query":"SELECT * FROM (SELECT count(full_text_fetched_at)::int AS hechas, count(full_text)::int AS ok FROM mentions WHERE page_type = 'news' AND is_duplicate = false AND url IS NOT NULL AND url <> '') z"}
