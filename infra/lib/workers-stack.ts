@@ -45,6 +45,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly narrativeClusterFunction: NodejsFunction;
   public readonly narrativeEdgesFunction: NodejsFunction;
   public readonly narrativeDriftFunction: NodejsFunction;
+  public readonly articleFetchFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -187,6 +188,70 @@ export class WorkersStack extends cdk.Stack {
     }));
 
     // ---- eco-alerts Lambda ----
+    // ---------------------------------------------------------------------
+    // eco-article-fetch — puebla mentions.full_text con el cuerpo del artículo.
+    //
+    // Va aparte del processor a propósito: el processor ya hace una llamada a
+    // Bedrock por mención dentro de una invocación de SQS, y añadirle un fetch
+    // HTTP de hasta 12 s por registro alargaría la ventana de visibilidad y
+    // haría que fallos de red ajenos al NLP dispararan reintentos de SQS.
+    //
+    // reservedConcurrentExecutions: 1 — el lambda SELECT-ea pendientes y las
+    // UPDATE-ea sin bloquear filas; dos invocaciones simultáneas trabajarían
+    // sobre el mismo lote. Además mantiene acotado el tráfico saliente hacia
+    // los medios, que es el recurso de verdad escaso aquí.
+    this.articleFetchFunction = new NodejsFunction(this, 'ArticleFetchFunction', {
+      functionName: 'eco-article-fetch',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/article-fetch/index.ts'),
+      handler: 'handler',
+      // 2048 MB, no 1024: con 1024 el backfill murió con Runtime.OutOfMemory
+      // (Max Memory Used 1024/1024). El pico no son las filas sino la
+      // extracción — `stripChrome` hace ~15 reemplazos regex sobre cada
+      // documento y cada uno crea una copia, multiplicado por concurrencia 20.
+      // 2048 además duplica la CPU, que es lo que consume ese regex.
+      memorySize: 2048,
+      // 15 min: el backfill histórico procesa ~3,000 URLs por invocación a
+      // ~8 URL/s. El handler mira getRemainingTimeInMillis() y cierra con
+      // margen, devolviendo el progreso en vez de morir por timeout.
+      timeout: cdk.Duration.minutes(15),
+      reservedConcurrentExecutions: 1,
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+      },
+      logGroup: importLogGroup('ArticleFetchLogGroup', 'eco-article-fetch'),
+      bundling: bundlingOptions,
+    });
+
+    this.articleFetchFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+
+    // Barrido continuo cada 30 min. El volumen corriente es ~123 noticias/día,
+    // así que una tanda de 300 sobra de lejos y deja margen para acumulaciones
+    // tras un corte de ingesta.
+    const articleFetchRule = new events.Rule(this, 'ArticleFetchSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(30)),
+    });
+    articleFetchRule.addTarget(new targets.LambdaFunction(this.articleFetchFunction, {
+      event: events.RuleTargetInput.fromObject({ limit: 300, concurrency: 12, gapMs: 1800 }),
+    }));
+
+    // Pase de reintentos diario (07:15 UTC) para los fallos transitorios:
+    // 429 de rate, 5xx, timeouts y errores de red. Los permanentes
+    // (bot-challenge, 403, no-content) NO se reintentan: 'retry' los excluye
+    // por `full_text_status`, así que el pase no gasta tráfico en muros.
+    const articleFetchRetryRule = new events.Rule(this, 'ArticleFetchRetryDaily', {
+      schedule: events.Schedule.cron({ minute: '15', hour: '7' }),
+    });
+    articleFetchRetryRule.addTarget(new targets.LambdaFunction(this.articleFetchFunction, {
+      event: events.RuleTargetInput.fromObject({ mode: 'retry', limit: 1000, concurrency: 12, gapMs: 2000 }),
+    }));
+
     this.alertsFunction = new NodejsFunction(this, 'AlertsFunction', {
       functionName: 'eco-alerts',
       runtime: lambda.Runtime.NODEJS_22_X,
