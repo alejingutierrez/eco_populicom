@@ -28,7 +28,9 @@ export const STAFF_EMAIL_DOMAIN = '@populicom.com';
  * patrón que la lista blanca de correos de /api/alerts.
  */
 export const RESTRICTED_AGENCIES: Record<string, readonly string[]> = {
-  medalla: ['agutierrez@populicom.com'],
+  // Vacío a propósito. Se llena con `slug: ['correo@…']` cuando haya que dar de
+  // alta una entidad que no debe verse desde el "ve todas". El primer caso fue
+  // la marca Medalla, que ya salió de ECO.
 };
 
 /**
