@@ -219,7 +219,12 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   let article: ArticleTextResult | null = null;
   if (mention.url && FULLTEXT_PAGE_TYPES.has((mention.pageType ?? '').toLowerCase())) {
     try {
-      article = await fetchArticleText(mention.url);
+      article = await fetchArticleText(mention.url, {
+        // Verifica que lo extraído sea ESTE artículo: hay sitios que sirven
+        // otro contenido en la misma URL sin devolver 404, y ese texto
+        // entraría al prompt del NLP como si fuera la mención.
+        expect: { snippet: mention.snippet, title: mention.title },
+      });
     } catch {
       article = null;
     }

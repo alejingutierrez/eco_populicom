@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import {
   extractArticleText, extractContainer, extractJsonLd, extractParagraphs,
   decodeEntities, isBotChallengeUrl, isRetryableStatus, createDomainLimiter,
-  fetchArticleText,
+  fetchArticleText, bodyMatchesMention,
 } from './article-text';
 
 /**
@@ -93,10 +93,13 @@ test('A3: decodifica las entidades nombradas de los bylines en español', () => 
   assert.equal(decodeEntities('&ldquo;no hay agua&rdquo;'), '“no hay agua”');
 });
 
-test('A3: &amp; se decodifica al final para no reactivar entidades numéricas', () => {
-  // Si &amp; se decodificara primero, `&amp;#39;` se volvería `&#39;` y la
-  // pasada numérica (ya ejecutada) no lo vería.
-  assert.equal(decodeEntities('Ley &amp;#39;seca&amp;#39;'), "Ley &#39;seca&#39;");
+test('A3: dentro de UNA pasada, &amp; va al final para no reactivar entidades', () => {
+  // El orden importa dentro de cada pasada. Lo que antes quedaba a medias
+  // (`&amp;#39;` -> `&#39;`) ahora lo termina la SEGUNDA pasada, que es
+  // justamente para lo que se añadió — ver Q1.
+  assert.equal(decodeEntities('Ley &amp;#39;seca&amp;#39;'), "Ley 'seca'");
+  // Un `&` literal doblemente escapado no debe convertirse en otra cosa.
+  assert.equal(decodeEntities('A &amp;amp; B'), 'A & B');
 });
 
 // ── A4 · basura que no es prosa
@@ -176,6 +179,110 @@ test('limitador: un fallo no rompe la fila del host', async () => {
   const fallo = run('https://a.com/1', async () => { throw new Error('boom'); });
   await assert.rejects(fallo, /boom/);
   assert.equal(await run('https://a.com/2', async () => 'ok'), 'ok');
+});
+
+// ── Q1 · entidades: la tabla estaba bien, fallaba la DOBLE codificación
+test('Q1: decodifica entidades doblemente codificadas', () => {
+  // El CMS sirve `&amp;oacute;`; `&amp;` se decodifica AL FINAL (para no
+  // reactivar entidades numéricas), así que el `&oacute;` resultante no se
+  // volvía a mirar. 148 filas de la auditoría tenían entidades crudas por esto.
+  assert.equal(decodeEntities('Informaci&amp;oacute;n'), 'Información');
+  assert.equal(decodeEntities('Ley &amp;#39;seca&amp;#39;'), "Ley 'seca'");
+  // `&amp;amp;` es un `&` literal doblemente escapado y debe quedar en `&`.
+  assert.equal(decodeEntities('A &amp;amp; B'), 'A & B');
+});
+
+test('Q1: &iquest; e &iexcl; son imprescindibles en español', () => {
+  assert.equal(decodeEntities('&iquest;qu&eacute; pas&oacute;?'), '¿qué pasó?');
+  assert.equal(decodeEntities('&iexcl;alto!'), '¡alto!');
+});
+
+test('Q1: una entidad desconocida se deja tal cual, no se borra', () => {
+  // Antes devolvía un espacio y perdía información en silencio.
+  assert.equal(decodeEntities('valor &desconocida; aquí'), 'valor &desconocida; aquí');
+});
+
+// ── Q2 · cromo que se coló en el barrido real
+test('Q2: descarta el pie de El Nuevo Día (754 filas lo traían)', () => {
+  const html = `<body>${parrafo(1)}
+    <p>Te invitamos a descargar cualquiera de estos navegadores para ver nuestras noticias con toda la calidad que mereces.</p>
+    <p>Las noticias explicadas de forma sencilla y directa para entender lo más importante del día.</p>
+  </body>`;
+  const text = extractParagraphs(html);
+  assert.ok(text.includes('Bloque 1:'));
+  assert.ok(!/navegadores/i.test(text), 'el pie de navegadores no debe entrar');
+  assert.ok(!/forma sencilla y directa/i.test(text));
+});
+
+test('Q2: descarta el widget de entradas recientes tipo "Posted by"', () => {
+  // periodicoeloriental.com devolvía el MISMO texto de 1,530 chars para
+  // artículos distintos: era su barra lateral de entradas recientes.
+  const html = `<body>${parrafo(1)}
+    <p>JUNCOS: Vecinos ayudan a trazar plan de mitigación Posted by Redacción | Sep 2, 2026 | Al Frente | 0 |</p>
+  </body>`;
+  const text = extractParagraphs(html);
+  assert.ok(text.includes('Bloque 1:'));
+  assert.ok(!/Posted by/i.test(text));
+});
+
+// ── Q3 · el cuerpo extraído tiene que ser el artículo esperado
+//
+// Los cuerpos de estos fixtures pasan de 800 caracteres a propósito: por
+// debajo de ese tamaño `bodyMatchesMention` NO juzga, porque un stub de
+// paywall correcto y un artículo equivocado son indistinguibles para el
+// solape de tokens. Un fixture corto haría pasar el test por la razón
+// equivocada (judged:false).
+const relleno = (tema: string) =>
+  ` ${tema} La pieza continúa con declaraciones de las partes involucradas, el contexto de los meses previos y las reacciones recogidas durante la jornada.`.repeat(5);
+test('Q3: acepta el cuerpo cuando el snippet pertenece al artículo', () => {
+  const cuerpo = 'El alcalde del municipio de Aguada, Christian Cortés Feliciano, le solicitó este domingo a la gobernadora Jenniffer González Colón una intervención urgente en la carretera estatal.'
+    + relleno('La solicitud del alcalde se suma a otras gestiones municipales.');
+  const snippet = '...Cortés Feliciano, le solicitó este domingo a la gobernadora Jenniffer González Colón';
+  const r = bodyMatchesMention(cuerpo, { snippet, title: null });
+  assert.ok(r.judged && r.matches, `debió aceptar, solape ${r.overlap}`);
+});
+
+test('Q3: rechaza el cuerpo cuando el sitio sirvió OTRO artículo', () => {
+  // Caso real de laconexionusa.com: URL viva, contenido distinto, sin 404.
+  const cuerpo = 'Madrid, 8 ene (EFE).- La operadora española Telefónica ha notificado este jueves al supervisor bursátil su nuevo plan estratégico para los próximos ejercicios.'
+    + relleno('El grupo detalló sus previsiones de inversión en redes.');
+  const snippet = '...Puerto Rico, Jenniffer González. EFE/ Thais Llora La alcaldesa electa de Miami, Eileen Higgins, tomó posesión';
+  const r = bodyMatchesMention(cuerpo, { snippet, title: null });
+  assert.ok(r.judged && !r.matches, `debió rechazar, solape ${r.overlap}`);
+});
+
+test('Q3: el snippet es una ventana del MEDIO, no el lead — se compara por tokens', () => {
+  // Comparar por substring fallaba aunque el texto fuera correcto: el snippet
+  // empieza con "..." y stripTags deja espacios donde estaban las etiquetas.
+  const cuerpo = 'Primer párrafo introductorio del reportaje. Luego viene el dato central sobre el racionamiento de agua en los embalses. Y un cierre.'
+    + relleno('El informe de la corporación pública detalla los niveles por represa.');
+  const snippet = '...viene el dato central sobre el racionamiento de agua en los embalses';
+  assert.ok(bodyMatchesMention(cuerpo, { snippet, title: null }).matches);
+});
+
+test('Q3: un cuerpo demasiado corto para juzgar se acepta sin veredicto', () => {
+  // Stub de paywall de El Nuevo Día: correcto, pero sin señal suficiente.
+  const stub = 'La Autoridad de Acueductos y Alcantarillados informó en la tarde de este viernes que los problemas con el suplido de agua persisten en el área metro.';
+  const r = bodyMatchesMention(stub, { snippet: null, title: 'Avería en infraestructura crítica de la AAA mantiene a zonas del área metro sin servicio' });
+  assert.equal(r.judged, false, 'no hay señal para juzgar un cuerpo de 150 chars');
+  assert.equal(r.matches, true);
+});
+
+test('Q3: sin referencia utilizable no se juzga, y se acepta', () => {
+  const r = bodyMatchesMention('cualquier cuerpo de texto'.repeat(50), { snippet: 'a b', title: '' });
+  assert.equal(r.judged, false);
+  assert.equal(r.matches, true);
+});
+
+test('Q3: cae al titular cuando no hay snippet', () => {
+  const cuerpo = 'La Autoridad de Acueductos anunció cambios en su equipo ejecutivo tras la renuncia de dos vicepresidentes.'
+    + relleno('La agencia informó que la transición será inmediata.');
+  const bueno = 'Acueductos anuncia cambios en su equipo ejecutivo tras renuncias';
+  const malo = 'Telefónica notifica al supervisor bursátil su nuevo plan estratégico';
+  assert.ok(bodyMatchesMention(cuerpo, { snippet: null, title: bueno }).matches);
+  const r = bodyMatchesMention(cuerpo, { snippet: null, title: malo });
+  assert.ok(r.judged, 'un titular real tiene suficientes palabras para juzgar');
+  assert.ok(!r.matches, `debió rechazar, solape ${r.overlap}`);
 });
 
 // ── garantía de terminación
