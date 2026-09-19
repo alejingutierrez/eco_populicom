@@ -69,10 +69,16 @@ working tree del monorepo principal (sucio). Usa SIEMPRE
   invocación dirigida y `recipients` override — el handler ignora hora y día
   cuando el payload trae `agencySlug`.
 - Cron `eco-weekly-report-ddecpr-vero-manual` (viernes 19:00 UTC = 3:00 PM AST)
-  es exactamente eso: manda el SEMANAL solo a `vero@eficiencia.pr.gov` (DDEC,
-  clienta externa, rol analyst) sin darle el diario. Está FUERA de CDK, igual
-  que el cron del processor. Bórralo si algún día existen listas por tipo, o si
-  se decide meterla en `report_configs.recipients`.
+  es exactamente eso: manda el SEMANAL, sin el diario, a las clientas externas
+  del DDEC — hoy `vero@eficiencia.pr.gov` y `leslie.diaz@ddec.pr.gov` (ambas
+  rol analyst). **El nombre se quedó con "vero" pero la regla ya sirve a
+  varias**: para añadir a alguien, `aws events put-targets` con la lista
+  completa de `recipients` (put-targets REEMPLAZA el target, no hace merge).
+  Está FUERA de CDK, igual que el cron del processor. Bórrala si algún día
+  existen listas por tipo, o si se decide meterlas en
+  `report_configs.recipients`. A quien metas aquí, ponle también
+  `users.weekly_report_optin = true` o el correo de bienvenida no sabrá que
+  recibe el semanal.
 - `eco-narrative-cluster` corre con timeout 900s y env
   `NARRATIVE_CANDIDATE_POOL_LIMIT=12000` (cap del DBSCAN O(n²)).
 
@@ -192,9 +198,14 @@ aplicar cambios:
    No verificado en este repo todavía.
 
 2. **Lambda `eco-migration`** (hoy): tiene acciones hardcoded
-   (`migrate-and-seed`, `create-reports-schema`, etc.). Si añades una
-   migración 0NNN_*.sql, súbela también como nueva acción aquí o usa
-   `custom-query` (solo SELECT).
+   (`migrate-and-seed`, `create-reports-schema`, `welcome-email-columns`…).
+   Si añades una migración 0NNN_*.sql, súbela también como nueva acción aquí
+   o usa `custom-query` (solo SELECT). **`exec-write` NO acepta DDL**: solo
+   UPDATE/INSERT/DELETE, así que un `ALTER TABLE` obliga a parchear el bundle
+   (descargar, editar el JS, `node --check`, re-zip, `update-function-code`).
+   Haz la acción idempotente de verdad: `welcome-email-columns` comprueba en
+   `information_schema` si la columna ya existía ANTES del ALTER y solo
+   entonces corre el backfill, para que reinvocarla sea no-op.
 
 3. **Self-heal idempotente desde el lambda principal** (lo que usamos
    para el reporte semanal): el lambda `eco-weekly-report` tiene
@@ -221,7 +232,7 @@ usa el self-heal pattern descrito arriba.
 
 ## Correos por tipo (jul 2026)
 
-Cuatro correos, todos con chrome compartido (`@eco/shared/email/chrome.ts`:
+Seis correos, todos con chrome compartido (`@eco/shared/email/chrome.ts`:
 paleta, header con badge de tipo, footer con nota de tipo) y asunto tipado
 `[Tag] SIGLAS · detalle`. Indicadores SIEMPRE numéricos (%, /10, con signo —
 paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
@@ -234,6 +245,45 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 | Alerta métrica | `[Alerta]` | `eco-metrics-calculator` → render-simple-alert | evaluación diaria |
 | Crisis | `[Crisis]`/`[Alerta]` | `eco-metrics-calculator` → render-crisis-alert | umbral crisis |
 | Nombramiento | `[Nombramiento]` | `eco-weekly-report` → render-appointment-report | una vez, al alta de una fila en `agency_appointments` |
+| Bienvenida | `[Bienvenida]` | **app web** (`/api/auth/me`) → render-welcome | una vez, al ACTIVAR la cuenta (primer ingreso) |
+
+## Correo de BIENVENIDA (al activar la cuenta, sep 2026)
+
+Es el ÚNICO correo que sale de la **app web**, no de un lambda. Son dos
+correos y en este orden:
+
+1. **Invitación** — la manda Cognito al crear la cuenta (plantilla branded en
+   el pool, contraseña temporal, vence a los 30 días).
+2. **Bienvenida** — `/api/auth/me` la dispara en el primer ingreso exitoso.
+
+`users.welcome_email_sent_at` es el candado: se estampa al RECLAMARLA (antes
+de llamar a SES) para que dos peticiones simultáneas no manden dos correos, y
+vuelve a `NULL` si el envío falla, para reintentar en el próximo ingreso. Solo
+se intenta cuando está en `NULL` — si no, sería un UPDATE por cada carga del
+panel. La migración `0007` la estampó en las 11 filas que ya existían: **el
+automatismo solo alcanza a las cuentas creadas a partir del 18-sep-2026.**
+
+El contenido sale de la DB, no del texto: nombre, agencia (con su artículo) y
+el correo periódico que de verdad recibe. Si no está en ninguna lista de
+envío, el correo no le promete ninguno.
+
+- Template: `packages/shared/src/email/render-welcome.ts`. Preview:
+  `tsx scripts/preview-welcome.ts` → `apps/web/public/emails/welcome-preview.html`.
+- Los GIFs los sirve la app (`/emails/welcome/gif{1,2,3}.gif`), así que el
+  `assetsBaseUrl` en producción es absoluto (`https://citizenecho.com/...`).
+- El envío queda en `report_send_log` con `template_key = 'welcome-v1'`, así
+  que se ve en `/settings/reports` como cualquier otro correo.
+- **Permiso**: el task role de ECS necesita `ses:SendEmail` sobre la identidad
+  `alerts@citizenecho.com`. Está como inline policy `EcoWebSendEmail` (aplicada
+  a mano) Y en `compute-stack.ts`.
+
+### `weekly_report_optin`
+
+`report_configs.recipients` es UNA lista para el diario Y el semanal. A quien
+solo debe recibir el de los viernes se le monta una regla EventBridge dirigida
+(ver abajo), invisible para la app. `users.weekly_report_optin` deja constancia
+en la DB de esa suscripción fuera de banda — **no dispara nada**, solo evita que
+la bienvenida prometa de más o de menos. Si montas una regla así, pon el flag.
 
 ## Correo de NOMBRAMIENTO (`agency_appointments`, ago 2026)
 

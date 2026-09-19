@@ -38,6 +38,7 @@ const HISTORY_KIND_COLOR: Record<EmailKind, string> = {
   appointment: 'purple',
   alert: 'orange',
   crisis: 'red',
+  welcome: 'cyan',
 };
 
 interface Agency { id: string; slug: string; name: string; }

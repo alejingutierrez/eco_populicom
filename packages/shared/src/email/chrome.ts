@@ -69,7 +69,7 @@ export const EMAIL_COLORS = {
 // Tipo de correo — la señal de identidad que pidió el cliente
 // ------------------------------------------------------------
 
-export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis' | 'appointment';
+export type EmailKind = 'daily' | 'weekly' | 'alert' | 'crisis' | 'appointment' | 'welcome';
 
 export interface EmailKindMeta {
   /** Texto del badge del header, p.ej. "Reporte diario". */
@@ -113,6 +113,12 @@ export const EMAIL_KIND_META: Record<EmailKind, EmailKindMeta> = {
     color: EMAIL_COLORS.event,
     footerNote: 'Recibes este correo una sola vez, cuando se registra un nombramiento nuevo en una agencia monitoreada. El periodo cubre desde el nombramiento hasta hoy, así que incluye el día en curso (parcial) — a diferencia del diario y el semanal, que cierran en ayer.',
   },
+  welcome: {
+    label: 'Bienvenida',
+    subjectTag: 'Bienvenida',
+    color: EMAIL_COLORS.brand,
+    footerNote: 'Recibes este correo una sola vez, al activar tu cuenta en ECO.',
+  },
 };
 
 /** Asunto estándar: "[Tag] SIGLAS · detalle". El tag SIEMPRE va primero para
@@ -139,6 +145,7 @@ export const TEMPLATE_KEY_TO_KIND: Record<string, EmailKind> = {
   'weekly-sentiment-summary': 'daily',
   'weekly-comparison-v1': 'weekly',
   'appointment-summary-v1': 'appointment',
+  'welcome-v1': 'welcome',
 };
 
 /** Tipo de correo de un template_key, o null si no está registrado. */

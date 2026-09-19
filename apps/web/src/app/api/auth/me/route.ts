@@ -3,6 +3,7 @@ import { getDb, users } from '@eco/database';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/session';
 import { ensureUserProvisioned } from '@/lib/provision';
+import { sendWelcomeEmailIfPending } from '@/lib/email/welcome';
 import { effectiveRole, canSeeAlerts } from '@/lib/auth/require-admin';
 import { capabilitiesFor } from '@/lib/auth/roles';
 import { log } from '@/lib/log';
@@ -29,17 +30,36 @@ export async function GET(): Promise<NextResponse> {
   const role = await effectiveRole(user);
   let allowedPages: string[] | null = null;
   let allAgencies = false;
+  let welcomePending = false;
   try {
     const db = getDb();
     const [row] = await db
-      .select({ allowedPages: users.allowedPages, allAgencies: users.allAgencies })
+      .select({
+        allowedPages: users.allowedPages,
+        allAgencies: users.allAgencies,
+        welcomeEmailSentAt: users.welcomeEmailSentAt,
+      })
       .from(users)
       .where(eq(users.cognitoSub, user.sub))
       .limit(1);
     allowedPages = (row?.allowedPages as string[] | null) ?? null;
     allAgencies = row?.allAgencies ?? false;
+    welcomePending = !!row && row.welcomeEmailSentAt === null;
   } catch {
     /* fila aún no provisionada — defaults seguros (sin override de páginas) */
+  }
+
+  // Correo de bienvenida al ACTIVAR la cuenta: este endpoint es el primer sitio
+  // por el que pasa una sesión válida, así que aquí es donde se sabe que la
+  // persona ya entró de verdad. Solo se intenta cuando la marca está en NULL
+  // (si no, sería un UPDATE por cada carga del panel) y nunca puede romper el
+  // auth check — por eso el try/catch aunque la función ya se traga sus fallos.
+  if (welcomePending) {
+    try {
+      await sendWelcomeEmailIfPending(user.sub);
+    } catch (err) {
+      log.error('auth.me', 'welcome email failed', { msg: (err as Error).message });
+    }
   }
 
   // Alertas está restringida a una lista de correos (ALERTS_ALLOWED_EMAILS).
