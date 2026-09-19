@@ -13,6 +13,7 @@ export * from './email/render-weekly-summary';
 export * from './email/render-appointment-report';
 export * from './email/render-crisis-alert';
 export * from './email/render-simple-alert';
+export * from './email/render-welcome';
 export * from './prompts/constitution';
 export * from './prompts/weekly-report-insights';
 export * from './prompts/weekly-summary';
