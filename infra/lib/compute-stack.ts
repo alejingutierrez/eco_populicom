@@ -150,6 +150,20 @@ export class ComputeStack extends cdk.Stack {
       ],
     }));
 
+    // Permite a /api/auth/me mandar el correo de BIENVENIDA al activar la cuenta.
+    // Acotado a la identidad alerts@citizenecho.com: es la única con SPF y DKIM
+    // propios, y limitar el recurso al identity ARN ya impide usar otro From.
+    // Aplicado también a mano como inline policy del task role (EcoWebSendEmail)
+    // porque un `cdk deploy EcoCompute` desde un worktree desactualizado revierte
+    // imagen y variables de entorno; esto es para que el próximo deploy legítimo
+    // no lo pierda.
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: [
+        `arn:aws:ses:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:identity/alerts@citizenecho.com`,
+      ],
+    }));
+
     // Permite a /api/ai/metric-insight invocar Claude vía Bedrock (Opus +
     // Sonnet inference profiles). Sin estos permisos, el endpoint cae al
     // fallback rule-based de buildRuleBasedInsight (sigue funcional, pero
