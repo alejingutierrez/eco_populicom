@@ -260,7 +260,7 @@ export function columnChart(data: ColumnDatum[], opts: { height?: number; barWid
                   </td>`;
   }).join('');
 
-  const labels = data.map((d) => `<td width="${colW}" align="center" style="padding:6px 2px 0 2px;font-family:${FONT_MONO};font-size:11px;color:${d.emphasis ? T.ink : T.text2};line-height:1.2;">${esc(d.label)}</td>`).join('');
+  const labels = data.map((d) => `<td width="${colW}" align="center" style="padding:6px 2px 0 2px;font-family:${FONT_MONO};font-size:11px;color:${d.emphasis ? T.ink : T.text2};line-height:1.2;white-space:nowrap;">${esc(d.label)}</td>`).join('');
 
   return `<table role="img" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;" aria-label="${esc(opts.alt)}">
                 <tr>${cols}</tr>
@@ -426,6 +426,11 @@ export interface InstrumentDocumentOpts {
   /** Override del texto de la etiqueta ("CRISIS · 56%"). */
   tagText?: string;
   /**
+   * Override de la etiqueta completa cuando el ESTADO la decide (la banda de
+   * una crisis): trazo, color y filete superior del contenedor.
+   */
+  tagState?: { variant: 'solid' | 'outline'; color: string };
+  /**
    * Encabezado del correo: línea de agencia, título y metadatos en mono.
    * `subtitle` va bajo el título (p.ej. el cargo); `aside` es HTML a la
    * izquierda del bloque de texto (el retrato del nombramiento; en móvil pasa
@@ -443,7 +448,10 @@ export interface InstrumentDocumentOpts {
  */
 export function instrumentDocument(opts: InstrumentDocumentOpts): string {
   const meta = EMAIL_KIND_META[opts.kind];
-  const tag = KIND_TAGS[opts.kind];
+  const baseTag = KIND_TAGS[opts.kind];
+  const tag = opts.tagState
+    ? { text: baseTag.text, style: tagStyle(opts.tagState.variant, opts.tagState.color), topRule: opts.tagState.color }
+    : baseTag;
   const topBorder = tag.topRule ? `border-top:3px solid ${tag.topRule};` : `border-top:1px solid ${T.line};`;
   const headingMeta = opts.heading.meta
     ? `<div style="font-family:${FONT_MONO};font-size:12px;color:${T.text3};line-height:1.4;margin-top:6px;">${esc(opts.heading.meta)}</div>`

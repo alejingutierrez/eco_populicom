@@ -85,7 +85,11 @@ const data: CrisisAlertRenderData = {
     },
   ],
 
-  scoreTrendImageUrl: buildMockTrendUrl(),
+  // Mock de 14 días: pico el 28-abr, valle, segundo pico el 18-may (56%).
+  scoreTrend: ['5 may', '6 may', '7 may', '8 may', '9 may', '10 may', '11 may',
+    '12 may', '13 may', '14 may', '15 may', '16 may', '17 may', '18 may']
+    .map((label, i) => ({ label, score: [29, 28, 28, 18, 12, 17, 18, 24, 24, 19, 20, 33, 24, 56][i] })),
+  scoreThreshold: 40,
 
   heroImageUrl: 'https://picsum.photos/seed/ddec-crisis-hero/1200/630',
   heroImageCaption: 'Foto: portada · ElNuevoDia.com · 18 may',
@@ -142,55 +146,3 @@ const outPath = join(__dirname, '..', 'apps/web/public/emails/crisis-alert-previ
 writeFileSync(outPath, html, 'utf-8');
 console.log(`Written: ${outPath}`);
 console.log(`Preview: http://localhost:3000/emails/crisis-alert-preview.html`);
-
-// ------------------------------------------------------------
-// Mock para el chart de evolución del Crisis Score (14 días)
-// Pico el 28-abr, valle, segundo pico el 18-may (56%)
-// ------------------------------------------------------------
-
-function buildMockTrendUrl(): string {
-  const labels = ['5 may', '6 may', '7 may', '8 may', '9 may', '10 may', '11 may',
-                  '12 may', '13 may', '14 may', '15 may', '16 may', '17 may', '18 may'];
-  const data = [29, 28, 28, 18, 12, 17, 18, 24, 24, 19, 20, 33, 24, 56];
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Crisis Score',
-          data,
-          borderColor: '#C8462F',
-          backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5,
-          pointRadius: 3,
-          pointBackgroundColor: '#FFFFFF',
-          pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5,
-          tension: 0.3,
-          fill: true,
-        },
-        {
-          label: 'Umbral 40%',
-          data: data.map(() => 40),
-          borderColor: '#8A93A0',
-          borderWidth: 1,
-          borderDash: [4, 4],
-          pointRadius: 0,
-          fill: false,
-        },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: { legend: { display: false }, title: { display: false } },
-      scales: {
-        y: { beginAtZero: true, max: 100, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10 }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=200&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
-}

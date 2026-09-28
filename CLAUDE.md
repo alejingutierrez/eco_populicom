@@ -240,12 +240,14 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 **Rediseño «Instrumento» (sep 2026, en migración)**: el cromo nuevo vive en
 `@eco/shared/email/instrument.ts` (grafito acromático, color solo en el dato,
 Plex Sans + Plex Mono, etiqueta de tipo tipográfica, gráficas en tablas HTML
-sin PNG, imágenes siempre opcionales). **El diario y el semanal ya lo usan**;
-alertas, crisis, nombramiento y bienvenida siguen en `chrome.ts` hasta que se
-migren. El asunto del diario pasó a ser el TITULAR del resumen
-(`[Diario] DDEC · <titular>`) y las cifras van en la vista previa del inbox;
-la foto del día sale de `loadDailyHeroImage` (misma regla que crisis: og:image
-solo de noticias/blogs, nunca de redes). Diseño aprobado en el lienzo
+sin PNG, imágenes siempre opcionales). **Diario, semanal, nombramiento y crisis ya lo
+usan**; las alertas (`render-simple-alert`, en eco-alerts y metrics-calculator)
+y la bienvenida (app web) siguen en `chrome.ts` hasta que se migren. El
+asunto de diario, semanal y nombramiento pasó a ser el TITULAR del LLM
+(`[Diario] DDEC · <titular>`) y las cifras van en la vista previa del inbox.
+La foto de portada sale de `loadHeroImage` (misma regla que crisis: og:image
+solo de noticias/blogs, nunca de redes; el filtro de tipo va en SQL) y las
+miniaturas de `loadMentionThumbnails`. Ningún correo usa ya QuickChart. Diseño aprobado en el lienzo
 https://claude.ai/artifact/9zaLzzxn4RggKD6RhU3Y4u (página «Camino A»).
 
 | Tipo | Asunto | Fuente | Cuándo |
