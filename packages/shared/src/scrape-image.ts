@@ -35,6 +35,41 @@ export function decodeHtmlEntities(input: string): string {
 }
 
 /**
+ * Tipos de página cuyo og:image es la foto del artículo. Las redes sociales
+ * (Instagram, Facebook, X, Bluesky…) sirven a un visitante sin sesión su
+ * imagen de MARCA como og:image — el logo de Instagram llegó a ser la foto
+ * principal de 10 de 20 correos de crisis (ago–sep 2026).
+ */
+const ARTICLE_PAGE_TYPES = new Set(['news', 'blog', 'forum']);
+
+export function isArticlePageType(pageType: string | null | undefined): boolean {
+  return ARTICLE_PAGE_TYPES.has((pageType ?? '').toLowerCase());
+}
+
+/**
+ * Imágenes que no son de la noticia sino de la plataforma o del sitio: logos
+ * de redes servidos a visitantes sin sesión, avatares de perfil, y las
+ * imágenes "por defecto" que un medio pone cuando el artículo no tiene foto.
+ * Todas pasan `validateImageUrl` (son PNG/JPG reales), así que hay que
+ * reconocerlas por la URL.
+ */
+const GENERIC_IMAGE_HOSTS: RegExp[] = [
+  /(^|\.)cdninstagram\.com$/i, // static.cdninstagram.com/rsrc.php/… = logo de Instagram
+  /^static\.xx\.fbcdn\.net$/i, // rsrc.php de Facebook (assets de la UI, no fotos)
+  /^abs\.twimg\.com$/i,        // og por defecto de X
+];
+const GENERIC_IMAGE_PATH =
+  /rsrc\.php|\/avatars?[\/_]|avatar_thumbnail|profile_images|\/logos?[\/._-]|[\/_-]logo[\/._-]|favicon|apple-touch-icon|placeholder|fallback|og[-_]?default|default[-_]?(og|share|image|thumb)|share[-_]?default|no[-_]?image|sin[-_]?imagen|\/ssr\/default\//i;
+
+export function isGenericImageUrl(url: string | null | undefined): boolean {
+  if (!url) return true;
+  let u: URL;
+  try { u = new URL(url); } catch { return true; }
+  if (GENERIC_IMAGE_HOSTS.some((re) => re.test(u.hostname))) return true;
+  return GENERIC_IMAGE_PATH.test(u.pathname);
+}
+
+/**
  * Extrae el ID de un video de YouTube de una URL (`?v=`, `youtu.be/`) y
  * devuelve la miniatura `hqdefault.jpg`. Devuelve null si no matchea.
  */
@@ -115,6 +150,9 @@ export async function fetchOgImage(url: string, timeoutMs = 3000): Promise<strin
     // ponen rutas tipo /favicon o /logo.svg como og:image y eso queda feo.
     // No es una validación perfecta — es heurística.
     if (img.endsWith('.svg')) return null;
+
+    // Logos de plataforma, avatares e imágenes por defecto del sitio.
+    if (isGenericImageUrl(img)) return null;
 
     // Límite empírico de longitud (proxies de imagen rechazan URLs largas).
     if (img.length > 1500) return null;
@@ -227,8 +265,7 @@ export async function scrapeImageForMention(args: {
   }
 
   // 3) og:image — solo para tipos de página que suelen pre-renderizar meta tags.
-  const pt = (pageType ?? '').toLowerCase();
-  if (url && (pt === 'news' || pt === 'blog' || pt === 'forum')) {
+  if (url && isArticlePageType(pageType)) {
     const og = await fetchOgImage(url, timeoutMs);
     if (og) return og;
   }
