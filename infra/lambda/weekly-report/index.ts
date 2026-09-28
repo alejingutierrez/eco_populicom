@@ -1494,11 +1494,14 @@ async function loadDailyHeroImage(
           AND m.nlp_pertinence IN ('alta','media')
           AND m.published_at >= ($2::date)
           AND m.published_at <  (($2::date) + INTERVAL '1 day')
-        ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
-        LIMIT 40`,
+          AND lower(m.page_type) IN ('news','blog','forum')
+        ORDER BY (m.nlp_pertinence = 'alta') DESC, COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+        LIMIT 5`,
       [agencyId, dayYmd],
     );
-    const candidates = (r.rows as any[]).filter((row) => isArticlePageType(row.page_type)).slice(0, 5);
+    // El filtro va en SQL, no después del LIMIT: las redes dominan el
+    // engagement y las noticias (engagement ~0) quedaban fuera del corte.
+    const candidates = (r.rows as any[]).filter((row) => isArticlePageType(row.page_type));
     const images = await Promise.all(candidates.map(async (row) => {
       const stored: string | null = row.resolved_image_url;
       if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored)) {
@@ -1509,7 +1512,11 @@ async function loadDailyHeroImage(
     const idx = images.findIndex((img) => img != null);
     if (idx < 0) return null;
     const row = candidates[idx];
-    const source = row.content_source_name ?? row.page_type ?? 'fuente';
+    // content_source_name es genérico ("Online News"): el pie nombra el medio.
+    let source: string = row.content_source_name ?? 'fuente';
+    try {
+      if (row.url) source = new URL(row.url).hostname.replace(/^www\./, '');
+    } catch { /* URL inválida: queda el nombre de la fuente */ }
     const day = formatShortDay(ymdInTimeZone(new Date(row.published_at), REPORT_TIMEZONE));
     return { url: images[idx]!, caption: `Foto: ${source} · ${day}` };
   } catch (err) {
