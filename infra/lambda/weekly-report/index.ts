@@ -54,6 +54,10 @@ import {
   formatMetric,
   formatDelta,
   formatVelocity,
+  fetchOgImage,
+  isArticlePageType,
+  isGenericImageUrl,
+  validateImageUrl,
   type EmailMetric,
   type MentionSample,
   type WeeklyAggregates,
@@ -468,8 +472,11 @@ async function buildDailyReportEmail(
   const samples = await loadSamples(client, agency.id, startDate, endDate);
   const todaySamples = await loadTodaySamples(client, agency.id, endDate);
 
-  const insights = await generateInsights(aggregates, samples);
-  const dailySummary = await generateDailySummary(aggregates, todaySamples, endDate);
+  const [insights, dailySummary, heroImage] = await Promise.all([
+    generateInsights(aggregates, samples),
+    generateDailySummary(aggregates, todaySamples, endDate),
+    loadDailyHeroImage(client, agency.id, endDate),
+  ]);
 
   const renderData: DailyReportRenderData = {
     agencyName: agency.name,
@@ -487,10 +494,11 @@ async function buildDailyReportEmail(
       neutral: formatDelta(winCur.totals.neutral, winPrev.totals.neutral, { kind: 'percent', decimals: 0 }),
       positive: formatDelta(winCur.totals.positive, winPrev.totals.positive, { kind: 'percent', decimals: 0 }),
     },
-    chartImageUrl: buildChartImageUrl(sentimentReport.dailySeries),
+    // La tendencia se dibuja con tablas HTML desde dailySeries (sin PNG).
     dailySeries: sentimentReport.dailySeries,
     topicsTable: sentimentReport.topicsTable,
     insights,
+    heroImage,
     dailySummary: {
       label: `Resumen del día · ${formatShortDay(endDate)}`,
       headline: dailySummary.headline,
@@ -504,11 +512,14 @@ async function buildDailyReportEmail(
     overviewUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
+  // El asunto cuenta el hecho del día (el titular del resumen); las cifras
+  // viajan en la vista previa del inbox. Sin titular, el asunto de siempre.
   const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
+  const headline = (dailySummary.headline ?? '').trim();
   const subject = buildSubject(
     'Diario',
     agencyShortName(agency.slug),
-    `${fullDayEs(todayYmd)} · ${fmtIntEs(sentimentReport.totals.total)} menciones`,
+    headline || `${fullDayEs(todayYmd)} · ${fmtIntEs(sentimentReport.totals.total)} menciones`,
   );
 
   return {
@@ -1459,6 +1470,52 @@ async function loadTodaySamples(client: any, agencyId: string, todayYmd: string)
     municipality: row.municipality,
     source: row.content_source_name,
   }));
+}
+
+/**
+ * Foto de la nota del día para el diario: la noticia/blog/foro de AYER con
+ * más engagement que tenga una imagen utilizable. Mismas dos reglas que la
+ * foto del correo de crisis (#120): el og:image SOLO se pide a páginas de
+ * tipo artículo —a un visitante sin sesión Instagram/Facebook/X le sirven su
+ * logo— y se descartan las imágenes genéricas. Best-effort: 3s por URL; si
+ * ninguna candidata tiene foto, el bloque no se emite.
+ */
+async function loadDailyHeroImage(
+  client: any,
+  agencyId: string,
+  dayYmd: string,
+): Promise<{ url: string; caption: string } | null> {
+  try {
+    const r = await client.query(
+      `SELECT m.id, m.url, m.page_type, m.resolved_image_url, m.content_source_name, m.published_at
+         FROM mentions m
+        WHERE m.agency_id = $1
+          AND m.is_duplicate = false
+          AND m.nlp_pertinence IN ('alta','media')
+          AND m.published_at >= ($2::date)
+          AND m.published_at <  (($2::date) + INTERVAL '1 day')
+        ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+        LIMIT 40`,
+      [agencyId, dayYmd],
+    );
+    const candidates = (r.rows as any[]).filter((row) => isArticlePageType(row.page_type)).slice(0, 5);
+    const images = await Promise.all(candidates.map(async (row) => {
+      const stored: string | null = row.resolved_image_url;
+      if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored)) {
+        return stored;
+      }
+      return row.url ? fetchOgImage(row.url) : null;
+    }).map((p) => p.catch(() => null)));
+    const idx = images.findIndex((img) => img != null);
+    if (idx < 0) return null;
+    const row = candidates[idx];
+    const source = row.content_source_name ?? row.page_type ?? 'fuente';
+    const day = formatShortDay(ymdInTimeZone(new Date(row.published_at), REPORT_TIMEZONE));
+    return { url: images[idx]!, caption: `Foto: ${source} · ${day}` };
+  } catch (err) {
+    console.warn('[daily] hero image lookup failed', err);
+    return null;
+  }
 }
 
 // ============================================================

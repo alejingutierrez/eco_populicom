@@ -237,6 +237,17 @@ paleta, header con badge de tipo, footer con nota de tipo) y asunto tipado
 `[Tag] SIGLAS · detalle`. Indicadores SIEMPRE numéricos (%, /10, con signo —
 paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 
+**Rediseño «Instrumento» (sep 2026, en migración)**: el cromo nuevo vive en
+`@eco/shared/email/instrument.ts` (grafito acromático, color solo en el dato,
+Plex Sans + Plex Mono, etiqueta de tipo tipográfica, gráficas en tablas HTML
+sin PNG, imágenes siempre opcionales). **El diario ya lo usa**; semanal,
+alertas, crisis, nombramiento y bienvenida siguen en `chrome.ts` hasta que se
+migren. El asunto del diario pasó a ser el TITULAR del resumen
+(`[Diario] DDEC · <titular>`) y las cifras van en la vista previa del inbox;
+la foto del día sale de `loadDailyHeroImage` (misma regla que crisis: og:image
+solo de noticias/blogs, nunca de redes). Diseño aprobado en el lienzo
+https://claude.ai/artifact/9zaLzzxn4RggKD6RhU3Y4u (página «Camino A»).
+
 | Tipo | Asunto | Fuente | Cuándo |
 |---|---|---|---|
 | Diario | `[Diario]` | `eco-weekly-report` → render-daily-report | todos los días, send_hour_local |

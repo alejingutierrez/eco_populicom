@@ -24,7 +24,6 @@ const data: DailyReportRenderData = {
   updatedAtLabel: '6 may, 6:00 a.m. AST',
   totals: { negative: 258, neutral: 259, positive: 42, total: 559 },
   deltaVsPrev: { negative: 18, neutral: -6, positive: 12 },
-  chartImageUrl: buildMockChartUrl(),
   dailySeries: [
     { date: '2026-04-28', dayLabel: 'mar 28', negative: 28, neutral: 32, positive: 5 },
     { date: '2026-04-29', dayLabel: 'mié 29', negative: 35, neutral: 33, positive: 7 },
@@ -64,6 +63,12 @@ const data: DailyReportRenderData = {
   },
   dailySummary: {
     label: 'Resumen del día · 4 may',
+    headline: 'Los reclamos por permisos empujan el lunes al día más negativo de la semana',
+    highlights: [
+      'Permisos / Reforma sumó <strong>37</strong> menciones el lunes, casi todas quejas por solicitudes detenidas desde marzo.',
+      'La cobertura informativa sobre la gestión del Secretario amortiguó el tono: <strong>28</strong> menciones neutrales en prensa.',
+      'El hilo con más alcance vino de X/Twitter y fue replicado por dos cuentas de medios regionales.',
+    ],
     paragraph: 'La jornada cerró con <strong>107 menciones</strong>, el volumen más alto de la semana (15% sobre el día anterior). El 53% tuvo carga negativa, empujada por <strong>Permisos / Reforma</strong> (37 menciones) y <strong>Críticas / Controversias</strong> (18). En el lado neutral, la <strong>gestión del Secretario</strong> sumó 28 menciones de cobertura informativa. La conversación se concentró en cuentas de prensa y hilos de X/Twitter.',
   },
   // Deltas de sentimiento formateados igual que el lambda (% vs período previo).
@@ -104,46 +109,21 @@ const data: DailyReportRenderData = {
   overviewUrl: 'https://citizenecho.com/overview?agency=ddecpr',
 };
 
-function buildMockChartUrl(): string {
-  const config = {
-    type: 'line',
-    data: {
-      labels: ['mar 28','mié 29','jue 30','vie 1','sáb 2','dom 3','lun 4'],
-      datasets: [
-        { label: 'Negativo', data: [28, 35, 32, 38, 30, 38, 57],
-          borderColor: '#C8462F', backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Neutral', data: [32, 33, 38, 36, 35, 41, 44],
-          borderColor: '#6B7280', backgroundColor: 'rgba(107,114,128,0.06)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#6B7280',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-        { label: 'Positivo', data: [5, 7, 6, 5, 6, 7, 6],
-          borderColor: '#1F8A47', backgroundColor: 'rgba(31,138,71,0)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#1F8A47',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: {
-        legend: { display: false },
-        title: { display: false },
-      },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
-}
 
-const html = renderDailyReportHtml(data);
+// Foto de la nota del día: en producción es el og:image de una noticia. Aquí
+// un marcador SVG, para ver el espacio con foto y sin foto.
+const MOCK_HERO = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1072" height="560"><rect width="100%" height="100%" fill="#D5D8DC"/><text x="50%" y="50%" font-family="Helvetica" font-size="36" fill="#5A616B" text-anchor="middle">Foto de la nota del día</text></svg>',
+)}`;
+
 const repoRoot = join(__dirname, '..');
-const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', 'daily-report-preview.html');
-writeFileSync(outPath, html, 'utf8');
-console.log(`Preview escrito: ${outPath}`);
-console.log(`HTML length: ${html.length} bytes`);
+const variants: Array<{ file: string; data: DailyReportRenderData }> = [
+  { file: 'daily-report-preview.html', data: { ...data, heroImage: { url: MOCK_HERO, caption: 'Foto: ElNuevoDia.com · 4 may' } } },
+  { file: 'daily-report-preview-sin-foto.html', data },
+];
+for (const v of variants) {
+  const html = renderDailyReportHtml(v.data);
+  const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', v.file);
+  writeFileSync(outPath, html, 'utf8');
+  console.log(`Preview escrito: ${outPath} (${html.length} bytes)`);
+}

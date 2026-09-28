@@ -3,28 +3,41 @@
  * jul 2026 porque siempre se envió todos los días con ventana rolante de 7
  * días y el nombre confundía al destinatario).
  *
- * Identidad: asunto "[Diario] …", barra y badge azul marca, footer "reporte
- * diario". Los indicadores compuestos se muestran NUMÉRICOS (%, /10, con
- * signo — paridad con el dashboard), sin palabra cualitativa; el color del
- * número codifica la banda.
+ * Cromo «Instrumento» (sep 2026, camino A del rediseño de correos): grafito
+ * acromático, color solo en el dato, cifras en mono. El orden del cuerpo es
+ * el que aprobó el cliente:
  *
- * Diseño: minimalista, fondo claro, marca ECO (azul + amarillo) usada con
- * moderación. Tablas e inline styles para compatibilidad con Gmail /
- * Outlook / Apple Mail. Imagen PNG externa (QuickChart) para la tendencia.
+ *   1. Lecturas — lo que cambió: negativo (delta), riesgo de crisis y
+ *      sentimiento neto, con su delta vs los 7 días previos.
+ *   2. Reparto del periodo — total + barra neg·neu·pos con conteo, % y delta.
+ *   3. Resumen del día — titular, foto opcional de la nota, párrafo, viñetas.
+ *   4. Tendencia día a día — columnas apiladas en tablas HTML (sin PNG).
+ *   5. Insights por sentimiento — solo los que traen señal.
+ *   6. Tópicos — top 5 + "Otros" plegado, con barra de reparto.
+ *
+ * Indicadores SIEMPRE numéricos (paridad con el dashboard vía formatMetric /
+ * formatDelta), nunca la palabra cualitativa.
  */
 
 import type { DeltaDisplay } from '../format/metrics-display';
+import { fmtInt, esc, type EmailMetric } from './chrome';
 import {
-  EMAIL_COLORS as COLORS,
-  esc,
-  fmtInt,
-  sectionKicker,
-  blockHeader,
-  ctaButton,
-  renderMetricTiles,
-  emailDocument,
-  type EmailMetric,
-} from './chrome';
+  INSTRUMENT as T,
+  FONT_MONO,
+  FONT_SANS,
+  actionRow,
+  columnChart,
+  deltaMono,
+  heroImage,
+  instrumentDocument,
+  mono,
+  readoutRow,
+  sectionLabel,
+  sectionRow,
+  sentimentDeltaColor,
+  stackedBar,
+  swatch,
+} from './instrument';
 
 export interface DailyReportRenderData {
   agencyName: string;
@@ -54,8 +67,12 @@ export interface DailyReportRenderData {
     neutral: DeltaDisplay;
     positive: DeltaDisplay;
   };
-  /** URL absoluta del PNG del gráfico de tendencia (QuickChart u otro). */
-  chartImageUrl: string;
+  /**
+   * Legado: URL del PNG de QuickChart. Desde el cromo Instrumento (sep 2026)
+   * la tendencia se dibuja con tablas HTML a partir de `dailySeries`; el
+   * campo se ignora y queda opcional para no romper bundles viejos del lambda.
+   */
+  chartImageUrl?: string;
   dailySeries: Array<{
     date: string;
     dayLabel: string;
@@ -118,13 +135,19 @@ export interface DailyReportRenderData {
     velocity?: EmailMetric;
     engagementRate?: EmailMetric;
   };
-  /** URL a la landing de Overview del dashboard para el CTA del Bloque 2. */
+  /** URL a la landing de Overview del dashboard para el CTA. */
   overviewUrl?: string;
+  /**
+   * Foto de la nota del día (opcional). Se muestra bajo el titular del
+   * resumen; sin URL el bloque no se emite y el correo se lee igual.
+   */
+  heroImage?: { url: string; alt?: string | null; caption?: string | null } | null;
 }
-
 // ------------------------------------------------------------
 // Helpers locales
 // ------------------------------------------------------------
+
+type Sentiment = 'negative' | 'neutral' | 'positive';
 
 function pct(n: number, total: number): number {
   if (!total) return 0;
@@ -132,102 +155,173 @@ function pct(n: number, total: number): number {
 }
 
 /**
- * Titular del lede. Se omite entero si el lambda no lo manda, para que el
- * bloque siga abriendo por el párrafo (compatibilidad con bundles viejos).
+ * Delta de conteo: el DeltaDisplay del formato compartido si el lambda lo
+ * mandó; si no (bundle viejo), uno equivalente armado con `deltaVsPrev`, que
+ * ya viene como % vs los 7 días previos.
  */
-function summaryHeadline(headline: string | undefined): string {
-  const clean = (headline ?? '').trim();
-  if (!clean) return '';
-  return `                    <p class="force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:19px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">${esc(clean)}</p>`;
+function countDelta(data: DailyReportRenderData, s: Sentiment): DeltaDisplay {
+  const given = data.deltaDisplay?.[s];
+  if (given) return given;
+  const r = Math.round(data.deltaVsPrev[s]);
+  const direction = r > 0 ? 'up' : r < 0 ? 'down' : 'flat';
+  return {
+    word: r > 0 ? 'sube' : r < 0 ? 'baja' : 'estable',
+    direction,
+    arrow: r > 0 ? '▲' : r < 0 ? '▼' : '·',
+    value: r > 0 ? `+${r}%` : r < 0 ? `−${Math.abs(r)}%` : '0%',
+    magnitude: r,
+    hasBaseline: true,
+    tone: 'neutral',
+  };
 }
 
-/**
- * "Para resaltar" — las viñetas del lede. Cada una cuenta un hecho, no una
- * cifra con etiqueta (ver la ley 02 de la constitución editorial).
- */
-function summaryHighlights(items: string[] | undefined): string {
-  const clean = (items ?? []).filter((s) => s && s.trim().length > 0).slice(0, 4);
-  if (!clean.length) return '';
-  const lis = clean
-    .map(
-      (s) => `<li class="force-text-dark" style="margin:0 0 7px 0;padding:0 0 0 14px;font-size:13.5px;line-height:1.55;color:${COLORS.ink};position:relative;list-style:none;">
-                        <span style="position:absolute;left:0;top:0;color:${COLORS.accent};font-weight:700;">·</span>${s}
-                      </li>`,
-    )
-    .join('');
-  return `                    <div style="height:1px;line-height:1px;font-size:0;background:${COLORS.accent};opacity:0.45;margin:16px 0 13px 0;">&nbsp;</div>
-                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:9px;">
-                      Para resaltar
-                    </div>
-                    <ul style="margin:0;padding:0;list-style:none;">${lis}</ul>`;
+function countDeltaHtml(data: DailyReportRenderData, s: Sentiment): string {
+  const dd = countDelta(data, s);
+  return deltaMono(dd, sentimentDeltaColor(s, dd));
 }
 
-function signedPct(n: number): string {
-  const rounded = Math.round(n);
-  if (rounded > 0) return `+${rounded}%`;
-  if (rounded < 0) return `${rounded}%`;  // ya viene con −
-  return '0%';
-}
-
-function deltaWord(n: number): string {
-  // Deriva la palabra del valor REDONDEADO para que concuerde con signedPct
-  // (que también redondea). Mismo vocabulario que formatDelta (sube/baja/estable).
-  const r = Math.round(n);
-  if (r > 0) return 'sube';
-  if (r < 0) return 'baja';
-  return 'estable';
-}
+const SENTIMENTS: Array<{ key: Sentiment; label: string; short: string; color: string }> = [
+  { key: 'negative', label: 'Negativo', short: 'Neg', color: T.neg },
+  { key: 'neutral', label: 'Neutral', short: 'Neu', color: T.neu },
+  { key: 'positive', label: 'Positivo', short: 'Pos', color: T.pos },
+];
 
 // ------------------------------------------------------------
-// Gráfico — PNG externo (QuickChart) con alt-text descriptivo
+// Secciones
 // ------------------------------------------------------------
 
-function renderChart(data: DailyReportRenderData): string {
-  if (!data.dailySeries.length) {
-    return `<div style="padding:32px;text-align:center;color:${COLORS.inkMute};font-size:13px;">Sin datos en el periodo.</div>`;
+/** 1 · Lecturas: lo que cambió, en tres cifras. */
+function renderReadouts(data: DailyReportRenderData): string {
+  const neg = countDelta(data, 'negative');
+  const negValue = neg.hasBaseline && neg.value ? esc(neg.value) : fmtInt(data.totals.negative);
+  const negHint = neg.hasBaseline && neg.value
+    ? `${fmtInt(data.totals.negative)} menciones`
+    : 'sin base previa';
+  const cells = [{ label: 'Negativo', valueHtml: negValue, hintHtml: negHint }];
+
+  const metricCell = (label: string, m: EmailMetric | undefined) => {
+    if (!m) return null;
+    return {
+      label,
+      valueHtml: esc(m.display.value ?? '—'),
+      hintHtml: deltaMono(m.delta) || (m.hint ? esc(m.hint) : ''),
+    };
+  };
+  for (const c of [
+    metricCell('Riesgo de crisis', data.metrics?.crisis),
+    metricCell('Sentimiento neto', data.metrics?.nss),
+  ]) {
+    if (c) cells.push(c);
   }
-  if (!data.chartImageUrl) {
-    return `<div style="padding:32px;text-align:center;color:${COLORS.inkMute};font-size:13px;">Gráfico no disponible.</div>`;
+  // Sin métricas (bundle viejo): las tres cifras son los conteos.
+  if (cells.length === 1) {
+    cells.push(
+      { label: 'Neutral', valueHtml: fmtInt(data.totals.neutral), hintHtml: countDeltaHtml(data, 'neutral') },
+      { label: 'Positivo', valueHtml: fmtInt(data.totals.positive), hintHtml: countDeltaHtml(data, 'positive') },
+    );
   }
-  const altText = `Tendencia diaria del sentimiento — ` +
-    data.dailySeries
-      .map((d) => `${d.dayLabel}: ${d.negative} neg, ${d.neutral} neu, ${d.positive} pos`)
-      .join('; ');
-
-  return `<img src="${esc(data.chartImageUrl)}" alt="${esc(altText)}" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">`;
+  return readoutRow(cells);
 }
 
-// ------------------------------------------------------------
-// Insights list
-// ------------------------------------------------------------
-
-function renderInsights(items: string[], color: string): string {
-  const clean = items.filter((s) => s && s.trim().length > 0);
-  if (clean.length === 0) {
-    return `<li class="force-text-soft" style="padding:10px 0;font-size:13px;line-height:1.6;color:${COLORS.inkMute};font-style:italic;">No hay señal suficiente en los datos del periodo.</li>`;
-  }
-  return clean
-    .map(
-      (s, i) => {
-        const borderTop = i === 0 ? '' : `border-top:1px solid ${COLORS.borderSoft};`;
-        return `<li class="force-text-dark" style="padding:12px 0 12px 28px;${borderTop}font-size:13.5px;line-height:1.6;color:${COLORS.ink};position:relative;">
-          <span style="position:absolute;left:0;top:12px;color:${color};font-weight:700;font-size:13px;">${i + 1}.</span>
-          ${s}
-        </li>`;
-      },
-    )
-    .join('');
+/** 2 · Reparto del periodo: total + barra + leyenda con conteo, % y delta. */
+function renderDistribution(data: DailyReportRenderData): string {
+  const { totals } = data;
+  const legend = SENTIMENTS.map((s, i) => {
+    const align = i === 0 ? 'left' : i === 1 ? 'center' : 'right';
+    const delta = countDeltaHtml(data, s.key);
+    return `<td class="stack-mobile" align="${align}" style="font-family:${FONT_MONO};font-size:12px;color:${T.ink2};line-height:1.5;padding-top:10px;">
+                    ${swatch(s.color)}${esc(s.short)} ${fmtInt(totals[s.key])} · ${pct(totals[s.key], totals.total)}%${delta ? ` · ${delta}` : ''}
+                  </td>`;
+  }).join('');
+  return sectionRow(`
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px;">
+                <tr>
+                  <td align="left" valign="baseline" style="font-size:13px;color:${T.text2};">Menciones · 7 días vs 7 previos</td>
+                  <td align="right" valign="baseline">${mono(fmtInt(totals.total), `font-size:20px;font-weight:500;color:${T.ink};`)}</td>
+                </tr>
+              </table>
+              ${stackedBar(totals.negative, totals.neutral, totals.positive, 10)}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+                <tr>${legend}</tr>
+              </table>`, { padding: '20px 32px' });
 }
 
-// ------------------------------------------------------------
-// Main render
-// ------------------------------------------------------------
+/** 3 · Resumen del día: titular, foto opcional, párrafo y viñetas numeradas. */
+function renderSummary(data: DailyReportRenderData): string {
+  const s = data.dailySummary;
+  const headline = (s.headline ?? '').trim();
+  const h2 = headline
+    ? `<h2 class="force-text-dark" style="margin:0 0 14px 0;font-family:${FONT_SANS};font-size:20px;font-weight:600;line-height:1.3;color:${T.ink};">${esc(headline)}</h2>`
+    : '';
+  const img = heroImage(data.heroImage ? { ...data.heroImage, alt: data.heroImage.alt ?? headline } : null);
+  const items = (s.highlights ?? []).filter((x) => x && x.trim().length > 0).slice(0, 4);
+  const list = items.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;">
+                ${items.map((x, i) => `<tr>
+                  <td valign="top" width="24" style="width:24px;padding:5px 0;font-family:${FONT_MONO};font-size:14px;line-height:1.5;color:${T.text3};">${i + 1}</td>
+                  <td valign="top" class="force-text-dark" style="padding:5px 0;font-size:14px;line-height:1.5;color:${T.ink};">${x}</td>
+                </tr>`).join('')}
+              </table>`
+    : '';
+  return sectionRow(`
+              ${sectionLabel(`01 · ${s.label}`)}
+              ${h2}
+              ${img}
+              <p style="margin:0;font-size:15px;line-height:1.6;color:${T.ink2};">${s.paragraph}</p>
+              ${list}`);
+}
 
-export function renderDailyReportHtml(data: DailyReportRenderData): string {
-  const { totals, deltaVsPrev } = data;
+/** 4 · Tendencia día a día — columnas apiladas; el día pico va resaltado. */
+function renderTrend(data: DailyReportRenderData): string {
+  const series = data.dailySeries;
+  if (!series.length) {
+    return sectionRow(`${sectionLabel('02 · Tendencia día a día')}
+              <div style="font-size:13px;color:${T.text2};">Sin datos en el periodo.</div>`);
+  }
+  const totals = series.map((d) => d.negative + d.neutral + d.positive);
+  const peak = Math.max(...totals);
+  const alt = 'Tendencia diaria del sentimiento: ' +
+    series.map((d) => `${d.dayLabel}: ${d.negative} neg, ${d.neutral} neu, ${d.positive} pos`).join('; ');
+  const chart = columnChart(
+    series.map((d, i) => ({
+      label: d.dayLabel,
+      emphasis: peak > 0 && totals[i] === peak,
+      segments: [
+        { value: d.negative, color: T.neg },
+        { value: d.neutral, color: T.neu },
+        { value: d.positive, color: T.pos },
+      ],
+    })),
+    { height: 120, barWidth: 36, alt },
+  );
+  return sectionRow(`
+              ${sectionLabel('02 · Tendencia día a día')}
+              ${chart}`);
+}
 
-  // Al grano: top 5 tópicos con nombre; el resto se pliega en "Otros tópicos"
-  // para que la tabla siga cuadrando con el total del periodo.
+/** 5 · Insights: un bloque por sentimiento con señal; si ninguno, una línea. */
+function renderInsights(data: DailyReportRenderData): string {
+  const { totals } = data;
+  const blocks = SENTIMENTS
+    .map((s) => ({ ...s, items: data.insights[s.key].filter((x) => x && x.trim().length > 0) }))
+    .filter((b) => b.items.length > 0);
+  const body = blocks.length
+    ? blocks.map((b, bi) => `
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${bi > 0 ? 'margin-top:18px;' : ''}">
+                <tr>
+                  <td align="left" style="padding:0 0 6px 0;border-bottom:1px solid ${T.line};font-size:13px;font-weight:600;color:${T.ink};">${swatch(b.color)}${esc(b.label)}</td>
+                  <td align="right" style="padding:0 0 6px 0;border-bottom:1px solid ${T.line};font-family:${FONT_MONO};font-size:12px;color:${T.text2};">${pct(totals[b.key], totals.total)}% del total</td>
+                </tr>
+                ${b.items.map((x) => `<tr><td colspan="2" class="force-text-dark" style="padding:8px 0 0 0;font-size:14px;line-height:1.55;color:${T.ink};">${x}</td></tr>`).join('')}
+              </table>`).join('')
+    : `<div style="font-size:13px;color:${T.text2};">Sin señal suficiente para insights en este periodo.</div>`;
+  return sectionRow(`
+              ${sectionLabel('03 · Insights')}
+              ${body}`);
+}
+
+/** 6 · Tópicos: top 5 con nombre; el resto se pliega en "Otros tópicos". */
+function renderTopics(data: DailyReportRenderData): string {
   const namedTopics = data.topicsTable.filter((t) => !t.isOther && !t.isUnclassified);
   const foldedTopics = namedTopics.slice(5);
   const prevOther = data.topicsTable.find((t) => t.isOther);
@@ -245,323 +339,83 @@ export function renderDailyReportHtml(data: DailyReportRenderData): string {
         isOther: true,
       }]
     : [];
-  const topicsList = [
+  const list = [
     ...namedTopics.slice(0, 5),
     ...otherRow,
     ...data.topicsTable.filter((t) => t.isUnclassified),
   ];
-  const topicsRows = topicsList
-    .map((t, idx) => {
-      const isLast = idx === topicsList.length - 1;
-      const rowBorder = isLast ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-      const isMuted = Boolean(t.isOther || t.isUnclassified);
-      const labelColor = isMuted ? COLORS.inkSoft : COLORS.ink;
-      const totalColor = isMuted ? COLORS.inkSoft : COLORS.ink;
-      const totalWeight = isMuted ? 600 : 700;
-      const totalPct = totals.total > 0 ? Math.round((t.total / totals.total) * 100) : 0;
-      const subs = t.subtopics
-        ? `<div class="force-text-soft" style="font-size:11.5px;color:${COLORS.inkMute};font-weight:400;margin-top:3px;font-style:${t.isUnclassified ? 'italic' : 'normal'};">${esc(t.subtopics)}</div>`
-        : '';
-      return `
-      <tr>
-        <td class="force-text-dark" style="padding:14px 16px;font-size:13.5px;color:${labelColor};font-weight:${isMuted ? 500 : 600};${rowBorder}">
-          ${esc(t.topic)}
-          ${subs}
-        </td>
-        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:13.5px;color:${totalColor};font-weight:${totalWeight};${rowBorder};white-space:nowrap;">
-          ${fmtInt(t.total)}
-          <span class="force-text-soft" style="display:block;font-size:10.5px;color:${COLORS.inkMute};font-weight:500;margin-top:2px;">${totalPct}%</span>
-        </td>
-        <td style="padding:14px 16px 14px 12px;${rowBorder}">
-          ${distributionBar(t.negative, t.neutral, t.positive, t.total, isMuted)}
-        </td>
-      </tr>`;
-    })
-    .join('');
-
-  // Total al pie de la tabla — debe cuadrar con el universo del termómetro.
-  const topicsFooter = data.topicsTable.length > 0
-    ? `
-      <tr>
-        <td style="padding:14px 16px;font-size:11px;color:${COLORS.inkMute};font-weight:700;letter-spacing:0.06em;text-transform:uppercase;border-top:1px solid ${COLORS.border};background:${COLORS.page};">Total del periodo</td>
-        <td align="right" class="force-text-dark" style="padding:14px 12px;font-size:14px;color:${COLORS.ink};font-weight:800;border-top:1px solid ${COLORS.border};background:${COLORS.page};white-space:nowrap;">${fmtInt(totals.total)}</td>
-        <td style="padding:14px 16px 14px 12px;border-top:1px solid ${COLORS.border};background:${COLORS.page};">
-          ${distributionBar(totals.negative, totals.neutral, totals.positive, totals.total, false)}
-        </td>
-      </tr>`
-    : '';
-
-  const topicsEmpty = data.topicsTable.length === 0
-    ? `<tr><td colspan="3" style="padding:18px;text-align:center;font-size:13px;color:${COLORS.inkMute};">Sin menciones clasificadas por tópico en este periodo.</td></tr>`
-    : '';
-
-  const negPct = pct(totals.negative, totals.total);
-  const neuPct = pct(totals.neutral, totals.total);
-  const posPct = pct(totals.positive, totals.total);
-
-  // Insights: solo bloques CON contenido — un bloque vacío ("no hay señal")
-  // por sentimiento era ruido; si ninguno trae señal, una sola línea lo dice.
-  const insightSections = [
-    { label: 'Negativo', sub: `${negPct}% del total`, color: COLORS.neg, bg: COLORS.negSoft, items: data.insights.negative },
-    { label: 'Neutral', sub: `${neuPct}% del total`, color: COLORS.neu, bg: COLORS.neuSoft, items: data.insights.neutral },
-    { label: 'Positivo', sub: `${posPct}% del total`, color: COLORS.pos, bg: COLORS.posSoft, items: data.insights.positive },
-  ].filter((b) => b.items.some((s) => s && s.trim().length > 0));
-  const insightsBlocks = insightSections.length > 0
-    ? insightSections.map((b) => insightBlock(b.label, b.sub, b.color, b.bg, renderInsights(b.items, b.color))).join('\n              ')
-    : `<div class="force-text-soft" style="font-size:12.5px;color:${COLORS.inkMute};font-style:italic;">Sin señal suficiente para insights analíticos en este periodo.</div>`;
-
-  // Indicadores compuestos numéricos: sólo si el caller adjuntó las métricas
-  // ya formateadas. Retro-compatible: sin `metrics`, no se renderiza.
-  const indicatorsBlock = data.metrics ? renderIndicators(data.metrics) : '';
-
-  const contentRows = `
-          <!-- HERO -->
-          <tr>
-            <td class="px-32" style="padding:26px 32px 22px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
-                ${esc(data.agencyKicker)}
-              </div>
-              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
-                Reporte diario de<br>conversación pública
-              </h1>
-              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
-                Ventana: últimos 7 días (${esc(data.periodLabel)}) &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
-              </div>
-            </td>
-          </tr>
-${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
-${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
-          <!-- BLOQUE 1 · RESUMEN DEL DÍA — el lede del diario: qué pasó ayer -->
-          <tr>
-            <td class="px-32" style="padding:0 32px 22px 32px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
-                <tr>
-                  <td style="padding:18px 22px;">
-                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
-                      ${esc(data.dailySummary.label)}
-                    </div>
-${summaryHeadline(data.dailySummary.headline)}
-                    <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.dailySummary.paragraph}</p>
-${summaryHighlights(data.dailySummary.highlights)}
+  if (!list.length) {
+    return sectionRow(`${sectionLabel('04 · Tópicos')}
+              <div style="font-size:13px;color:${T.text2};">Sin menciones clasificadas por tópico en este periodo.</div>`);
+  }
+  const rows = list.map((t) => {
+    const muted = Boolean(t.isOther || t.isUnclassified);
+    const subs = t.subtopics
+      ? `<div style="font-size:12px;color:${T.text3};line-height:1.4;margin-top:2px;${t.isUnclassified ? 'font-style:italic;' : ''}">${esc(t.subtopics)}</div>`
+      : '';
+    return `<tr>
+                  <td valign="middle" style="padding:10px 12px 10px 0;border-bottom:1px solid ${T.line};">
+                    <div style="font-size:14px;font-weight:${muted ? 400 : 600};color:${muted ? T.text2 : T.ink};line-height:1.35;">${esc(t.topic)}</div>
+                    ${subs}
                   </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- 02 · TERMÓMETRO -->
-          <tr>
-            <td class="px-32" style="padding:0 32px 8px 32px;">
-              ${sectionKicker('01 · Termómetro · últimos 7 días')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-
+                  <td valign="middle" align="right" width="56" style="width:56px;padding:10px 12px;border-bottom:1px solid ${T.line};font-family:${FONT_MONO};font-size:14px;color:${muted ? T.text2 : T.ink};">${fmtInt(t.total)}</td>
+                  <td valign="middle" width="150" class="hide-mobile" style="width:150px;padding:10px 0;border-bottom:1px solid ${T.line};">${stackedBar(t.negative, t.neutral, t.positive, 8)}</td>
+                </tr>`;
+  }).join('');
+  const { totals } = data;
+  const footer = `<tr>
+                  <td style="padding:10px 12px 0 0;font-size:12px;color:${T.text2};">Total del periodo</td>
+                  <td align="right" style="padding:10px 12px 0 12px;font-family:${FONT_MONO};font-size:14px;font-weight:600;color:${T.ink};">${fmtInt(totals.total)}</td>
+                  <td class="hide-mobile" style="padding:10px 0 0 0;font-family:${FONT_MONO};font-size:11px;color:${T.text2};text-align:right;">${pct(totals.negative, totals.total)} · ${pct(totals.neutral, totals.total)} · ${pct(totals.positive, totals.total)}%</td>
+                </tr>`;
+  return sectionRow(`
+              ${sectionLabel('04 · Tópicos')}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
-                <tr>
-                  ${kpiCard('Negativo', COLORS.neg, COLORS.negSoft, totals.negative, negPct, deltaVsPrev.negative, 'right', data.deltaDisplay?.negative)}
-                  ${kpiCard('Neutral', COLORS.neu, COLORS.neuSoft, totals.neutral, neuPct, deltaVsPrev.neutral, 'both', data.deltaDisplay?.neutral)}
-                  ${kpiCard('Positivo', COLORS.pos, COLORS.posSoft, totals.positive, posPct, deltaVsPrev.positive, 'left', data.deltaDisplay?.positive)}
-                </tr>
-              </table>
+                ${rows}
+                ${footer}
+              </table>`);
+}
 
-              <div class="force-text-soft" style="margin-top:14px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Total del periodo: <strong style="color:${COLORS.ink};">${fmtInt(totals.total)}</strong> menciones &nbsp;·&nbsp; comparado con los 7 días previos
-              </div>
-            </td>
-          </tr>
+/**
+ * Vista previa del inbox (lo que se lee bajo el asunto): las cifras que
+ * cambiaron, para que el asunto pueda contar el hecho del día.
+ */
+export function dailyPreheader(data: DailyReportRenderData): string {
+  const parts = [`${fmtInt(data.totals.total)} menciones en 7 días`];
+  const neg = countDelta(data, 'negative');
+  parts.push(`negativo ${fmtInt(data.totals.negative)}${neg.hasBaseline && neg.value ? ` (${neg.value})` : ''}`);
+  const crisis = data.metrics?.crisis;
+  if (crisis?.display.value) {
+    const d = crisis.delta?.hasBaseline && crisis.delta.value ? ` (${crisis.delta.value})` : '';
+    parts.push(`riesgo de crisis ${crisis.display.value}${d}`);
+  }
+  return parts.join(' · ');
+}
 
-          <!-- BLOQUE 1 · 02 · TENDENCIA -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('02 · Tendencia día a día')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
+// ------------------------------------------------------------
+// Render principal
+// ------------------------------------------------------------
 
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                <tr>
-                  <td bgcolor="${COLORS.surface}" style="padding:18px 18px 14px 18px;background:${COLORS.surface};background-color:${COLORS.surface};">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
-                      <tr>
-                        <td align="left" class="force-text-mute" style="font-size:12px;color:${COLORS.inkSoft};">
-                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.neg};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;margin-right:14px;">Negativo</span>
-                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.neu};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;margin-right:14px;">Neutral</span>
-                          <span style="display:inline-block;width:8px;height:8px;background:${COLORS.pos};border-radius:50%;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;">Positivo</span>
-                        </td>
-                      </tr>
-                    </table>
-                    <div style="width:100%;overflow:hidden;">
-                      ${renderChart(data)}
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+export function renderDailyReportHtml(data: DailyReportRenderData): string {
+  const contentRows = [
+    renderReadouts(data),
+    renderDistribution(data),
+    renderSummary(data),
+    renderTrend(data),
+    renderInsights(data),
+    renderTopics(data),
+    actionRow(data.overviewUrl || '#', 'Abrir el dashboard'),
+  ].join('\n');
 
-${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
-${indicatorsBlock}
-${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
-          <!-- BLOQUE 2 · 03 · INSIGHTS -->
-          <tr>
-            <td class="px-32" style="padding:16px 32px 20px 32px;">
-              ${sectionKicker('03 · Insights · lo más relevante')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-              ${insightsBlocks}
-            </td>
-          </tr>
-${ctaButton(data.overviewUrl || '#', 'Ver detalle en el dashboard →')}
-          <!-- BLOQUE 2 · 04 · TÓPICOS -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker('04 · Tópicos principales')}
-              <div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>
-
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
-                <tr>
-                  <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
-                  <th align="right" style="padding:11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};width:78px;">Total</th>
-                  <th align="left" style="padding:11px 16px 11px 12px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Distribución <span style="font-weight:500;text-transform:none;letter-spacing:0;color:${COLORS.inkMute};">(neg · neu · pos)</span></th>
-                </tr>
-                ${topicsRows}
-                ${topicsEmpty}
-                ${topicsFooter}
-              </table>
-            </td>
-          </tr>`;
-
-  return emailDocument({
+  return instrumentDocument({
     title: `Reporte diario ECO · ${data.agencyShortName} · ${data.periodLabel}`,
-    preheader: `Reporte diario · ${data.agencyKicker} — ${fmtInt(totals.total)} menciones · últimos 7 días (${data.periodLabel})`,
+    preheader: dailyPreheader(data),
     kind: 'daily',
+    heading: {
+      kicker: data.agencyKicker,
+      title: `Conversación pública, ${data.periodLabel}`,
+      meta: `7 días cerrados · actualizado ${data.updatedAtLabel}`,
+    },
     contentRows,
   });
 }
-
-// ------------------------------------------------------------
-// KPI Card — sin flechas, sin sombras. Pill arriba + número grande
-// + delta abajo en línea sutil.
-// ------------------------------------------------------------
-
-function kpiCard(
-  label: string,
-  color: string,
-  pillBg: string,
-  value: number,
-  percentOfTotal: number,
-  delta: number,
-  side: 'left' | 'right' | 'both',
-  deltaDisplay?: DeltaDisplay,
-): string {
-  const padCss = side === 'right'
-    ? 'padding-right:5px;'
-    : side === 'left'
-    ? 'padding-left:5px;'
-    : 'padding-left:5px;padding-right:5px;';
-
-  // Preferimos el DeltaDisplay de @eco/shared/format (vocabulario y magnitud
-  // idénticos al dashboard) cuando se provee; de lo contrario caemos al
-  // cálculo local retro-compatible sobre el número crudo.
-  const deltaValue = deltaDisplay?.value ?? signedPct(delta);
-  const deltaWordStr = deltaDisplay?.word ?? deltaWord(delta);
-
-  return `<td class="stack stack-pad" valign="top" width="33.33%" style="${padCss}">
-    <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border-radius:8px;border:1px solid ${COLORS.border};">
-      <tr>
-        <td valign="top" style="padding:16px 16px 14px 16px;">
-          <div style="display:inline-block;background:${pillBg};color:${color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;">${label}</div>
-          <div class="kpi-value force-text-dark" style="font-size:32px;line-height:1;font-weight:700;color:${COLORS.ink};margin-top:14px;letter-spacing:-0.025em;">${fmtInt(value)}</div>
-          <div class="force-text-mute" style="font-size:12.5px;color:${COLORS.inkSoft};margin-top:4px;font-weight:500;">${percentOfTotal}% del total</div>
-          <div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.4;">
-            <span style="color:${color};font-weight:600;">${esc(deltaValue)}</span> ${esc(deltaWordStr)} vs. 7 días previos
-          </div>
-        </td>
-      </tr>
-    </table>
-  </td>`;
-}
-
-// ------------------------------------------------------------
-// Indicadores compuestos — tiles numéricos (paridad dashboard), sin palabra
-// cualitativa. Delta vs los 7 días previos como línea de apoyo.
-// ------------------------------------------------------------
-
-function renderIndicators(metrics: NonNullable<DailyReportRenderData['metrics']>): string {
-  // Orden del cliente (jul 2026): en el diario sólo dos indicadores —
-  // Riesgo de crisis y Sentimiento neto. Salud de marca, Polarización,
-  // Velocidad y Tasa de interacción NO se muestran aquí (siguen en el
-  // dashboard). El interface conserva esos campos por retro-compatibilidad
-  // con el lambda, pero no se renderizan.
-  const entries: Array<{ label: string; metric: EmailMetric }> = [
-    { label: 'Riesgo de crisis', metric: metrics.crisis },
-    { label: 'Sentimiento neto', metric: metrics.nss },
-  ];
-
-  return `
-          <tr>
-            <td class="px-32" style="padding:6px 32px 8px 32px;">
-              ${sectionKicker('Indicadores · mismos valores que el dashboard')}
-              ${renderMetricTiles(entries, { cols: 2, deltaSuffix: 'vs 7 días previos' })}
-            </td>
-          </tr>`;
-}
-
-// ------------------------------------------------------------
-// Distribution bar — barra horizontal stacked con los 3 sentimientos +
-// porcentajes inline. Usa <table> con widths en % para máxima compatibilidad
-// con clientes de email (Outlook 2016 no soporta flexbox; sí soporta tables
-// con widths fraccionarios). Si total = 0, renderiza una barra vacía gris.
-// ------------------------------------------------------------
-
-function distributionBar(neg: number, neu: number, pos: number, total: number, isMuted: boolean): string {
-  if (total === 0) {
-    return `<div style="height:6px;background:${COLORS.borderSoft};border-radius:3px;"></div>
-            <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};">—</div>`;
-  }
-  const negPct = Math.round((neg / total) * 100);
-  const neuPct = Math.round((neu / total) * 100);
-  const posPct = Math.max(0, 100 - negPct - neuPct);
-
-  // Colores: cuando isMuted (filas "Otros" o "Sin clasificar"), bajamos
-  // saturación para no llamar la atención.
-  const negC = isMuted ? '#D89B92' : COLORS.neg;
-  const neuC = isMuted ? '#B5BBC4' : COLORS.neu;
-  const posC = isMuted ? '#9DC9AC' : COLORS.pos;
-
-  // Cada segmento es un <td> con width fraccional. Si un sentimiento es 0,
-  // omitimos el <td> para que no genere un pixel residual.
-  const segs: string[] = [];
-  if (neg > 0) segs.push(`<td bgcolor="${negC}" style="background:${negC};background-color:${negC};width:${negPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-  if (neu > 0) segs.push(`<td bgcolor="${neuC}" style="background:${neuC};background-color:${neuC};width:${neuPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-  if (pos > 0) segs.push(`<td bgcolor="${posC}" style="background:${posC};background-color:${posC};width:${posPct}%;height:6px;line-height:6px;font-size:0;padding:0;">&nbsp;</td>`);
-
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-radius:3px;overflow:hidden;background:${COLORS.borderSoft};">
-    <tr>${segs.join('')}</tr>
-  </table>
-  <div class="force-text-soft" style="margin-top:6px;font-size:10.5px;color:${COLORS.inkMute};line-height:1.4;">
-    <span style="color:${negC};font-weight:600;">${negPct}%</span>
-    <span style="color:${COLORS.inkMute};">·</span>
-    <span style="color:${neuC};font-weight:600;">${neuPct}%</span>
-    <span style="color:${COLORS.inkMute};">·</span>
-    <span style="color:${posC};font-weight:600;">${posPct}%</span>
-  </div>`;
-}
-
-// ------------------------------------------------------------
-// Insight block — tarjeta suave con etiqueta y lista numerada
-// ------------------------------------------------------------
-
-function insightBlock(label: string, sub: string, color: string, pillBg: string, listHtml: string): string {
-  return `<table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;margin-bottom:10px;">
-    <tr>
-      <td style="padding:14px 18px 6px 18px;">
-        <div style="margin-bottom:4px;">
-          <span style="display:inline-block;background:${pillBg};color:${color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;vertical-align:middle;">${label}</span>
-          <span class="force-text-soft" style="margin-left:8px;font-size:11.5px;color:${COLORS.inkMute};vertical-align:middle;">${sub}</span>
-        </div>
-        <ul style="margin:0;padding:0;list-style:none;">${listHtml}</ul>
-      </td>
-    </tr>
-  </table>`;
-}
-
