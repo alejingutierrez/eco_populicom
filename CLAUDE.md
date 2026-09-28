@@ -240,7 +240,7 @@ paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
 **Rediseño «Instrumento» (sep 2026, en migración)**: el cromo nuevo vive en
 `@eco/shared/email/instrument.ts` (grafito acromático, color solo en el dato,
 Plex Sans + Plex Mono, etiqueta de tipo tipográfica, gráficas en tablas HTML
-sin PNG, imágenes siempre opcionales). **El diario ya lo usa**; semanal,
+sin PNG, imágenes siempre opcionales). **El diario y el semanal ya lo usan**;
 alertas, crisis, nombramiento y bienvenida siguen en `chrome.ts` hasta que se
 migren. El asunto del diario pasó a ser el TITULAR del resumen
 (`[Diario] DDEC · <titular>`) y las cifras van en la vista previa del inbox;

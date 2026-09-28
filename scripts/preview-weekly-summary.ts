@@ -15,6 +15,14 @@ import { join } from 'node:path';
 const totals = { negative: 187, neutral: 231, positive: 58, total: 476 };
 const prevTotals = { negative: 258, neutral: 259, positive: 42, total: 559 };
 
+// Marcadores SVG para ver los espacios de imagen (en producción: og:image de
+// la nota y la imagen del post).
+const svg = (w: number, h: number, label: string) => `data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#D5D8DC"/><text x="50%" y="50%" font-family="Helvetica" font-size="${Math.round(h / 12)}" fill="#5A616B" text-anchor="middle">${label}</text></svg>`,
+)}`;
+const MOCK_HERO = svg(1072, 560, 'Foto de la nota más resonante');
+const MOCK_THUMB = svg(144, 144, 'foto');
+
 const data: WeeklySummaryRenderData = {
   agencyName: 'Departamento de Desarrollo Económico y Comercio',
   agencyShortName: 'DDEC',
@@ -56,7 +64,17 @@ const data: WeeklySummaryRenderData = {
       delta: formatDelta(2.9, 2.4, { kind: 'absolute', decimals: 1, suffix: ' pts' }),
     },
   },
-  chartImageUrl: buildMockOverlayChartUrl(),
+  // Serie del preview anterior (QuickChart): esta semana vs la anterior.
+  dailyCompare: [
+    { label: 'vie 27', cur: 61, prev: 65 },
+    { label: 'sáb 28', cur: 48, prev: 60 },
+    { label: 'dom 29', cur: 44, prev: 71 },
+    { label: 'lun 30', cur: 92, prev: 88 },
+    { label: 'mar 1', cur: 78, prev: 95 },
+    { label: 'mié 2', cur: 81, prev: 98 },
+    { label: 'jue 3', cur: 72, prev: 82 },
+  ],
+  weeklyHeadline: 'Cierra el ciclo del PS 1183 y la cobertura institucional ocupa el espacio',
   weeklySummary:
     'La semana marcó el cierre del ciclo de controversia por el <strong>PS 1183</strong>: el volumen total bajó de <strong>559 a 476 menciones (−15%)</strong> y la negatividad retrocedió <strong>−28%</strong>, sin un evento de reemplazo que sostenga la presión. El espacio lo ocupó cobertura institucional sobre <strong>incentivos a pymes</strong>, amplificada por PR Newswire y la cuenta oficial de la agencia. La conversación queda en terreno neutral-informativo, con la positividad al alza (<strong>+38%</strong>) apoyada en el anuncio de inversión en la zona oeste.',
   highlights: [
@@ -88,6 +106,7 @@ const data: WeeklySummaryRenderData = {
       engagementLabel: '1,240 interacciones',
       publishedAtLabel: '30 jun',
       tone: 'neutral',
+      imageUrl: MOCK_THUMB,
     },
     {
       sourceLabel: 'X / Twitter',
@@ -120,37 +139,15 @@ const data: WeeklySummaryRenderData = {
   dashboardUrl: 'https://citizenecho.com/overview?agency=ddecpr',
 };
 
-function buildMockOverlayChartUrl(): string {
-  const config = {
-    type: 'line',
-    data: {
-      labels: ['vie 27', 'sáb 28', 'dom 29', 'lun 30', 'mar 1', 'mié 2', 'jue 3'],
-      datasets: [
-        { label: 'Esta semana', data: [61, 48, 44, 92, 78, 81, 72], borderColor: '#0A7EA4', backgroundColor: 'rgba(10,126,164,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#0A7EA4',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Semana anterior', data: [65, 60, 71, 88, 95, 98, 82], borderColor: '#8A93A0', backgroundColor: 'rgba(138,147,160,0)',
-          borderWidth: 2, borderDash: [6, 4], pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#8A93A0',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: { legend: { display: false }, title: { display: false } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
-}
 
-const html = renderWeeklySummaryHtml(data);
 const repoRoot = join(__dirname, '..');
-const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', 'weekly-summary-preview.html');
-writeFileSync(outPath, html, 'utf8');
-console.log(`Preview escrito: ${outPath}`);
-console.log(`HTML length: ${html.length} bytes`);
+const variants: Array<{ file: string; data: WeeklySummaryRenderData }> = [
+  { file: 'weekly-summary-preview.html', data: { ...data, heroImage: { url: MOCK_HERO, caption: 'Foto: elnuevodia.com · 30 jun' } } },
+  { file: 'weekly-summary-preview-sin-foto.html', data: { ...data, topMentions: data.topMentions?.map((m) => ({ ...m, imageUrl: null })) } },
+];
+for (const v of variants) {
+  const html = renderWeeklySummaryHtml(v.data);
+  const outPath = join(repoRoot, 'apps', 'web', 'public', 'emails', v.file);
+  writeFileSync(outPath, html, 'utf8');
+  console.log(`Preview escrito: ${outPath} (${html.length} bytes)`);
+}

@@ -31,6 +31,7 @@ import {
   heroImage,
   instrumentDocument,
   mono,
+  numberedList,
   readoutRow,
   sectionLabel,
   sectionRow,
@@ -254,15 +255,7 @@ function renderSummary(data: DailyReportRenderData): string {
     ? `<h2 class="force-text-dark" style="margin:0 0 14px 0;font-family:${FONT_SANS};font-size:20px;font-weight:600;line-height:1.3;color:${T.ink};">${esc(headline)}</h2>`
     : '';
   const img = heroImage(data.heroImage ? { ...data.heroImage, alt: data.heroImage.alt ?? headline } : null);
-  const items = (s.highlights ?? []).filter((x) => x && x.trim().length > 0).slice(0, 4);
-  const list = items.length
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;">
-                ${items.map((x, i) => `<tr>
-                  <td valign="top" width="24" style="width:24px;padding:5px 0;font-family:${FONT_MONO};font-size:14px;line-height:1.5;color:${T.text3};">${i + 1}</td>
-                  <td valign="top" class="force-text-dark" style="padding:5px 0;font-size:14px;line-height:1.5;color:${T.ink};">${x}</td>
-                </tr>`).join('')}
-              </table>`
-    : '';
+  const list = numberedList(s.highlights ?? [], { marginTop: 14 });
   return sectionRow(`
               ${sectionLabel(`01 · ${s.label}`)}
               ${h2}

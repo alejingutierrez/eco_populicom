@@ -270,6 +270,80 @@ export function columnChart(data: ColumnDatum[], opts: { height?: number; barWid
 }
 
 /**
+ * Columnas pareadas: por día, la serie de referencia (periodo anterior, gris)
+ * junto a la actual (grafito). Misma técnica de tablas que `columnChart`.
+ */
+export function pairedColumnChart(
+  data: Array<{ label: string; cur: number; prev: number }>,
+  opts: { height?: number; barWidth?: number; alt: string },
+): string {
+  const H = opts.height ?? 120;
+  const barW = opts.barWidth ?? 18;
+  const max = Math.max(1, ...data.flatMap((d) => [d.cur, d.prev]));
+  const colW = `${(100 / Math.max(1, data.length)).toFixed(2)}%`;
+  const bar = (v: number, color: string) => {
+    const h = v > 0 ? Math.max(2, Math.round((v / max) * H)) : 1;
+    const c = v > 0 ? color : T.line;
+    return `<td valign="bottom" style="padding:0 1px;"><table role="presentation" width="${barW}" cellpadding="0" cellspacing="0" border="0" style="width:${barW}px;"><tr><td height="${h}" bgcolor="${c}" style="height:${h}px;background:${c};background-color:${c};font-size:0;line-height:0;">&nbsp;</td></tr></table></td>`;
+  };
+  const cols = data.map((d) => `<td width="${colW}" valign="bottom" align="center" style="padding:0 2px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr>${bar(d.prev, T.ref)}${bar(d.cur, T.ink)}</tr></table>
+                  </td>`).join('');
+  const labels = data.map((d) => `<td width="${colW}" align="center" style="padding:6px 2px 0 2px;font-family:${FONT_MONO};font-size:11px;color:${T.text2};line-height:1.2;">${esc(d.label)}</td>`).join('');
+  return `<table role="img" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;" aria-label="${esc(opts.alt)}">
+                <tr>${cols}</tr>
+                <tr><td colspan="${data.length}" height="1" style="height:1px;background:${T.rule};background-color:${T.rule};font-size:0;line-height:0;padding:0;">&nbsp;</td></tr>
+                <tr>${labels}</tr>
+              </table>`;
+}
+
+/** Lista numerada en mono (viñetas del LLM: HTML inline ya saneado). */
+export function numberedList(items: string[], opts: { max?: number; marginTop?: number } = {}): string {
+  const clean = items.filter((x) => x && x.trim().length > 0).slice(0, opts.max ?? 4);
+  if (!clean.length) return '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:${opts.marginTop ?? 0}px;">
+                ${clean.map((x, i) => `<tr>
+                  <td valign="top" width="24" style="width:24px;padding:5px 0;font-family:${FONT_MONO};font-size:14px;line-height:1.5;color:${T.text3};">${i + 1}</td>
+                  <td valign="top" class="force-text-dark" style="padding:5px 0;font-size:14px;line-height:1.5;color:${T.ink};">${x}</td>
+                </tr>`).join('')}
+              </table>`;
+}
+
+/**
+ * Fila de mención: miniatura 72×72 opcional a la izquierda (sin imagen, el
+ * texto ocupa el ancho completo — no queda hueco), línea de metadatos en
+ * mono, título/texto y enlace subrayado. Todo el texto se escapa.
+ */
+export function mentionRow(m: {
+  meta: string;
+  title?: string | null;
+  text?: string | null;
+  url?: string | null;
+  imageUrl?: string | null;
+  linkLabel?: string;
+  last?: boolean;
+}): string {
+  const border = m.last ? '' : `border-bottom:1px solid ${T.line};`;
+  const thumb = m.imageUrl
+    ? `<td valign="top" width="72" style="width:72px;padding:12px 14px 12px 0;"><img src="${esc(m.imageUrl)}" alt="" width="72" height="72" style="display:block;width:72px;height:72px;object-fit:cover;border:0;background:${T.page};"></td>`
+    : '';
+  const title = m.title ? `<div style="font-size:14px;font-weight:600;line-height:1.4;color:${T.ink};margin-top:4px;">${esc(m.title)}</div>` : '';
+  const text = m.text ? `<div style="font-size:14px;line-height:1.5;color:${T.ink2};margin-top:4px;">${esc(m.text)}</div>` : '';
+  const link = m.url
+    ? `<div style="margin-top:6px;"><a href="${esc(m.url)}" style="font-size:13px;color:${T.ink};text-decoration:underline;text-decoration-color:${T.lineStrong};">${esc(m.linkLabel ?? 'Ver mención')}</a></div>`
+    : '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${border}">
+                <tr>
+                  ${thumb}
+                  <td valign="top" style="padding:12px 0;">
+                    <div style="font-family:${FONT_MONO};font-size:12px;color:${T.text2};line-height:1.4;">${esc(m.meta)}</div>
+                    ${title}${text}${link}
+                  </td>
+                </tr>
+              </table>`;
+}
+
+/**
  * Foto de portada (536 × auto, recorte máximo 280). Devuelve '' sin URL: el
  * correo nunca depende de la imagen.
  */

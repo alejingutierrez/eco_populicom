@@ -1,33 +1,41 @@
 /**
- * Template HTML del RESUMEN SEMANAL — correo NUEVO (jul 2026).
+ * Template HTML del RESUMEN SEMANAL (jul 2026; cromo «Instrumento» desde
+ * sep 2026, camino A del rediseño de correos).
  *
  * Llega los viernes y compara la semana cerrada (7 días terminando ayer)
- * contra la semana anterior. Todo el correo está construido alrededor de la
- * comparación: menciones y sentimiento lado a lado, indicadores con delta
- * semanal, ritmo diario superpuesto (esta semana vs la anterior) y los
- * tópicos que subieron o bajaron.
+ * contra la anterior. Orden aprobado:
  *
- * Identidad: asunto "[Semanal] …", barra y badge azul tinta (navy), footer
- * "reporte semanal". Indicadores NUMÉRICOS (paridad dashboard), sin palabra
- * cualitativa.
+ *   1. Lecturas — los 4 indicadores con su delta semanal.
+ *   2. La semana en un vistazo — titular, foto opcional, párrafo.
+ *   3. Semana vs semana — tabla de menciones y sentimiento.
+ *   4. Ritmo diario — columnas pareadas (anterior gris, actual grafito).
+ *   5. Qué cambió — viñetas del LLM.
+ *   6. Tópicos — esta semana, anterior, cambio y % negativo.
+ *   7. Lo más resonante — menciones top con miniatura opcional.
  *
- * Compatibilidad: inline styles + tablas (Gmail, Outlook, Apple Mail).
+ * Las secciones condicionales se numeran en orden de aparición para no dejar
+ * huecos ("02 → 05"). Indicadores NUMÉRICOS (paridad dashboard).
  */
 
 import type { DeltaDisplay } from '../format/metrics-display';
+import { esc, fmtInt, type EmailMetric } from './chrome';
 import {
-  EMAIL_COLORS as COLORS,
-  esc,
-  fmtInt,
-  toneHex,
-  deltaInline,
-  sectionKicker,
-  blockHeader,
-  ctaButton,
-  renderMetricTiles,
-  emailDocument,
-  type EmailMetric,
-} from './chrome';
+  INSTRUMENT as T,
+  FONT_MONO,
+  FONT_SANS,
+  actionRow,
+  deltaMono,
+  heroImage,
+  instrumentDocument,
+  mentionRow,
+  mono,
+  numberedList,
+  pairedColumnChart,
+  readoutRow,
+  sectionLabel,
+  sectionRow,
+  swatch,
+} from './instrument';
 
 export interface SentimentTotalsLite {
   negative: number;
@@ -74,8 +82,15 @@ export interface WeeklySummaryRenderData {
     engagementRate?: EmailMetric;
   };
 
-  /** PNG externo: volumen diario de esta semana superpuesto a la anterior. */
-  chartImageUrl: string;
+  /**
+   * Legado: PNG de QuickChart. Desde el cromo Instrumento (sep 2026) el ritmo
+   * diario se dibuja con tablas HTML desde `dailyCompare`; se ignora.
+   */
+  chartImageUrl?: string;
+  /** Volumen diario de esta semana junto al mismo día de la anterior. */
+  dailyCompare?: Array<{ label: string; cur: number; prev: number }>;
+  /** Foto de la nota más resonante de la semana (opcional). */
+  heroImage?: { url: string; alt?: string | null; caption?: string | null } | null;
 
   /**
    * Titular del cambio central de la semana (LLM). Opcional para que un bundle
@@ -117,6 +132,8 @@ export interface WeeklySummaryRenderData {
     /** "2 jul". */
     publishedAtLabel: string;
     tone: 'negative' | 'neutral' | 'positive';
+    /** Miniatura 72×72 opcional (foto del post o de la nota). */
+    imageUrl?: string | null;
   }>;
 
   /** Deeplink al Overview del dashboard — lo usan los 3 CTAs (se omiten si falta). */
@@ -124,13 +141,15 @@ export interface WeeklySummaryRenderData {
 }
 
 // ------------------------------------------------------------
-// Semana vs semana — bloque protagonista
+// Helpers
 // ------------------------------------------------------------
 
-const SENTIMENT_ROWS: Array<{ key: 'negative' | 'neutral' | 'positive'; label: string; color: string; pillBg: string }> = [
-  { key: 'negative', label: 'Negativo', color: COLORS.neg, pillBg: COLORS.negSoft },
-  { key: 'neutral', label: 'Neutral', color: COLORS.neu, pillBg: COLORS.neuSoft },
-  { key: 'positive', label: 'Positivo', color: COLORS.pos, pillBg: COLORS.posSoft },
+type Sentiment = 'negative' | 'neutral' | 'positive';
+
+const SENTIMENTS: Array<{ key: Sentiment; label: string; color: string }> = [
+  { key: 'negative', label: 'Negativo', color: T.neg },
+  { key: 'neutral', label: 'Neutral', color: T.neu },
+  { key: 'positive', label: 'Positivo', color: T.pos },
 ];
 
 function share(n: number, total: number): number {
@@ -138,362 +157,217 @@ function share(n: number, total: number): number {
   return Math.round((n / total) * 100);
 }
 
-function weekVsWeekBlock(data: WeeklySummaryRenderData): string {
-  const { totals, prevTotals } = data;
-
-  // Cabecera del bloque: total de la semana en grande + total previo al lado.
-  const totalDeltaHtml = deltaInline(data.totalDelta, 'vs semana anterior');
-
-  const sentimentRows = SENTIMENT_ROWS.map((s, i) => {
-    const cur = totals[s.key];
-    const prev = prevTotals[s.key];
-    const dd = data.sentimentDelta[s.key];
-    const border = i === SENTIMENT_ROWS.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-    const deltaHtml = dd.hasBaseline && dd.value != null
-      ? `<span style="color:${toneHex(dd.tone)};font-weight:700;white-space:nowrap;">${esc(dd.arrow)} ${esc(dd.value)}</span>`
-      : `<span style="color:${COLORS.inkMute};">—</span>`;
-    return `
-      <tr>
-        <td style="padding:12px 16px;${border}">
-          <span style="display:inline-block;background:${s.pillBg};color:${s.color};font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;">${s.label}</span>
-        </td>
-        <td align="right" class="force-text-dark" style="padding:12px 8px;${border}white-space:nowrap;">
-          <span style="font-size:16px;font-weight:700;color:${COLORS.ink};">${fmtInt(cur)}</span>
-          <span class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};"> · ${share(cur, totals.total)}%</span>
-        </td>
-        <td align="right" class="force-text-soft" style="padding:12px 8px;${border}font-size:13px;color:${COLORS.inkMute};white-space:nowrap;">
-          ${fmtInt(prev)}
-        </td>
-        <td align="right" style="padding:12px 16px;${border}font-size:12.5px;white-space:nowrap;">
-          ${deltaHtml}
-        </td>
-      </tr>`;
-  }).join('');
-
-  return `
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
-                <tr>
-                  <td colspan="4" style="padding:18px 16px 14px 16px;border-bottom:1px solid ${COLORS.borderSoft};">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td valign="bottom">
-                          <div class="force-text-soft" style="font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.1em;text-transform:uppercase;">Menciones esta semana</div>
-                          <div class="kpi-value force-text-dark" style="font-size:34px;line-height:1;font-weight:700;color:${COLORS.ink};margin-top:10px;letter-spacing:-0.025em;">${fmtInt(totals.total)}</div>
-                        </td>
-                        <td valign="bottom" align="right">
-                          <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};line-height:1.5;">Semana anterior: <strong style="color:${COLORS.inkSoft};">${fmtInt(prevTotals.total)}</strong></div>
-                          <div style="margin-top:4px;font-size:12.5px;">${totalDeltaHtml}</div>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:10px 16px 6px 16px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Sentimiento</td>
-                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Esta semana</td>
-                  <td align="right" style="padding:10px 8px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Anterior</td>
-                  <td align="right" style="padding:10px 16px 6px 8px;font-size:10px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;">Cambio</td>
-                </tr>
-                ${sentimentRows}
-              </table>`;
+/**
+ * Delta en mono o "—" sin base de comparación. `judged: false` lo pinta en
+ * gris: el volumen total, el neutral y el de un tópico cambian sin que eso
+ * sea bueno o malo, y el color se reserva para lo que sí se juzga.
+ */
+function deltaOrDash(dd: DeltaDisplay | null | undefined, judged = true): string {
+  return deltaMono(dd, judged ? undefined : T.text2) || `<span style="font-family:${FONT_MONO};color:${T.text3};">—</span>`;
 }
 
+const TH = `font-family:${FONT_MONO};font-size:12px;font-weight:400;color:${T.text3};padding:0 0 8px 0;border-bottom:1px solid ${T.rule};`;
+const TD_NUM = `font-family:${FONT_MONO};font-size:14px;padding:8px 0;border-bottom:1px solid ${T.line};white-space:nowrap;`;
+
 // ------------------------------------------------------------
-// Tópicos que subieron / bajaron
+// Secciones
 // ------------------------------------------------------------
 
-function topicsCompareBlock(data: WeeklySummaryRenderData): string {
-  if (!data.topicsCompare.length) {
-    return `<div class="force-text-soft" style="padding:16px;font-size:12.5px;color:${COLORS.inkMute};font-style:italic;background:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">Sin menciones clasificadas por tópico en la semana.</div>`;
-  }
+/** Lecturas: los 4 indicadores en una rejilla 2×2. */
+function renderReadouts(data: WeeklySummaryRenderData): string {
+  const m = data.metrics;
+  if (!m) return '';
+  const cell = (label: string, metric: EmailMetric | undefined) => metric
+    ? {
+        label,
+        valueHtml: esc(metric.display.value ?? '—'),
+        hintHtml: deltaMono(metric.delta) || (metric.hint ? esc(metric.hint) : ''),
+      }
+    : null;
+  const cells = [
+    cell('Riesgo de crisis', m.crisis),
+    cell('Sentimiento neto', m.nss),
+    cell('Salud de marca', m.bhi),
+    cell('Polarización', m.polarization),
+  ].filter((c): c is NonNullable<typeof c> => c != null);
+  const rows: string[] = [];
+  for (let i = 0; i < cells.length; i += 2) rows.push(readoutRow(cells.slice(i, i + 2)));
+  return rows.join('\n');
+}
 
-  const rows = data.topicsCompare.slice(0, 8).map((t, i, arr) => {
-    const border = i === arr.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-    const dd = t.delta;
-    const deltaHtml = dd.hasBaseline && dd.value != null
-      ? `<span style="color:${toneHex(dd.tone)};font-weight:700;white-space:nowrap;">${esc(dd.arrow)} ${esc(dd.value)}</span>`
-      : `<span style="color:${COLORS.inkMute};">—</span>`;
-    // Concentración negativa del tópico esta semana: rojo ≥50%, ámbar ≥25%.
-    const negHtml = t.negShare == null
-      ? `<span style="color:${COLORS.inkMute};">—</span>`
-      : `<span style="color:${t.negShare >= 50 ? COLORS.neg : t.negShare >= 25 ? COLORS.elevado : COLORS.inkMute};font-weight:${t.negShare >= 25 ? 700 : 400};">${t.negShare}%</span>`;
-    return `
-      <tr>
-        <td class="force-text-dark" style="padding:12px 16px;font-size:13.5px;color:${COLORS.ink};font-weight:600;${border}">${esc(t.topic)}</td>
-        <td align="right" class="force-text-dark" style="padding:12px 8px;font-size:13.5px;color:${COLORS.ink};font-weight:700;${border}white-space:nowrap;">${fmtInt(t.cur)}</td>
-        <td align="right" style="padding:12px 8px;font-size:12.5px;${border}white-space:nowrap;">${negHtml}</td>
-        <td align="right" class="force-text-soft" style="padding:12px 8px;font-size:13px;color:${COLORS.inkMute};${border}white-space:nowrap;">${fmtInt(t.prev)}</td>
-        <td align="right" style="padding:12px 16px;font-size:12.5px;${border}white-space:nowrap;">${deltaHtml}</td>
-      </tr>`;
-  }).join('');
+function renderGlance(data: WeeklySummaryRenderData, sec: string): string {
+  const headline = (data.weeklyHeadline ?? '').trim();
+  const h2 = headline
+    ? `<h2 class="force-text-dark" style="margin:0 0 14px 0;font-family:${FONT_SANS};font-size:20px;font-weight:600;line-height:1.3;color:${T.ink};">${esc(headline)}</h2>`
+    : '';
+  const img = heroImage(data.heroImage ? { ...data.heroImage, alt: data.heroImage.alt ?? headline } : null);
+  return sectionRow(`
+              ${sectionLabel(`${sec} · La semana en un vistazo`)}
+              ${h2}
+              ${img}
+              <p style="margin:0;font-size:15px;line-height:1.6;color:${T.ink2};">${data.weeklySummary}</p>`);
+}
 
-  return `
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
+function renderWeekVsWeek(data: WeeklySummaryRenderData, sec: string): string {
+  const { totals, prevTotals } = data;
+  const rows = [
+    `<tr>
+                  <td style="font-size:14px;font-weight:600;padding:8px 0;border-bottom:1px solid ${T.line};">Menciones</td>
+                  <td align="right" style="${TD_NUM}font-weight:600;">${fmtInt(totals.total)}</td>
+                  <td align="right" style="${TD_NUM}color:${T.text2};">${fmtInt(prevTotals.total)}</td>
+                  <td align="right" style="${TD_NUM}">${deltaOrDash(data.totalDelta, false)}</td>
+                </tr>`,
+    ...SENTIMENTS.map((s, i) => {
+      const last = i === SENTIMENTS.length - 1;
+      const b = last ? 'border-bottom:0;' : '';
+      return `<tr>
+                  <td style="font-size:14px;padding:8px 0;border-bottom:1px solid ${T.line};${b}">${swatch(s.color)}${esc(s.label)}</td>
+                  <td align="right" style="${TD_NUM}${b}">${fmtInt(totals[s.key])} <span style="color:${T.text3};font-size:12px;">· ${share(totals[s.key], totals.total)}%</span></td>
+                  <td align="right" style="${TD_NUM}${b}color:${T.text2};">${fmtInt(prevTotals[s.key])}</td>
+                  <td align="right" style="${TD_NUM}${b}">${deltaOrDash(data.sentimentDelta[s.key], s.key !== 'neutral')}</td>
+                </tr>`;
+    }),
+  ].join('');
+  return sectionRow(`
+              ${sectionLabel(`${sec} · Semana vs semana`)}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <th align="left" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Tópico</th>
-                  <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">Esta semana</th>
-                  <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">% neg.</th>
-                  <th align="right" style="padding:11px 8px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};white-space:nowrap;">Anterior</th>
-                  <th align="right" style="padding:11px 16px;font-size:10.5px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid ${COLORS.borderSoft};">Cambio</th>
+                  <th align="left" style="${TH}font-family:${FONT_SANS};">Sentimiento</th>
+                  <th align="right" style="${TH}">Esta</th>
+                  <th align="right" style="${TH}">Anterior</th>
+                  <th align="right" style="${TH}">Cambio</th>
                 </tr>
                 ${rows}
-              </table>`;
+              </table>`);
 }
 
-/** "Salieron de la conversación: X (71 la semana anterior) · Y (12)." */
-function goneTopicsLine(items: WeeklySummaryRenderData['goneTopics']): string {
-  const list = (items ?? []).filter((t) => t.topic && t.prev > 0).slice(0, 4);
-  if (!list.length) return '';
-  const parts = list.map((t) => `<strong style="color:${COLORS.inkSoft};font-weight:600;">${esc(t.topic)}</strong> (${fmtInt(t.prev)} la semana anterior)`);
-  return `<div class="force-text-soft" style="margin-top:10px;font-size:11.5px;color:${COLORS.inkMute};line-height:1.6;">Salieron de la conversación: ${parts.join(' &nbsp;·&nbsp; ')}.</div>`;
-}
-
-// ------------------------------------------------------------
-// Highlights — "qué cambió esta semana"
-// ------------------------------------------------------------
-
-function highlightsBlock(items: string[], sec: string): string {
-  const clean = items.filter((s) => s && s.trim().length > 0).slice(0, 4);
-  if (!clean.length) return '';
-  const lis = clean.map((s, i) => {
-    const borderTop = i === 0 ? '' : `border-top:1px solid ${COLORS.borderSoft};`;
-    return `<li class="force-text-dark" style="padding:12px 0 12px 28px;${borderTop}font-size:13.5px;line-height:1.6;color:${COLORS.ink};position:relative;">
-          <span style="position:absolute;left:0;top:12px;color:${COLORS.brand};font-weight:700;font-size:13px;">${i + 1}.</span>
-          ${s}
-        </li>`;
-  }).join('');
-  return `
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker(`${sec} · Qué cambió`)}
-              <h2 class="section-title force-text-dark" style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Los movimientos de la semana
-              </h2>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
+function renderRhythm(data: WeeklySummaryRenderData, sec: string): string {
+  const days = data.dailyCompare ?? [];
+  if (!days.length) return '';
+  const alt = 'Volumen diario, esta semana vs la anterior: ' +
+    days.map((d) => `${d.label}: ${d.cur} (antes ${d.prev})`).join('; ');
+  return sectionRow(`
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:6px;">
                 <tr>
-                  <td style="padding:6px 18px;">
-                    <ul style="margin:0;padding:0;list-style:none;">${lis}</ul>
-                  </td>
+                  <td align="left" valign="top">${sectionLabel(`${sec} · Ritmo diario`)}</td>
+                  <td align="right" valign="top" style="font-size:12px;color:${T.text2};white-space:nowrap;">${swatch(T.ink)}Esta semana &nbsp; ${swatch(T.ref)}Anterior</td>
                 </tr>
               </table>
-            </td>
-          </tr>`;
+              ${pairedColumnChart(days, { height: 120, barWidth: 18, alt })}`);
 }
 
-// ------------------------------------------------------------
-// Lo más resonante — menciones top por engagement
-// ------------------------------------------------------------
+function renderHighlights(items: string[], sec: string): string {
+  const list = numberedList(items);
+  if (!list) return '';
+  return sectionRow(`
+              ${sectionLabel(`${sec} · Qué cambió`)}
+              ${list}`);
+}
 
-const TONE_META: Record<'negative' | 'neutral' | 'positive', { label: string; color: string; pillBg: string }> = {
-  negative: { label: 'Negativo', color: COLORS.neg, pillBg: COLORS.negSoft },
-  neutral: { label: 'Neutral', color: COLORS.neu, pillBg: COLORS.neuSoft },
-  positive: { label: 'Positivo', color: COLORS.pos, pillBg: COLORS.posSoft },
-};
+function renderTopics(data: WeeklySummaryRenderData, sec: string): string {
+  const items = data.topicsCompare.slice(0, 8);
+  if (!items.length) {
+    return sectionRow(`${sectionLabel(`${sec} · Tópicos`)}
+              <div style="font-size:13px;color:${T.text2};">Sin menciones clasificadas por tópico en la semana.</div>`);
+  }
+  const rows = items.map((t, i) => {
+    const b = i === items.length - 1 ? 'border-bottom:0;' : '';
+    // Concentración negativa: el color es el dato (rojo ≥50%, ámbar ≥25%).
+    const neg = t.negShare == null
+      ? `<span style="color:${T.text3};">—</span>`
+      : `<span style="color:${t.negShare >= 50 ? T.neg : t.negShare >= 25 ? T.warn : T.text2};">${t.negShare}%</span>`;
+    return `<tr>
+                  <td style="font-size:14px;font-weight:600;line-height:1.35;padding:8px 8px 8px 0;border-bottom:1px solid ${T.line};${b}">${esc(t.topic)}</td>
+                  <td align="right" style="${TD_NUM}${b}">${fmtInt(t.cur)}</td>
+                  <td align="right" class="hide-mobile" style="${TD_NUM}${b}color:${T.text2};padding-left:10px;">${fmtInt(t.prev)}</td>
+                  <td align="right" style="${TD_NUM}${b}padding-left:10px;">${deltaOrDash(t.delta, false)}</td>
+                  <td align="right" style="${TD_NUM}${b}padding-left:10px;">${neg}</td>
+                </tr>`;
+  }).join('');
+  const gone = (data.goneTopics ?? []).filter((t) => t.topic && t.prev > 0).slice(0, 4);
+  const goneLine = gone.length
+    ? `<div style="margin-top:12px;font-size:13px;line-height:1.5;color:${T.text2};">Salieron de la conversación: ${gone.map((t) => `<strong style="font-weight:600;color:${T.ink};">${esc(t.topic)}</strong> ${mono(`(${fmtInt(t.prev)} la semana anterior)`)}`).join(' · ')}.</div>`
+    : '';
+  return sectionRow(`
+              ${sectionLabel(`${sec} · Tópicos`)}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <th align="left" style="${TH}font-family:${FONT_SANS};">Tópico</th>
+                  <th align="right" style="${TH}">Esta</th>
+                  <th align="right" class="hide-mobile" style="${TH}padding-left:10px;">Anterior</th>
+                  <th align="right" style="${TH}padding-left:10px;">Cambio</th>
+                  <th align="right" style="${TH}padding-left:10px;">% neg.</th>
+                </tr>
+                ${rows}
+              </table>
+              ${goneLine}`);
+}
 
-function topMentionsBlock(data: WeeklySummaryRenderData, sec: string): string {
+const TONE_WORD: Record<Sentiment, string> = { negative: 'negativo', neutral: 'neutral', positive: 'positivo' };
+
+function renderTopMentions(data: WeeklySummaryRenderData, sec: string): string {
   const items = (data.topMentions ?? []).slice(0, 5);
   if (!items.length) return '';
+  const rows = items.map((m, i) => mentionRow({
+    meta: `${m.sourceLabel} · ${m.publishedAtLabel} · ${TONE_WORD[m.tone]} · ${m.engagementLabel}`,
+    title: m.title,
+    text: m.snippet,
+    url: m.url,
+    imageUrl: m.imageUrl,
+    last: i === items.length - 1,
+  })).join('');
+  return sectionRow(`
+              ${sectionLabel(`${sec} · Lo más resonante`)}
+              ${rows}`);
+}
 
-  const rows = items.map((m, i) => {
-    const border = i === items.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-    const tone = TONE_META[m.tone];
-    return `
-      <tr>
-        <td style="padding:14px 16px;${border}">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-            <tr>
-              <td align="left" valign="middle">
-                <span class="force-text-soft" style="font-size:10.5px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;">${esc(m.sourceLabel)} <span style="color:${COLORS.borderSoft};">·</span> ${esc(m.publishedAtLabel)}</span>
-              </td>
-              <td align="right" valign="middle" style="white-space:nowrap;">
-                <span style="display:inline-block;background:${tone.pillBg};color:${tone.color};font-size:9.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:2px 7px;border-radius:4px;">${tone.label}</span>
-              </td>
-            </tr>
-          </table>
-          ${m.title
-            ? `<div class="force-text-dark" style="margin-top:6px;font-size:13.5px;font-weight:700;color:${COLORS.ink};line-height:1.4;">${esc(m.title)}</div>`
-            : ''}
-          <div class="force-text-dark" style="margin-top:${m.title ? '3px' : '6px'};font-size:13px;line-height:1.55;color:${COLORS.inkSoft};">
-            ${esc(m.snippet)}
-          </div>
-          <div style="margin-top:8px;">
-            <span class="force-text-dark" style="font-size:12px;font-weight:700;color:${COLORS.ink};">${esc(m.engagementLabel)}</span>
-            ${m.url ? `<span style="color:${COLORS.borderSoft};">&nbsp;·&nbsp;</span><a href="${esc(m.url)}" style="color:${COLORS.brand};text-decoration:none;font-size:11.5px;font-weight:600;">Ver mención →</a>` : ''}
-          </div>
-        </td>
-      </tr>`;
-  }).join('');
-
-  return `
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker(`${sec} · Lo más resonante`)}
-              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Las menciones con mayor engagement
-              </h2>
-              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Ordenadas por interacciones (likes, comentarios y compartidos) durante la semana.
-              </div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
-                ${rows}
-              </table>
-            </td>
-          </tr>`;
+/**
+ * Vista previa del inbox: el volumen contra la semana anterior y los dos
+ * movimientos que más pesan, para que el asunto pueda ser el titular.
+ */
+export function weeklyPreheader(data: WeeklySummaryRenderData): string {
+  const parts: string[] = [];
+  const td = data.totalDelta;
+  parts.push(`${fmtInt(data.totals.total)} menciones vs ${fmtInt(data.prevTotals.total)}${td.hasBaseline && td.value ? ` (${td.value})` : ''}`);
+  const neg = data.sentimentDelta.negative;
+  if (neg.hasBaseline && neg.value) parts.push(`negativo ${neg.value}`);
+  const crisis = data.metrics?.crisis;
+  if (crisis?.display.value) {
+    const d = crisis.delta?.hasBaseline && crisis.delta.value ? ` (${crisis.delta.value})` : '';
+    parts.push(`riesgo de crisis ${crisis.display.value}${d}`);
+  }
+  return parts.join(' · ');
 }
 
 // ------------------------------------------------------------
-// Main render
+// Render principal
 // ------------------------------------------------------------
 
 export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
-  // Numeración dinámica de secciones: las condicionales (ritmo, indicadores,
-  // qué cambió, lo más resonante) ya no dejan huecos tipo "02 → 05" cuando
-  // una no renderiza. Los números se asignan en orden de aparición.
-  let secCount = 0;
-  const nextSec = () => String(++secCount).padStart(2, '0');
+  let n = 0;
+  const next = () => String(++n).padStart(2, '0');
 
-  // CTA compartido (mismo botón azul de marca que el diario). Se repite 3×:
-  // tras el hero, tras los indicadores y al cierre — patrón del diario
-  // (minuta 21-jul-2026 + ajuste ago 2026 para paridad entre correos).
-  const cta = data.dashboardUrl ? ctaButton(data.dashboardUrl) : '';
+  const sections = [
+    renderReadouts(data),
+    renderGlance(data, next()),
+    renderWeekVsWeek(data, next()),
+  ];
+  const rhythm = (data.dailyCompare ?? []).length ? renderRhythm(data, next()) : '';
+  const highlights = data.highlights.some((s) => s && s.trim()) ? renderHighlights(data.highlights, next()) : '';
+  const topics = renderTopics(data, next());
+  const mentions = (data.topMentions ?? []).length ? renderTopMentions(data, next()) : '';
+  sections.push(rhythm, highlights, topics, mentions);
+  if (data.dashboardUrl) sections.push(actionRow(data.dashboardUrl, 'Abrir la semana en el dashboard'));
 
-  const summarySec = nextSec();
-  const weekVsWeekSec = nextSec();
-
-  const chartBlock = data.chartImageUrl
-    ? `
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker(`${nextSec()} · Ritmo diario`)}
-              <h2 class="section-title force-text-dark" style="margin:0 0 16px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Esta semana vs la anterior, día a día
-              </h2>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                <tr>
-                  <td bgcolor="${COLORS.surface}" style="padding:18px 18px 14px 18px;background:${COLORS.surface};background-color:${COLORS.surface};">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
-                      <tr>
-                        <td align="left" class="force-text-mute" style="font-size:12px;color:${COLORS.inkSoft};">
-                          <span style="display:inline-block;width:14px;height:3px;background:${COLORS.brand};border-radius:2px;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;margin-right:14px;">Esta semana</span>
-                          <span style="display:inline-block;width:14px;height:3px;background:${COLORS.inkMute};border-radius:2px;vertical-align:middle;margin-right:6px;"></span>
-                          <span style="vertical-align:middle;">Semana anterior</span>
-                        </td>
-                      </tr>
-                    </table>
-                    <div style="width:100%;overflow:hidden;">
-                      <img src="${esc(data.chartImageUrl)}" alt="Volumen diario de menciones: esta semana comparada con la anterior" width="540" style="display:block;width:100%;max-width:540px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`
-    : '';
-
-  // BLOQUE 2 — los números se asignan después del chart (orden del documento).
-  const indicatorsBlock = data.metrics
-    ? `
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker(`${nextSec()} · Indicadores de la semana · mismos valores que el dashboard`)}
-              ${renderMetricTiles([
-                { label: 'Riesgo de crisis', metric: data.metrics.crisis },
-                { label: 'Sentimiento neto', metric: data.metrics.nss },
-                { label: 'Salud de marca', metric: data.metrics.bhi },
-                ...(data.metrics.polarization ? [{ label: 'Polarización', metric: data.metrics.polarization }] : []),
-              ], { cols: 2, deltaSuffix: 'vs semana anterior' })}
-            </td>
-          </tr>`
-    : '';
-
-  const hasHighlights = data.highlights.some((s) => s && s.trim().length > 0);
-  const highlightsHtml = hasHighlights ? highlightsBlock(data.highlights, nextSec()) : '';
-
-  const hasMentions = (data.topMentions ?? []).length > 0;
-  const mentionsHtml = hasMentions ? topMentionsBlock(data, nextSec()) : '';
-
-  const topicsSec = nextSec();
-
-  const contentRows = `
-          <!-- HERO -->
-          <tr>
-            <td class="px-32" style="padding:26px 32px 22px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
-                ${esc(data.agencyKicker)}
-              </div>
-              <h1 class="title force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:26px;line-height:1.25;font-weight:700;letter-spacing:-0.015em;">
-                Resumen semanal de<br>conversación pública
-              </h1>
-              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
-                Semana del ${esc(data.weekLabel)} &nbsp;·&nbsp; comparada con ${esc(data.prevWeekLabel)} &nbsp;·&nbsp; actualizado ${esc(data.updatedAtLabel)}
-              </div>
-            </td>
-          </tr>
-
-          <!-- CTA #1 · atajo inmediato al dashboard, antes del Bloque 1 -->
-${cta}
-
-${blockHeader('1', 'Análisis numérico', 'Volumen y tendencias del periodo')}
-          <!-- BLOQUE 1 · LA SEMANA EN UN VISTAZO -->
-          <tr>
-            <td class="px-32" style="padding:0 32px 22px 32px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.accentSoft}" style="background:${COLORS.accentSoft};background-color:${COLORS.accentSoft};border:1px solid ${COLORS.accent};border-radius:8px;">
-                <tr>
-                  <td style="padding:18px 22px;">
-                    <div class="force-text-soft" style="font-size:10.5px;font-weight:700;color:${COLORS.ink};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">
-                      ${summarySec} · La semana en un vistazo
-                    </div>
-${data.weeklyHeadline && data.weeklyHeadline.trim()
-  ? `                    <p class="force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:19px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">${esc(data.weeklyHeadline.trim())}</p>`
-  : ''}
-                    <p class="force-text-dark" style="margin:0;color:${COLORS.ink};font-size:14px;line-height:1.65;">${data.weeklySummary}</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- BLOQUE 1 · SEMANA VS SEMANA -->
-          <tr>
-            <td class="px-32" style="padding:0 32px 8px 32px;">
-              ${sectionKicker(`${weekVsWeekSec} · Semana vs semana`)}
-              <h2 class="section-title force-text-dark" style="margin:0 0 14px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Cuánto se habló y cómo
-              </h2>
-              ${weekVsWeekBlock(data)}
-            </td>
-          </tr>
-${chartBlock}
-
-${blockHeader('2', 'Insights y detalles', 'Análisis de las conversaciones del periodo')}
-${indicatorsBlock}
-          <!-- CTA #2 · tras los indicadores del Bloque 2 -->
-${cta}
-${highlightsHtml}
-${mentionsHtml}
-          <!-- BLOQUE 2 · TÓPICOS QUE SUBIERON / BAJARON -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 8px 32px;">
-              ${sectionKicker(`${topicsSec} · Tópicos`)}
-              <h2 class="section-title force-text-dark" style="margin:0 0 6px 0;font-size:18px;line-height:1.35;color:${COLORS.ink};font-weight:700;letter-spacing:-0.01em;">
-                Qué subió y qué bajó
-              </h2>
-              <div class="force-text-soft" style="margin:0 0 14px 0;font-size:11.5px;color:${COLORS.inkMute};line-height:1.5;">
-                Menciones por tópico principal, comparadas con la semana anterior.
-              </div>
-              ${topicsCompareBlock(data)}
-              ${goneTopicsLine(data.goneTopics)}
-            </td>
-          </tr>
-
-          <!-- CTA #3 · cierre del correo -->
-${cta}`;
-
-  return emailDocument({
+  return instrumentDocument({
     title: `Resumen semanal ECO · ${data.agencyShortName} · ${data.weekLabel}`,
-    preheader: `Reporte semanal · ${data.agencyKicker} — ${fmtInt(data.totals.total)} menciones (${data.weekLabel}) vs ${fmtInt(data.prevTotals.total)} la semana anterior`,
+    preheader: weeklyPreheader(data),
     kind: 'weekly',
-    contentRows,
+    heading: {
+      kicker: data.agencyKicker,
+      title: `Semana del ${data.weekLabel}`,
+      meta: `comparada con ${data.prevWeekLabel} · actualizado ${data.updatedAtLabel}`,
+    },
+    contentRows: sections.filter(Boolean).join('\n'),
   });
 }
