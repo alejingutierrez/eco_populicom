@@ -50,8 +50,9 @@ export type FetchFailReason =
   | 'not-html'     // content-type no HTML (PDF, imagen, JSON…)
   | 'network'      // DNS, TLS, connection reset
   | 'timeout'      // abortado por AbortController
-  | 'no-content'     // HTML descargado pero sin cuerpo reconocible (SPA shell)
-  | 'too-short';     // extrajimos algo pero por debajo de MIN_BODY_CHARS
+  | 'no-content'       // HTML descargado pero sin cuerpo reconocible (SPA shell)
+  | 'content-mismatch' // el cuerpo extraído NO es el artículo que esperábamos
+  | 'too-short';       // extrajimos algo pero por debajo de MIN_BODY_CHARS
 
 /**
  * Rutas a las que redirigen los muros anti-bot cuando quieren que un humano
@@ -119,7 +120,25 @@ export interface ArticleTextResult {
  * viene lleno de acentos y comillas tipográficas escapadas, mientras que allí
  * solo se decodifican URLs.
  */
+/**
+ * Decodifica entidades HTML. DOS PASADAS a propósito.
+ *
+ * La auditoría de calidad (sep-2026) encontró 148 filas con entidades crudas
+ * en el texto guardado -`&oacute;`, `&quot;`, `&iquest;`- pese a estar todas
+ * en la tabla. La causa es la DOBLE CODIFICACIÓN: el CMS sirve `&amp;oacute;`,
+ * la primera pasada convierte `&amp;` en `&` (y tiene que ir al final, para no
+ * reactivar entidades numéricas), y el `&oacute;` resultante ya no vuelve a
+ * mirarse. La segunda pasada lo recoge. Sobre HTML normal es un no-op.
+ *
+ * Una entidad desconocida se deja TAL CUAL en vez de convertirse en espacio:
+ * borrarla perdía información y la tabla nunca va a estar completa.
+ */
 export function decodeEntities(input: string): string {
+  const once = decodeOnce(input);
+  return /&(?:[a-zA-Z]{2,8}|#\d+|#x[0-9a-fA-F]+);/.test(once) ? decodeOnce(once) : once;
+}
+
+function decodeOnce(input: string): string {
   return input
     .replace(/&nbsp;/gi, ' ')
     .replace(/&#(\d+);/g, (_, d) => safeCodePoint(Number(d)))
@@ -128,8 +147,7 @@ export function decodeEntities(input: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&apos;/gi, "'")
-    .replace(/&(laquo|raquo|hellip|mdash|ndash|middot|bull|copy|reg|trade|deg|euro|pound|yen|sect|para|dagger|permil|prime|lsquo|rsquo|ldquo|rdquo|sbquo|bdquo|times|divide|plusmn|frac12|frac14|frac34|aacute|eacute|iacute|oacute|uacute|ntilde|uuml|Aacute|Eacute|Iacute|Oacute|Uacute|Ntilde|Uuml|ccedil|agrave|egrave|shy|ensp|emsp|thinsp|zwj|zwnj|lrm|rlm);/g,
-      (_, n: string) => NAMED_ENTITIES[n] ?? ' ')
+    .replace(/&([a-zA-Z]{2,8});/g, (m, n: string) => NAMED_ENTITIES[n] ?? m)
     // &amp; va AL FINAL: si se decodifica primero, un `&amp;#39;` se convierte
     // en `&#39;` y la pasada numérica (ya ejecutada) no lo vuelve a ver.
     .replace(/&amp;/gi, '&');
@@ -152,6 +170,14 @@ const NAMED_ENTITIES: Record<string, string> = {
   uuml: 'ü', Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú',
   Ntilde: 'Ñ', Uuml: 'Ü', ccedil: 'ç', agrave: 'à', egrave: 'è',
   shy: '', ensp: ' ', emsp: ' ', thinsp: ' ', zwj: '', zwnj: '', lrm: '', rlm: '',
+  // Añadidas tras la auditoría de calidad (sep-2026): `&iquest;` es
+  // imprescindible en español y salía cruda en 159 filas.
+  iquest: '¿', iexcl: '¡', auml: 'ä', Auml: 'Ä', ouml: 'ö', Ouml: 'Ö',
+  atilde: 'ã', Atilde: 'Ã', otilde: 'õ', Otilde: 'Õ', ccedil_: 'ç',
+  Ccedil: 'Ç', acirc: 'â', ecirc: 'ê', icirc: 'î', ocirc: 'ô', ucirc: 'û',
+  igrave: 'ì', ograve: 'ò', ugrave: 'ù', aring: 'å', oslash: 'ø',
+  szlig: 'ß', micro: 'µ', middot_: '·', nbsp: ' ', amp: '&', lt: '<', gt: '>',
+  quot: '"', apos: "'",
 };
 
 function safeCodePoint(cp: number): string {
@@ -198,6 +224,24 @@ const BOILERPLATE = [
   /^(publicidad|advertisement|anuncio)\s*$/i,
   /^(foto|fotos|imagen|video|v[íi]deo)\s*:/i,
   /\b(suscr[íi]bete a nuestro|recibe (el|las|los) (bolet[íi]n|noticias)|newsletter)\b/i,
+  // Pie de El Nuevo Día: apareció en 754 filas de la auditoría de calidad,
+  // siempre por la vía `paragraphs`. Es el mismo texto que ya había hecho que
+  // `paragraphs` le ganara a `jsonld` por 195 caracteres de basura.
+  /\bdescargar cualquiera de estos navegadores\b/i,
+  /\bpara (ver|leer) nuestras noticias\b/i,
+  /\blas noticias explicadas de forma sencilla\b/i,
+];
+
+/**
+ * Entradas de un listado de artículos, no prosa. `periodicoeloriental.com`
+ * devolvía el MISMO texto de 1,530 caracteres para artículos distintos: era su
+ * widget de "entradas recientes", con la forma
+ * `TITULAR Posted by Redacción | Sep 2, 2026 | Al Frente | 0 |` repetida.
+ */
+const LISTADO = [
+  /\bposted by\b.{0,40}\|.{0,30}\|/i,
+  /\|\s*\d+\s*\|/,
+  /(\b(lee|leer) m[áa]s\b.*){3,}/i,
 ];
 
 function isBoilerplate(p: string): boolean {
@@ -217,6 +261,7 @@ function isBoilerplate(p: string): boolean {
  *   (listados de enlaces, breadcrumbs, tag clouds).
  */
 function isJunkProse(p: string): boolean {
+  if (LISTADO.some((re) => re.test(p))) return true;
   if (/\S{61,}/.test(p)) return true;
   const urlChars = (p.match(/https?:\/\/\S+/g) ?? []).join('').length;
   if (urlChars > p.length * 0.3) return true;
@@ -450,6 +495,100 @@ export function createDomainLimiter(minGapMs = 1200) {
   };
 }
 
+/** Palabras de contenido, sin acentos ni puntuación, para comparar textos. */
+function contentTokens(s: string): string[] {
+  const plano = (s ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return plano.replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length > 3);
+}
+
+/**
+ * Umbral de solape por debajo del cual se considera que el cuerpo extraído NO
+ * es el artículo esperado. Medido sobre 350 filas reales: el 9% caía por
+ * debajo de 0.4 y TODAS eran artículos distintos; entre 0.4 y 0.7 ya eran
+ * correctas (snippets con mucho cromo de la red social que los citó).
+ */
+const MATCH_THRESHOLD = 0.35;
+
+/**
+ * Por debajo de este tamaño de CUERPO no se juzga la correspondencia.
+ *
+ * El Nuevo Día sirve stubs de paywall de 250-570 caracteres: solo el lead. Un
+ * stub correcto y un artículo equivocado son indistinguibles para el solape de
+ * tokens -en ambos casos falta casi todo el titular-, así que juzgarlos era
+ * inventar un veredicto. Marcarlos `judged:false` y aceptarlos es lo honesto:
+ * la señal no existe. Los que además no llegan a MIN_BODY_CHARS ya salen como
+ * `too-short` por otra vía.
+ */
+const MIN_BODY_TO_JUDGE = 800;
+
+/**
+ * Con menos tokens que esto no se juzga: el veredicto sería ruido. Cinco es el
+ * piso para que un titular corto siga siendo juzgable (los reales rondan 8-12
+ * palabras de contenido); por debajo, `judged:false` y se acepta.
+ */
+const MIN_TOKENS_TO_JUDGE = 5;
+
+/**
+ * ¿El cuerpo extraído es el artículo del que salió este snippet?
+ *
+ * POR QUÉ HACE FALTA: la auditoría de calidad (sep-2026) encontró que el 9% de
+ * los cuerpos guardados eran OTRO artículo. No es un fallo de extracción: son
+ * sitios que sirven contenido distinto en esa URL sin devolver 404 -link rot
+ * silencioso-. `laconexionusa.com` daba un snippet sobre Honduras y un cuerpo
+ * sobre Lemmy Kilmister. Extraído impecablemente, y completamente inútil: eso
+ * entra al prompt del NLP como si fuera la mención.
+ *
+ * Se mide qué fracción de las palabras del snippet aparece en el cuerpo. El
+ * snippet de Brandwatch es una ventana del MEDIO del artículo (empieza con
+ * "..."), así que comparar por substring no sirve — hay que comparar por
+ * tokens. El titular es el respaldo cuando no hay snippet.
+ */
+export function bodyMatchesMention(
+  body: string,
+  ref: { snippet?: string | null; title?: string | null },
+): { matches: boolean; overlap: number; judged: boolean } {
+  if ((body ?? '').length < MIN_BODY_TO_JUDGE) {
+    return { matches: true, overlap: 1, judged: false };
+  }
+  const cuerpo = new Set(contentTokens(body));
+  const medir = (fuente: string | null | undefined): number | null => {
+    const tokens = contentTokens(limpiarReferencia(fuente ?? ''));
+    if (tokens.length < MIN_TOKENS_TO_JUDGE) return null;
+    return tokens.reduce((n, w) => n + (cuerpo.has(w) ? 1 : 0), 0) / tokens.length;
+  };
+
+  // El MEJOR de los dos, no el primero disponible.
+  //
+  // Juzgar solo por el snippet producía falsos positivos en masa: El Nuevo Día
+  // arrastra en el suyo la insignia de estándares editoriales ("NoticiaBasado
+  // en hechos que el periodista haya observado y verificado de primera
+  // mano…"), que ocupa más de la mitad del texto y no aparece en el artículo.
+  // Eso hundía el solape de artículos correctamente extraídos: 810 filas de
+  // nuestro dominio con MEJOR extracción (97%) habrían sido borradas.
+  // El titular no tiene ese problema, y un artículo equivocado falla en LOS
+  // DOS -el caso de laconexionusa.com da 0% contra ambos-.
+  const valores = [medir(ref.snippet), medir(ref.title)].filter((v): v is number => v !== null);
+  if (!valores.length) return { matches: true, overlap: 1, judged: false };
+  const overlap = Math.max(...valores);
+  return { matches: overlap >= MATCH_THRESHOLD, overlap, judged: true };
+}
+
+/**
+ * Quita del snippet el cromo que algunos medios le meten y que nunca está en
+ * el cuerpo, para no castigar al artículo por algo que no es suyo.
+ */
+function limpiarReferencia(s: string): string {
+  return s
+    .replace(/Noticia\s*Basado en hechos[^.]*\./gi, ' ')
+    .replace(/\bBasado en hechos que el periodista[^.]*\./gi, ' ')
+    .replace(/\b(informaci[oó]n verificada que proviene de fuentes bien informadas)\b/gi, ' ')
+    .replace(/^\s*\.{2,}\s*/, ' ')
+    .replace(/\bDetalles aqu[ií]\s*:/gi, ' ');
+}
+
 function countWords(s: string): number {
   const t = s.trim();
   return t ? t.split(/\s+/).length : 0;
@@ -462,7 +601,11 @@ function countWords(s: string): number {
  */
 export async function fetchArticleText(
   url: string,
-  opts: { timeoutMs?: number; maxBytes?: number; minChars?: number } = {},
+  opts: {
+    timeoutMs?: number; maxBytes?: number; minChars?: number;
+    /** Referencia para verificar que el cuerpo sea el artículo esperado. */
+    expect?: { snippet?: string | null; title?: string | null };
+  } = {},
 ): Promise<ArticleTextResult> {
   const { timeoutMs = 12_000 } = opts;
   const t0 = Date.now();
@@ -493,7 +636,10 @@ export async function fetchArticleText(
 
 async function fetchArticleTextInner(
   url: string,
-  opts: { timeoutMs?: number; maxBytes?: number; minChars?: number },
+  opts: {
+    timeoutMs?: number; maxBytes?: number; minChars?: number;
+    expect?: { snippet?: string | null; title?: string | null };
+  },
   t0: number,
 ): Promise<ArticleTextResult> {
   const { timeoutMs = 12_000, maxBytes = MAX_BYTES, minChars = MIN_BODY_CHARS } = opts;
@@ -558,6 +704,17 @@ async function fetchArticleTextInner(
     if (!text) return { ...fail('no-content', status, bytes), title, publishedAt };
     if (text.length < minChars) {
       return { ...fail('too-short', status, bytes), title, publishedAt, text, method, chars: text.length, words: countWords(text) };
+    }
+    // El texto puede estar perfectamente extraído y ser de OTRO artículo.
+    if (opts.expect) {
+      const m = bodyMatchesMention(text, opts.expect);
+      if (!m.matches) {
+        return {
+          ...fail('content-mismatch', status, bytes),
+          title, publishedAt, method, chars: text.length, words: countWords(text),
+          // El texto NO se devuelve: el caller no debe guardarlo por error.
+        };
+      }
     }
     return {
       ok: true, reason: null, status, text, method,

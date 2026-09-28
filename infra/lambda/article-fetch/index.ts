@@ -22,7 +22,7 @@
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { Pool } from 'pg';
-import { fetchArticleText, createDomainLimiter, type ArticleTextResult } from '@eco/shared';
+import { fetchArticleText, createDomainLimiter, bodyMatchesMention, type ArticleTextResult } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
@@ -75,7 +75,7 @@ const SKIP_URL_PATTERNS = [
 ];
 
 interface FetchEvent {
-  mode?: 'pending' | 'retry' | 'stats';
+  mode?: 'pending' | 'retry' | 'stats' | 'revalidate';
   limit?: number;
   concurrency?: number;
   gapMs?: number;
@@ -91,6 +91,9 @@ interface PendingRow {
   url: string;
   domain: string | null;
   snippet_len: number;
+  /** Referencia para verificar que el cuerpo sea el artículo esperado. */
+  snippet: string | null;
+  title: string | null;
 }
 
 /**
@@ -158,8 +161,8 @@ async function selectRows(client: Pool, ev: FetchEvent): Promise<PendingRow[]> {
   // ordenando por ese número primero, los 20 primeros elementos son 20
   // dominios distintos y los slots de concurrencia se usan de verdad.
   const res = await client.query(
-    `SELECT id, url, domain, snippet_len FROM (
-       SELECT id::text AS id, url, domain,
+    `SELECT id, url, domain, snippet_len, snippet, title FROM (
+       SELECT id::text AS id, url, domain, snippet, title,
               coalesce(length(snippet), 0) AS snippet_len,
               row_number() OVER (PARTITION BY domain ORDER BY published_at DESC) AS rn
          FROM mentions
@@ -203,6 +206,75 @@ async function mapLimit<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): 
     }
   }));
   return out;
+}
+
+/**
+ * Revisa el texto YA GUARDADO contra el snippet de su mención y borra el que
+ * no corresponda al artículo.
+ *
+ * POR QUÉ: la validación se añadió después del backfill, así que ~13% de las
+ * filas existentes traen el cuerpo de OTRO artículo -sitios que sirven
+ * contenido distinto en la misma URL sin devolver 404-. Ese texto ya está
+ * entrando al prompt del NLP. No hace red: solo lee y compara, así que puede
+ * barrer decenas de miles de filas por invocación.
+ *
+ * Deja `full_text_status = 'content-mismatch'` y `full_text_attempts` en el
+ * tope, para que ni el barrido ni el pase de reintentos lo vuelvan a bajar:
+ * el problema no es de red y reintentar daría el mismo texto equivocado.
+ */
+async function revalidate(client: Pool, ev: FetchEvent) {
+  const limit = Math.max(1, Math.min(50_000, Number(ev.limit ?? 5000)));
+  const sel = await client.query(
+    `SELECT id::text AS id, domain, full_text, full_text_method, snippet, title
+       FROM mentions
+      WHERE full_text IS NOT NULL
+        AND full_text_status = 'ok'
+      ORDER BY published_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+
+  const porMetodo: Record<string, { n: number; malos: number }> = {};
+  const porDominio: Record<string, number> = {};
+  const ids: string[] = [];
+
+  for (const row of sel.rows as Array<{ id: string; domain: string | null; full_text: string; full_text_method: string | null; snippet: string | null; title: string | null }>) {
+    const m = bodyMatchesMention(row.full_text, { snippet: row.snippet, title: row.title });
+    if (!m.judged) continue;
+    const met = row.full_text_method ?? '?';
+    porMetodo[met] ??= { n: 0, malos: 0 };
+    porMetodo[met].n += 1;
+    if (m.matches) continue;
+    porMetodo[met].malos += 1;
+    porDominio[row.domain ?? '?'] = (porDominio[row.domain ?? '?'] ?? 0) + 1;
+    ids.push(row.id);
+  }
+
+  if (!ev.dryRun && ids.length) {
+    // En lotes: un IN con decenas de miles de uuids revienta el parser.
+    for (let i = 0; i < ids.length; i += 1000) {
+      await client.query(
+        `UPDATE mentions
+            SET full_text = NULL, full_text_chars = NULL, full_text_words = NULL,
+                full_text_status = 'content-mismatch',
+                full_text_attempts = 9
+          WHERE id = ANY($1::uuid[])`,
+        [ids.slice(i, i + 1000)],
+      );
+    }
+  }
+
+  const resultado = {
+    mode: 'revalidate',
+    dryRun: !!ev.dryRun,
+    revisadas: sel.rows.length,
+    descartadas: ids.length,
+    pctDescartado: sel.rows.length ? `${Math.round((100 * ids.length) / sel.rows.length)}%` : '—',
+    porMetodo,
+    peoresDominios: Object.entries(porDominio).sort((a, b) => b[1] - a[1]).slice(0, 12),
+  };
+  console.log(JSON.stringify(resultado));
+  return resultado;
 }
 
 async function reportStats(client: Pool) {
@@ -276,6 +348,7 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
   try {
     await ensureFullTextSchema(client);
     if (event.mode === 'stats') return await reportStats(client);
+    if (event.mode === 'revalidate') return await revalidate(client, event);
 
     const rows = await selectRows(client, event);
     // La concurrencia es ENTRE dominios; el limitador serializa cada host. Con
@@ -322,6 +395,8 @@ export const handler = async (event: FetchEvent = {}, context?: LambdaContext) =
 
       const res = await limiter(row.url, () => fetchArticleText(row.url, {
         timeoutMs: Number(event.timeoutMs ?? SWEEP_FETCH_TIMEOUT_MS),
+        // Sin esto se guarda cualquier artículo que el sitio sirva en esa URL.
+        expect: { snippet: row.snippet, title: row.title },
       }));
       // Latido cada 200 filas: sin esto, una invocación que muere por timeout
       // no deja rastro de cuán lejos llegó ni a qué ritmo iba, y desde fuera
