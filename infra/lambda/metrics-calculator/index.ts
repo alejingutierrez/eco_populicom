@@ -21,9 +21,13 @@ import {
   buildCrisisEditorialPrompt,
   buildSubject,
   calculateMetrics,
+  fetchOgImage,
   formatMetric,
+  isArticlePageType,
+  isGenericImageUrl,
   renderCrisisAlertHtml,
   renderSimpleAlertHtml,
+  validateImageUrl,
   type CrisisAlertRenderData,
   type CrisisEditorialInputs,
   type CrisisEditorialOutput,
@@ -831,6 +835,7 @@ async function fireCrisisAlert(
               m.title, m.snippet, m.url,
               COALESCE(m.content_source_name, m.domain) AS source,
               m.page_type,
+              m.resolved_image_url,
               m.nlp_pertinence AS pertinence,
               COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
               pt.topic_name AS topic,
@@ -871,6 +876,7 @@ async function fireCrisisAlert(
     url: string | null;
     source: string | null;
     page_type: string | null;
+    resolved_image_url: string | null;
     pertinence: string | null;
     sentiment: string | null;
     topic: string | null;
@@ -931,22 +937,51 @@ async function fireCrisisAlert(
 
   const editorial = await generateCrisisEditorial(editorialInputs);
 
-  // 7. Trend chart (últimos 14 días de crisis_risk_score) + OG images en paralelo.
-  // El fetch de og:image es best-effort: cada URL tiene 3s de timeout y si no
-  // hay og:image utilizable el bloque visual simplemente se omite.
+  // 7. Trend chart (últimos 14 días de crisis_risk_score) + imágenes en paralelo.
+  //
+  // Dos reglas, aprendidas a golpes (ago–sep 2026: el logo de Instagram fue
+  // la foto principal de 10 de 20 correos de crisis):
+  //
+  //   - El og:image SOLO se pide a noticias/blogs/foros. Instagram, Facebook
+  //     y X le sirven a un visitante sin sesión su imagen de marca, que es un
+  //     PNG real y pasaba la validación. Para redes usamos la imagen del post
+  //     que el processor ya resolvió desde Brandwatch (`resolved_image_url`).
+  //   - La foto principal es la foto de una NOTICIA: se elige entre las 20
+  //     candidatas (no solo las 6 visibles), en orden de relevancia, y solo
+  //     entre las de tipo artículo. Si ninguna tiene foto, el bloque se omite.
+  //
+  // Todo es best-effort: cada URL tiene 3s de timeout y un null se omite.
   const top6 = sampleRows.slice(0, 6);
-  const [trendImageUrl, ogImages] = await Promise.all([
+  const imageCache = new Map<string, Promise<string | null>>();
+  const imageForRow = (r: SampleRow): Promise<string | null> => {
+    const cached = imageCache.get(r.id);
+    if (cached) return cached;
+    const p = (async () => {
+      const stored = r.resolved_image_url;
+      const storedOk = !!stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored);
+      if (isArticlePageType(r.page_type)) {
+        if (storedOk && await validateImageUrl(stored!)) return stored!;
+        return r.url ? fetchOgImage(r.url) : null;
+      }
+      // Redes: nunca og:image de la plataforma; solo la media del propio post.
+      if (storedOk && await validateImageUrl(stored!)) return stored!;
+      return null;
+    })().catch(() => null);
+    imageCache.set(r.id, p);
+    return p;
+  };
+  const heroCandidates = sampleRows.filter((r) => isArticlePageType(r.page_type)).slice(0, 8);
+  const [trendImageUrl, ogImages, heroImages] = await Promise.all([
     buildScoreTrendUrl(client, agency.id, today),
-    Promise.all(top6.map((r: SampleRow) => r.url ? fetchOgImage(r.url) : Promise.resolve(null))),
+    Promise.all(top6.map(imageForRow)),
+    Promise.all(heroCandidates.map(imageForRow)),
   ]);
-  // Pick por SCORE máximo entre las og-válidas (no por orden de aparición):
-  // si la #1 en relevancia general no expone og, pero la #3 sí y la #5 también,
-  // gana la de mayor relevance_score entre #3 y #5 — no la que vino primera.
-  // El array ya viene ordenado DESC por score, así que el primer índice
-  // ogImages[i] != null es también el de mayor score entre los og-válidos.
-  const heroImageIdx = ogImages.findIndex((img) => img != null);
-  const heroImageUrl = heroImageIdx >= 0 ? ogImages[heroImageIdx]! : null;
-  const heroMention = heroImageIdx >= 0 ? top6[heroImageIdx] : null;
+  // heroCandidates viene ordenado DESC por relevance_score, así que el primer
+  // índice con imagen es la noticia más relevante que tiene foto utilizable.
+  const heroCandidateIdx = heroImages.findIndex((img) => img != null);
+  const heroImageUrl = heroCandidateIdx >= 0 ? heroImages[heroCandidateIdx]! : null;
+  const heroMention = heroCandidateIdx >= 0 ? heroCandidates[heroCandidateIdx]! : null;
+  const heroImageIdx = heroMention ? top6.findIndex((r) => r.id === heroMention.id) : -1;
   const heroImageCaption = heroMention
     ? `Foto: ${heroMention.source ?? heroMention.page_type ?? 'fuente'} · ${formatShortTimestamp(heroMention.published_at, REPORT_TIMEZONE)}`
     : null;
@@ -969,7 +1004,7 @@ async function fireCrisisAlert(
     if (heroMention) {
       console.log(`[crisis] ${agency.slug} hero selected: id=${heroMention.id} url=${heroMention.url} img=${heroImageUrl}`);
     } else {
-      console.log(`[crisis] ${agency.slug} no hero — ninguna candidata tuvo og:image válido`);
+      console.log(`[crisis] ${agency.slug} no hero — ninguna noticia/blog candidata (${heroCandidates.length}) tuvo foto utilizable`);
     }
   }
 
@@ -1212,166 +1247,6 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
     ],
     closing: 'Editorial no disponible; revisar el dashboard para contexto completo.',
   };
-}
-
-// ============================================================
-// Open Graph image fetcher
-// ============================================================
-
-/**
- * Hace best-effort scrape del `og:image` (con fallback a `twitter:image`)
- * de una URL. Timeout corto (3s) y catch-all para que un solo URL lento o
- * bloqueado no tumbe el correo. Devuelve null cuando no hay imagen utilizable.
- *
- * Limitaciones conocidas (todas se traducen en null y se omiten):
- * - URLs detrás de auth (Facebook, X protegido) — el HTML no expone og:image.
- * - URLs que bloquean User-Agent genérico (algunos CDNs antibot).
- * - URLs que devuelven SPA shell sin meta tags pre-renderizados.
- */
-async function fetchOgImage(url: string, timeoutMs = 3000): Promise<string | null> {
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        // UA "realista" para que CDNs / sitios de noticias no nos sirvan página de bot.
-        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-    });
-    clearTimeout(timer);
-    if (!resp.ok) return null;
-    const ct = resp.headers.get('content-type') ?? '';
-    if (!ct.toLowerCase().includes('html')) return null;
-
-    // Lee solo los primeros 64KB del HTML — los <meta> de OG siempre van en <head>.
-    // Esto evita descargar megas innecesarios en sitios pesados.
-    const reader = resp.body?.getReader();
-    if (!reader) return null;
-    const decoder = new TextDecoder('utf-8');
-    let html = '';
-    const MAX_BYTES = 64 * 1024;
-    let read = 0;
-    while (read < MAX_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      html += decoder.decode(value, { stream: true });
-      read += value.length;
-      if (html.includes('</head>')) break;
-    }
-    try { await reader.cancel(); } catch { /* ignore */ }
-
-    // Match flexible: content antes O después de property/name.
-    const patterns: RegExp[] = [
-      /<meta\s+[^>]*property=["'](?:og:image(?::secure_url|:url)?|twitter:image(?::src)?)["'][^>]*content=["']([^"']+)["']/i,
-      /<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["'](?:og:image(?::secure_url|:url)?|twitter:image(?::src)?)["']/i,
-      /<meta\s+[^>]*name=["'](?:twitter:image(?::src)?)["'][^>]*content=["']([^"']+)["']/i,
-    ];
-    let img: string | null = null;
-    for (const re of patterns) {
-      const m = html.match(re);
-      if (m && m[1]) { img = m[1].trim(); break; }
-    }
-    if (!img) return null;
-
-    // Normaliza URLs relativas / protocol-relative.
-    if (img.startsWith('//')) img = 'https:' + img;
-    if (img.startsWith('/')) {
-      const u = new URL(url);
-      img = `${u.origin}${img}`;
-    }
-    if (!/^https?:\/\//i.test(img)) return null;
-
-    // Sanity: solo extensiones / paths que parecen imágenes. Algunos sitios
-    // ponen rutas tipo /favicon o /logo.svg como og:image y eso queda feo
-    // en el hero. No es una validación perfecta — es heurística.
-    if (img.endsWith('.svg')) return null;
-
-    // Gmail rechaza URLs largas en su proxy de imágenes (ci3.googleusercontent.com).
-    // El límite empírico está alrededor de 2KB; cortamos antes para no quemar
-    // una imagen que el cliente igualmente no va a renderizar.
-    if (img.length > 1500) return null;
-
-    // Validación final: HEAD a la URL de la imagen para confirmar que es
-    // realmente una imagen (no HTML, no redirect a login, no 404). Sin esto,
-    // og:image apuntando a páginas autenticadas (FB / X privado / Insta) o a
-    // redirects que terminan en CDN bloqueado dejaba el correo con cajas
-    // grises en Gmail.
-    const ok = await validateImageUrl(img, timeoutMs);
-    return ok ? img : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Comprueba que `url` apunte a una imagen real, mediante un HEAD request.
- * Aceptamos solo `image/(jpeg|png|webp|gif)` con tamaño razonable (≥ 1KB y
- * ≤ 8MB). Si el servidor no soporta HEAD (algunos CDNs devuelven 405),
- * caemos a un GET parcial leyendo solo la primera respuesta.
- */
-async function validateImageUrl(url: string, timeoutMs: number): Promise<boolean> {
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-  const MIN_BYTES = 1024;
-  const MAX_BYTES = 8 * 1024 * 1024;
-
-  const checkHeaders = (resp: Response): boolean => {
-    if (!resp.ok) return false;
-    const ct = (resp.headers.get('content-type') ?? '').toLowerCase().split(';')[0].trim();
-    if (!allowedTypes.includes(ct)) return false;
-    const len = Number(resp.headers.get('content-length') ?? '0');
-    if (len && (len < MIN_BYTES || len > MAX_BYTES)) return false;
-    return true;
-  };
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const resp = await fetch(url, {
-      method: 'HEAD',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
-        'Accept': 'image/*',
-      },
-    });
-    clearTimeout(timer);
-    if (resp.status === 405 || resp.status === 501) {
-      // Server no soporta HEAD — fallback a GET con Range request.
-      return await validateViaRangeGet(url, timeoutMs);
-    }
-    return checkHeaders(resp);
-  } catch {
-    return false;
-  }
-}
-
-async function validateViaRangeGet(url: string, timeoutMs: number): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const resp = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ECO-Radar/1.0; +https://populicom.com)',
-        'Accept': 'image/*',
-        // Pedimos solo los primeros 2KB — suficiente para confirmar magic bytes.
-        'Range': 'bytes=0-2047',
-      },
-    });
-    clearTimeout(timer);
-    if (!resp.ok && resp.status !== 206) return false;
-    const ct = (resp.headers.get('content-type') ?? '').toLowerCase().split(';')[0].trim();
-    return ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'].includes(ct);
-  } catch {
-    return false;
-  }
 }
 
 // ============================================================
