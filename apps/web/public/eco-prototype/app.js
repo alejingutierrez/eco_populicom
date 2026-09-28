@@ -410,22 +410,20 @@ function App() {
         active={active} onNav={(k) => { setActive(k); setMenuOpen(false); }}
         collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
-        onOpenCommand={() => setCmdOpen(true)}
-        mode={mode}
+        agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
+        setAgency={setAgency}
+        mode={mode} setMode={setMode}
       />
       {bp === 'mobile' && menuOpen && <div className="eco-menu-backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="eco-main">
         <Header
-          title={screenMeta.label} eyebrow={screenMeta.eyebrow}
+          title={screenMeta.label}
           period={period} setPeriod={setPeriod}
-          agency={agency} setAgency={setAgency}
+          agency={agency}
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
           onOpenCommand={() => setCmdOpen(true)}
           onOpenMenu={() => setMenuOpen(true)}
-          bp={bp}
-          onSearch={(query) => { setSearchQuery(query); setActive('search'); }}
           onOpenChat={() => setChatOpen(true)}
-          mode={mode} setMode={setMode} live={true}
           // Narrativas VUELVE a tener filtro de fechas (ago 2026). Se había
           // quitado porque "no respondía": la ventana llegaba solo a la lista y
           // el detalle seguía mostrando toda la vida de la narrativa, así que la

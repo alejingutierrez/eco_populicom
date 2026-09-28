@@ -288,27 +288,28 @@
   --on-info: #04101A;
   --on-neu: #FFFFFF;
 
-  /* rail de navegación */
-  --rail-bg: #030609;
-  --rail-fg: rgba(255, 255, 255, 0.62);
-  /* El rail tenía SIETE alfas de blanco escritas a mano (0.28…0.85) y las cuatro
-     más bajas quedaban en 2.32-4.47:1, es decir texto de 11px por debajo de AA
-     en el menú que estructura toda la app. Un único nivel "atenuado" con
-     luminancia declarada: 6.5:1 sobre --rail-bg (6.3:1 en modo claro, cuyo rail
-     también es oscuro), así que no necesita variante por modo. */
-  --rail-fg-muted: #8A93A0;
+  /* rail de navegación — «Rail grafito» (sep-2026). Acromático y con el MISMO
+     valor en los dos modos: el rail es el ancla oscura de la app, no una isla de
+     marca. Antes el activo y el badge de versión iban en naranja (--accent),
+     que competía con el dato; ahora la marca del activo es blanco sobre grafito
+     + una barra interior de 2px (shell.js), sin croma.
+     Medido sobre #14171C: --rail-fg 10.2:1, --rail-fg-muted 6.9:1, activo 13.6:1. */
+  --rail-bg: #14171C;
+  --rail-fg: rgba(255, 255, 255, 0.74);
+  --rail-fg-muted: #9AA1AB;
   --rail-fg-active: #FFFFFF;
-  --rail-active-bg: rgba(255, 106, 61, 0.18);
-  /* Tinte de acento sobre el RAIL para piezas que NO son el item activo del nav
-     (hoy el badge de versión). Existe porque --rail-active-bg cumplía ese papel
-     de facto pero su nombre lo ata a un ESTADO, así que cualquier pieza que lo
-     usara heredaba un significado que no tiene. Y el rail es la única superficie
-     que cambia de valor entre modos (#030609 → #0A0F16) sin aclararse, así que un
-     tinte fijo no vale para los dos: va declarado en cada modo.
-     Medido: --accent-2 sobre este relleno da 8.88:1 en oscuro y 5.83:1 en claro. */
-  --rail-tint: rgba(255, 106, 61, 0.14);
-  --rail-tint-border: rgba(255, 106, 61, 0.24);
-  --rail-border: rgba(255, 255, 255, 0.05);
+  --rail-active-bg: rgba(255, 255, 255, 0.10);
+  /* Relleno de las piezas del rail que NO son el item activo (marca, selector de
+     agencia, hover). Un paso por debajo del activo para no confundirse con él. */
+  --rail-tint: rgba(255, 255, 255, 0.06);
+  --rail-tint-border: rgba(255, 255, 255, 0.14);
+  --rail-border: rgba(255, 255, 255, 0.08);
+
+  /* ACCIÓN acromática («Instrumento»: el grafito es el color de la acción, no
+     de la marca). La usan el período activo y el botón principal del header. En
+     oscuro se invierte: relleno claro con texto oscuro (15.3:1). */
+  --action: #E6ECF3;
+  --on-action: #0E1620;
 
   --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.4);
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
@@ -363,14 +364,9 @@
   --on-info: #FFFFFF;
   --on-neu: #FFFFFF;
 
-  --rail-bg: #0A0F16;
-  --rail-fg: rgba(255, 255, 255, 0.62);
-  --rail-fg-active: #FFFFFF;
-  --rail-active-bg: rgba(200, 58, 30, 0.16);
-  /* Ver la nota de --rail-tint en el modo oscuro. */
-  --rail-tint: rgba(200, 58, 30, 0.14);
-  --rail-tint-border: rgba(200, 58, 30, 0.24);
-  --rail-border: rgba(255, 255, 255, 0.05);
+  /* El rail es grafito también en claro (ver modo oscuro): no se redeclara. */
+  --action: #14171C;
+  --on-action: #FFFFFF;
 
   --shadow-sm: 0 1px 0 rgba(14, 17, 22, 0.04);
   --shadow: 0 1px 0 rgba(14, 17, 22, 0.04), 0 6px 16px -10px rgba(14, 17, 22, 0.1);

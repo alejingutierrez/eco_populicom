@@ -134,7 +134,7 @@
   /* App layout */
   .eco-app {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 240px 1fr;
     min-height: 100vh;
     background: var(--bg);
   }
@@ -224,6 +224,15 @@
     :root { --gutter-page: 12px; }
     .eco-page { padding: 14px var(--gutter-page) 36px; }
     .show-mobile { display: inline-flex !important; }
+    .eco-search-btn { min-width: 0 !important; }
+    /* Header en dos filas: [menú · título · acciones] y [período a lo ancho].
+       Antes eran tres, con las acciones solas en la tercera. */
+    .eco-header-title { flex: 1 1 0 !important; }
+    .eco-header-period { order: 5; flex: 1 1 100% !important; }
+    .eco-header-period .eco-seg { flex: 1; }
+    .eco-header-period .eco-seg > button { flex: 1; }
+    /* En el drawer los ítems del rail llegan al objetivo táctil de 44px. */
+    .eco-sidebar .eco-rail-item { height: auto !important; min-height: 44px; }
     .hide-mobile { display: none !important; }
     .hide-mobile { display: none !important; }
     /* Larger tap targets on touch screens. */
@@ -460,6 +469,29 @@
      (falla AA). Ver tokens.css §5 --on-*. */
   .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+  /* Acción acromática (header, sep-2026). Grafito en claro, invertida en oscuro:
+     el color de la pantalla queda para el dato. Convive con .btn-primary (naranja)
+     mientras el resto de las pantallas no migre a «Instrumento». */
+  .btn-action { background: var(--action); color: var(--on-action); border-color: var(--action); }
+  .btn-action:hover { background: color-mix(in oklab, var(--action) 88%, var(--canvas)); border-color: color-mix(in oklab, var(--action) 88%, var(--canvas)); }
+  .btn.on { border-color: var(--action); }
+
+  /* Segmentado del período. Una sola caja con divisores: 4 opciones visibles, el
+     resto en «Más». El activo invierte (--action) en vez de teñirse de naranja. */
+  .eco-seg { display: flex; border: 1px solid var(--hairline-strong); border-radius: 4px; overflow: hidden; background: var(--control-bg); height: var(--control-h); box-sizing: border-box; }
+  .eco-seg > button { border: 0; border-right: 1px solid var(--hairline); background: transparent; color: var(--text-2); padding: 0 12px; font-family: var(--ff-mono); font-size: var(--fs-caption); font-weight: 500; cursor: pointer; }
+  .eco-seg > button:last-child { border-right: 0; }
+  .eco-seg > button:hover { color: var(--text); background: var(--control-bg-hover); }
+  .eco-seg > button.on { background: var(--action); color: var(--on-action); }
+  .eco-search-btn { min-width: 180px; }
+
+  /* Rail y menús flotantes: hover sin croma. */
+  .eco-rail-item { cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+  .eco-rail-item:hover:not([aria-current="page"]) { background: var(--rail-tint) !important; }
+  .eco-menu-item { cursor: pointer; }
+  .eco-menu-item:hover, .eco-menu-item:focus-visible { background: var(--control-bg-hover) !important; }
+  .eco-sidebar :focus-visible { outline-color: var(--rail-fg-active); }
 
   /* Input */
   .input {
@@ -1691,7 +1723,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc80';
+        s.src = base + '/' + f + '?v=prodc81';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
