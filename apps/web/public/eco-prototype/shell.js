@@ -444,7 +444,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, agencies, set
         {groups.map((g, gi) => (
           <div key={g.label || gi} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
             {!collapsed && g.label && (
-              <div className="mono" style={{ padding: '0 var(--sp-3) var(--sp-15)', fontSize: 'var(--fs-caption)', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--rail-fg-muted)' }}>{g.label}</div>
+              <div className="mono" style={{ padding: '0 var(--sp-3) var(--sp-15)', fontSize: 'var(--fs-caption)', fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', color: 'var(--rail-fg-muted)' }}>{g.label}</div>
             )}
             {collapsed && gi > 0 && <div style={{ height: 1, background: 'var(--rail-border)', margin: '0 var(--sp-2) var(--sp-2)' }} />}
             {g.items.map((n) => <NavItem key={n.key} item={n} />)}
@@ -692,7 +692,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
               </>}
               {rangeOpen && (
                 <div style={{ padding: 'var(--sp-3)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-                  <div className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Rango personalizado</div>
+                  <div className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>Rango personalizado</div>
                   <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                     <span style={{ minWidth: 44 }}>Desde</span>
                     <input type="date" value={draftFrom} max={todayIso} onChange={(e) => setDraftFrom(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
@@ -864,7 +864,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
         <div style={{ maxHeight: 440, overflowY: 'auto', padding: 'var(--sp-2)' }}>
           {Object.entries(grouped).map(([kind, list]) => (
             <div key={kind} style={{ marginBottom: 'var(--sp-15)' }}>
-              <div style={{ padding: '8px 12px 4px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{kind}</div>
+              <div style={{ padding: '8px 12px 4px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{kind}</div>
               {list.map((it, i) => {
                 flatIdx++;
                 const isSelected = flatIdx === selectedIdx;
@@ -993,8 +993,8 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       <div style={{
         position: 'absolute', top: 6, left: 8, zIndex: 400,
-        fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase',
-        letterSpacing: '0.1em', fontWeight: 700,
+        fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)',
+        letterSpacing: 'var(--tracking-overline)', fontWeight: 500,
         textShadow: '0 0 4px var(--canvas), 0 0 8px var(--canvas)',
         pointerEvents: 'none',
       }}>
@@ -1083,7 +1083,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 'var(--sp-3)' }}>
                   {metrics.map((m) => (
                     <div key={m.label} style={{ padding: '12px', background: 'var(--canvas-2)', borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline)' }}>
-                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>{m.label}</div>
+                      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>{m.label}</div>
                       <div className="num" style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 700, marginTop: 'var(--sp-1)' }}>{m.v.toLocaleString('es-PR')}</div>
                     </div>
                   ))}
@@ -1096,7 +1096,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             <div>
               <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-3)' }}>Resumen IA</div>
               <div style={{ padding: 'var(--sp-4)', background: 'var(--accent-fill)', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.55, color: 'var(--text)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', marginBottom: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', marginBottom: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 500, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>
                   <Icons.Sparkles size={12} /> Generado con IA
                 </div>
                 {mention.summary}
@@ -1135,14 +1135,14 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                     <Icons.Hash size={13} color="var(--accent)" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Tópico principal</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Tópico principal</div>
                     <div style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--text)' }}>{mention.topicName}</div>
                   </div>
                   <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>{typeof mention.topicConfidence === 'number' ? `confianza ${Math.round(mention.topicConfidence * 100)}%` : 'confianza —'}</div>
                 </div>
                 {mention.subtopics?.length > 0 && (
                   <div>
-                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>Subtópicos</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500, marginBottom: 'var(--sp-15)' }}>Subtópicos</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-15)' }}>
                       {mention.subtopics.map((s) => (
                         <span key={s} className="pill" style={{ background: 'var(--canvas-2)', border: '1px solid var(--hairline)', color: 'var(--text-2)' }}>
@@ -1272,7 +1272,7 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
       </div>
       <div style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
         <div>
-          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Modo</div>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Modo</div>
           <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {['light', 'dark'].map((m) => (
               <button key={m} onClick={() => setMode(m)}
@@ -1290,7 +1290,7 @@ function TweaksPanel({ mode, setMode, density, setDensity, onClose }) {
           </div>
         </div>
         <div>
-          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Densidad</div>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', marginBottom: 'var(--sp-2)' }}>Densidad</div>
           <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {['comfy', 'normal', 'compact'].map((d) => (
               <button key={d} onClick={() => setDensity(d)}
@@ -1503,7 +1503,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {eyebrow && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500, marginBottom: 'var(--sp-15)' }}>
                 <span>{eyebrow}</span>
               </div>
             )}
@@ -1537,14 +1537,14 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
               const universo = f.pertinence ? `pertinencia ${f.pertinence}`
                 : (includeLow ? 'todas las pertinencias' : 'sin pertinencia baja');
               return (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ marginTop: 6, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span>{range} · {universo}</span>
                   {!f.pertinence && (
                     <button
                       className="chip"
                       onClick={() => setIncludeLow((v) => !v)}
                       title="Cambia el universo de esta consulta; los agregados del dashboard no cambian"
-                      style={{ fontSize: 10, padding: '2px 8px' }}
+                      style={{ fontSize: 'var(--fs-caption)', padding: '2px 8px' }}
                     >
                       {includeLow ? '— Solo pertinentes' : '+ Incluir baja pertinencia'}
                     </button>
@@ -1603,7 +1603,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                     {headlineValue}
                   </div>
                   {slice.headlineLabel && (
-                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)' }}>
                       {slice.headlineLabel}
                     </div>
                   )}
@@ -1943,7 +1943,7 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
           display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-4)',
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--sp-15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500, marginBottom: 'var(--sp-15)' }}>
               <span>Métrica · {period || '—'}</span>
               {data && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 'var(--r-sm)' }}>

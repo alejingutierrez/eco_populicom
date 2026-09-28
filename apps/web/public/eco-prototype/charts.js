@@ -446,7 +446,7 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
     <div ref={ref} style={{ width: '100%', position: 'relative' }}>
       {/* Value strip / legend at top — stock-ticker style */}
       <div style={{ display: 'flex', gap: 'var(--sp-5)', alignItems: 'baseline', padding: '0 4px 10px', fontSize: 'var(--fs-overline)', flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 'var(--fs-overline)', fontWeight: 700 }}>{dateLabel}</span>
+        <span style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontSize: 'var(--fs-overline)', fontWeight: 500 }}>{dateLabel}</span>
         {normalized.map(s => {
           const v = data[hoverIdx][s.key];
           const first = s.vals.find((x) => !isGap(x));
@@ -454,7 +454,7 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
           return (
             <div key={s.key} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-15)' }}>
               <span style={{ width: 8, height: 2, background: s.color }} />
-              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{s.label}</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>{s.label}</span>
               <span className="num" style={{ color: 'var(--text)', fontWeight: 600, fontSize: 'var(--fs-body-sm)' }}>{fmtVal(s.key, v)}</span>
               {/* La dirección la decide el contrato de la métrica, no el signo.
                   Esta tira pintaba TODA subida en --pos: un alza de Crisis
@@ -622,14 +622,14 @@ function MultiLineChart({ data, series, height = 260, responsiveHeight, onPointC
                   <rect x={0} y={0} width={tooltipW} height={tooltipH} rx={6}
                     fill="var(--canvas)" stroke="var(--hairline-strong)" strokeWidth="1"
                     opacity="0.97" />
-                  <text x={10} y={15} fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
+                  <text x={10} y={15} fontSize="var(--fs-caption)" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
                     {dotData.fullDate || dotData.date || ''}
                   </text>
                   {normalized.map((s, i) => (
                     <g key={s.key}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={s.color} rx={2} />
                       <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{s.label}</text>
-                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="var(--fs-caption)" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {fmtVal(s.key, dotData[s.key])}
                       </text>
                     </g>
@@ -720,12 +720,11 @@ function BandScale({ bands, value, max = 1, height = 6, valueLabel, ariaLabel })
   const v = isGap(value) ? null : Math.min(max, Math.max(0, value));
   const pct = (x) => (x / max) * 100;
 
-  // ¿Caben todas las etiquetas? Estimación conservadora de 6.4px por carácter a
-  // 11px en Krub, más 8px de aire a cada lado.
+  // ¿Caben todas las etiquetas? 8.2px por carácter y 14px de aire por etiqueta:
+  // las etiquetas van en --fs-overline, que con «Instrumento» subió de 11 a 13px
+  // (Plex Sans). La estimación de 11px (6.9) diría que caben y se tocarían.
   const totalChars = bands.reduce((n, b) => n + String(b.label).length, 0);
-  // 6.9px/carácter y 14px de aire por etiqueta: la estimación anterior (6.4/8)
-  // decía que caben y se tocaban («Elevado» pegado a «Alerta»).
-  const fits = w === 0 || totalChars * 6.9 + bands.length * 14 <= w;
+  const fits = w === 0 || totalChars * 8.2 + bands.length * 14 <= w;
   const visible = fits
     ? bands.map((_, i) => i)
     // Si no caben, se conservan sólo los extremos: son los que fijan la escala.
@@ -890,7 +889,7 @@ function SeriesPanels({ data, series, panelHeight = 64, onPointClick, valueForma
               {!isGap(hv) && (
                 <>
                   <circle cx={padding.l + hoverIdx * step} cy={y(hv)} r="3.5" fill="var(--canvas)" stroke={sr.color} strokeWidth="2" />
-                  <text x={padding.l + innerW} y={top + 10} fontSize="11" fontWeight="700" textAnchor="end" fill="var(--text)" fontFamily="var(--ff-numeric)">{fmt(hv)}</text>
+                  <text x={padding.l + innerW} y={top + 10} fontSize="var(--fs-caption)" fontWeight="700" textAnchor="end" fill="var(--text)" fontFamily="var(--ff-numeric)">{fmt(hv)}</text>
                 </>
               )}
             </g>
@@ -1041,21 +1040,21 @@ function StackedAreaChart({ data, keys, colors, height = 220, onPointClick, labe
                 <g transform={`translate(${tooltipX},${tooltipY})`}>
                   <rect x={0} y={0} width={tooltipW} height={tooltipH} rx={6}
                     fill="var(--canvas)" stroke="var(--hairline-strong)" strokeWidth="1" opacity="0.97" />
-                  <text x={10} y={15} fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
+                  <text x={10} y={15} fontSize="var(--fs-caption)" fontWeight="700" fill="var(--text)" fontFamily="var(--ff-numeric)">
                     {d.fullDate || d.date || ''}
                   </text>
                   {keys.map((k, i) => (
                     <g key={k}>
                       <rect x={10} y={22 + i * 18 + 4} width={8} height={8} fill={colors[i]} rx={2} />
                       <text x={24} y={22 + i * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-2)">{seriesLabel(k)}</text>
-                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="11" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                      <text x={tooltipW - 10} y={22 + i * 18 + 11} fontSize="var(--fs-caption)" fontWeight="600" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                         {Math.round(d[k] || 0)}
                       </text>
                     </g>
                   ))}
                   <g>
                     <text x={10} y={22 + keys.length * 18 + 11} fontSize="var(--fs-overline)" fill="var(--text-3)" fontWeight="700">Total</text>
-                    <text x={tooltipW - 10} y={22 + keys.length * 18 + 11} fontSize="11" fontWeight="700" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
+                    <text x={tooltipW - 10} y={22 + keys.length * 18 + 11} fontSize="var(--fs-caption)" fontWeight="700" fill="var(--text)" textAnchor="end" fontFamily="var(--ff-numeric)">
                       {Math.round(total)}
                     </text>
                   </g>

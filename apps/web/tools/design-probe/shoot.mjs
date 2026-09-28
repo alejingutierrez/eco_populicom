@@ -90,6 +90,9 @@ const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
 const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
 const S = (m, p, t) => send(m, p, sessionId, t);
 await S('Page.enable'); await S('Runtime.enable'); await S('Log.enable');
+// Aterrizar primero en el origen: localStorage de about:blank no es el de la app,
+// y sin esto la PRIMERA ruta se medía con el modo por defecto aunque hubiera PROBE_MODE.
+await S('Page.navigate', { url: BASE + '/overview' }); await sleep(800);
 
 const rep = [];
 for (const vn of VPS) {
@@ -99,7 +102,11 @@ for (const vn of VPS) {
   await S('Emulation.setTouchEmulationEnabled', { enabled: mob, maxTouchPoints: 5 });
   for (const r of ROUTES) {
     evs.length = 0;
-    await S('Runtime.evaluate', { expression: 'try{localStorage.clear()}catch(e){}' });
+    // PROBE_MODE=dark|light fija el modo (clave eco.mode.v2 de «Instrumento» y la
+    // vieja eco.mode, para poder medir también la línea base anterior).
+    const mode = process.env.PROBE_MODE;
+    const setMode = mode ? `localStorage.setItem('eco.mode.v2','${mode}');localStorage.setItem('eco.mode','${mode}');` : '';
+    await S('Runtime.evaluate', { expression: `try{localStorage.clear();${setMode}}catch(e){}` });
     await S('Page.navigate', { url: BASE + '/' + r });
     await sleep(1400);
     // Esperar a que la pantalla esté ASENTADA, no sólo cargada: sin esto se mide

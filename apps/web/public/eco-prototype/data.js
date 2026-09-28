@@ -262,7 +262,9 @@ window.ecoNssColor = function ecoNssColor(nss) {
 
 // Métricas compuestas que necesitan color propio en las series de gráfica.
 window.ECO_METRIC_COLOR = {
-  nss: 'var(--accent)',
+  // --cat-4 y no --accent: desde «Instrumento» --accent es la ACCIÓN (grafito),
+  // y una serie no puede pintarse del color de los controles.
+  nss: 'var(--cat-4)',
   brandHealthIndex: 'var(--pos)',
   // --cat-1 y no --text-2: la serie de volumen es la ÚNICA encendida por defecto
   // y venía pintada con un token de TEXTO. En esa misma gráfica el crosshair y los

@@ -212,13 +212,16 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
             `--accent-fill` fijo (naranja al 14%) un icono verde --pos y otro gris
             --text-2 flotaban sobre un fondo naranja: dos colores peleando por un
             solo indicador. */}
-        {IconC && <div style={{ width: 26, height: 26, borderRadius: 'var(--r-md)', background: `color-mix(in oklab, ${accent} 14%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}><IconC size={14} color={accent} /></div>}
+        {/* Acromático («Instrumento»): el icono NOMBRA la métrica, no la juzga. Con el
+            color de la métrica, el corazón de Brand Health salía verde y el escudo de
+            Crisis rojo con cualquier valor — un veredicto fijo junto al real. */}
+        {IconC && <div style={{ width: 26, height: 26, borderRadius: 'var(--r-md)', background: 'var(--canvas-2)', border: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)' }}><IconC size={14} color="var(--text-2)" /></div>}
         {/* El label envuelve por PALABRA, nunca por letra. `overflowWrap:'anywhere'`
             resolvía el desborde partiendo el rótulo: en 390px se leía "RIESG/O DE/
             CRISI/S" y en desktop "POLARIZ/ACIÓN". La causa real no era el label sino
             la acción "Detalles", que competía por el mismo renglón y nunca cedía
             (flexShrink:0); ahora vive en el pie de la card, así que aquí sobra ancho. */}
-        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em', minWidth: 0, overflowWrap: 'break-word', hyphens: 'none' }}>{label}</div>
+        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-2)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', minWidth: 0, overflowWrap: 'break-word', hyphens: 'none' }}>{label}</div>
         {tone && <span className={`pill pill-${tone}`} style={{ marginLeft: 'auto', flexShrink: 0 }}>{toneLabel || (tone === 'neg' ? 'Alerta' : tone === 'warn' ? 'Elevado' : 'Normal')}</span>}
       </div>
       {wordMode ? (
@@ -257,7 +260,7 @@ function KpiCard({ label, value, valueWord, valueTone, valueColor, delta, deltaI
           85 / 84 / 52 / 20px de vacío medidos en la captura), ahora comparten
           una sola línea de cierre. */}
       {clickable && !tone && (
-        <div style={{ marginTop: 'auto', paddingTop: 'var(--sp-3)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-05)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+        <div style={{ marginTop: 'auto', paddingTop: 'var(--sp-3)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-05)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)' }}>
           <I2.Sparkles size={10} /> Detalles
         </div>
       )}
@@ -625,15 +628,15 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           ) : null}
           <div style={{ display: 'flex', gap: 'var(--sp-5)', marginTop: 'var(--sp-4)', fontSize: 'var(--fs-caption)', flexWrap: 'wrap' }}>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Señal dominante</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Señal dominante</div>
               <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Alcance del período</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Alcance del período</div>
               <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Siguiente paso</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Siguiente paso</div>
               <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'text'})`, fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
             </div>
           </div>
@@ -648,7 +651,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           </div>
         </div>
         <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pulso en vivo · últimas menciones</div>
+          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>Pulso en vivo · últimas menciones</div>
           {(D.PULSE || []).map((e, i) => (
             <button key={i} onClick={() => e.mention && onMentionClick(e.mention)}
               style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)', background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
@@ -1289,17 +1292,17 @@ function MentionsScreen({ onMentionClick }) {
           </button>
           {moreOpen && (
             <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 'var(--sp-3)', minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Tópico</div>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Tópico</div>
               <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                 <option value="">Todos los tópicos</option>
                 {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
               </select>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Región</div>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Región</div>
               <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
                 <option value="">Todas las regiones</option>
                 {regions.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-15)' }}>Ordenar por</div>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Ordenar por</div>
               <div className="toggle-group">
                 {SORT_OPTIONS.map((o) => {
                   const disabled = o.needsQuery && !filters.q;
@@ -1429,7 +1432,7 @@ function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-2)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>
         {label}
         {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
       </div>
@@ -1565,7 +1568,7 @@ const LIST_COLS = '20px minmax(0, 3fr) 110px minmax(110px, 1fr) 80px 30px';
 function MentionsList({ mentions, onMentionClick, highlight }) {
   return (
     <div className="scroll-x">
-      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: LIST_COLS, minWidth: 620, gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+      <div style={{ padding: '10px 16px 6px', display: 'grid', gridTemplateColumns: LIST_COLS, minWidth: 620, gap: 'var(--sp-3)', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', borderBottom: '1px solid var(--hairline)' }}>
         <span /><span>Mención</span><span>Sentimiento</span><span>Tópico</span><span>Hora</span><span />
       </div>
       {mentions.map((mn) => {
@@ -1617,7 +1620,7 @@ function MentionsCards({ mentions, onMentionClick, highlight }) {
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                 style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 'var(--r-md)', background: 'var(--canvas-2)' }} />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>
               <SIcon size={12} /> {mn.domain}
               <span>·</span>
               <span>{mn.publishedAt}</span>
@@ -1646,7 +1649,7 @@ function MentionsTable({ mentions, onMentionClick, highlight }) {
         <thead>
           <tr style={{ borderBottom: '1px solid var(--hairline-strong)', background: 'var(--canvas-2)' }}>
             {columns.map((c) => (
-              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{c}</th>
+              <th key={c} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', whiteSpace: 'nowrap' }}>{c}</th>
             ))}
           </tr>
         </thead>
@@ -2579,7 +2582,7 @@ function TopicsScreen({ onMentionClick }) {
           // desalinearía esta card del resto.
           fontSize: 'var(--fs-overline)', color: 'var(--text-3)',
         }}>
-          <span style={{ fontWeight: 700, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontSize: 'var(--fs-overline)' }}>Distribución</span>
+          <span style={{ fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-overline)' }}>Distribución</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--pos)' }} /> Positivo</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--text-3)' }} /> Neutral</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--neg)' }} /> Negativo</span>
@@ -2703,7 +2706,7 @@ function TopicTreemap({ topics, onSelect }) {
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
           >
             <div>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.name}</div>
+              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{t.name}</div>
               {/* Una sola talla, y desde la escala: 30 vs 18 por índice era
                   1.67x de talla tipográfica para 1.46x de dato (253 vs 173), y
                   premiaba la posición en el array, no el valor. */}
@@ -2850,7 +2853,7 @@ function TopicList({ topics, onSelect }) {
   const sorted = [...topics].sort((a, b) => b.count - a.count);
   return (
     <div className="scroll-x">
-      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', padding: '8px 12px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', padding: '8px 12px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>
         {/* "Cambio", no "Δ": era la única etiqueta de la SPA que obligaba a
             buscar un glosario, y sólo existía en esta vista — treemap y
             burbujas imprimen el MISMO delta sin encabezado. */}
@@ -3117,7 +3120,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
           })}
         </div>
         {subs.length > 0 && subsTotal < topic.count && (
-          <div style={{ padding: '10px 18px', fontSize: 11, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ padding: '10px 18px', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
               Cada mención cuenta una vez, bajo un solo subtópico — el mismo
@@ -3185,7 +3188,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
 function StatBox({ label, value, tone }) {
   return (
     <div>
-      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{label}</div>
       <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: tone ? `var(--${tone})` : 'var(--text)', marginTop: 'var(--sp-1)', fontFamily: 'var(--ff-display)' }}>{value}</div>
     </div>
   );
@@ -3289,7 +3292,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
               // la izquierda dentro de una celda con 1px de borde y padding
               // var(--sp-15). Centrado, con celdas de ~130px, "MAR" quedaba a
               // ~88px de su propio "30" y se leía sobre el hueco entre celdas.
-              <div key={d} style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left', paddingLeft: 'calc(var(--sp-15) + 1px)', paddingBottom: 'var(--sp-1)' }}>{d}</div>
+              <div key={d} style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', textAlign: 'left', paddingLeft: 'calc(var(--sp-15) + 1px)', paddingBottom: 'var(--sp-1)' }}>{d}</div>
             ))}
           </div>
           {weeks.map((week, wIdx) => {
@@ -3309,8 +3312,8 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
                     marginTop: wIdx === 0 ? 0 : 'var(--sp-3)', marginBottom: 'var(--sp-1)',
-                    fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-2)',
-                    textTransform: 'uppercase', letterSpacing: '0.08em',
+                    fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-2)',
+                    textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)',
                   }}>
                     <span style={{ flex: '0 0 auto' }}>{monthName}</span>
                     <span style={{ flex: 1, height: 1, background: 'var(--hairline)' }} />
@@ -3385,7 +3388,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
                             económico" y "Desarrollo social" quedaban idénticos.
                             `overflowWrap: anywhere` evita que un término largo
                             desborde la columna. */}
-                        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text)', lineHeight: 1.15, textTransform: 'uppercase', letterSpacing: '0.02em', overflowWrap: 'anywhere', hyphens: 'auto', minWidth: 0 }}>
+                        <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text)', lineHeight: 1.15, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', overflowWrap: 'anywhere', hyphens: 'auto', minWidth: 0 }}>
                           {c.topicName}
                         </div>
                         {/* El volumen del día ya NO se imprime en la celda: era un
@@ -4217,7 +4220,7 @@ function AlertsScreen({ onMentionClick }) {
         {(canRules || canTemplates) && (
           <>
             <span aria-hidden style={{ width: 1, height: 18, background: 'var(--hairline-strong)', margin: '0 6px' }} />
-            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 2 }}>Configuración</span>
+            <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginRight: 2 }}>Configuración</span>
             {canRules && <button onClick={() => setTab('crisis')} className={`chip ${tab === 'crisis' ? 'active' : ''}`}>Alertas de crisis</button>}
             {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
           </>
@@ -4230,7 +4233,7 @@ function AlertsScreen({ onMentionClick }) {
 
       {tab === 'rules' && (
         <div className="card scroll-x">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', padding: '10px 16px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--hairline)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', padding: '10px 16px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', borderBottom: '1px solid var(--hairline)' }}>
             {/* "Activaciones 30d" prometía una ventana de 30 días para un número
                 que el API devuelve SIEMPRE 0 (eco-data/route.ts: triggered: 0), y
                 era la tercera ventana distinta de la pantalla. Y el campo se llama
@@ -4571,8 +4574,8 @@ function AlertsHistory({ onMentionClick }) {
           <div className="hide-mobile" style={{
             display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px',
             gap: 'var(--sp-3)', padding: '0 0 var(--sp-2)',
-            fontSize: 'var(--fs-overline)', textTransform: 'uppercase',
-            letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', fontWeight: 600,
+            fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)',
+            letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', fontWeight: 500,
           }}>
             <span>Cuándo</span><span>Severidad</span><span>Regla</span>
             <span style={{ textAlign: 'right' }}>Menciones</span>
@@ -4907,7 +4910,7 @@ function UsersAdmin() {
                 .map(([l, n]) => (
                   <div key={l}>
                     <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>{n}</div>
-                    <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
+                    <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
                   </div>
                 ))}
             </div>
@@ -5009,7 +5012,7 @@ function UsersAdmin() {
             // salto de línea estaba fuera de pantalla y la banda alta parecía un
             // error de render.
             alignItems: 'center',
-            fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)',
+            fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)',
             background: 'var(--canvas-2)',
           }}>
             {/* Rol y Estado son pills: su texto arranca 9px dentro de la celda
@@ -5105,7 +5108,7 @@ function UserRowCard({ u, roleMeta, onOpen }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--sp-1) var(--sp-3)', paddingLeft: 42 }}>
         {[['Agencia', u.agency], ['Rol', roleMeta?.l || u.role], ['Actividad', u.lastSeen]].map(([l, v]) => (
           <div key={l} style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
+            <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{l}</div>
             <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
           </div>
         ))}
@@ -5293,7 +5296,7 @@ function UserDrawer({ drawer, agencyOptions = [], onSave, onDelete, onClose }) {
 function Field({ label, required, children }) {
   return (
     <div>
-      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>
+      <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>
         {label} {required && <span style={{ color: 'var(--neg)' }}>*</span>}
       </div>
       {children}
@@ -7138,7 +7141,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
             <g key={`t${i}`} style={{ pointerEvents: 'none' }}>
               <line x1={margin.left} y1={y} x2={margin.left + innerW} y2={y}
                 stroke="var(--hairline)" strokeWidth="1" opacity={i === 0 ? 1 : 0.55} />
-              <text x={margin.left - 8} y={y + 3} textAnchor="end" fontSize="11" fill="var(--text-3)">
+              <text x={margin.left - 8} y={y + 3} textAnchor="end" fontSize="var(--fs-caption)" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
                 {t}
               </text>
             </g>
@@ -7190,7 +7193,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
         <g style={{ pointerEvents: 'none' }}>
           <line x1={peakX} y1={margin.top} x2={peakX} y2={yBase} stroke="var(--text-2)" strokeWidth="1" strokeDasharray="2 3" opacity={0.7} />
           {showPeakLabel && (
-            <text x={peakX} y={margin.top + 10} textAnchor="middle" fill="var(--text-2)" fontSize="11" fontWeight="700">
+            <text x={peakX} y={margin.top + 10} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-caption)" fontWeight="700">
               pico · {totalOf(peak)}
             </text>
           )}
@@ -7201,7 +7204,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
             verde: el verde ya significa "positivo" en este mismo gráfico. */}
         <g style={{ pointerEvents: 'none' }}>
           <line x1={startX} y1={margin.top} x2={startX} y2={yBase} stroke="var(--text-2)" strokeWidth="1.5" opacity={0.85} />
-          <text x={startX + 5} y={margin.top + 10} textAnchor="start" fill="var(--text-2)" fontSize="11" fontWeight="700">
+          <text x={startX + 5} y={margin.top + 10} textAnchor="start" fill="var(--text-2)" fontSize="var(--fs-caption)" fontWeight="700">
             inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
           </text>
         </g>
@@ -7212,7 +7215,7 @@ function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
           return (
             <g key={i} style={{ pointerEvents: 'none' }}>
               <line x1={x} y1={yBase} x2={x} y2={yBase + 4} stroke="var(--hairline-strong)" />
-              <text x={x} y={yBase + 18} textAnchor="middle" fill="var(--text-2)" fontSize="11">
+              <text x={x} y={yBase + 18} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-caption)">
                 {d.toLocaleDateString('es', tickFormat)}
               </text>
             </g>
@@ -7502,8 +7505,8 @@ function TablaScreen({ period }) {
                   }}>
                     {['Pos', 'Agencia', 'Índice de salud ▾', 'Sentimiento', 'Riesgo', 'Velocidad', 'Alcance'].map((h, i) => (
                       <span key={h} style={{
-                        fontSize: 'var(--fs-overline)', fontWeight: 700, color: i === 2 ? 'var(--accent)' : 'var(--text-3)',
-                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        fontSize: 'var(--fs-overline)', fontWeight: 500, color: i === 2 ? 'var(--accent)' : 'var(--text-3)',
+                        textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)',
                         textAlign: i >= 4 ? (i === 5 ? 'center' : 'right') : 'left',
                       }}>{h}</span>
                     ))}
@@ -7626,11 +7629,11 @@ function SalaScreen({ period }) {
                         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-3)' }}>
                           <div>
                             <div className="num" style={{ fontSize: 'var(--fs-display-lg)', fontWeight: 600, color: bhiColor, lineHeight: 0.95 }}>{a.display.bhi.value || '—'}</div>
-                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 'var(--sp-05)' }}>Salud · {a.display.bhi.word}</div>
+                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginTop: 'var(--sp-05)' }}>Salud · {a.display.bhi.word}</div>
                           </div>
                           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
                             <div className="num" style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, color: nssColor, lineHeight: 1 }}>{a.display.nss.value || '—'}</div>
-                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 'var(--sp-05)' }}>Sent. neto</div>
+                            <div className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginTop: 'var(--sp-05)' }}>Sent. neto</div>
                           </div>
                         </div>
                         <SentimentSplitBar pos={a.pos} neu={a.neu} neg={a.neg} height={5} />
@@ -7767,7 +7770,7 @@ function RadarScreen({ period }) {
                   <div style={{ padding: 'var(--sp-5)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textAlign: 'center' }}>Sin tópicos destacados en el período.</div>
                 ) : waveGroups.map(([agencyName, waves], gi) => (
                   <div key={agencyName} style={{ borderTop: gi === 0 ? 'none' : '1px solid var(--hairline)' }}>
-                    <div className="mono" style={{ padding: '9px 14px 4px', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{agencyName}</div>
+                    <div className="mono" style={{ padding: '9px 14px 4px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{agencyName}</div>
                     {waves.map((w, wi) => {
                       const nssColor = w.nss == null ? 'var(--text-3)' : w.nss > 0 ? 'var(--pos)' : w.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
                       const dArrow = w.volumeDelta > 0 ? '▲' : w.volumeDelta < 0 ? '▼' : '·';
