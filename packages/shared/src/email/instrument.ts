@@ -390,7 +390,18 @@ export function heroImage(img: { url: string; alt?: string | null; caption?: str
               </div>`;
 }
 
-/** Botón de acción grafito + dominio en mono a la derecha. */
+/** Botón de acción grafito (tabla con bgcolor: lo único que respeta Outlook). */
+export function actionButton(url: string, label: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td bgcolor="${T.action}" style="background:${T.action};background-color:${T.action};">
+                          <a href="${esc(url)}" style="display:inline-block;padding:14px 22px;font-family:${FONT_SANS};font-size:14px;font-weight:600;color:${T.onAction};text-decoration:none;">${esc(label)}</a>
+                        </td>
+                      </tr>
+                    </table>`;
+}
+
+/** Fila de acción: botón grafito + dominio en mono a la derecha. */
 export function actionRow(url: string, label: string, domain = 'citizenecho.com'): string {
   return `
           <tr>
@@ -398,13 +409,7 @@ export function actionRow(url: string, label: string, domain = 'citizenecho.com'
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td align="left" valign="middle">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td bgcolor="${T.action}" style="background:${T.action};background-color:${T.action};">
-                          <a href="${esc(url)}" style="display:inline-block;padding:14px 22px;font-family:${FONT_SANS};font-size:14px;font-weight:600;color:${T.onAction};text-decoration:none;">${esc(label)}</a>
-                        </td>
-                      </tr>
-                    </table>
+                    ${actionButton(url, label)}
                   </td>
                   <td class="hide-mobile" align="right" valign="middle" style="font-family:${FONT_MONO};font-size:12px;color:${T.text3};">${esc(domain)}</td>
                 </tr>
