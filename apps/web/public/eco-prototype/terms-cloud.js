@@ -29,8 +29,8 @@
 //     lado (heatmap, mapa, termómetro); aquí la lista está a ~200px.
 //  4. La selección se expresa SUMANDO (relleno + anillo), nunca atenuando el
 //     resto: medido, --wc-neg-2 a opacidad 0.70 cae a 3.39:1, bajo AA.
-//  5. Términos en Krub, cifras en Besley. Besley tiene contraste 1.675 y se
-//     rompe por halación a 14-18px sobre --canvas, justo donde vive media nube.
+//  5. Términos en IBM Plex Sans (--ff-sans), cifras en Plex Mono. Antes eran
+//     Krub y Besley («Instrumento» retiró las dos, sep-2026).
 // =============================================================================
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -38,15 +38,25 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // --- medición de texto: un solo canvas con caché ---------------------------
 const _mctx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
 const _mcache = new Map();
+let _sansStack = null;
+function ecoSansStack() {
+  if (_sansStack) return _sansStack;
+  const v = typeof document !== 'undefined'
+    ? getComputedStyle(document.documentElement).getPropertyValue('--ff-sans').trim() : '';
+  _sansStack = v || "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif";
+  return _sansStack;
+}
 function measure(text, px, weight) {
   const k = `${px}|${weight}|${text}`;
   const hit = _mcache.get(k);
   if (hit != null) return hit;
   if (!_mctx) return text.length * px * 0.55;
-  // Krub con fallback al stack del sistema: si la fuente no cargó todavía la
-  // medida sale algo distinta, pero el layout es determinista para un estado de
-  // carga dado y se re-mide cuando el documento anuncia las fuentes listas.
-  _mctx.font = `${weight} ${px}px Krub, -apple-system, BlinkMacSystemFont, sans-serif`;
+  // La familia sale del MISMO token con el que se pinta el término (--ff-sans),
+  // no de un nombre escrito aquí: con Krub a mano, el cambio a IBM Plex Sans
+  // habría medido con una fuente y dibujado con otra. Si la fuente no cargó
+  // todavía la medida sale algo distinta, pero se re-mide cuando el documento
+  // anuncia las fuentes listas.
+  _mctx.font = `${weight} ${px}px ${ecoSansStack()}`;
   const wpx = _mctx.measureText(text).width;
   _mcache.set(k, wpx);
   return wpx;
@@ -181,7 +191,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
     return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', m); };
   }, []);
 
-  // re-medir cuando las fuentes acaben de cargar (Krub cambia los anchos)
+  // re-medir cuando las fuentes acaben de cargar (la webfont cambia los anchos)
   const [fontsReady, setFontsReady] = useState(false);
   useEffect(() => {
     if (typeof document === 'undefined' || !document.fonts) { setFontsReady(true); return; }

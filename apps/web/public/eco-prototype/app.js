@@ -185,7 +185,8 @@ class EcoErrorBoundary extends React.Component {
 // `mando` es el único tema desde WS-F5 (costa y gaceta retirados). El atributo
 // data-theme se conserva en <html> por compatibilidad, pero tokens.css ya no
 // depende de él: los tokens viven en :root incondicional.
-const TWEAK_DEFAULTS = { theme: 'mando', mode: 'dark', density: 'normal', collapsed: false };
+// Claro por defecto desde «Instrumento» (sep-2026); oscuro es modo real, no accidente.
+const TWEAK_DEFAULTS = { theme: 'mando', mode: 'light', density: 'normal', collapsed: false };
 
 // El ORDEN de las claves importa: app.js lo usa como secuencia para el prefijo
 // numérico de data-screen-label (Object.keys(...).indexOf(active) + 1). Se
@@ -225,7 +226,9 @@ function isExecScreen(key) { return EXEC_SCREENS.indexOf(key) !== -1; }
 
 function App() {
   const [theme] = useState(TWEAK_DEFAULTS.theme);
-  const [mode, setMode] = useState(() => localStorage.getItem('eco.mode') || TWEAK_DEFAULTS.mode);
+  // `eco.mode.v2`, no `eco.mode`: la clave vieja se escribía en CADA carga, así
+  // que nadie la había elegido. Ver el script del <head> de index.html.
+  const [mode, setMode] = useState(() => localStorage.getItem('eco.mode.v2') || TWEAK_DEFAULTS.mode);
   const [density] = useState(TWEAK_DEFAULTS.density);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eco.collapsed') === 'true');
   const bp = useBreakpoint();
@@ -331,7 +334,7 @@ function App() {
   }, [agency, active, setActive]);
 
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
-  useEffect(() => { localStorage.setItem('eco.mode', mode); }, [mode]);
+  useEffect(() => { localStorage.setItem('eco.mode.v2', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);
 
   // Sign-out helper exposed globally so the sidebar user menu can call it.

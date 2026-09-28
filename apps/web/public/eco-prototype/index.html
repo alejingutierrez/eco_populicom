@@ -1,13 +1,24 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="mando" data-mode="dark">
+<html lang="es" data-theme="mando" data-mode="light">
 <head>
 <meta charset="UTF-8" />
+<script>
+  // Modo ANTES del primer pintado (sin destello). Claro por defecto
+  // («Instrumento», sep-2026). Se lee `eco.mode.v2` y NO `eco.mode`: la app
+  // guardaba `eco.mode` en cada carga, así que todo usuario existente tenía
+  // 'dark' persistido sin haberlo elegido. La clave nueva solo existe si la
+  // persona cambió el modo a mano después de la migración.
+  try {
+    var m = localStorage.getItem('eco.mode.v2');
+    if (m === 'dark' || m === 'light') document.documentElement.setAttribute('data-mode', m);
+  } catch (_) {}
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>ECO - Escucha Ciudadana Online</title>
 <link rel="icon" type="image/svg+xml" href="/eco-prototype/icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Besley:ital,wght@0,400..800;1,400..600&family=Krub:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <!-- Capa de tokens del sistema de diseño — fuente única de verdad.
      Ver /design-system/index.html para el especimen vivo. -->
 <link rel="stylesheet" href="/eco-prototype/tokens.css" />
@@ -118,15 +129,15 @@
   .mono { font-family: var(--ff-mono); }
   .kbd {
     display: inline-flex; align-items: center; justify-content: center;
-    min-width: 18px; height: 18px; padding: 0 5px;
-    font-family: var(--ff-mono); font-size: var(--fs-overline); font-weight: 500;
+    min-width: 20px; height: 20px; padding: 0 5px;
+    font-family: var(--ff-mono); font-size: var(--fs-caption); font-weight: 500;
     background: var(--canvas-2); border: 1px solid var(--hairline);
     border-radius: 4px; color: var(--text-2);
   }
 
   /* focus */
   button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--action);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -324,14 +335,14 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-15);
-    padding: 3px var(--sp-2);
-    border-radius: var(--r-pill);
+    /* «Instrumento»: el juicio del dato en tipo oración, radio chico y relleno
+       tenue. Las mayúsculas espaciadas eran del eyebrow, no del dato. */
+    padding: 3px 9px;
+    border-radius: var(--r-sm);
     font-family: var(--ff-sans);
-    font-size: var(--fs-overline);
+    font-size: var(--fs-label);
     font-weight: var(--fw-semibold);
-    line-height: 1;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    line-height: 1.25;
     white-space: nowrap;
   }
 
@@ -339,24 +350,7 @@
   .pill-neg { background: var(--neg-bg); color: var(--neg); }
   /* pill-neu must read as classified, not as "empty". In dark mode the old
      canvas-2 background blended into cards and looked unclassified. */
-  .pill-neu {
-    /* El tinte sale del neutro del DATO (--neu), no de --text-2, que es el gris del
-       TEXTO secundario: la pill 'neutral' se pintaba con el mismo valor que los
-       rótulos de interfaz de su propia fila. Ahora el neutral de sentimiento se
-       mueve desde un solo token, igual que --pos/--neg en las dos pills de al lado.
-       Se conservan los porcentajes de mezcla (18/35): son los que la hacen leer
-       'clasificada' y no 'vacía'. */
-    background: color-mix(in oklab, var(--neu) 18%, transparent);
-    color: var(--neu);
-    border: 1px solid color-mix(in oklab, var(--neu) 35%, transparent);
-  }
-  [data-mode="dark"] .pill-neu {
-    /* Mismo cambio de fuente que arriba; el texto se queda en --text porque en
-       oscuro es lo que la separa de 'sin clasificar'. */
-    background: color-mix(in oklab, var(--neu) 22%, transparent);
-    color: var(--text);
-    border-color: color-mix(in oklab, var(--neu) 45%, transparent);
-  }
+  .pill-neu { background: var(--neu-bg); color: var(--neu); }
   .pill-warn { background: var(--warn-bg); color: var(--warn); }
   /* 'info' pintada con el naranja de marca era el bug: --accent-fill + --accent
      es el tratamiento del ESTADO de interacción (chip activo, término
@@ -403,8 +397,8 @@
        vez de recortarse. En táctil el token ya vale 44px (tokens.css:640), así
        que el objetivo de toque se cumple sin una regla aparte. Y 5/10px no están
        en la escala base-4: el mapa de migración los manda a --sp-15 / --sp-3. */
-    padding: var(--sp-15) var(--sp-3); min-height: var(--control-h);
-    border-radius: var(--r-pill);
+    padding: var(--sp-1) var(--sp-3); min-height: var(--control-h-sm);
+    border-radius: var(--r-md);
     /* --fs-caption (12px), no --fs-overline (11px). El token declara que bajo 12px
        sólo caben dos cosas: eyebrows en mayúsculas y ticks de eje densos. Un chip
        lleva el NOMBRE de un tópico, de una faceta o de un filtro — es contenido en
@@ -428,7 +422,15 @@
      primario): dos primarios iguales, uno navega y otro selecciona. Seleccionado
      = borde y texto del accent sobre relleno tenue (5.35:1 en oscuro, 4.58:1 en
      claro). El relleno saturado queda para la acción, que es una por vista. */
-  .chip.active { background: var(--accent-fill); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  /* Táctil: el chip sube a 44px. Va DESPUÉS de .chip porque aquí .chip fija su
+     propio min-height (--control-h-sm) y le ganaba a la regla táctil de arriba. */
+  @media (pointer: coarse) { .chip { min-height: 44px; } }
+  /* Seleccionado ≠ acción. El relleno grafito sólido es del botón primario; un
+     chip seleccionado lleva contorno de 2px (1 de borde + 1 de sombra interior)
+     y relleno tenue. Con relleno sólido «Señal del día» (chip) quedaba idéntico
+     a «Ver menciones» (botón) a 20px de distancia: el mismo defecto que ya se
+     había corregido con el naranja. Contorno 18:1 contra el chip (SC 1.4.11). */
+  .chip.active { background: var(--action-fill); border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); color: var(--text); font-weight: 600; }
 
   /* Grupo de chips que forman UN control (criterio, vista, orden, sentimiento).
      terms-cloud.js usaba la clase `.toggle-group` que NUNCA existió en el CSS:
@@ -457,24 +459,25 @@
     border-radius: var(--r);
     font-size: 13px; font-weight: 500;
     min-height: var(--ctl-h);
-    border: 1px solid var(--hairline);
+    border: 1px solid var(--hairline-strong);
     background: var(--control-bg);
     color: var(--text);
-    transition: all 0.15s var(--ease);
+    transition: all var(--dur-fast) var(--ease);
   }
   /* El hover tiene que ir hacia ARRIBA en la escala: con --canvas-2 (hundido)
      pasar el ratón oscurecía el botón. */
   .btn:hover { border-color: var(--hairline-strong); background: var(--control-bg-hover); }
   /* Primer plano oscuro sobre relleno saturado: #fff sobre --accent da 2.85:1
      (falla AA). Ver tokens.css §5 --on-*. */
-  .btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+  .btn-primary { background: var(--action); color: var(--on-fill); border-color: var(--action); }
+  .btn-primary:hover { background: var(--action-hover); border-color: var(--action-hover); }
+  .btn-primary:active { background: var(--action-active); }
 
   /* Acción acromática (header, sep-2026). Grafito en claro, invertida en oscuro:
      el color de la pantalla queda para el dato. Convive con .btn-primary (naranja)
      mientras el resto de las pantallas no migre a «Instrumento». */
-  .btn-action { background: var(--action); color: var(--on-action); border-color: var(--action); }
-  .btn-action:hover { background: color-mix(in oklab, var(--action) 88%, var(--canvas)); border-color: color-mix(in oklab, var(--action) 88%, var(--canvas)); }
+  .btn-action { background: var(--action); color: var(--on-fill); border-color: var(--action); }
+  .btn-action:hover { background: var(--action-hover); border-color: var(--action-hover); }
   .btn.on { border-color: var(--action); }
 
   /* Segmentado del período. Una sola caja con divisores: 4 opciones visibles, el
@@ -512,7 +515,7 @@
     transition: border-color 0.15s var(--ease);
   }
   .input:hover { border-color: var(--hairline-strong); }
-  .input:focus { outline: none; border-color: var(--accent); }
+  .input:focus { outline: none; border-color: var(--action); }
   /* Un <select> con estilo inline tiene que medir lo mismo que un .input a su
      lado: el piso de :where(select) son 24px (especificidad cero) y dejaba que
      cada sitio inventara su alto con padding. */
@@ -520,10 +523,10 @@
 
   /* Section title */
   .section-eyebrow {
-    font-family: var(--ff-sans);
+    font-family: var(--ff-mono);
     font-size: var(--fs-overline);
-    font-weight: var(--fw-semibold);
-    color: var(--text-2);
+    font-weight: var(--fw-medium);
+    color: var(--text-3);
     text-transform: uppercase;
     /* El token existe desde el día uno (tokens.css --tracking-overline: 0.09em) y
        no lo usaba nadie más que el splash: aquí había 0.1em y en screens.js 16
@@ -557,7 +560,7 @@
     background: var(--text);
     color: var(--canvas);
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: var(--fs-caption);
     border-radius: 4px;
     white-space: nowrap;
     z-index: 100;
@@ -637,7 +640,7 @@
   .chat-title-btn {
     display: flex; align-items: center; gap: 4px;
     background: var(--canvas-2); border: 1px solid var(--hairline);
-    border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 4px 10px; font-size: var(--fs-caption); font-weight: 600;
     color: var(--text); cursor: pointer; max-width: 240px;
   }
   .chat-list {
@@ -646,7 +649,7 @@
   }
   .chat-list-item {
     display: flex; align-items: center; gap: 8px;
-    padding: 9px 14px; font-size: 12px; color: var(--text-2);
+    padding: 9px 14px; font-size: var(--fs-caption); color: var(--text-2);
     cursor: pointer; border-bottom: 1px solid var(--hairline);
   }
   .chat-list-item:hover { background: var(--canvas); }
@@ -681,7 +684,7 @@
   .chat-input:focus { outline: none; border-color: var(--accent); }
   .chat-send {
     flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
-    border: none; background: var(--accent); color: #fff;
+    border: none; background: var(--action); color: var(--on-fill);
     display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
   .chat-send:disabled { opacity: 0.45; cursor: default; }
@@ -708,7 +711,10 @@
   }
 
   /* Text edit cursor in mocks */
-  .link { color: var(--accent); cursor: pointer; }
+  /* Enlace = subrayado, no color («Instrumento»): así el único cromo con croma
+     queda en la acción destructiva y el error de validación. */
+  .link { color: var(--text); cursor: pointer; text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 3px; }
+  .link:hover { text-decoration-thickness: 2px; text-decoration-color: var(--text); }
   .link:hover { text-decoration: underline; }
 
   /* Subtle divider */
@@ -899,11 +905,11 @@
     background: transparent;
     border: 1.5px solid var(--narr-tone, var(--text-3));
   }
-  .narrative-menu-count {
+  .narrative-menu-count { font-family: var(--ff-mono);
     font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--tracking-overline);
     padding: 0 2px;
   }
   .narrative-list {
@@ -989,7 +995,7 @@
   .narrative-empty-error { color: var(--neg); }
   .narrative-empty-small {
     padding: 16px;
-    font-size: 12px;
+    font-size: var(--fs-caption);
     color: var(--text-3);
     font-style: italic;
     text-align: center;
@@ -1029,8 +1035,8 @@
      estado daba 2.38:1 con el naranja de "Pico". */
   .narrative-status-pill {
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    text-transform: none;
+    letter-spacing: 0;
     color: var(--narr-tone, var(--text-2));
     background: color-mix(in oklab, var(--narr-tone, var(--text-2)) 14%, transparent);
     border: 1px solid color-mix(in oklab, var(--narr-tone, var(--text-2)) 32%, transparent);
@@ -1105,7 +1111,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    font-size: 11px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
     margin-bottom: 8px;
     flex-wrap: wrap;
@@ -1126,7 +1132,7 @@
      leyenda de color por un hairline para que se lean como metadatos. */
   .narrative-stream-scale {
     color: var(--text-2);
-    font-size: 10.5px;
+    font-size: var(--fs-caption);
     padding-left: 12px;
     border-left: 1px solid var(--hairline);
     font-variant-numeric: tabular-nums;
@@ -1182,11 +1188,11 @@
   }
   .narrative-grid-3 .narrative-panel,
   .narrative-grid-2 .narrative-panel { margin-bottom: 0; }
-  .narrative-panel-label {
+  .narrative-panel-label { font-family: var(--ff-mono);
     font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--tracking-overline);
     margin-bottom: 10px;
   }
   .narrative-sentiment-bar {
@@ -1202,7 +1208,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 11px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
   }
   .narrative-sentiment-row > span {
@@ -1217,7 +1223,7 @@
     border-radius: 50%;
   }
   .narrative-peak {
-    font-size: 11px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
     margin-top: 10px;
     padding-top: 8px;
@@ -1294,7 +1300,7 @@
   }
   .narrative-bar-count {
     color: var(--text-2);
-    font-size: 11px;
+    font-size: var(--fs-caption);
     font-variant-numeric: tabular-nums;
     min-width: 30px;
     text-align: right;
@@ -1310,19 +1316,19 @@
   .narrative-init-date,
   .narrative-init-meta {
     color: var(--text-3);
-    font-size: 11px;
+    font-size: var(--fs-caption);
     margin-top: 4px;
   }
   .narrative-init-snippet {
     color: var(--text-2);
-    font-size: 12px;
+    font-size: var(--fs-caption);
     margin-top: 8px;
     line-height: 1.5;
   }
   .narrative-link {
     display: inline-block;
     color: var(--accent);
-    font-size: 11px;
+    font-size: var(--fs-caption);
     text-decoration: none;
     margin-top: 6px;
   }
@@ -1447,11 +1453,11 @@
     padding: 16px 20px;
     border-bottom: 1px solid var(--hairline);
   }
-  .narrative-day-eyebrow {
+  .narrative-day-eyebrow { font-family: var(--ff-mono);
     font-size: var(--fs-overline);
     color: var(--text-3);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--tracking-overline);
   }
   .narrative-day-title {
     font-family: var(--ff-display);
@@ -1461,7 +1467,7 @@
     margin-top: 4px;
   }
   .narrative-day-count {
-    font-size: 12px;
+    font-size: var(--fs-caption);
     color: var(--text-2);
     margin-top: 4px;
   }
@@ -1486,13 +1492,13 @@
   .narrative-day-cluster {
     margin-bottom: 18px;
   }
-  .narrative-day-cluster-label {
+  .narrative-day-cluster-label { font-family: var(--ff-mono);
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: var(--fs-overline);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: var(--tracking-overline);
     color: var(--text-2);
     margin-bottom: 8px;
   }
@@ -1598,7 +1604,7 @@
     msg.textContent = message;
     const retry = document.createElement('button');
     retry.textContent = 'Reintentar';
-    retry.style.cssText = 'background:var(--hairline-strong);color:var(--text);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
+    retry.style.cssText = 'background:var(--hairline-strong);color:var(--text);border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;';
     retry.onclick = () => location.reload();
     banner.appendChild(msg);
     banner.appendChild(retry);
@@ -1723,7 +1729,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc81';
+        s.src = base + '/' + f + '?v=prodc82';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
