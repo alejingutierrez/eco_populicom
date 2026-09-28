@@ -29,6 +29,7 @@ import {
   renderSimpleAlertHtml,
   validateImageUrl,
   type CrisisAlertRenderData,
+  type SimpleAlertRenderData,
   type CrisisEditorialInputs,
   type CrisisEditorialOutput,
   type DailyAggregates,
@@ -555,6 +556,34 @@ function metricRuleDisplay(metric: MetricRuleConfig['metric'], value: number): s
   }
 }
 
+/**
+ * Medidor del correo de alerta de métrica: solo para las métricas con escala
+ * acotada (crisis y polarización 0–100 %, salud de marca 1–10). Las de nivel
+ * sin unidad pública (velocidad, anomalía de volumen) no llevan medidor.
+ */
+function metricGauge(
+  metric: MetricRuleConfig['metric'],
+  value: number,
+  threshold: number,
+  caption: string,
+  valueLabel: string,
+  thresholdLabel: string,
+): SimpleAlertRenderData['gauge'] {
+  const frac = (v: number) => {
+    switch (metric) {
+      case 'crisis': return v;          // crudo 0–1
+      case 'bhi': return v;             // crudo 0–1 (se muestra 1–10)
+      case 'polarization': return v / 100; // crudo 0–100
+      default: return null;
+    }
+  };
+  const f = frac(value);
+  const tf = frac(threshold);
+  if (f == null || tf == null) return null;
+  const [scaleStart, scaleEnd] = metric === 'bhi' ? ['1', '10'] : ['0%', '100%'];
+  return { valueLabel, caption, fraction: f, thresholdFraction: tf, scaleStart, scaleEnd, thresholdLabel: `umbral ${thresholdLabel}` };
+}
+
 function snapshotMetricValue(snap: SnapshotRow, metric: MetricRuleConfig['metric']): number | null {
   switch (metric) {
     case 'crisis': return snap.crisis_risk_score;
@@ -627,15 +656,17 @@ async function evaluateMetricThresholdAlerts(
       agencyShortName: agencyShortName(agency.slug),
       ruleName: rule.name,
       detectedAtLabel: formatShortTimestamp(new Date(), REPORT_TIMEZONE),
-      leadHtml: `La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${escHtml(valStr)}</strong> en la evaluación diaria del ${today}, cruzando el umbral configurado (${cmp} ${escHtml(thrStr)}).`,
+      variant: 'metric',
+      leadHtml: `La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${escHtml(valStr)}</strong> en la evaluación diaria del ${escHtml(formatShortDay(today))}, cruzando el umbral configurado (${cmp} ${escHtml(thrStr)}).`,
+      gauge: metricGauge(cfg.metric, value, cfg.threshold, `${label} · umbral ${cmp} ${thrStr}`, valStr, thrStr),
       facts: [
         { label: 'Métrica', value: label },
-        { label: 'Valor actual', value: valStr, color: '#C8462F' },
-        { label: 'Umbral configurado', value: `${cmp} ${thrStr}` },
+        { label: 'Valor actual', value: valStr, tone: 'warn', mono: true },
+        { label: 'Umbral configurado', value: `${cmp} ${thrStr}`, mono: true },
         ...(LEVEL_SCALE_METRICS.has(cfg.metric)
           ? [{ label: 'Referencia de la escala', value: '0 = nivel usual' }]
           : []),
-        { label: 'Día evaluado', value: today },
+        { label: 'Día evaluado', value: formatShortDay(today), mono: true },
       ],
       dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
     });

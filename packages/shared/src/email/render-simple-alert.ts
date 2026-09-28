@@ -3,20 +3,27 @@
  * (eco-alerts: sentimiento negativo / keyword / pico de volumen) y las
  * alertas de umbral de métrica (eco-metrics-calculator: Crisis/BHI/…).
  *
- * Reemplaza (jul 2026) el HTML inline sin marca que enviaban ambos lambdas.
- * La alerta de CRISIS editorial tiene su propio template (render-crisis-alert)
+ * Cromo «Instrumento» desde sep 2026 (camino A del rediseño de correos). La
+ * alerta de CRISIS editorial tiene su propio template (render-crisis-alert)
  * porque lleva narrativa LLM; este es el formato corto y factual: qué regla
- * disparó, los datos clave en números (formato del dashboard) y, si aplica,
- * la mención que la detonó.
+ * disparó, un medidor contra el umbral cuando la métrica tiene escala, la
+ * mención que la detonó (con su imagen si trae) y los datos clave en números.
  *
- * Identidad: asunto "[Alerta] …", barra y badge ámbar, footer "alerta".
+ * Identidad: asunto "[Alerta] …", etiqueta y filete ámbar (el estado es el
+ * dato: algo cruzó un umbral).
  */
 
+import { esc } from './chrome';
 import {
-  EMAIL_COLORS as COLORS,
-  esc,
-  emailDocument,
-} from './chrome';
+  INSTRUMENT as T,
+  FONT_MONO,
+  FONT_SANS,
+  actionRow,
+  instrumentDocument,
+  sectionLabel,
+  sectionRow,
+  swatch,
+} from './instrument';
 
 export interface SimpleAlertRenderData {
   agencyName: string;
@@ -25,118 +32,174 @@ export interface SimpleAlertRenderData {
   ruleName: string;
   /** Momento de detección, ej. "lun 7 jul · 6:04 a.m. AST". */
   detectedAtLabel: string;
+  /** Qué disparó la alerta: una regla por mención/volumen o una métrica. Default 'rule'. */
+  variant?: 'rule' | 'metric';
   /** Párrafo principal: qué pasó, en lenguaje claro. HTML inline permitido. */
   leadHtml: string;
   /**
    * Datos clave como filas etiqueta → valor. Los valores numéricos van en el
    * formato del dashboard ("59%", "5.9 / 10") — nunca niveles verbales.
-   * `color` opcional para resaltar el valor (hex).
+   * `tone` resalta el valor cuando el color ES el dato (el sentimiento, el
+   * valor que cruzó). `color` es legado (hex del cromo viejo): se lee como
+   * `tone: 'neg'`.
    */
-  facts: Array<{ label: string; value: string; color?: string }>;
+  facts: Array<{
+    label: string;
+    value: string;
+    tone?: 'neg' | 'warn' | 'pos';
+    /** Muestra un cuadro del color del tono antes del valor (sentimiento). */
+    swatch?: boolean;
+    /** Valor en mono (cifras, umbrales, fechas). */
+    mono?: boolean;
+    color?: string;
+  }>;
+  /**
+   * Medidor del valor contra el umbral, para métricas con escala acotada
+   * (crisis 0–100 %, salud de marca 1–10, polarización 0–100). `fraction` y
+   * `thresholdFraction` en 0–1 sobre esa escala.
+   */
+  gauge?: {
+    valueLabel: string;
+    caption: string;
+    fraction: number;
+    thresholdFraction: number;
+    scaleStart: string;
+    scaleEnd: string;
+    thresholdLabel: string;
+  } | null;
   /** Mención que detonó la alerta (solo alertas de regla por mención). */
   mention?: {
     sourceLabel: string;
     title: string | null;
     snippet: string;
     url: string | null;
+    /** "7 jul, 9:38 a.m." (opcional). */
+    publishedAtLabel?: string | null;
+    /** Imagen adjunta del post o foto de la nota (opcional). */
+    imageUrl?: string | null;
   } | null;
-  /** Deeplink al dashboard (opcional — se omite el CTA si falta). */
+  /** Deeplink al dashboard (opcional — se omite la acción si falta). */
   dashboardUrl?: string | null;
 }
 
-export function renderSimpleAlertHtml(data: SimpleAlertRenderData): string {
-  const factsRows = data.facts.map((f, i, arr) => {
-    const border = i === arr.length - 1 ? '' : `border-bottom:1px solid ${COLORS.borderSoft};`;
-    const valueColor = f.color ?? COLORS.ink;
-    return `
-      <tr>
-        <td class="force-text-soft" style="padding:12px 16px;font-size:11px;font-weight:700;color:${COLORS.inkMute};letter-spacing:0.08em;text-transform:uppercase;${border}width:45%;">${esc(f.label)}</td>
-        <td align="right" class="force-text-dark" style="padding:12px 16px;font-size:15px;font-weight:700;color:${valueColor};${border}white-space:nowrap;">${esc(f.value)}</td>
-      </tr>`;
-  }).join('');
+function toneHex(tone: 'neg' | 'warn' | 'pos' | undefined, legacyColor?: string): string | null {
+  if (tone === 'neg') return T.neg;
+  if (tone === 'warn') return T.warn;
+  if (tone === 'pos') return T.pos;
+  return legacyColor ? T.neg : null;
+}
 
-  const mentionBlock = data.mention
-    ? `
-          <tr>
-            <td class="px-32" style="padding:6px 32px 8px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.elevado};margin-bottom:10px;">Mención que la detonó</div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;">
-                <tr>
-                  <td style="padding:14px 16px;">
-                    <div class="force-text-soft" style="font-size:10.5px;color:${COLORS.inkMute};letter-spacing:0.05em;text-transform:uppercase;font-weight:700;margin-bottom:6px;">
-                      ${esc(data.mention.sourceLabel)}
-                    </div>
-                    ${data.mention.title
-                      ? `<div class="force-text-dark" style="font-size:14px;font-weight:700;color:${COLORS.ink};line-height:1.4;margin-bottom:4px;">${esc(data.mention.title)}</div>`
-                      : ''}
-                    <div class="force-text-dark" style="font-size:13px;line-height:1.55;color:${COLORS.inkSoft};">
-                      ${esc(data.mention.snippet)}
-                    </div>
-                    ${data.mention.url
-                      ? `<div style="margin-top:8px;"><a href="${esc(data.mention.url)}" style="color:${COLORS.brand};text-decoration:none;font-size:11.5px;font-weight:600;">Ver mención original →</a></div>`
-                      : ''}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`
-    : '';
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
 
-  const ctaBlock = data.dashboardUrl
-    ? `
-          <tr>
-            <td class="px-32" align="center" style="padding:16px 32px 24px 32px;">
+function renderGauge(g: NonNullable<SimpleAlertRenderData['gauge']>): string {
+  const pct = Math.round(clamp01(g.fraction) * 100);
+  const thr = Math.round(clamp01(g.thresholdFraction) * 100);
+  // Barra en tabla: relleno ámbar hasta el valor; la marca del umbral es una
+  // celda grafito de 2 px en su posición (Outlook no posiciona en absoluto).
+  const cells: string[] = [];
+  const seg = (w: number, color: string) =>
+    w > 0 ? `<td width="${w}%" height="12" bgcolor="${color}" style="height:12px;background:${color};background-color:${color};font-size:0;line-height:0;">&nbsp;</td>` : '';
+  if (thr <= pct) {
+    cells.push(seg(thr, T.warn), `<td width="2" bgcolor="${T.ink}" style="width:2px;background:${T.ink};font-size:0;line-height:0;">&nbsp;</td>`, seg(pct - thr, T.warn), seg(100 - pct, T.page));
+  } else {
+    cells.push(seg(pct, T.warn), seg(thr - pct, T.page), `<td width="2" bgcolor="${T.ink}" style="width:2px;background:${T.ink};font-size:0;line-height:0;">&nbsp;</td>`, seg(100 - thr, T.page));
+  }
+  return sectionRow(`
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td bgcolor="${COLORS.ink}" style="background:${COLORS.ink};background-color:${COLORS.ink};border-radius:6px;">
-                    <a href="${esc(data.dashboardUrl)}" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      Ver detalle en el dashboard →
-                    </a>
-                  </td>
+                  <td valign="baseline" style="font-family:${FONT_MONO};font-size:48px;font-weight:500;line-height:1;color:${T.warn};padding-right:14px;white-space:nowrap;">${esc(g.valueLabel)}</td>
+                  <td valign="baseline" style="font-size:14px;line-height:1.4;color:${T.text2};">${esc(g.caption)}</td>
                 </tr>
               </table>
-            </td>
-          </tr>`
-    : `
-          <tr>
-            <td style="padding:0 0 16px 0;font-size:0;line-height:0;">&nbsp;</td>
-          </tr>`;
-
-  const contentRows = `
-          <!-- HERO -->
-          <tr>
-            <td class="px-32" style="padding:24px 32px 18px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:${COLORS.inkMute};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
-                ${esc(data.agencyShortName)} · ${esc(data.agencyName)} · Alerta automática
-              </div>
-              <h1 class="headline force-text-dark" style="margin:0 0 10px 0;color:${COLORS.ink};font-size:23px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">
-                ${esc(data.ruleName)}
-              </h1>
-              <div class="force-text-mute" style="color:${COLORS.inkSoft};font-size:13px;line-height:1.55;">
-                Detectada ${esc(data.detectedAtLabel)}
-              </div>
-              <p class="force-text-dark" style="margin:14px 0 0 0;font-size:14.5px;line-height:1.6;color:${COLORS.ink};">
-                ${data.leadHtml}
-              </p>
-            </td>
-          </tr>
-
-          <!-- DATOS CLAVE -->
-          <tr>
-            <td class="px-32" style="padding:6px 32px 16px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:${COLORS.elevado};margin-bottom:10px;">Datos clave</div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${COLORS.surface}" style="background:${COLORS.surface};background-color:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:8px;overflow:hidden;">
-                ${factsRows}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;margin-top:16px;border:1px solid ${T.line};">
+                <tr>${cells.join('')}</tr>
               </table>
-            </td>
-          </tr>
-${mentionBlock}
-${ctaBlock}`;
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;margin-top:6px;">
+                <tr>
+                  <td width="${Math.max(thr, 1)}%" align="left" style="font-family:${FONT_MONO};font-size:11px;color:${T.text2};white-space:nowrap;">${esc(g.scaleStart)}</td>
+                  <td align="left" style="font-family:${FONT_MONO};font-size:11px;color:${T.ink};white-space:nowrap;">${esc(g.thresholdLabel)}</td>
+                  <td align="right" width="48" style="width:48px;font-family:${FONT_MONO};font-size:11px;color:${T.text2};white-space:nowrap;">${esc(g.scaleEnd)}</td>
+                </tr>
+              </table>`);
+}
 
-  return emailDocument({
+/**
+ * La mención que detonó la alerta. La imagen va como miniatura 88×88 junto al
+ * texto y no a ancho completo: la media de redes que resuelve el processor
+ * suele medir ~130 px y estirada saldría borrosa. En redes el título suele
+ * ser el inicio del mismo texto; si lo repite, se omite.
+ */
+function renderMention(m: NonNullable<SimpleAlertRenderData['mention']>): string {
+  const meta = [m.sourceLabel, m.publishedAtLabel].filter(Boolean).join(' · ');
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const title = m.title && !norm(m.snippet).startsWith(norm(m.title).replace(/…$/, '').slice(0, 60)) ? m.title : null;
+  const thumb = m.imageUrl
+    ? `<td valign="top" width="88" style="width:88px;padding:0 14px 0 0;"><img src="${esc(m.imageUrl)}" alt="" width="88" height="88" style="display:block;width:88px;height:88px;object-fit:cover;border:0;background:${T.page};"></td>`
+    : '';
+  return sectionRow(`
+              ${sectionLabel('Mención que la detonó')}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${T.subtle}" style="background:${T.subtle};background-color:${T.subtle};border:1px solid ${T.line};">
+                <tr>
+                  <td style="padding:16px;">
+                    <div style="font-family:${FONT_MONO};font-size:12px;line-height:1.4;color:${T.text2};">${esc(meta)}</div>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+                      <tr>
+                        ${thumb}
+                        <td valign="top">
+                          ${title ? `<div style="font-size:15px;font-weight:600;line-height:1.4;color:${T.ink};margin-bottom:6px;">${esc(title)}</div>` : ''}
+                          <div style="font-size:15px;line-height:1.55;color:${T.ink};">${esc(m.snippet)}</div>
+                        </td>
+                      </tr>
+                    </table>
+                    ${m.url ? `<div style="margin-top:10px;"><a href="${esc(m.url)}" style="font-size:13px;color:${T.ink};text-decoration:underline;text-decoration-color:${T.lineStrong};">Ver mención original</a></div>` : ''}
+                  </td>
+                </tr>
+              </table>`);
+}
+
+function renderFacts(facts: SimpleAlertRenderData['facts']): string {
+  if (!facts.length) return '';
+  const rows = facts.map((f, i) => {
+    const b = i === facts.length - 1 ? '' : `border-bottom:1px solid ${T.line};`;
+    const color = toneHex(f.tone, f.color);
+    const sw = f.swatch && color ? swatch(color) : '';
+    const valueStyle = `${f.mono ? `font-family:${FONT_MONO};` : ''}${color && !f.swatch ? `color:${color};` : `color:${T.ink};`}`;
+    return `<tr>
+                  <td class="px-32" valign="top" style="padding:12px 16px 12px 32px;font-size:14px;color:${T.text2};${b}width:40%;">${esc(f.label)}</td>
+                  <td class="px-32" valign="top" align="right" style="padding:12px 32px 12px 16px;font-size:14px;line-height:1.45;${b}"><span style="${valueStyle}">${sw}${esc(f.value)}</span></td>
+                </tr>`;
+  }).join('');
+  return `
+          <tr>
+            <td style="padding:0;border-bottom:1px solid ${T.line};">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>
+            </td>
+          </tr>`;
+}
+
+export function renderSimpleAlertHtml(data: SimpleAlertRenderData): string {
+  const variant = data.variant ?? 'rule';
+  const contentRows = [
+    sectionRow(`<p style="margin:0;font-family:${FONT_SANS};font-size:16px;line-height:1.55;color:${T.ink2};">${data.leadHtml}</p>`, { padding: '24px 32px' }),
+    data.gauge ? renderGauge(data.gauge) : '',
+    data.mention ? renderMention(data.mention) : '',
+    renderFacts(data.facts),
+    data.dashboardUrl ? actionRow(data.dashboardUrl, 'Ver en el dashboard') : '',
+  ].filter(Boolean).join('\n');
+
+  return instrumentDocument({
     title: `Alerta ECO · ${data.agencyShortName} · ${data.ruleName}`,
     preheader: `Alerta · ${data.agencyShortName} · ${data.ruleName} — detectada ${data.detectedAtLabel}`,
     kind: 'alert',
+    tagText: variant === 'metric' ? 'ALERTA · MÉTRICA' : 'ALERTA · REGLA',
+    heading: {
+      kicker: `${data.agencyShortName} · Alerta automática`,
+      title: data.ruleName,
+      meta: `Detectada ${data.detectedAtLabel}`,
+    },
     contentRows,
   });
 }
