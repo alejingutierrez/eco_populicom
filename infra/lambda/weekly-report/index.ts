@@ -54,6 +54,10 @@ import {
   formatMetric,
   formatDelta,
   formatVelocity,
+  fetchOgImage,
+  isArticlePageType,
+  isGenericImageUrl,
+  validateImageUrl,
   type EmailMetric,
   type MentionSample,
   type WeeklyAggregates,
@@ -468,8 +472,11 @@ async function buildDailyReportEmail(
   const samples = await loadSamples(client, agency.id, startDate, endDate);
   const todaySamples = await loadTodaySamples(client, agency.id, endDate);
 
-  const insights = await generateInsights(aggregates, samples);
-  const dailySummary = await generateDailySummary(aggregates, todaySamples, endDate);
+  const [insights, dailySummary, heroImage] = await Promise.all([
+    generateInsights(aggregates, samples),
+    generateDailySummary(aggregates, todaySamples, endDate),
+    loadHeroImage(client, agency.id, endDate, endDate),
+  ]);
 
   const renderData: DailyReportRenderData = {
     agencyName: agency.name,
@@ -487,10 +494,11 @@ async function buildDailyReportEmail(
       neutral: formatDelta(winCur.totals.neutral, winPrev.totals.neutral, { kind: 'percent', decimals: 0 }),
       positive: formatDelta(winCur.totals.positive, winPrev.totals.positive, { kind: 'percent', decimals: 0 }),
     },
-    chartImageUrl: buildChartImageUrl(sentimentReport.dailySeries),
+    // La tendencia se dibuja con tablas HTML desde dailySeries (sin PNG).
     dailySeries: sentimentReport.dailySeries,
     topicsTable: sentimentReport.topicsTable,
     insights,
+    heroImage,
     dailySummary: {
       label: `Resumen del día · ${formatShortDay(endDate)}`,
       headline: dailySummary.headline,
@@ -504,11 +512,14 @@ async function buildDailyReportEmail(
     overviewUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
+  // El asunto cuenta el hecho del día (el titular del resumen); las cifras
+  // viajan en la vista previa del inbox. Sin titular, el asunto de siempre.
   const todayYmd = ymdInTimeZone(nowUtc, REPORT_TIMEZONE);
+  const headline = (dailySummary.headline ?? '').trim();
   const subject = buildSubject(
     'Diario',
     agencyShortName(agency.slug),
-    `${fullDayEs(todayYmd)} · ${fmtIntEs(sentimentReport.totals.total)} menciones`,
+    headline || `${fullDayEs(todayYmd)} · ${fmtIntEs(sentimentReport.totals.total)} menciones`,
   );
 
   return {
@@ -690,10 +701,15 @@ async function buildWeeklySummaryEmail(
   // Menciones con mayor engagement de la semana — aterrizan el reporte en
   // contenido concreto. Se toman de las mismas muestras que van al LLM
   // (pertinencia alta/media, ya ordenadas por engagement por sentimiento).
-  const topMentions = [...samples.negative, ...samples.neutral, ...samples.positive]
+  const topSamples = [...samples.negative, ...samples.neutral, ...samples.positive]
     .filter((m) => typeof m.engagement === 'number' && m.engagement > 0)
     .sort((a, b) => (b.engagement ?? 0) - (a.engagement ?? 0))
-    .slice(0, 5)
+    .slice(0, 5);
+  const [thumbs, heroImage] = await Promise.all([
+    loadMentionThumbnails(client, topSamples.map((m) => m.id)),
+    loadHeroImage(client, agency.id, startYmd, endYmd),
+  ]);
+  const topMentions = topSamples
     .map((m) => ({
       sourceLabel: m.source ?? m.pageType ?? 'Fuente desconocida',
       title: null,
@@ -702,6 +718,7 @@ async function buildWeeklySummaryEmail(
       engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
       publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
       tone: m.sentiment,
+      imageUrl: thumbs.get(m.id) ?? null,
     }));
 
   const ai = await generateWeeklyComparison({
@@ -730,7 +747,17 @@ async function buildWeeklySummaryEmail(
       positive: formatDelta(totals.positive, prevTotals.positive, { kind: 'percent', decimals: 0 }),
     },
     metrics,
-    chartImageUrl: buildWeeklyOverlayChartUrl(curReport, prevReport),
+    // Ritmo diario en tablas HTML: cada día junto al mismo día de la semana
+    // anterior (mismo índice: ambas ventanas son de 7 días consecutivos).
+    dailyCompare: curReport.dailySeries.map((d, i) => {
+      const p = prevReport.dailySeries[i];
+      return {
+        label: d.dayLabel,
+        cur: d.negative + d.neutral + d.positive,
+        prev: p ? p.negative + p.neutral + p.positive : 0,
+      };
+    }),
+    heroImage,
     weeklyHeadline: ai.headline,
     weeklySummary: ai.summary,
     highlights: ai.highlights,
@@ -741,7 +768,10 @@ async function buildWeeklySummaryEmail(
     dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
-  const subject = buildSubject('Semanal', agencyShortName(agency.slug), `semana ${weekLabel}`);
+  // Como en el diario: el asunto es el titular de la semana; las cifras van
+  // en la vista previa del inbox. Sin titular, el asunto de siempre.
+  const weeklyHeadline = (ai.headline ?? '').trim();
+  const subject = buildSubject('Semanal', agencyShortName(agency.slug), weeklyHeadline || `semana ${weekLabel}`);
 
   return {
     html: renderWeeklySummaryHtml(renderData),
@@ -930,10 +960,15 @@ async function buildAppointmentEmail(
   const windowLabel = formatPeriodLabel(startYmd, endYmd);
   const baselineLabel = formatPeriodLabel(baselineStart, baselineEnd);
 
-  const topMentions = [...samples.negative, ...samples.neutral, ...samples.positive]
+  const topSamples = [...samples.negative, ...samples.neutral, ...samples.positive]
     .filter((m) => typeof m.engagement === 'number' && m.engagement > 0)
     .sort((a, b) => (b.engagement ?? 0) - (a.engagement ?? 0))
-    .slice(0, 5)
+    .slice(0, 5);
+  const [thumbs, heroImage] = await Promise.all([
+    loadMentionThumbnails(client, topSamples.map((m) => m.id)),
+    loadHeroImage(client, agency.id, startYmd, endYmd),
+  ]);
+  const topMentions = topSamples
     .map((m) => ({
       sourceLabel: m.source ?? m.pageType ?? 'Fuente desconocida',
       title: null,
@@ -942,6 +977,7 @@ async function buildAppointmentEmail(
       engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
       publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
       tone: m.sentiment,
+      imageUrl: thumbs.get(m.id) ?? null,
     }));
 
   const ai = await generateAppointmentSummary({
@@ -986,7 +1022,9 @@ async function buildAppointmentEmail(
       positive: formatDelta(totals.positive, baselineTotals.positive, { kind: 'percent', decimals: 0 }),
     },
     metrics,
-    chartImageUrl: buildChartImageUrl(curReport.dailySeries),
+    // Ritmo diario en tablas HTML; el último día es HOY (parcial).
+    dailySeries: curReport.dailySeries,
+    heroImage,
     headline: ai.headline,
     summary: ai.summary,
     reception: ai.reception,
@@ -1000,10 +1038,15 @@ async function buildAppointmentEmail(
     dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
+  // Como en el diario y el semanal: el asunto cuenta cómo cayó (titular del
+  // LLM) y el volumen va en la vista previa. Sin titular, el de siempre.
+  const appointmentHeadline = (ai.headline ?? '').trim();
   const subject = buildSubject(
     'Nombramiento',
     agencyShortName(agency.slug),
-    `${ap.person_name} · ${fmtIntEs(totals.total)} menciones desde el ${formatShortDay(startYmd)}`,
+    appointmentHeadline
+      ? `${ap.person_name}: ${appointmentHeadline}`
+      : `${ap.person_name} · ${fmtIntEs(totals.total)} menciones desde el ${formatShortDay(startYmd)}`,
   );
 
   return {
@@ -1461,6 +1504,91 @@ async function loadTodaySamples(client: any, agencyId: string, todayYmd: string)
   }));
 }
 
+/**
+ * Foto de portada de un correo: la noticia/blog/foro del rango (ayer en el
+ * diario, la semana en el semanal) con pertinencia alta y más engagement que
+ * tenga una imagen utilizable. Mismas dos reglas que la
+ * foto del correo de crisis (#120): el og:image SOLO se pide a páginas de
+ * tipo artículo —a un visitante sin sesión Instagram/Facebook/X le sirven su
+ * logo— y se descartan las imágenes genéricas. Best-effort: 3s por URL; si
+ * ninguna candidata tiene foto, el bloque no se emite.
+ */
+async function loadHeroImage(
+  client: any,
+  agencyId: string,
+  startYmd: string,
+  endYmd: string,
+): Promise<{ url: string; caption: string } | null> {
+  try {
+    const r = await client.query(
+      `SELECT m.id, m.url, m.page_type, m.resolved_image_url, m.content_source_name, m.published_at
+         FROM mentions m
+        WHERE m.agency_id = $1
+          AND m.is_duplicate = false
+          AND m.nlp_pertinence IN ('alta','media')
+          AND m.published_at >= ($2::date)
+          AND m.published_at <  (($3::date) + INTERVAL '1 day')
+          AND lower(m.page_type) IN ('news','blog','forum')
+        ORDER BY (m.nlp_pertinence = 'alta') DESC, COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+        LIMIT 5`,
+      [agencyId, startYmd, endYmd],
+    );
+    // El filtro va en SQL, no después del LIMIT: las redes dominan el
+    // engagement y las noticias (engagement ~0) quedaban fuera del corte.
+    const candidates = (r.rows as any[]).filter((row) => isArticlePageType(row.page_type));
+    const images = await Promise.all(candidates.map(async (row) => {
+      const stored: string | null = row.resolved_image_url;
+      if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored)) {
+        return stored;
+      }
+      return row.url ? fetchOgImage(row.url) : null;
+    }).map((p) => p.catch(() => null)));
+    const idx = images.findIndex((img) => img != null);
+    if (idx < 0) return null;
+    const row = candidates[idx];
+    // content_source_name es genérico ("Online News"): el pie nombra el medio.
+    let source: string = row.content_source_name ?? 'fuente';
+    try {
+      if (row.url) source = new URL(row.url).hostname.replace(/^www\./, '');
+    } catch { /* URL inválida: queda el nombre de la fuente */ }
+    const day = formatShortDay(ymdInTimeZone(new Date(row.published_at), REPORT_TIMEZONE));
+    return { url: images[idx]!, caption: `Foto: ${source} · ${day}` };
+  } catch (err) {
+    console.warn('[report] hero image lookup failed', err);
+    return null;
+  }
+}
+
+/**
+ * Miniaturas de "Lo más resonante": la imagen del post que el processor ya
+ * resolvió (`resolved_image_url`). Para noticias/blogs, si no hay, el
+ * og:image de la nota; para redes NUNCA el og:image de la plataforma (sirve
+ * su logo a un visitante sin sesión). Best-effort, 3s por URL.
+ */
+async function loadMentionThumbnails(client: any, ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  try {
+    const r = await client.query(
+      `SELECT id, url, page_type, resolved_image_url FROM mentions WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+    await Promise.all((r.rows as any[]).map(async (row) => {
+      const stored: string | null = row.resolved_image_url;
+      let img: string | null = null;
+      if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored)) {
+        img = stored;
+      } else if (isArticlePageType(row.page_type) && row.url) {
+        img = await fetchOgImage(row.url);
+      }
+      if (img) out.set(row.id, img);
+    }).map((p) => p.catch(() => undefined)));
+  } catch (err) {
+    console.warn('[report] thumbnails lookup failed', err);
+  }
+  return out;
+}
+
 // ============================================================
 // Bedrock
 // ============================================================
@@ -1699,97 +1827,6 @@ async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<
   } catch (err) {
     console.error('[weekly-report] failed to write send log:', err);
   }
-}
-
-// ============================================================
-// Chart images (QuickChart.io)
-// ============================================================
-
-function buildChartImageUrl(
-  series: Array<{ date: string; dayLabel: string; negative: number; neutral: number; positive: number }>,
-): string {
-  const labels = series.map((d) => d.dayLabel);
-  const neg = series.map((d) => d.negative);
-  const neu = series.map((d) => d.neutral);
-  const pos = series.map((d) => d.positive);
-
-  // El template HTML del correo ya muestra su propia leyenda; aquí desactivamos
-  // la del chart para no duplicar. Paleta alineada con el chrome de email.
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Negativo', data: neg, borderColor: '#C8462F', backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Neutral', data: neu, borderColor: '#6B7280', backgroundColor: 'rgba(107,114,128,0.06)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#6B7280',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-        { label: 'Positivo', data: pos, borderColor: '#1F8A47', backgroundColor: 'rgba(31,138,71,0)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#1F8A47',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: {
-        legend: { display: false },
-        title: { display: false },
-      },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  // version=4 fuerza Chart.js v4 en QuickChart; en v2 (default) los toggles
-  // de plugins.legend no se respetan y la leyenda se renderiza igual.
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
-}
-
-/**
- * Chart del semanal: volumen TOTAL diario de esta semana (línea sólida azul)
- * superpuesto al de la semana anterior (línea punteada gris), alineados por
- * posición (día 1 de cada semana = mismo día de la semana).
- */
-function buildWeeklyOverlayChartUrl(cur: SentimentReport, prev: SentimentReport): string {
-  if (!cur.dailySeries.length) return '';
-  const labels = cur.dailySeries.map((d) => d.dayLabel);
-  const total = (d: { negative: number; neutral: number; positive: number }) => d.negative + d.neutral + d.positive;
-  const curData = cur.dailySeries.map(total);
-  const prevData = prev.dailySeries.map(total);
-
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Esta semana', data: curData, borderColor: '#0A7EA4', backgroundColor: 'rgba(10,126,164,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#0A7EA4',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Semana anterior', data: prevData, borderColor: '#8A93A0', backgroundColor: 'rgba(138,147,160,0)',
-          borderWidth: 2, borderDash: [6, 4], pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#8A93A0',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: {
-        legend: { display: false },
-        title: { display: false },
-      },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
 function agencyShortName(slug: string): string {

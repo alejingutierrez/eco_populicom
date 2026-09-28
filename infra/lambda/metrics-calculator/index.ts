@@ -29,6 +29,7 @@ import {
   renderSimpleAlertHtml,
   validateImageUrl,
   type CrisisAlertRenderData,
+  type SimpleAlertRenderData,
   type CrisisEditorialInputs,
   type CrisisEditorialOutput,
   type DailyAggregates,
@@ -555,6 +556,34 @@ function metricRuleDisplay(metric: MetricRuleConfig['metric'], value: number): s
   }
 }
 
+/**
+ * Medidor del correo de alerta de métrica: solo para las métricas con escala
+ * acotada (crisis y polarización 0–100 %, salud de marca 1–10). Las de nivel
+ * sin unidad pública (velocidad, anomalía de volumen) no llevan medidor.
+ */
+function metricGauge(
+  metric: MetricRuleConfig['metric'],
+  value: number,
+  threshold: number,
+  caption: string,
+  valueLabel: string,
+  thresholdLabel: string,
+): SimpleAlertRenderData['gauge'] {
+  const frac = (v: number) => {
+    switch (metric) {
+      case 'crisis': return v;          // crudo 0–1
+      case 'bhi': return v;             // crudo 0–1 (se muestra 1–10)
+      case 'polarization': return v / 100; // crudo 0–100
+      default: return null;
+    }
+  };
+  const f = frac(value);
+  const tf = frac(threshold);
+  if (f == null || tf == null) return null;
+  const [scaleStart, scaleEnd] = metric === 'bhi' ? ['1', '10'] : ['0%', '100%'];
+  return { valueLabel, caption, fraction: f, thresholdFraction: tf, scaleStart, scaleEnd, thresholdLabel: `umbral ${thresholdLabel}` };
+}
+
 function snapshotMetricValue(snap: SnapshotRow, metric: MetricRuleConfig['metric']): number | null {
   switch (metric) {
     case 'crisis': return snap.crisis_risk_score;
@@ -627,15 +656,17 @@ async function evaluateMetricThresholdAlerts(
       agencyShortName: agencyShortName(agency.slug),
       ruleName: rule.name,
       detectedAtLabel: formatShortTimestamp(new Date(), REPORT_TIMEZONE),
-      leadHtml: `La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${escHtml(valStr)}</strong> en la evaluación diaria del ${today}, cruzando el umbral configurado (${cmp} ${escHtml(thrStr)}).`,
+      variant: 'metric',
+      leadHtml: `La métrica <strong>${escHtml(label)}</strong> alcanzó <strong>${escHtml(valStr)}</strong> en la evaluación diaria del ${escHtml(formatShortDay(today))}, cruzando el umbral configurado (${cmp} ${escHtml(thrStr)}).`,
+      gauge: metricGauge(cfg.metric, value, cfg.threshold, `${label} · umbral ${cmp} ${thrStr}`, valStr, thrStr),
       facts: [
         { label: 'Métrica', value: label },
-        { label: 'Valor actual', value: valStr, color: '#C8462F' },
-        { label: 'Umbral configurado', value: `${cmp} ${thrStr}` },
+        { label: 'Valor actual', value: valStr, tone: 'warn', mono: true },
+        { label: 'Umbral configurado', value: `${cmp} ${thrStr}`, mono: true },
         ...(LEVEL_SCALE_METRICS.has(cfg.metric)
           ? [{ label: 'Referencia de la escala', value: '0 = nivel usual' }]
           : []),
-        { label: 'Día evaluado', value: today },
+        { label: 'Día evaluado', value: formatShortDay(today), mono: true },
       ],
       dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
     });
@@ -971,8 +1002,8 @@ async function fireCrisisAlert(
     return p;
   };
   const heroCandidates = sampleRows.filter((r) => isArticlePageType(r.page_type)).slice(0, 8);
-  const [trendImageUrl, ogImages, heroImages] = await Promise.all([
-    buildScoreTrendUrl(client, agency.id, today),
+  const [scoreTrend, ogImages, heroImages] = await Promise.all([
+    loadScoreTrend(client, agency.id, today),
     Promise.all(top6.map(imageForRow)),
     Promise.all(heroCandidates.map(imageForRow)),
   ]);
@@ -1037,7 +1068,9 @@ async function fireCrisisAlert(
       publishedAtLabel: formatShortTimestamp(r.published_at, REPORT_TIMEZONE),
       imageUrl: ogImages[i] ?? null,
     })),
-    scoreTrendImageUrl: trendImageUrl,
+    scoreTrend,
+    // Umbral de la banda ALERTA en escala pública (el de la línea del gráfico).
+    scoreThreshold: 40,
     heroImageUrl,
     heroImageCaption,
     editorial,
@@ -1250,10 +1283,15 @@ async function generateCrisisEditorial(inputs: CrisisEditorialInputs): Promise<C
 }
 
 // ============================================================
-// Trend chart (QuickChart)
+// Evolución del Crisis Score (datos para el gráfico en tablas HTML)
 // ============================================================
 
-async function buildScoreTrendUrl(client: any, agencyId: string, today: string): Promise<string> {
+/**
+ * Crisis Score de los últimos 14 días en escala pública 0–100 (la misma de
+ * las tarjetas del correo: 56%, no el 0–1 interno), del más viejo al más
+ * nuevo. El correo lo dibuja con tablas HTML; con menos de 2 puntos se oculta.
+ */
+async function loadScoreTrend(client: any, agencyId: string, today: string): Promise<Array<{ label: string; score: number }>> {
   const result = await client.query(
     `SELECT to_char(date, 'YYYY-MM-DD') AS date, crisis_risk_score
        FROM daily_metric_snapshots
@@ -1263,55 +1301,10 @@ async function buildScoreTrendUrl(client: any, agencyId: string, today: string):
     [agencyId, today],
   );
   const rows = (result.rows as Array<{ date: string; crisis_risk_score: number | null }>).slice().reverse();
-  if (rows.length < 2) return '';
-
-  const labels = rows.map((r) => formatShortDay(r.date));
-  // Escala pública %: el eje del chart debe hablar el mismo idioma que las
-  // tarjetas del correo (56%), no el 0–1 interno.
-  const data = rows.map((r) => r.crisis_risk_score == null ? 0 : Math.round(r.crisis_risk_score * 100));
-
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Crisis Score',
-          data,
-          borderColor: '#C8462F',
-          backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5,
-          pointRadius: 3,
-          pointBackgroundColor: '#FFFFFF',
-          pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5,
-          tension: 0.3,
-          fill: true,
-        },
-        // Línea de umbral (banda ALERTA = 40%)
-        {
-          label: 'Umbral 40%',
-          data: rows.map(() => 40),
-          borderColor: '#8A93A0',
-          borderWidth: 1,
-          borderDash: [4, 4],
-          pointRadius: 0,
-          fill: false,
-        },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: { legend: { display: false }, title: { display: false } },
-      scales: {
-        y: { beginAtZero: true, max: 100, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10 }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=200&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
+  return rows.map((r) => ({
+    label: formatShortDay(r.date),
+    score: r.crisis_risk_score == null ? 0 : Math.round(Number(r.crisis_risk_score) * 100),
+  }));
 }
 
 // ============================================================

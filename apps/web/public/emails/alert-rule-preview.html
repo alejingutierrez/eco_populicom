@@ -9,128 +9,93 @@
   <title>Alerta ECO · DDEC · Mención negativa de pertinencia alta</title>
   <!--[if mso]>
   <style type="text/css">
-    table, td, div, h1, h2, h3, p { font-family: Arial, Helvetica, sans-serif !important; }
+    table, td, div, h1, h2, h3, p, span, a { font-family: Arial, Helvetica, sans-serif !important; }
   </style>
   <![endif]-->
+  <!--[if !mso]><!-->
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <!--<![endif]-->
   <style>
     :root { color-scheme: light only; supported-color-schemes: light only; }
-    body { margin: 0; padding: 0; background: #F5F6F8; }
-    a { text-decoration: none; }
+    body { margin: 0; padding: 0; background: #F4F5F6; }
+    a { color: #14171C; }
     img { -ms-interpolation-mode: bicubic; }
-    /* iOS / Apple Mail: evita auto-detección coloreada de fechas y direcciones */
     .appleLinks a { color: inherit !important; text-decoration: none !important; }
-    /* Outlook.com / Office 365 dark mode override — fuerza colores claros */
-    [data-ogsc] .force-bg-page { background-color: #F5F6F8 !important; }
+    /* Outlook.com / Office 365 dark mode: fuerza el claro */
+    [data-ogsc] .force-bg-page { background-color: #F4F5F6 !important; }
     [data-ogsc] .force-bg-white { background-color: #FFFFFF !important; }
-    [data-ogsc] .force-text-dark { color: #0E1E2C !important; }
-    [data-ogsc] .force-text-mute { color: #4A5563 !important; }
-    [data-ogsc] .force-text-soft { color: #8A93A0 !important; }
-    [data-ogsc] .force-border { border-color: #E6E8EC !important; }
-    /* Gmail iOS: no invertir backgrounds claros */
-    u + .body .gmail-dark-fix { background: #F5F6F8 !important; }
+    [data-ogsc] .force-text-dark { color: #14171C !important; }
+    u + .body .gmail-dark-fix { background: #F4F5F6 !important; }
     @media (prefers-color-scheme: dark) {
-      .container, .container td, .container div, .container p, .container h1, .container h2, .container h3, .container span, .container strong {
+      .container, .container td, .container div, .container p, .container h1, .container h2, .container span, .container strong {
         color-scheme: light only !important;
       }
     }
     @media (max-width: 620px) {
-      .container { width: 100% !important; border-radius: 0 !important; }
+      .container { width: 100% !important; }
       .px-32 { padding-left: 20px !important; padding-right: 20px !important; }
-      .stack { display: block !important; width: 100% !important; }
-      .stack-pad { padding: 0 0 10px 0 !important; }
-      .kpi-value { font-size: 30px !important; }
+      .readout { padding-left: 12px !important; padding-right: 12px !important; }
+      .readout-first { padding-left: 20px !important; }
+      .readout-last { padding-right: 20px !important; }
+      .readout-value { font-size: 22px !important; }
+      .stack-mobile { display: block !important; width: 100% !important; padding: 0 0 8px 0 !important; text-align: left !important; }
+      .hide-mobile { display: none !important; }
       h1.title { font-size: 22px !important; }
-      h1.headline { font-size: 22px !important; line-height: 1.25 !important; }
-      h2.section-title { font-size: 16px !important; }
     }
   </style>
 </head>
-<body class="body" style="margin:0;padding:0;background:#F5F6F8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#0E1E2C;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#F5F6F8;opacity:0;">
+<body class="body" style="margin:0;padding:0;background:#F4F5F6;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;color:#14171C;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#F4F5F6;opacity:0;">
     Alerta · DDEC · Mención negativa de pertinencia alta — detectada 7 jul, 9:42 a.m. AST
   </div>
 
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:#F5F6F8;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="force-bg-page" style="background:#F4F5F6;">
     <tr>
-      <td align="center" style="padding:28px 16px;">
-        <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="width:600px;max-width:600px;background:#FFFFFF;background-color:#FFFFFF;border-radius:10px;overflow:hidden;border:1px solid #E6E8EC;">
+      <td align="center" style="padding:24px 0;">
+        <table role="presentation" class="container force-bg-white gmail-dark-fix" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="width:600px;max-width:600px;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;color:#14171C;background:#FFFFFF;background-color:#FFFFFF;border-top:3px solid #A15C07;border-bottom:1px solid #E3E5E8;">
 
-          <!-- BARRA DE TIPO -->
+          <!-- ENCABEZADO -->
           <tr>
-            <td style="background:#D97706;background-color:#D97706;height:5px;line-height:5px;font-size:0;padding:0;">&nbsp;</td>
-          </tr>
-
-          <!-- HEADER -->
-          <tr>
-            <td class="px-32" style="padding:18px 32px 14px 32px;border-bottom:1px solid #EEF0F4;">
+            <td class="px-32" style="padding:28px 32px 24px 32px;border-bottom:1px solid #14171C;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td align="left" valign="middle">
-                    <span style="font-size:15px;font-weight:700;letter-spacing:-0.01em;color:#0E1E2C;">ECO <span style="color:#0A7EA4;">Radar</span></span>
-                  </td>
-                  <td align="right" valign="middle">
-                    <span style="display:inline-block;background:#D97706;color:#FFFFFF;font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:4px 10px;border-radius:4px;">Alerta</span>
-                  </td>
+                  <td align="left" valign="middle" style="font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#14171C;">ECO Radar</td>
+                  <td align="right" valign="middle"><span style="display:inline-block;font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.08em;line-height:1;border:1px solid #A15C07;color:#A15C07;padding:4px 7px;">ALERTA · REGLA</span></td>
                 </tr>
               </table>
+              <div style="margin-top:16px;"><div style="font-size:13px;color:#5A616B;line-height:1.4;">DDEC · Alerta automática</div>
+              <h1 class="title force-text-dark" style="margin:4px 0 0 0;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:26px;font-weight:600;letter-spacing:-0.01em;line-height:1.2;color:#14171C;">Mención negativa de pertinencia alta</h1>
+              
+              <div style="font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:12px;color:#6B7280;line-height:1.4;margin-top:6px;">Detectada 7 jul, 9:42 a.m. AST</div></div>
+              
             </td>
           </tr>
 
           
-          <!-- HERO -->
           <tr>
-            <td class="px-32" style="padding:24px 32px 18px 32px;">
-              <div class="force-text-soft" style="font-size:11px;color:#8A93A0;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:10px;">
-                DDEC · Departamento de Desarrollo Económico y Comercio · Alerta automática
-              </div>
-              <h1 class="headline force-text-dark" style="margin:0 0 10px 0;color:#0E1E2C;font-size:23px;line-height:1.3;font-weight:700;letter-spacing:-0.015em;">
-                Mención negativa de pertinencia alta
-              </h1>
-              <div class="force-text-mute" style="color:#4A5563;font-size:13px;line-height:1.55;">
-                Detectada 7 jul, 9:42 a.m. AST
-              </div>
-              <p class="force-text-dark" style="margin:14px 0 0 0;font-size:14.5px;line-height:1.6;color:#0E1E2C;">
-                Usuario reporta que el portal de trámites en línea rechaza la documentación de renovación de incentivos por tercera vez consecutiva, sin canal de soporte que responda.
-              </p>
-            </td>
-          </tr>
-
-          <!-- DATOS CLAVE -->
-          <tr>
-            <td class="px-32" style="padding:6px 32px 16px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#D97706;margin-bottom:10px;">Datos clave</div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #E6E8EC;border-radius:8px;overflow:hidden;">
-                
-      <tr>
-        <td class="force-text-soft" style="padding:12px 16px;font-size:11px;font-weight:700;color:#8A93A0;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid #EEF0F4;width:45%;">Sentimiento</td>
-        <td align="right" class="force-text-dark" style="padding:12px 16px;font-size:15px;font-weight:700;color:#C8462F;border-bottom:1px solid #EEF0F4;white-space:nowrap;">Negativo</td>
-      </tr>
-      <tr>
-        <td class="force-text-soft" style="padding:12px 16px;font-size:11px;font-weight:700;color:#8A93A0;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid #EEF0F4;width:45%;">Tópicos</td>
-        <td align="right" class="force-text-dark" style="padding:12px 16px;font-size:15px;font-weight:700;color:#0E1E2C;border-bottom:1px solid #EEF0F4;white-space:nowrap;">Permisos / Reforma, Incentivos Económicos</td>
-      </tr>
-      <tr>
-        <td class="force-text-soft" style="padding:12px 16px;font-size:11px;font-weight:700;color:#8A93A0;letter-spacing:0.08em;text-transform:uppercase;width:45%;">Emociones detectadas</td>
-        <td align="right" class="force-text-dark" style="padding:12px 16px;font-size:15px;font-weight:700;color:#0E1E2C;white-space:nowrap;">frustración, enojo</td>
-      </tr>
-              </table>
+            <td class="px-32" style="padding:24px 32px;border-bottom:1px solid #E3E5E8;">
+<p style="margin:0;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#2B3038;">Usuario reporta que el portal de trámites en línea rechaza la documentación de renovación de incentivos por tercera vez consecutiva, sin canal de soporte que responda.</p>
             </td>
           </tr>
 
           <tr>
-            <td class="px-32" style="padding:6px 32px 8px 32px;">
-              <div class="force-text-soft" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;color:#D97706;margin-bottom:10px;">Mención que la detonó</div>
-              <table role="presentation" class="force-bg-white force-border" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" style="background:#FFFFFF;background-color:#FFFFFF;border:1px solid #E6E8EC;border-radius:8px;">
+            <td class="px-32" style="padding:28px 32px;border-bottom:1px solid #E3E5E8;">
+
+              <div style="font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#6B7280;margin:0 0 14px 0;">Mención que la detonó</div>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FAFAFB" style="background:#FAFAFB;background-color:#FAFAFB;border:1px solid #E3E5E8;">
                 <tr>
-                  <td style="padding:14px 16px;">
-                    <div class="force-text-soft" style="font-size:10.5px;color:#8A93A0;letter-spacing:0.05em;text-transform:uppercase;font-weight:700;margin-bottom:6px;">
-                      X / Twitter
-                    </div>
-                    
-                    <div class="force-text-dark" style="font-size:13px;line-height:1.55;color:#4A5563;">
-                      Tercera vez que el portal del DDEC me bota los documentos de renovación. Llamé al número de ayuda y nadie contesta. ¿Alguien más con este problema? #incentivos
-                    </div>
-                    <div style="margin-top:8px;"><a href="https://x.com/example/status/123" style="color:#0A7EA4;text-decoration:none;font-size:11.5px;font-weight:600;">Ver mención original →</a></div>
+                  <td style="padding:16px;">
+                    <div style="font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:12px;line-height:1.4;color:#5A616B;">X / Twitter · 7 jul, 9:38 a.m. AST</div>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+                      <tr>
+                        <td valign="top" width="88" style="width:88px;padding:0 14px 0 0;"><img src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221004%22%20height%3D%22440%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23D5D8DC%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Helvetica%22%20font-size%3D%2232%22%20fill%3D%22%235A616B%22%20text-anchor%3D%22middle%22%3EImagen%20adjunta%20de%20la%20menci%C3%B3n%3C%2Ftext%3E%3C%2Fsvg%3E" alt="" width="88" height="88" style="display:block;width:88px;height:88px;object-fit:cover;border:0;background:#F4F5F6;"></td>
+                        <td valign="top">
+                          
+                          <div style="font-size:15px;line-height:1.55;color:#14171C;">Tercera vez que el portal del DDEC me bota los documentos de renovación. Llamé al número de ayuda y nadie contesta. ¿Alguien más con este problema? #incentivos</div>
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="margin-top:10px;"><a href="https://x.com/example/status/123" style="font-size:13px;color:#14171C;text-decoration:underline;text-decoration-color:#9AA0A8;">Ver mención original</a></div>
                   </td>
                 </tr>
               </table>
@@ -138,31 +103,49 @@
           </tr>
 
           <tr>
-            <td class="px-32" align="center" style="padding:16px 32px 24px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <td style="padding:0;border-bottom:1px solid #E3E5E8;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+                  <td class="px-32" valign="top" style="padding:12px 16px 12px 32px;font-size:14px;color:#5A616B;border-bottom:1px solid #E3E5E8;width:40%;">Sentimiento</td>
+                  <td class="px-32" valign="top" align="right" style="padding:12px 32px 12px 16px;font-size:14px;line-height:1.45;border-bottom:1px solid #E3E5E8;"><span style="color:#14171C;"><span style="display:inline-block;width:8px;height:8px;background:#B42318;background-color:#B42318;vertical-align:middle;margin-right:6px;font-size:0;line-height:0;">&nbsp;</span>Negativo</span></td>
+                </tr><tr>
+                  <td class="px-32" valign="top" style="padding:12px 16px 12px 32px;font-size:14px;color:#5A616B;border-bottom:1px solid #E3E5E8;width:40%;">Tópicos</td>
+                  <td class="px-32" valign="top" align="right" style="padding:12px 32px 12px 16px;font-size:14px;line-height:1.45;border-bottom:1px solid #E3E5E8;"><span style="color:#14171C;">Permisos / Reforma, Incentivos Económicos</span></td>
+                </tr><tr>
+                  <td class="px-32" valign="top" style="padding:12px 16px 12px 32px;font-size:14px;color:#5A616B;width:40%;">Emociones</td>
+                  <td class="px-32" valign="top" align="right" style="padding:12px 32px 12px 16px;font-size:14px;line-height:1.45;"><span style="color:#14171C;">frustración · enojo</span></td>
+                </tr></table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="px-32" style="padding:28px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td bgcolor="#0E1E2C" style="background:#0E1E2C;background-color:#0E1E2C;border-radius:6px;">
-                    <a href="http://eco-alb-1881782703.us-east-1.elb.amazonaws.com/dashboard?agency=ddecpr" style="display:inline-block;padding:11px 22px;font-size:13px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
-                      Ver detalle en el dashboard →
-                    </a>
+                  <td align="left" valign="middle">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td bgcolor="#14171C" style="background:#14171C;background-color:#14171C;">
+                          <a href="https://citizenecho.com/dashboard?agency=ddecpr" style="display:inline-block;padding:14px 22px;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;">Ver en el dashboard</a>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
+                  <td class="hide-mobile" align="right" valign="middle" style="font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:12px;color:#6B7280;">citizenecho.com</td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- FOOTER -->
+        </table>
+
+        <!-- PIE (fuera del contenedor) -->
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="container" style="width:600px;max-width:600px;">
           <tr>
-            <td class="px-32" style="padding:20px 32px 22px 32px;border-top:1px solid #EEF0F4;" align="center">
-              <div class="force-text-soft" style="color:#8A93A0;font-size:11.5px;line-height:1.6;">
-                ECO Radar &nbsp;·&nbsp; IDEA &nbsp;·&nbsp; Alerta
-              </div>
-              <div class="force-text-soft" style="margin-top:6px;color:#8A93A0;font-size:11px;line-height:1.5;">
-                Recibes esta alerta automática porque estás en la lista de notificación de tu agencia.
-              </div>
+            <td class="px-32" style="padding:16px 32px 8px 32px;font-size:12px;line-height:1.5;color:#5A616B;">
+              <div style="font-family:'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;">ECO Radar · IDEA · Alerta</div>
+              <div style="margin-top:6px;">Recibes esta alerta automática porque estás en la lista de notificación de tu agencia.</div>
             </td>
           </tr>
-
         </table>
       </td>
     </tr>

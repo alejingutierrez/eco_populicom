@@ -4,8 +4,8 @@
  * Evalúa las reglas configuradas en `alert_rules` (sentimiento negativo,
  * keyword, pico de volumen) contra cada mención encolada por el processor y
  * envía el correo de alerta con el template compartido de @eco/shared
- * (render-simple-alert): asunto "[Alerta] SIGLAS · regla", badge ámbar,
- * datos clave en números y la mención que la detonó.
+ * (render-simple-alert): asunto "[Alerta] SIGLAS · regla", etiqueta ámbar,
+ * datos clave en números y la mención que la detonó (con su imagen si trae).
  *
  * (Las alertas de crisis y de umbral de métrica viven en
  * eco-metrics-calculator — mismos chrome y convención de asunto.)
@@ -15,8 +15,12 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import type { SQSEvent } from 'aws-lambda';
 import {
   buildSubject,
+  fetchOgImage,
   formatUpdatedAtLabel,
+  isArticlePageType,
+  isGenericImageUrl,
   renderSimpleAlertHtml,
+  validateImageUrl,
   type SimpleAlertRenderData,
 } from '@eco/shared';
 
@@ -24,7 +28,7 @@ const ses = new SESClient({});
 const sm = new SecretsManagerClient({});
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
-const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'noreply@populicom.com';
+const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'alerts@citizenecho.com';
 const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
 const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://citizenecho.com';
 const ALERT_TIMEZONE = 'America/Puerto_Rico';
@@ -151,18 +155,20 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
       const emails: string[] = rule.notify_emails ?? [];
       if (emails.length > 0) {
         const mentionResult = await pgClient.query(
-          `SELECT title, snippet, url, nlp_summary, content_source_name, domain, page_type
+          `SELECT title, snippet, url, nlp_summary, content_source_name, domain, page_type,
+                  resolved_image_url, published_at
              FROM mentions WHERE id = $1`,
           [alert.mentionId],
         );
         const mention = mentionResult.rows[0];
+        const mentionImage = mention ? await mentionImageUrl(mention) : null;
 
         const topicNames = alert.topics
           .map((t) => t.topic_slug.replace(/-/g, ' '))
           .join(', ');
 
         const html = renderSimpleAlertHtml(
-          buildRuleAlertRenderData(agency, rule.name, config, alert, mention, topicNames, volumeContext),
+          buildRuleAlertRenderData(agency, rule.name, config, alert, mention, mentionImage, topicNames, volumeContext),
         );
         const subject = buildSubject('Alerta', agencyShortName(agency.slug), rule.name);
 
@@ -197,6 +203,7 @@ function buildRuleAlertRenderData(
   config: any,
   alert: AlertMessage,
   mention: any,
+  mentionImage: string | null,
   topicNames: string,
   volumeContext: { count: number; threshold: number; windowMinutes: number } | null,
 ): SimpleAlertRenderData {
@@ -207,9 +214,9 @@ function buildRuleAlertRenderData(
   if (config.type === 'volume_spike' && volumeContext) {
     leadHtml = `El volumen de menciones de los últimos <strong>${volumeContext.windowMinutes} minutos</strong> alcanzó <strong>${volumeContext.count}</strong>, superando el umbral configurado de ${volumeContext.threshold}.`;
     facts.push(
-      { label: 'Menciones en la ventana', value: String(volumeContext.count), color: '#C8462F' },
-      { label: 'Umbral configurado', value: `≥ ${volumeContext.threshold}` },
-      { label: 'Ventana', value: `${volumeContext.windowMinutes} min` },
+      { label: 'Menciones en la ventana', value: String(volumeContext.count), tone: 'warn', mono: true },
+      { label: 'Umbral configurado', value: `≥ ${volumeContext.threshold}`, mono: true },
+      { label: 'Ventana', value: `${volumeContext.windowMinutes} min`, mono: true },
     );
   } else {
     // Reglas por mención (negative_sentiment / keyword): el lede es el
@@ -220,9 +227,10 @@ function buildRuleAlertRenderData(
     if (config.type === 'keyword' && Array.isArray(config.keywords) && config.keywords.length > 0) {
       facts.push({ label: 'Palabras clave', value: config.keywords.join(', ') });
     }
-    facts.push({ label: 'Sentimiento', value: sentimentEs(alert.sentiment), color: alert.sentiment === 'negativo' ? '#C8462F' : undefined });
+    const sentimentTone = alert.sentiment === 'negativo' ? 'neg' : alert.sentiment === 'positivo' ? 'pos' : undefined;
+    facts.push({ label: 'Sentimiento', value: sentimentEs(alert.sentiment), tone: sentimentTone, swatch: true });
     if (topicNames) facts.push({ label: 'Tópicos', value: topicNames });
-    if (alert.emotions?.length) facts.push({ label: 'Emociones detectadas', value: alert.emotions.join(', ') });
+    if (alert.emotions?.length) facts.push({ label: 'Emociones', value: alert.emotions.join(' · ') });
 
     if (mention) {
       mentionCard = {
@@ -230,6 +238,8 @@ function buildRuleAlertRenderData(
         title: mention.title ?? null,
         snippet: String(mention.snippet ?? '').slice(0, 280),
         url: mention.url ?? null,
+        publishedAtLabel: mention.published_at ? formatUpdatedAtLabel(new Date(mention.published_at), ALERT_TIMEZONE) : null,
+        imageUrl: mentionImage,
       };
     }
   }
@@ -244,6 +254,23 @@ function buildRuleAlertRenderData(
     mention: mentionCard,
     dashboardUrl: `${DASHBOARD_BASE_URL}/dashboard?agency=${agency.slug}`,
   };
+}
+
+/**
+ * Imagen de la mención para el correo: la media del propio post que el
+ * processor ya resolvió (`resolved_image_url`); para noticias/blogs, si no
+ * hay, el og:image de la nota. Nunca el og:image de una red social (a un
+ * visitante sin sesión le sirven su logo). Best-effort, 3s por URL.
+ */
+async function mentionImageUrl(m: { url?: string | null; page_type?: string | null; resolved_image_url?: string | null }): Promise<string | null> {
+  try {
+    const stored = m.resolved_image_url;
+    if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored)) return stored;
+    if (isArticlePageType(m.page_type) && m.url) return await fetchOgImage(m.url);
+  } catch (err) {
+    console.warn('[alerts] mention image lookup failed', err);
+  }
+  return null;
 }
 
 async function getDatabaseUrl(): Promise<string> {

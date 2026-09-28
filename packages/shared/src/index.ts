@@ -8,6 +8,7 @@ export * from './aggregations';
 export * from './metrics';
 export * from './format/metrics-display';
 export * from './email/chrome';
+export * from './email/instrument';
 export * from './email/render-daily-report';
 export * from './email/render-weekly-summary';
 export * from './email/render-appointment-report';

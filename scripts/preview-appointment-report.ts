@@ -60,7 +60,13 @@ const data: AppointmentRenderData = {
       delta: formatDelta(57, 41, { kind: 'absolute', decimals: 0, suffix: ' pts' }),
     },
   },
-  chartImageUrl: buildMockChartUrl(),
+  // Serie del preview anterior (QuickChart); el último día es HOY (parcial).
+  dailySeries: [
+    { dayLabel: 'dom 9', negative: 5, neutral: 6, positive: 2 },
+    { dayLabel: 'lun 10', negative: 27, neutral: 29, positive: 10 },
+    { dayLabel: 'mar 11', negative: 24, neutral: 27, positive: 7 },
+    { dayLabel: 'mié 12', negative: 5, neutral: 1, positive: 0 },
+  ],
   summary:
     'El nombramiento llegó con la conversación ya caliente por la salida del predecesor y se recibió partido: '
     + '<strong>143 menciones</strong> en cuatro días frente a <strong>89</strong> en los cuatro previos '
@@ -102,6 +108,7 @@ const data: AppointmentRenderData = {
   ],
   topMentions: [
     {
+      imageUrl: '../appointments/norma-burgos.jpg',
       sourceLabel: 'El Nuevo Día',
       title: null,
       snippet: 'Entre el apoyo y el repudio: líderes políticos reaccionan a la designación de Norma Burgos como secretaria de la Gobernación.',
@@ -142,36 +149,6 @@ const data: AppointmentRenderData = {
 };
 
 /** Volumen diario por sentimiento; el último día va parcial a propósito. */
-function buildMockChartUrl(): string {
-  const config = {
-    type: 'line',
-    data: {
-      labels: ['dom 9', 'lun 10', 'mar 11', 'mié 12'],
-      datasets: [
-        { label: 'Negativo', data: [5, 27, 24, 5], borderColor: '#C8462F', backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Neutral', data: [6, 29, 27, 1], borderColor: '#6B7280', backgroundColor: 'rgba(107,114,128,0.06)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#6B7280',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-        { label: 'Positivo', data: [2, 10, 7, 0], borderColor: '#1F8A47', backgroundColor: 'rgba(31,138,71,0)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#1F8A47',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: { legend: { display: false }, title: { display: false } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
-}
 
 const repoRoot = join(__dirname, '..');
 const outDir = join(repoRoot, 'apps', 'web', 'public', 'emails');

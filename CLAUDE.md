@@ -232,10 +232,31 @@ usa el self-heal pattern descrito arriba.
 
 ## Correos por tipo (jul 2026)
 
-Seis correos, todos con chrome compartido (`@eco/shared/email/chrome.ts`:
-paleta, header con badge de tipo, footer con nota de tipo) y asunto tipado
-`[Tag] SIGLAS · detalle`. Indicadores SIEMPRE numéricos (%, /10, con signo —
-paridad dashboard vía formatMetric/formatDelta), nunca niveles verbales.
+Seis correos (siete plantillas: la alerta tiene variante regla y métrica),
+todos sobre el cromo «Instrumento» (sep 2026) de
+`@eco/shared/email/instrument.ts`: grafito acromático, color solo en el dato,
+Plex Sans + Plex Mono para las cifras, etiqueta de tipo tipográfica (solo
+Alerta y Crisis llevan color, porque ahí el color ES el estado; en crisis la
+BANDA decide la etiqueta vía `tagState`). `chrome.ts` quedó solo con la
+identidad: `EMAIL_KIND_META` (etiqueta, tag de asunto, nota de pie),
+`buildSubject` → `[Tag] SIGLAS · detalle` y `TEMPLATE_KEY_TO_KIND`.
+Indicadores SIEMPRE numéricos (%, /10, con signo — paridad dashboard vía
+formatMetric/formatDelta), nunca niveles verbales.
+
+- **Gráficas en tablas HTML**, ningún correo usa QuickChart: se ven aunque el
+  cliente bloquee imágenes.
+- **Asuntos**: diario, semanal y nombramiento llevan el TITULAR del LLM
+  (`[Diario] DDEC · <titular>`); las cifras van en la vista previa del inbox.
+- **Imágenes, siempre opcionales** (sin URL no queda hueco): foto de portada
+  con `loadHeroImage` (noticia con foto utilizable; og:image SOLO de
+  noticias/blogs/foros, nunca de redes — sirven su logo sin sesión; el filtro
+  de tipo va en SQL, porque después del LIMIT las redes tapan a las noticias),
+  miniaturas con `loadMentionThumbnails` / `mentionImageUrl` (media del post).
+  La media de redes mide ~130 px: va como miniatura, nunca a ancho completo.
+- El cambio de VOLUMEN (total, neutral, tópicos) va en gris: no es bueno ni
+  malo; el color se reserva para lo que se juzga.
+- Diseño aprobado en el lienzo
+  https://claude.ai/artifact/9zaLzzxn4RggKD6RhU3Y4u (página «Camino A»).
 
 | Tipo | Asunto | Fuente | Cuándo |
 |---|---|---|---|
