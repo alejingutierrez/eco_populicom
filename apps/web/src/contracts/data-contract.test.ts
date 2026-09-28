@@ -331,12 +331,21 @@ describe('tripwire — tokens de período del SPA vs mapa canónico', () => {
     expect(entries).toEqual(PERIOD_DAYS);
   });
 
-  test('todos los chips del header (shell.js PERIODS) existen en el mapa canónico', () => {
+  test('todos los períodos del header (shell.js PERIOD_OPTIONS) existen en el mapa canónico', () => {
     const shell = read('apps/web/public/eco-prototype/shell.js');
-    const m = shell.match(/const PERIODS = \[([^\]]+)\]/);
+    const m = shell.match(/const PERIOD_OPTIONS = \[([\s\S]*?)\];/);
     expect(m).toBeTruthy();
-    const tokens = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    const tokens = [...m![1].matchAll(/\['([^']+)',/g)].map((x) => x[1]);
     expect(tokens.length).toBeGreaterThan(0);
     for (const t of tokens) expect(PERIOD_DAYS[t]).toBeGreaterThan(0);
+  });
+
+  test('los períodos rápidos (PERIOD_QUICK) son un subconjunto de PERIOD_OPTIONS', () => {
+    const shell = read('apps/web/public/eco-prototype/shell.js');
+    const quick = shell.match(/const PERIOD_QUICK = \[([^\]]+)\]/);
+    const all = shell.match(/const PERIOD_OPTIONS = \[([\s\S]*?)\];/);
+    expect(quick && all).toBeTruthy();
+    const keys = new Set([...all![1].matchAll(/\['([^']+)',/g)].map((x) => x[1]));
+    for (const [, k] of quick![1].matchAll(/'([^']+)'/g)) expect(keys.has(k)).toBe(true);
   });
 });

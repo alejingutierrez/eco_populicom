@@ -122,15 +122,11 @@ function ecoResolvedWindow() {
 window.ecoResolvedWindow = ecoResolvedWindow;
 
 // Badges are derived from real data at render time (window.ECO_DATA).
+// `group` corta este orden en los tramos del rail (Lectura / Detalle /
+// Seguimiento) SIN reordenarlo. Sin badges (sep-2026): el de Menciones era el
+// total del período —no pide acción— y el de Alertas, en rojo, contaba reglas
+// ENCENDIDAS (a.active), no disparos: una falsa alarma permanente.
 function getNav() {
-  const D = window.ECO_DATA || {};
-  // Total del período desde la fuente única (data.js). Antes esto sumaba
-  // TIMELINE mientras el enlace "Ver todas" usaba CURRENT_METRICS: dos números
-  // distintos para lo mismo, a un click de distancia.
-  const totalMentions = (typeof window.ecoPeriodMentionTotal === 'function')
-    ? window.ecoPeriodMentionTotal()
-    : ((D.CURRENT_METRICS && D.CURRENT_METRICS.totalMentions) || 0);
-  const activeAlerts = (D.ALERTS || []).filter((a) => a.active).length;
   return [
     // Orden pedido por el usuario (ago-2026): Overview, Tópicos, Narrativas y
     // después el resto en su orden previo. La lectura va de "qué pasó" a "de
@@ -140,14 +136,14 @@ function getNav() {
     // del ⌘K lo iteran sin reordenar. Si cambias este orden, actualiza también
     // PAGE_OPTIONS (screens.js) y SCREEN_META (app.js), que son las dos únicas
     // copias con orden significativo.
-    { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O' },
-    { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T' },
-    { key: 'narrative', icon: 'Branches', label: 'Narrativas', shortcut: 'N' },
-    { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D' },
-    { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', badge: totalMentions || null },
-    { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S' },
-    { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G' },
-    { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', badge: activeAlerts || null, urgent: activeAlerts > 0 },
+    { key: 'overview', icon: 'Grid', label: 'Overview', shortcut: 'O', group: 'Lectura' },
+    { key: 'topics', icon: 'Hash', label: 'Tópicos', shortcut: 'T', group: 'Lectura' },
+    { key: 'narrative', icon: 'Branches', label: 'Narrativas', shortcut: 'N', group: 'Lectura' },
+    { key: 'dashboard', icon: 'Dashboard', label: 'Scorecard', shortcut: 'D', group: 'Detalle' },
+    { key: 'mentions', icon: 'Mentions', label: 'Menciones', shortcut: 'M', group: 'Detalle' },
+    { key: 'sentiment', icon: 'Activity', label: 'Sentimiento', shortcut: 'S', group: 'Detalle' },
+    { key: 'geography', icon: 'MapPin', label: 'Geografía', shortcut: 'G', group: 'Detalle' },
+    { key: 'alerts', icon: 'Bell', label: 'Alertas', shortcut: 'A', group: 'Seguimiento' },
   ];
 }
 const NAV = getNav();
@@ -157,9 +153,9 @@ const NAV = getNav();
 // una sola agencia — no tiene sentido mezclar pantallas de una agencia con la
 // vista de gobierno compuesta.
 const EXEC_NAV = [
-  { key: 'exec-tabla', icon: 'Table', label: 'Tabla de posiciones' },
-  { key: 'exec-sala', icon: 'Grid', label: 'Sala de mando' },
-  { key: 'exec-radar', icon: 'Radio', label: 'Radar de crisis' },
+  { key: 'exec-tabla', icon: 'Table', label: 'Tabla de posiciones', group: 'Vista ejecutiva' },
+  { key: 'exec-sala', icon: 'Grid', label: 'Sala de mando', group: 'Vista ejecutiva' },
+  { key: 'exec-radar', icon: 'Radio', label: 'Radar de crisis', group: 'Vista ejecutiva' },
 ];
 function navForAgency(agencyKey) {
   return agencyKey === '__all__' ? EXEC_NAV : NAV;
@@ -228,46 +224,137 @@ function Avatar({ name, size = 28, tone = 'surface', self = false }) {
   );
 }
 
-function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand, mode }) {
+// Menú flotante del rail y del header (selector de agencia, menú de usuario,
+// "Más" del período). Se posiciona `fixed` contra el rect del disparador porque
+// el rail recorta su contenido (overflow:hidden para el colapso) y un menú
+// absoluto quedaba cortado en el rail de 64px. Cierra con clic fuera y con Esc.
+function EcoMenu({ anchor, placement = 'below', width = 260, onClose, children, label }) {
+  const [rect, setRect] = React.useState(null);
+  React.useLayoutEffect(() => {
+    if (anchor && anchor.current) setRect(anchor.current.getBoundingClientRect());
+  }, [anchor]);
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (!rect) return null;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const pos = {};
+  if (placement === 'right') { pos.left = Math.min(rect.right + 8, vw - width - 8); pos.top = Math.max(8, Math.min(rect.top, vh - 360)); }
+  else if (placement === 'above') { pos.left = Math.max(8, Math.min(rect.left, vw - width - 8)); pos.bottom = vh - rect.top + 6; }
+  else if (placement === 'below-end') { pos.left = Math.max(8, Math.min(rect.right - width, vw - width - 8)); pos.top = rect.bottom + 6; }
+  else { pos.left = Math.max(8, Math.min(rect.left, vw - width - 8)); pos.top = rect.bottom + 6; }
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 2090 }} />
+      <div role="menu" aria-label={label} className="eco-menu" style={{
+        position: 'fixed', zIndex: 2100, width, maxWidth: 'calc(100vw - 16px)', ...pos,
+        maxHeight: 'min(70vh, 520px)', overflowY: 'auto',
+        background: 'var(--surface-overlay)', color: 'var(--text)',
+        border: '1px solid var(--hairline-strong)', borderRadius: 'var(--r-sm)',
+        boxShadow: 'var(--shadow-lg)', padding: 'var(--sp-1) 0',
+      }}>{children}</div>
+    </>
+  );
+}
+
+// Fila de EcoMenu. `checked` marca la opción vigente con un check (no con
+// color: el cromo es acromático, ver --action en tokens.css).
+function EcoMenuItem({ icon, label, hint, checked, onClick, danger }) {
+  const IconC = icon ? Icons[icon] : null;
+  return (
+    <button role="menuitem" onClick={onClick} className="eco-menu-item" style={{
+      display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', width: '100%',
+      minHeight: 'var(--control-h)', padding: '0 var(--sp-3)', textAlign: 'left',
+      fontSize: 'var(--fs-body-sm)', fontWeight: checked ? 600 : 400,
+      color: danger ? 'var(--neg)' : 'var(--text)', background: 'transparent', border: 0,
+    }}>
+      <span style={{ width: 16, display: 'flex', flexShrink: 0 }}>
+        {checked ? <Icons.Check size={14} /> : (IconC ? <IconC size={14} color="var(--text-3)" /> : null)}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }} className="truncate">{label}</span>
+      {hint && <span className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{hint}</span>}
+    </button>
+  );
+}
+function EcoMenuRule() {
+  return <div style={{ height: 1, background: 'var(--hairline)', margin: 'var(--sp-1) 0' }} />;
+}
+
+// Monograma de la agencia: sus dos primeras letras en mono. Acromático por la
+// misma razón que el avatar (el color por hash es justo lo que el sistema
+// prohíbe: se leería como una serie del gráfico).
+function AgencyMark({ agency, size = 30 }) {
+  const txt = agency && agency.key === '__all__' ? '∗' : String((agency && agency.name) || '—').slice(0, 2);
+  return (
+    <span className="mono" aria-hidden="true" style={{
+      width: size, height: size, borderRadius: 'var(--r-sm)', flexShrink: 0,
+      background: 'var(--rail-fg-active)', color: 'var(--rail-bg)',
+      fontSize: 'var(--fs-caption)', fontWeight: 600,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>{txt}</span>
+  );
+}
+
+// Rail de navegación (S1 «Rail grafito», sep-2026). Tres decisiones:
+//  1. El rail responde «dónde estoy»: la AGENCIA —el alcance de todo lo que se
+//     ve— sube aquí desde el header, donde era la pastilla más chica de 15
+//     controles, y deja de repetirse en el pie del usuario.
+//  2. Acromático: grafito en los dos modos, sin naranja. El color queda para el
+//     dato (dirección «Instrumento», ago-2026).
+//  3. Menos que leer: grupos Lectura/Detalle/Seguimiento que CORTAN el orden de
+//     getNav() sin reordenarlo; sin badges (el de Menciones era el total del
+//     período y el de Alertas, pintado de rojo, contaba reglas ENCENDIDAS —una
+//     falsa alarma—); atajos visibles porque el listener de app.js sí existe;
+//     Configuración, modo y cierre de sesión al menú del usuario.
+function Sidebar({ active, onNav, collapsed, setCollapsed, agency, agencies, setAgency, mode, setMode }) {
   const I = Icons;
-  // Con '__all__' seleccionada, la nav de análisis muestra las 3 pantallas
-  // ejecutivas (Tabla / Sala / Radar); con una agencia real, la nav normal.
   const isExecView = (agency && agency.key) === '__all__';
-  const analysisNav = navForAgency(agency && agency.key);
+  const analysisNav = navForAgency(agency && agency.key).filter((n) => isExecView || ecoCanSeePage(n.key));
+  const groups = [];
+  analysisNav.forEach((n) => {
+    const g = n.group || '';
+    if (!groups.length || groups[groups.length - 1].label !== g) groups.push({ label: g, items: [] });
+    groups[groups.length - 1].items.push(n);
+  });
+  const agencyList = agencies || [];
+  const canSwitch = agencyList.length > 1;
+  const [agencyOpen, setAgencyOpen] = React.useState(false);
+  const [userOpen, setUserOpen] = React.useState(false);
+  const agencyBtn = React.useRef(null);
+  const userBtn = React.useRef(null);
+  const session = ecoSession();
+  const userName = (session && (session.name || session.email)) || 'Usuario';
+  const ROLE_LABEL = { admin: 'Administrador', editor: 'Editor', analyst: 'Analista', viewer: 'Lector' };
+  const roleLabel = session && session.role ? (ROLE_LABEL[session.role] || session.role) : '—';
+  const ingest = (window.ECO_DATA && window.ECO_DATA.INGESTION_STATUS) || null;
+  const canSettings = ecoCanSeePage('settings');
+
   const NavItem = ({ item }) => {
     const IconC = I[item.icon];
     const isActive = active === item.key;
     return (
-      <button onClick={() => onNav(item.key)}
+      <button onClick={() => onNav(item.key)} className="eco-rail-item"
+        aria-current={isActive ? 'page' : undefined}
         title={collapsed ? item.label : undefined}
+        aria-label={collapsed ? item.label : undefined}
         style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-          width: '100%',
-          padding: collapsed ? '9px 0' : '9px 12px',
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', width: '100%',
+          height: 34, padding: collapsed ? 0 : '0 var(--sp-3)',
           justifyContent: collapsed ? 'center' : 'flex-start',
-          borderRadius: 'var(--r-md)',
+          borderRadius: 'var(--r-sm)', border: 0,
           background: isActive ? 'var(--rail-active-bg)' : 'transparent',
           color: isActive ? 'var(--rail-fg-active)' : 'var(--rail-fg)',
-          fontSize: 'var(--fs-body-sm)', fontWeight: isActive ? 600 : 500,
-          position: 'relative',
-          transition: 'all 0.15s var(--ease)',
-          borderLeft: isActive && !collapsed ? `2px solid var(--accent-2)` : '2px solid transparent',
-          paddingLeft: collapsed ? 0 : 10,
-        }}
-        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}>
+          // Marca de activo = barra blanca interior, no color: en un rail
+          // acromático el relleno solo (10% de blanco) no bastaba en proyector.
+          boxShadow: isActive ? 'inset 2px 0 0 var(--rail-fg-active)' : 'none',
+          fontSize: 'var(--fs-body)', fontWeight: isActive ? 600 : 500,
+        }}>
         <IconC size={16} />
         {!collapsed && <>
-          <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
-          {item.badge != null && item.badge > 0 && (
-            <span style={{
-              fontSize: 'var(--fs-overline)', fontWeight: 700,
-              padding: '2px 6px', borderRadius: 'var(--r-lg)',
-              background: item.urgent ? 'var(--neg)' : 'rgba(255,255,255,0.10)',
-              color: item.urgent ? 'var(--on-neg)' : 'rgba(255,255,255,0.7)',
-              fontFamily: 'var(--ff-numeric)',
-            }}>{window.ecoFmtCount ? window.ecoFmtCount(item.badge) : item.badge}</span>
-          )}
+          <span style={{ flex: 1, textAlign: 'left' }} className="truncate">{item.label}</span>
+          {item.shortcut && <span className="mono hide-mobile" aria-hidden="true" style={{ fontSize: 'var(--fs-caption)', color: 'var(--rail-fg-muted)', opacity: 0.8 }}>{item.shortcut}</span>}
         </>}
       </button>
     );
@@ -275,162 +362,145 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, onOpenCommand
 
   return (
     <aside className="eco-sidebar" style={{
-      background: 'var(--rail-bg)',
-      color: 'var(--rail-fg)',
+      background: 'var(--rail-bg)', color: 'var(--rail-fg)',
       borderRight: '1px solid var(--rail-border)',
       display: 'flex', flexDirection: 'column',
-      height: '100vh', position: 'sticky', top: 0, overflow: 'hidden',
+      height: '100vh', position: 'sticky', top: 0, overflowX: 'hidden', overflowY: 'auto',
     }}>
-      {/* Logo / brand */}
+      {/* Marca. Sin «v2.3» ni «Operations Console» (inglés, no informaban) y sin
+          el punto azul pegado al logo: el estado de la recolección vive UNA vez,
+          en el pie. */}
       <div style={{
-        padding: collapsed ? '20px 0' : '20px 16px 18px',
+        height: 60, flexShrink: 0, padding: collapsed ? 0 : '0 var(--sp-2) 0 var(--sp-4)',
         display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
         justifyContent: collapsed ? 'center' : 'flex-start',
         borderBottom: '1px solid var(--rail-border)',
       }}>
-        {/* Mark — echo/signal wordmark */}
         <div style={{
-          width: 36, height: 36, borderRadius: 'var(--r-lg)',
+          width: 28, height: 28, borderRadius: 'var(--r-sm)', flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'linear-gradient(145deg, var(--logo-from) 0%, var(--logo-to) 100%)',
-          border: '1px solid var(--logo-border)',
-          color: 'var(--rail-fg-active)', flexShrink: 0, position: 'relative',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.3)',
+          background: 'var(--rail-tint)', border: '1px solid var(--rail-tint-border)',
         }}>
-          {(
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              {/* Decorativo: el nombre del producto ("Eco") está en texto al lado. */}
-              {/* Echo arcs radiating from a point */}
-              <path d="M 7 19 A 7 7 0 0 1 7 5" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.35" />
-              <path d="M 10 17 A 5 5 0 0 1 10 7" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.6" />
-              <path d="M 13 15 A 3 3 0 0 1 13 9" stroke="var(--accent-2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.9" />
-              <circle cx="16.5" cy="12" r="1.8" fill="var(--accent-2)" />
-            </svg>
-          )}
-          {/* Live indicator dot */}
-          <span style={{
-            position: 'absolute', bottom: -1, right: -1,
-            width: 10, height: 10, borderRadius: '50%',
-            // El estado del sistema NO se pinta con el verde de sentimiento: en un
-            // producto de sentimiento --pos significa 'positivo', así que un punto
-            // verde junto al logotipo se lee como juicio de datos y contradice al
-            // header, que a 60px declara 'Datos al cierre de ayer' en --text-3.
-            // El glow era rgba(107,158,127,.6), un verde de la paleta anterior que
-            // no corresponde a ningún token.
-            background: 'var(--info)',
-            border: '2px solid var(--rail-bg)',
-            boxShadow: '0 0 6px color-mix(in oklab, var(--info) 60%, transparent)',
-          }} />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M 7 19 A 7 7 0 0 1 7 5" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.35" />
+            <path d="M 10 17 A 5 5 0 0 1 10 7" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.6" />
+            <path d="M 13 15 A 3 3 0 0 1 13 9" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
+            <circle cx="16.5" cy="12" r="1.9" fill="var(--rail-fg-active)" />
+          </svg>
         </div>
+        {!collapsed && <>
+          <span style={{ flex: 1, color: 'var(--rail-fg-active)', fontSize: 'var(--fs-title-md)', fontWeight: 600, letterSpacing: '0.04em' }}>ECO</span>
+          <button onClick={() => setCollapsed(true)} className="hide-mobile eco-rail-item" aria-label="Colapsar menú" title="Colapsar menú ( [ )"
+            style={{ width: 32, height: 32, border: 0, borderRadius: 'var(--r-sm)', background: 'transparent', color: 'var(--rail-fg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <I.PanelLeft size={16} />
+          </button>
+        </>}
+      </div>
 
-        {!collapsed && (
-          <div style={{ lineHeight: 1, minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-15)' }}>
-              <div style={{
-                color: 'var(--rail-fg-active)',
-                fontSize: 'var(--fs-title-md)',
-                fontWeight: 600,
-                letterSpacing: '0.02em',
-                fontFamily: 'var(--ff-display)',
-                fontStyle: 'normal',
-              }}>Eco</div>
-              {(
-                <span style={{
-                  fontSize: 'var(--fs-overline)', fontWeight: 600, letterSpacing: '0.04em',
-                  color: 'var(--accent-2)',
-                  padding: '2px 5px',
-                  borderRadius: 'var(--r-sm)',
-                  // El teal (125,183,172) era residuo del tema 'gaceta', que ya no
-                  // existe: un color de otra marca sobre el rail de ésta. Pasa al
-                  // token de tinte de acento sobre rail, que se declara por modo
-                  // porque --rail-bg sí cambia entre ellos.
-                  background: 'var(--rail-tint)',
-                  border: '1px solid var(--rail-tint-border)',
-                  fontFamily: 'var(--ff-numeric)',
-                }}>v2.3</span>
+      {/* Agencia: el alcance de todo. Con una sola agencia visible (usuario
+          restringido) es una etiqueta, no un control: no se ofrece un menú de
+          una opción. */}
+      <div style={{ padding: collapsed ? 'var(--sp-3) var(--sp-2) var(--sp-1)' : 'var(--sp-3) var(--sp-3) var(--sp-1)' }}>
+        {(() => {
+          const inner = (
+            <>
+              <AgencyMark agency={agency} />
+              {!collapsed && (
+                <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <span style={{ display: 'block', color: 'var(--rail-fg-active)', fontSize: 'var(--fs-body)', fontWeight: 600 }} className="truncate">{(agency && agency.name) || '—'}</span>
+                  <span style={{ display: 'block', color: 'var(--rail-fg-muted)', fontSize: 'var(--fs-caption)' }} className="truncate">{(agency && agency.long) || ''}</span>
+                </span>
               )}
-            </div>
-            <div style={{
-              fontSize: 'var(--fs-overline)',
-              fontWeight: 500,
-              color: 'var(--rail-fg-muted)',
-              marginTop: 'var(--sp-15)',
-              display: 'flex', alignItems: 'center', gap: 'var(--sp-15)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              <span>{'Operations Console'}</span>
-            </div>
-          </div>
+              {!collapsed && canSwitch && <I.ChevronsUpDown size={15} color="var(--rail-fg-muted)" />}
+            </>
+          );
+          const box = {
+            width: '100%', minHeight: 52, padding: collapsed ? 'var(--sp-2) 0' : '0 var(--sp-2)',
+            display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 'var(--sp-2)',
+            background: 'var(--rail-tint)', border: '1px solid var(--rail-tint-border)', borderRadius: 'var(--r-sm)',
+            color: 'var(--rail-fg-active)',
+          };
+          if (!canSwitch) return <div style={box} title={agency && agency.long}>{inner}</div>;
+          return (
+            <button ref={agencyBtn} onClick={() => setAgencyOpen(true)} className="eco-rail-item"
+              aria-haspopup="menu" aria-expanded={agencyOpen}
+              aria-label={`Agencia: ${(agency && agency.long) || ''}. Cambiar agencia`}
+              title={collapsed ? (agency && agency.long) : undefined} style={box}>{inner}</button>
+          );
+        })()}
+        {agencyOpen && (
+          <EcoMenu anchor={agencyBtn} placement={collapsed ? 'right' : 'below'} width={340} label="Cambiar agencia" onClose={() => setAgencyOpen(false)}>
+            {agencyList.map((a) => (
+              <EcoMenuItem key={a.key} checked={agency && a.key === agency.key}
+                label={a.long || a.name}
+                hint={a.archived ? 'archivada' : a.name}
+                onClick={() => { setAgencyOpen(false); if (!agency || a.key !== agency.key) setAgency(a.key); }} />
+            ))}
+          </EcoMenu>
         )}
       </div>
 
-      {/* El buscador se movió al header (HeaderSearch). El atajo ⌘K sigue activo
-          vía el listener global de teclado. */}
-
-      {!collapsed && (
-        <div style={{ padding: '12px 12px 6px', fontSize: 'var(--fs-overline)', fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
-          {isExecView ? 'Vista ejecutiva' : 'Análisis'}
-        </div>
-      )}
-      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
-        {analysisNav.filter((n) => isExecView || ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
-      </nav>
-
-      {!collapsed && (
-        <div style={{ padding: '12px 12px 6px', fontSize: 'var(--fs-overline)', fontWeight: 700, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase' }}>
-          Sistema
-        </div>
-      )}
-      <nav style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
-        {SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => <NavItem key={n.key} item={n} />)}
+      <nav aria-label="Secciones" style={{ padding: collapsed ? 'var(--sp-2)' : 'var(--sp-2) var(--sp-3)', display: 'flex', flexDirection: 'column', gap: collapsed ? 'var(--sp-3)' : 'var(--sp-4)' }}>
+        {groups.map((g, gi) => (
+          <div key={g.label || gi} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
+            {!collapsed && g.label && (
+              <div className="mono" style={{ padding: '0 var(--sp-3) var(--sp-15)', fontSize: 'var(--fs-caption)', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--rail-fg-muted)' }}>{g.label}</div>
+            )}
+            {collapsed && gi > 0 && <div style={{ height: 1, background: 'var(--rail-border)', margin: '0 var(--sp-2) var(--sp-2)' }} />}
+            {g.items.map((n) => <NavItem key={n.key} item={n} />)}
+          </div>
+        ))}
       </nav>
 
       <div style={{ flex: 1 }} />
 
-      {/* Status */}
-      {!collapsed && (
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--rail-border)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--rail-fg-muted)' }}>
-          {/* Se conserva el pulso (la ingesta sí es continua: crons de 5 min) y se
-              cambia sólo el color: --pos está reservado a sentimiento positivo. */}
-          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--info)' }} />
-          <span>Ingesta en vivo</span>
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--ff-mono)' }}>
-            {(() => {
-              const s = (window.ECO_DATA && window.ECO_DATA.INGESTION_STATUS) || null;
-              if (s && s.lastIngestLabel) return s.lastIngestLabel;
-              const firstMention = (window.ECO_DATA && window.ECO_DATA.MENTIONS && window.ECO_DATA.MENTIONS[0]);
-              return firstMention && firstMention.publishedAt ? firstMention.publishedAt : '—';
-            })()}
-          </span>
+      {/* Recolección: el ÚNICO lugar donde se dice. El header dice qué ventana
+          se está mirando; esto dice cuándo entró la última mención. Son dos
+          hechos distintos y antes se pisaban («Ingesta en vivo» contra «Datos
+          al cierre de ayer»). */}
+      {/* La vista ejecutiva mezcla agencias: no hay UNA última recolección. */}
+      {!collapsed && !isExecView && (
+        <div style={{ padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--rail-border)', fontSize: 'var(--fs-caption)', color: 'var(--rail-fg-muted)', lineHeight: 1.4 }}>
+          {agency && agency.archived
+            ? 'Recolección detenida · agencia archivada'
+            : <>Última recolección <span className="mono" style={{ color: 'var(--rail-fg)' }}>{(ingest && ingest.lastIngestLabel) || '—'}</span></>}
         </div>
       )}
 
-      {/* User */}
-      <div style={{
-        padding: collapsed ? '12px 8px' : '12px 14px',
-        borderTop: '1px solid var(--rail-border)',
-        display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-      }}>
-        <Avatar name={(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()} size={28} tone="rail" self />
-        {!collapsed && (
-          <div style={{ overflow: 'hidden', flex: 1 }}>
-            <div style={{ color: 'var(--rail-fg-active)', fontSize: 'var(--fs-caption)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(() => { const s = ecoSession(); return (s && (s.name || s.email)) || 'Usuario'; })()}</div>
-            <div style={{ color: 'var(--rail-fg-muted)', fontSize: 'var(--fs-overline)', textTransform: 'capitalize' }}>{(() => { const s = ecoSession(); return (s && s.role) ? s.role : '—'; })()} · {agency?.name || agency}</div>
-          </div>
-        )}
-      </div>
+      {collapsed && (
+        <button onClick={() => setCollapsed(false)} className="hide-mobile eco-rail-item" aria-label="Expandir menú" title="Expandir menú ( ] )"
+          style={{ height: 40, border: 0, borderTop: '1px solid var(--rail-border)', background: 'transparent', color: 'var(--rail-fg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <I.PanelLeft size={16} />
+        </button>
+      )}
 
-      <button onClick={() => setCollapsed(!collapsed)} style={{
-        padding: collapsed ? '10px 0' : '10px 14px',
-        borderTop: '1px solid var(--rail-border)',
-        color: 'var(--rail-fg-muted)', fontSize: 'var(--fs-overline)',
-        display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        width: '100%',
-      }}>
-        {collapsed ? <Icons.ChevronRight size={14} /> : <><Icons.PanelLeft size={14} /> Colapsar</>}
+      {/* Usuario: un solo botón que abre Configuración, modo y salir. */}
+      <button ref={userBtn} onClick={() => setUserOpen(true)} className="eco-rail-item"
+        aria-haspopup="menu" aria-expanded={userOpen} aria-label={`Cuenta de ${userName}`}
+        style={{
+          flexShrink: 0, minHeight: 56, padding: collapsed ? 0 : '0 var(--sp-3) 0 var(--sp-4)',
+          border: 0, borderTop: '1px solid var(--rail-border)',
+          background: active === 'settings' ? 'var(--rail-active-bg)' : 'transparent',
+          color: 'var(--rail-fg-active)', textAlign: 'left',
+          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', justifyContent: collapsed ? 'center' : 'flex-start',
+        }}>
+        <Avatar name={userName} size={28} tone="rail" />
+        {!collapsed && <>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 'var(--fs-body-sm)', fontWeight: 500 }} className="truncate">{userName}</span>
+            <span style={{ display: 'block', fontSize: 'var(--fs-caption)', color: 'var(--rail-fg-muted)' }}>{roleLabel}</span>
+          </span>
+          <I.ChevronsUpDown size={15} color="var(--rail-fg-muted)" />
+        </>}
       </button>
+      {userOpen && (
+        <EcoMenu anchor={userBtn} placement={collapsed ? 'right' : 'above'} width={240} label="Cuenta" onClose={() => setUserOpen(false)}>
+          {canSettings && <EcoMenuItem icon="Settings" label="Configuración" checked={active === 'settings'} onClick={() => { setUserOpen(false); onNav('settings'); }} />}
+          <EcoMenuItem icon={mode === 'dark' ? 'Sun' : 'Moon'} label={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'} onClick={() => { setUserOpen(false); setMode(mode === 'dark' ? 'light' : 'dark'); }} />
+          <EcoMenuRule />
+          <EcoMenuItem icon="LogOut" label="Cerrar sesión" onClick={() => { setUserOpen(false); if (window.ecoSignOut) window.ecoSignOut(); }} />
+        </EcoMenu>
+      )}
     </aside>
   );
 }
@@ -475,60 +545,61 @@ function SearchField({ size = 'sm', value, onChange, onKeyDown, placeholder = SE
   );
 }
 
-// Buscador del header: input de texto real (no solo el botón ⌘K). Enter dispara
-// la búsqueda completa (texto o URL) navegando a /search; ⌘K sigue disponible
-// como atajo para el command palette. Petición del usuario: el buscador va en el
-// header (no en el menú lateral) y debe ser un poco más ancho.
-function HeaderSearch({ onSearch, onOpenCommand }) {
-  const [q, setQ] = React.useState('');
-  return (
-    // Se baja la BASE, no el máximo: maxWidth 460 se conserva (el buscador ancho
-    // fue un pedido explícito) y el flex-grow lo devuelve a su tamaño cuando hay
-    // sitio. Los 80px que se restan aquí son parte de los 130.5 que hacían falta
-    // para que el grupo de acciones no cayera a una fila propia.
-    <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 180, maxWidth: 460 }}>
-      <SearchField
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && typeof onSearch === 'function') onSearch(q.trim()); }}
-        title="Buscar por texto o URL — Enter. ⌘K abre el comando rápido."
-        trailingWidth={56}
-        trailing={(
-          <button onClick={onOpenCommand} title="Comando rápido (⌘K)" aria-label="Abrir comando rápido"
-            style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 0', lineHeight: 1 }}>
-            <span className="kbd">⌘K</span>
-          </button>
-        )}
-      />
-    </div>
-  );
+// Período del header (H1, sep-2026). Los cuatro más usados van a la vista en un
+// segmentado; el resto y el rango personalizado viven en «Más». Antes eran 8
+// chips + «Fechas» = 9 controles para UNA decisión. Los nombres largos dicen
+// lo que el código abreviado no: la ventana termina AYER (día cerrado AST), así
+// que '1D' es «Ayer», no «Hoy».
+const PERIOD_QUICK = ['7D', '30D', '3M', '1A'];
+const PERIOD_OPTIONS = [
+  ['1D', 'Ayer'], ['5D', 'Últimos 5 días'], ['7D', 'Últimos 7 días'], ['30D', 'Últimos 30 días'],
+  ['3M', 'Últimos 3 meses'], ['6M', 'Últimos 6 meses'], ['1A', 'Último año'], ['Max', 'Máximo (2 años)'],
+];
+const ECO_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// «21 – 27 sep 2026» / «28 ago – 27 sep 2026» / «27 sep 2025 – 27 sep 2026».
+// Días AST en YYYY-MM-DD, sin pasar por Date para no correr el día por TZ.
+function ecoFmtRange(from, to) {
+  if (!from || !to) return '';
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  if (from === to) return `${td} ${ECO_MONTHS[tm - 1]} ${ty}`;
+  if (fy === ty && fm === tm) return `${fd} – ${td} ${ECO_MONTHS[tm - 1]} ${ty}`;
+  if (fy === ty) return `${fd} ${ECO_MONTHS[fm - 1]} – ${td} ${ECO_MONTHS[tm - 1]} ${ty}`;
+  return `${fd} ${ECO_MONTHS[fm - 1]} ${fy} – ${td} ${ECO_MONTHS[tm - 1]} ${ty}`;
 }
 
-// showPeriod=false oculta los chips de periodo y el calendario, y en su lugar
-// pinta una nota explicando la ausencia. Hoy NINGUNA pantalla lo usa: Narrativas
-// era la única y recuperó el control de fechas en ago-2026, cuando la ventana
-// pasó a viajar también al endpoint de detalle. Se conserva el prop para no
-// tener que reconstruir el mecanismo si vuelve a aparecer una pantalla sin
-// ventana.
-function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies, onOpenCommand, onOpenMenu, bp, onSearch, onOpenChat, mode, setMode, onOpenTweaks, live = true, showPeriod = true }) {
-  // Una sola fuente de control de periodo en TODA la aplicación: el Header.
-  // Mismo look-and-feel en Overview, Scorecard, Sentiment, etc. — chips en
-  // "bolsa" + ícono de calendario para rango personalizado. Petición explícita
-  // del usuario: "los filtros en el overview no deben estar en otro lugar
-  // diferente y ser diferentes visualmente a los que ya existen en el
-  // scorecard (que están en el header)".
-  // '90D' se removió: era idéntico a '3M' (ambos 90 días). '30D' se mantiene
-  // como la única ventana ~mensual de los chips. El command palette y los
-  // PERIOD_DAYS del API aceptan ambos por compatibilidad.
-  const PERIODS = ['1D', '5D', '7D', '30D', '3M', '6M', '1A', 'Max'];
+// showPeriod=false oculta el control de período y pinta una nota explicando la
+// ausencia. Hoy NINGUNA pantalla lo usa (Narrativas recuperó las fechas en
+// ago-2026); se conserva el prop para no reconstruir el mecanismo.
+//
+// Header H1 «Una fila» (sep-2026): título + la ventana REAL bajo él; período;
+// buscar (abre ⌘K, que ya busca menciones y URL y navega); exportar; asistente.
+// La agencia se fue al rail y el modo claro/oscuro al menú del usuario.
+function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onOpenMenu, onOpenChat, showPeriod = true }) {
   const isCustom = period === 'custom';
-  const [calendarOpen, setCalendarOpen] = React.useState(false);
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const [rangeOpen, setRangeOpen] = React.useState(false);
+  const moreBtn = React.useRef(null);
   const lsFrom = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.from') || '') : '';
   const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
   const [draftFrom, setDraftFrom] = React.useState(lsFrom);
   const [draftTo, setDraftTo] = React.useState(lsTo);
   const todayIso = new Date().toISOString().slice(0, 10);
+  const win = ecoResolvedWindow();
+  const rangeLabel = win ? ecoFmtRange(win.from, win.to) : '';
+  const current = (agencies || []).find((x) => x.key === agency);
+  const inQuick = !isCustom && PERIOD_QUICK.includes(period);
+  const moreLabel = isCustom
+    ? 'Personalizado'
+    : (!inQuick ? ((PERIOD_OPTIONS.find(([k]) => k === period) || [null, period])[1]) : 'Más');
 
+  function choosePreset(p) {
+    // Al pasar de un rango personalizado a un preset se limpian eco.from/eco.to
+    // para que el siguiente boot no mande restos del rango anterior.
+    try { localStorage.removeItem('eco.from'); localStorage.removeItem('eco.to'); } catch (_) {}
+    setMoreOpen(false); setRangeOpen(false);
+    setPeriod(p);
+  }
   function applyCustomRange() {
     if (!draftFrom || !draftTo || draftFrom > draftTo) return;
     try {
@@ -539,273 +610,143 @@ function Header({ title, eyebrow, period, setPeriod, agency, setAgency, agencies
     window.location.reload();
   }
 
-  // URL del reporte exportable. Se recalcula en cada render, así que siempre
-  // lleva los filtros que el usuario tiene puestos en ESTE momento. Cuando el
-  // período es 'custom' se manda from/to (que es lo que resolveWindow prioriza)
-  // y además el period, para que el endpoint tenga a qué caer si el rango
-  // guardado quedó incompleto.
+  // URL del reporte exportable con los filtros VIGENTES (agencia, período y, si
+  // es custom, from/to — lo que resolveWindow prioriza).
   const exportHref = React.useMemo(() => {
     const qs = new URLSearchParams();
     if (agency) qs.set('agency', agency);
     qs.set('period', period);
-    if (isCustom && lsFrom && lsTo) {
-      qs.set('from', lsFrom);
-      qs.set('to', lsTo);
-    }
+    if (isCustom && lsFrom && lsTo) { qs.set('from', lsFrom); qs.set('to', lsTo); }
     return `/api/export/report?${qs.toString()}`;
   }, [agency, period, isCustom, lsFrom, lsTo]);
 
+  const invalidRange = !draftFrom || !draftTo || draftFrom > draftTo;
+
   return (
-    <header style={{
+    <header className="eco-header" style={{
       position: 'sticky', top: 0, zIndex: 50,
-      background: 'var(--canvas)',
-      borderBottom: '1px solid var(--hairline)',
-      padding: '14px var(--gutter-page)',
+      background: 'var(--canvas)', borderBottom: '1px solid var(--hairline)',
+      minHeight: 72, boxSizing: 'border-box',
+      padding: 'var(--sp-3) var(--gutter-page)',
       display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap',
     }}>
-      {/* Hamburger — opens the off-canvas nav drawer. Mobile only (CSS). */}
       <button className="show-mobile" onClick={onOpenMenu} aria-label="Abrir menú"
         style={{
-          alignItems: 'center', justifyContent: 'center',
-          // El header centra sus hijos, y el bloque de título ocupa 3 líneas en
-          // móvil: centrado, el botón caía a la altura de 'Datos al cierre de
-          // ayer' en vez de compartir borde con nada. Arriba comparte el borde
-          // superior del bloque de título.
-          alignSelf: 'flex-start',
-          width: 40, height: 40, flex: 'none',
-          borderRadius: 'var(--r-lg)', border: '1px solid var(--hairline-strong)',
+          alignItems: 'center', justifyContent: 'center', width: 40, height: 40, flex: 'none',
+          borderRadius: 'var(--r-sm)', border: '1px solid var(--hairline-strong)',
           background: 'var(--control-bg)', color: 'var(--text)',
         }}>
         <Icons.Menu size={18} />
       </button>
-      {/* flex-basis, no ancho: con grow 1 el bloque sigue creciendo hasta ocupar
-          lo que sobre. Lo que cambia es la decisión de ENVOLVER — con 240+280 de
-          base la primera fila sumaba 1144.5 de 1163.5 y el grupo de acciones
-          (137.5 + 12 de gap) no cabía: caía a una fila propia con ~1027px vacíos
-          y 44px de cromo vertical en las 10 pantallas. Con 180+200 la fila suma
-          1154 y las acciones entran. */}
-      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-          {eyebrow && <div className="section-eyebrow" style={{ marginBottom: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{eyebrow}</div>}
-          {live && (
-            // Los datos del dashboard son una ventana CERRADA (termina ayer en
-            // TZ PR, incluso en 1D), así que "En vivo" engañaba. Etiqueta honesta,
-            // sin pulso ni verde.
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-3)' }} />
-              <span className="mono" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Datos al cierre de ayer</span>
-            </div>
+
+      <div className="eco-header-title" style={{ flex: '1 1 220px', minWidth: 0 }}>
+        <h1 style={{
+          margin: 0, fontSize: 'var(--fs-display-lg)', fontWeight: 600,
+          letterSpacing: 'var(--letter-display)', fontFamily: 'var(--ff-display)',
+        }} className="truncate">{title}</h1>
+        {/* La ventana real, no su código: «7D» obligaba a saber que termina
+            ayer. Una agencia archivada lo dice aquí, junto a las fechas, o las
+            cifras se leen como de hoy. */}
+        <div style={{ marginTop: 'var(--sp-05)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', display: 'flex', gap: 'var(--sp-15)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {showPeriod && rangeLabel && <span className="mono" style={{ color: 'var(--text-2)' }}>{rangeLabel}</span>}
+          {/* Solo los presets terminan ayer; un rango personalizado termina donde
+              el usuario dijo, y ahí «al cierre de ayer» sería falso. */}
+          {showPeriod && !isCustom && <span>· al cierre de ayer</span>}
+          {showPeriod && isCustom && <span>· rango personalizado</span>}
+          {!showPeriod && <span>Sin filtro de fechas · cada narrativa muestra su ciclo completo</span>}
+          {current && current.archived && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--text)' }}>
+              <Icons.Info size={12} color="var(--neg)" />Agencia archivada · solo histórico
+            </span>
           )}
         </div>
-        <h1 style={{
-          margin: '2px 0 0', fontSize: 'var(--fs-display-lg)', fontWeight: 600,
-          letterSpacing: 'var(--letter-display)',
-          fontFamily: 'var(--ff-display)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{title}</h1>
       </div>
 
-      {/* Buscador global — input real en el header (antes era solo un botón ⌘K) */}
-      <HeaderSearch onSearch={onSearch} onOpenCommand={onOpenCommand} />
-
-      {/* Agency switcher */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
-        // Alto por token en vez de padding vertical: con '6px 12px' el <select>
-        // interior estiraba la pastilla a 38px, 6px más que los botones de al lado.
-        padding: '0 var(--sp-3)', height: 'var(--control-h)', borderRadius: 'var(--r-pill)',
-        background: 'var(--control-bg)', border: '1px solid var(--hairline-strong)',
-        fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500,
-      }}>
-        <Icons.Building size={13} color="var(--accent)" />
-        <select value={agency} onChange={(e) => setAgency(e.target.value)}
-          // minWidth: si la lista de agencias no carga, un <select> vacío
-          // colapsa a 20 px de ancho — bajo el mínimo táctil AA de 24 (SC
-          // 2.5.8) — y deja de ser accionable justo cuando hace falta.
-          style={{ background: 'none', border: 'none', fontSize: 'var(--fs-caption)', fontWeight: 500, color: 'var(--text)', maxWidth: 140, minWidth: 64 }}>
-          {agencies.map((a) => <option key={a.key} value={a.key}>{a.archived ? a.name + ' · archivada' : a.name}</option>)}
-        </select>
-      </div>
-
-      {/* Agencia archivada: dejó de recolectar. El histórico se sigue
-          consultando, pero el aviso tiene que ir junto al control de periodo o
-          las cifras se leen como si fueran de hoy. */}
-      {(() => {
-        const current = (agencies || []).find((x) => x.key === agency);
-        if (!current || !current.archived) return null;
-        return (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
-            padding: '5px 12px', borderRadius: 'var(--r-pill)',
-            background: 'var(--control-bg)', border: '1px solid var(--neg)',
-            fontSize: 'var(--fs-caption)', color: 'var(--text)', fontWeight: 500,
-          }}>
-            <Icons.Info size={12} color="var(--neg)" />
-            <span>Archivada · ya no se actualiza, solo histórico</span>
+      {showPeriod && (
+        <div className="eco-header-period" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 'none' }}>
+          <div role="group" aria-label="Período" className="eco-seg">
+            {PERIOD_QUICK.map((p) => {
+              const on = !isCustom && period === p;
+              return (
+                <button key={p} onClick={() => choosePreset(p)} aria-pressed={on}
+                  title={(PERIOD_OPTIONS.find(([k]) => k === p) || [])[1]}
+                  className={on ? 'on' : ''}>{p}</button>
+              );
+            })}
           </div>
-        );
-      })()}
-
-      {/* Nota en las pantallas sin filtro de fechas, para que la ausencia del
-          control se lea como una decisión y no como algo que se cayó. */}
-      {!showPeriod && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
-          padding: '5px 12px', borderRadius: 'var(--r-pill)',
-          background: 'var(--control-bg)', border: '1px solid var(--hairline-strong)',
-          fontSize: 'var(--fs-caption)', color: 'var(--text-3)',
-        }}>
-          <Icons.Info size={12} color="var(--text-3)" />
-          <span>Sin filtro de fechas · cada narrativa muestra su ciclo completo</span>
+          <button ref={moreBtn} className={'btn eco-more' + (!inQuick ? ' on' : '')} onClick={() => { setMoreOpen(true); setRangeOpen(isCustom); }}
+            aria-haspopup="menu" aria-expanded={moreOpen}
+            title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Más períodos y rango personalizado'}>
+            <Icons.Calendar size={14} />
+            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>{moreLabel}</span>
+            <Icons.ChevronDown size={12} color="var(--text-3)" />
+          </button>
+          {moreOpen && (
+            <EcoMenu anchor={moreBtn} placement="below-end" width={rangeOpen ? 300 : 250} label="Período" onClose={() => setMoreOpen(false)}>
+              {!rangeOpen && <>
+                {PERIOD_OPTIONS.map(([k, l]) => (
+                  <EcoMenuItem key={k} label={l} hint={k} checked={!isCustom && period === k} onClick={() => choosePreset(k)} />
+                ))}
+                <EcoMenuRule />
+                <EcoMenuItem icon="Calendar" label="Rango personalizado…" checked={isCustom} onClick={() => setRangeOpen(true)} />
+              </>}
+              {rangeOpen && (
+                <div style={{ padding: 'var(--sp-3)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                  <div className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Rango personalizado</div>
+                  <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                    <span style={{ minWidth: 44 }}>Desde</span>
+                    <input type="date" value={draftFrom} max={todayIso} onChange={(e) => setDraftFrom(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
+                  </label>
+                  <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                    <span style={{ minWidth: 44 }}>Hasta</span>
+                    <input type="date" value={draftTo} max={todayIso} onChange={(e) => setDraftTo(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
+                  </label>
+                  {draftFrom && draftTo && draftFrom > draftTo && (
+                    <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)' }}>La fecha «Desde» debe ser anterior o igual a «Hasta».</div>
+                  )}
+                  <div style={{ display: 'flex', gap: 'var(--sp-15)', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
+                    <button className="btn" onClick={() => setRangeOpen(false)} style={{ fontSize: 'var(--fs-caption)' }}>Volver</button>
+                    {isCustom && <button className="btn" onClick={() => choosePreset('7D')} style={{ fontSize: 'var(--fs-caption)' }} title="Limpiar rango y volver a 7D">Limpiar</button>}
+                    <button className="btn btn-action" onClick={applyCustomRange} disabled={invalidRange}
+                      style={{ fontSize: 'var(--fs-caption)', opacity: invalidRange ? 0.5 : 1 }}>Aplicar</button>
+                  </div>
+                </div>
+              )}
+            </EcoMenu>
+          )}
         </div>
       )}
 
-      {/* Period — estilo bolsa, único control de periodo de toda la app. */}
-      {showPeriod && (
-      <div style={{ display: 'flex', background: 'var(--control-bg)', borderRadius: 'var(--r-pill)', padding: 'var(--sp-05)', border: '1px solid var(--hairline-strong)' }}>
-        {PERIODS.map((p) => (
-          <button key={p} onClick={() => {
-            // Si el usuario venía de un rango personalizado, limpiar
-            // eco.from/eco.to antes de cambiar al preset para que el siguiente
-            // boot no envíe restos del rango anterior.
-            try {
-              localStorage.removeItem('eco.from');
-              localStorage.removeItem('eco.to');
-            } catch (_) {}
-            setPeriod(p);
-          }} className="touch-target" aria-pressed={!isCustom && period === p} style={{
-            padding: '0 11px', fontSize: 'var(--fs-caption)', fontWeight: 600,
-            // 26 + 2px de padding de la bolsa + 1px de borde por lado = 32 = la
-            // altura de los botones. Antes la bolsa salía 34 y no cuadraba con nada.
-            minHeight: 'var(--control-h-sm)',
-            borderRadius: 'var(--r-pill)',
-            // El activo se marcaba con --canvas sobre la bolsa en --canvas-2:
-            // 1.13:1, invisible en proyector, y la sombra --shadow-sm no existe
-            // sobre fondo oscuro. Ahora lleva la MISMA marca que el botón de
-            // rango personalizado de al lado (tinte + contorno + texto en
-            // --accent): el contorno da 6.7:1 contra la bolsa. El borde va en
-            // TODOS los chips, transparente en los inactivos, porque si sólo lo
-            // llevara el activo la fila se desplazaría 2px al cambiar de período.
-            border: '1px solid ' + ((!isCustom && period === p) ? 'var(--accent)' : 'transparent'),
-            background: (!isCustom && period === p) ? 'var(--accent-fill)' : 'transparent',
-            color: (!isCustom && period === p) ? 'var(--accent)' : 'var(--text-2)',
-          }}>{p}</button>
-        ))}
-      </div>
-      )}
-      {/* Calendar icon: abre popover con date inputs para rango custom. */}
-      {showPeriod && (
-      <div style={{ position: 'relative' }}>
-        <button
-          onClick={() => setCalendarOpen(v => !v)}
-          title={isCustom && lsFrom && lsTo ? `Rango: ${lsFrom} → ${lsTo}` : 'Rango de fechas personalizado'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
-            // Era el control más bajo del header (26px contra 38 de la pastilla).
-            padding: '0 10px', height: 'var(--control-h)', borderRadius: 'var(--r-pill)', fontSize: 'var(--fs-caption)', fontWeight: 600,
-            background: isCustom ? 'var(--accent-fill)' : 'var(--control-bg)',
-            color: isCustom ? 'var(--accent)' : 'var(--text-2)',
-            border: '1px solid ' + (isCustom ? 'var(--accent)' : 'var(--hairline-strong)'),
-            cursor: 'pointer',
-          }}>
-          <Icons.Calendar size={12} />
-          {isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : 'Fechas'}
-        </button>
-        {calendarOpen && (
-          <>
-            <div onClick={() => setCalendarOpen(false)}
-              style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
-            <div className="card eco-datepop" style={{
-              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
-              padding: 'var(--sp-4)', minWidth: 280,
-              boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
-            }}>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--sp-3)' }}>Rango personalizado</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-                <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                  <span style={{ minWidth: 44 }}>Desde</span>
-                  <input type="date" value={draftFrom}
-                    onChange={(e) => setDraftFrom(e.target.value)}
-                    max={todayIso}
-                    className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
-                </label>
-                <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                  <span style={{ minWidth: 44 }}>Hasta</span>
-                  <input type="date" value={draftTo}
-                    onChange={(e) => setDraftTo(e.target.value)}
-                    max={todayIso}
-                    className="input" style={{ fontSize: 'var(--fs-caption)', padding: '6px 10px' }} />
-                </label>
-              </div>
-              {/* --fs-caption: es una FRASE, no un eyebrow. El token declara que bajo
-                  12px sólo caben etiquetas en mayúsculas y ticks de eje densos, y un
-                  mensaje de error es justo lo que más hay que poder leer. */}
-              {draftFrom && draftTo && draftFrom > draftTo && (
-                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)', marginTop: 'var(--sp-2)' }}>La fecha "Desde" debe ser anterior o igual a "Hasta".</div>
-              )}
-              <div style={{ display: 'flex', gap: 'var(--sp-15)', marginTop: 'var(--sp-3)', justifyContent: 'flex-end' }}>
-                <button className="btn" onClick={() => setCalendarOpen(false)} style={{ fontSize: 'var(--fs-caption)' }}>Cancelar</button>
-                {isCustom && (
-                  <button className="btn" onClick={() => {
-                    try {
-                      localStorage.removeItem('eco.from');
-                      localStorage.removeItem('eco.to');
-                    } catch (_) {}
-                    setPeriod('7D');
-                  }} style={{ fontSize: 'var(--fs-caption)' }} title="Limpiar rango y volver a 7D">Limpiar</button>
-                )}
-                <button className="btn btn-primary" onClick={applyCustomRange}
-                  disabled={!draftFrom || !draftTo || draftFrom > draftTo}
-                  style={{ fontSize: 'var(--fs-caption)', opacity: (!draftFrom || !draftTo || draftFrom > draftTo) ? 0.5 : 1 }}>
-                  Aplicar
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-      )}
+      <div className="hide-mobile" style={{ width: 1, height: 24, background: 'var(--hairline-strong)', flex: 'none' }} />
 
-      {/* Acciones: se agrupan en un contenedor propio con flex:none para que
-          envuelvan JUNTAS. Antes el toggle de modo era el último hijo directo
-          del header (que tiene flex-wrap), así que caía solo a una fila propia
-          y se comía ~48px verticales en las 10 pantallas. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 'none', marginLeft: 'auto' }}>
-        {/* Exportar — abre el reporte analítico en una pestaña nueva.
-            Es un <a target="_blank">, no un botón con window.open(): así el
-            navegador nunca lo trata como popup, y ⌘-clic / clic central / "abrir
-            en ventana nueva" funcionan como en cualquier enlace.
-            El href se arma con los filtros VIGENTES del header (agencia,
-            período y, si el período es custom, el rango de fechas), que es
-            exactamente lo que el endpoint resuelve con resolveWindow.
-            Gateado por la capacidad `export`: el documento es el período
-            completo de la agencia, y un viewer no la tiene. El corte que manda
-            está en /api/export/report; esto solo evita ofrecer un enlace que
-            responde 403. */}
+      {/* Acciones: contenedor propio con flex:none para que envuelvan JUNTAS. En
+          móvil suben a la fila del título y el período baja entero (index.html). */}
+      <div className="eco-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 'none', marginLeft: 'auto' }}>
+        {/* Buscar abre el comando rápido, que ya busca menciones, autores y URL
+            («Ver todos los resultados» navega a /search). El campo de 460 px
+            dominaba la fila para un verbo que ⌘K ya tenía. */}
+        <button className="btn eco-search-btn" onClick={onOpenCommand} aria-label="Buscar (⌘K)" title="Buscar menciones, autores, URL o ir a… (⌘K)">
+          <Icons.Search size={14} color="var(--text-3)" />
+          <span className="hide-mobile" style={{ flex: 1, textAlign: 'left', color: 'var(--text-3)', fontSize: 'var(--fs-caption)' }}>Buscar</span>
+          <span className="kbd hide-mobile">⌘K</span>
+        </button>
+        {/* Exportar: <a target=_blank> (nunca popup; ⌘-clic funciona). Gateado
+            por `export`; el corte que manda está en /api/export/report. */}
         {ecoHasCap('export') && (
           <a className="btn" href={exportHref} target="_blank" rel="noopener"
+            aria-label="Exportar reporte en PDF"
             title={`Exportar reporte analítico en PDF · ${isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : period}`}
-            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', textDecoration: 'none' }}>
-            <Icons.Download size={14} color="var(--accent)" />
-            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Exportar</span>
+            style={{ textDecoration: 'none' }}>
+            <Icons.Download size={14} color="var(--text-2)" />
+            <span className="hide-mobile" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Exportar</span>
           </a>
         )}
         {onOpenChat && (
-          <button className="btn" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)"
-            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
-            <Icons.Sparkles size={14} color="var(--accent)" />
-            <span style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Chat</span>
+          <button className="btn btn-action" onClick={onOpenChat} aria-label="Abrir asistente contextual" title="Asistente contextual (⌘⏎)">
+            <Icons.Sparkles size={14} />
+            <span className="hide-mobile" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>Asistente</span>
           </button>
         )}
-        {/* Único botón sin texto: con el padding de `.btn` medía 30px de alto y 2px
-            menos de ancho que Chat, así que dos botones pegados tenían los bordes
-            desfasados. Cuadrado a la altura de control. */}
-        <button className="btn" onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
-          style={{ width: 'var(--control-h)', justifyContent: 'center', padding: 0 }}
-          aria-label={mode === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-          title={mode === 'dark' ? 'Modo claro' : 'Modo oscuro'}>
-          {mode === 'dark' ? <Icons.Sun size={14} /> : <Icons.Moon size={14} />}
-        </button>
       </div>
     </header>
   );
@@ -847,14 +788,14 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     ...paletteNav.filter((n) => paletteAgency === '__all__' || ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     ...SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     // Period (real)
-    { kind: 'Período', label: 'Hoy (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Ayer (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 7 días cerrados (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
-    { kind: 'Período', label: 'Último mes (1M)', action: () => onSetPeriod('1M'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Últimos 30 días (30D)', action: () => onSetPeriod('30D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 3 meses (3M)', action: () => onSetPeriod('3M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 6 meses (6M)', action: () => onSetPeriod('6M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Último año (1A)', action: () => onSetPeriod('1A'), icon: 'Calendar' },
-    { kind: 'Período', label: 'Todo el histórico (Max)', action: () => onSetPeriod('Max'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Máximo · 2 años (Max)', action: () => onSetPeriod('Max'), icon: 'Calendar' },
     // Vista
     { kind: 'Vista', label: 'Cambiar a modo oscuro', action: () => onSetMode('dark'), icon: 'Moon' },
     { kind: 'Vista', label: 'Cambiar a modo claro', action: () => onSetMode('light'), icon: 'Sun' },
@@ -916,7 +857,7 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: '16px 18px', borderBottom: '1px solid var(--hairline)' }}>
           <Icons.Search size={16} color="var(--text-3)" />
           <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar comandos, ir a…"
+            placeholder="Buscar menciones, autor, URL o ir a…"
             style={{ flex: 1, border: 'none', outline: 'none', background: 'none', fontSize: 'var(--fs-title-md)', color: 'var(--text)' }} />
           <span className="kbd">esc</span>
         </div>
