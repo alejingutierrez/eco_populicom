@@ -1022,7 +1022,9 @@ async function buildAppointmentEmail(
       positive: formatDelta(totals.positive, baselineTotals.positive, { kind: 'percent', decimals: 0 }),
     },
     metrics,
-    chartImageUrl: buildChartImageUrl(curReport.dailySeries),
+    // Ritmo diario en tablas HTML; el último día es HOY (parcial).
+    dailySeries: curReport.dailySeries,
+    heroImage,
     headline: ai.headline,
     summary: ai.summary,
     reception: ai.reception,
@@ -1036,10 +1038,15 @@ async function buildAppointmentEmail(
     dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
   };
 
+  // Como en el diario y el semanal: el asunto cuenta cómo cayó (titular del
+  // LLM) y el volumen va en la vista previa. Sin titular, el de siempre.
+  const appointmentHeadline = (ai.headline ?? '').trim();
   const subject = buildSubject(
     'Nombramiento',
     agencyShortName(agency.slug),
-    `${ap.person_name} · ${fmtIntEs(totals.total)} menciones desde el ${formatShortDay(startYmd)}`,
+    appointmentHeadline
+      ? `${ap.person_name}: ${appointmentHeadline}`
+      : `${ap.person_name} · ${fmtIntEs(totals.total)} menciones desde el ${formatShortDay(startYmd)}`,
   );
 
   return {
@@ -1820,55 +1827,6 @@ async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<
   } catch (err) {
     console.error('[weekly-report] failed to write send log:', err);
   }
-}
-
-// ============================================================
-// Chart images (QuickChart.io)
-// ============================================================
-
-function buildChartImageUrl(
-  series: Array<{ date: string; dayLabel: string; negative: number; neutral: number; positive: number }>,
-): string {
-  const labels = series.map((d) => d.dayLabel);
-  const neg = series.map((d) => d.negative);
-  const neu = series.map((d) => d.neutral);
-  const pos = series.map((d) => d.positive);
-
-  // El template HTML del correo ya muestra su propia leyenda; aquí desactivamos
-  // la del chart para no duplicar. Paleta alineada con el chrome de email.
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Negativo', data: neg, borderColor: '#C8462F', backgroundColor: 'rgba(200,70,47,0.10)',
-          borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#C8462F',
-          pointBorderWidth: 1.5, tension: 0.3, fill: true },
-        { label: 'Neutral', data: neu, borderColor: '#6B7280', backgroundColor: 'rgba(107,114,128,0.06)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#6B7280',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-        { label: 'Positivo', data: pos, borderColor: '#1F8A47', backgroundColor: 'rgba(31,138,71,0)',
-          borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#FFFFFF', pointBorderColor: '#1F8A47',
-          pointBorderWidth: 1.5, tension: 0.3, fill: false },
-      ],
-    },
-    options: {
-      layout: { padding: { top: 8, right: 12, bottom: 4, left: 4 } },
-      plugins: {
-        legend: { display: false },
-        title: { display: false },
-      },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#EEF0F4', drawBorder: false },
-          ticks: { font: { size: 10, family: 'Helvetica' }, color: '#8A93A0', padding: 6, maxTicksLimit: 5 } },
-        x: { grid: { display: false, drawBorder: false },
-          ticks: { font: { size: 11, family: 'Helvetica', weight: '500' }, color: '#4A5563', padding: 6 } },
-      },
-    },
-  };
-  // version=4 fuerza Chart.js v4 en QuickChart; en v2 (default) los toggles
-  // de plugins.legend no se respetan y la leyenda se renderiza igual.
-  return `https://quickchart.io/chart?v=4&w=540&h=240&bkg=white&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(config))}`;
 }
 
 function agencyShortName(slug: string): string {

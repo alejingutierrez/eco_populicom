@@ -344,6 +344,38 @@ export function mentionRow(m: {
 }
 
 /**
+ * Tabla "actual vs referencia": una fila por medida con su cifra actual, la de
+ * referencia y el cambio (HTML ya armado, p.ej. `deltaMono`). La primera fila
+ * va en negrita (el total); la columna de referencia se puede ocultar en móvil.
+ */
+export function compareTable(opts: {
+  headers: [string, string, string, string];
+  rows: Array<{ labelHtml: string; cur: string; prev: string; changeHtml: string; strong?: boolean }>;
+}): string {
+  const th = `font-family:${FONT_MONO};font-size:12px;font-weight:400;color:${T.text3};padding:0 0 8px 0;border-bottom:1px solid ${T.rule};`;
+  const num = `font-family:${FONT_MONO};font-size:14px;padding:8px 0 8px 10px;white-space:nowrap;`;
+  const rows = opts.rows.map((r, i) => {
+    const b = i === opts.rows.length - 1 ? '' : `border-bottom:1px solid ${T.line};`;
+    return `<tr>
+                  <td style="font-size:14px;${r.strong ? 'font-weight:600;' : ''}padding:8px 0;${b}">${r.labelHtml}</td>
+                  <td align="right" style="${num}${b}${r.strong ? 'font-weight:600;' : ''}">${r.cur}</td>
+                  <td align="right" style="${num}${b}color:${T.text2};">${r.prev}</td>
+                  <td align="right" style="${num}${b}">${r.changeHtml}</td>
+                </tr>`;
+  }).join('');
+  const [h0, h1, h2, h3] = opts.headers.map(esc);
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <th align="left" style="${th}font-family:${FONT_SANS};">${h0}</th>
+                  <th align="right" style="${th}padding-left:10px;">${h1}</th>
+                  <th align="right" style="${th}padding-left:10px;">${h2}</th>
+                  <th align="right" style="${th}padding-left:10px;">${h3}</th>
+                </tr>
+                ${rows}
+              </table>`;
+}
+
+/**
  * Foto de portada (536 × auto, recorte máximo 280). Devuelve '' sin URL: el
  * correo nunca depende de la imagen.
  */
@@ -393,8 +425,13 @@ export interface InstrumentDocumentOpts {
   kind: EmailKind;
   /** Override del texto de la etiqueta ("CRISIS · 56%"). */
   tagText?: string;
-  /** Encabezado del correo: línea de agencia, título y metadatos en mono. */
-  heading: { kicker: string; title: string; meta?: string };
+  /**
+   * Encabezado del correo: línea de agencia, título y metadatos en mono.
+   * `subtitle` va bajo el título (p.ej. el cargo); `aside` es HTML a la
+   * izquierda del bloque de texto (el retrato del nombramiento; en móvil pasa
+   * arriba); `extraHtml` cierra el encabezado (p.ej. las notas de contexto).
+   */
+  heading: { kicker: string; title: string; subtitle?: string; meta?: string; aside?: string; extraHtml?: string };
   /** Filas <tr> del contenido, ya renderizadas. */
   contentRows: string;
 }
@@ -411,6 +448,22 @@ export function instrumentDocument(opts: InstrumentDocumentOpts): string {
   const headingMeta = opts.heading.meta
     ? `<div style="font-family:${FONT_MONO};font-size:12px;color:${T.text3};line-height:1.4;margin-top:6px;">${esc(opts.heading.meta)}</div>`
     : '';
+
+  const subtitle = opts.heading.subtitle
+    ? `<div style="font-size:15px;color:${T.ink};line-height:1.4;margin-top:4px;">${esc(opts.heading.subtitle)}</div>`
+    : '';
+  const headingText = `<div style="font-size:13px;color:${T.text2};line-height:1.4;">${esc(opts.heading.kicker)}</div>
+              <h1 class="title force-text-dark" style="margin:4px 0 0 0;font-family:${FONT_SANS};font-size:26px;font-weight:600;letter-spacing:-0.01em;line-height:1.2;color:${T.ink};">${esc(opts.heading.title)}</h1>
+              ${subtitle}
+              ${headingMeta}`;
+  const headingBlock = opts.heading.aside
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:18px;">
+                <tr>
+                  <td class="stack-mobile" valign="top" width="1" style="width:1px;padding:0 20px 0 0;">${opts.heading.aside}</td>
+                  <td class="stack-mobile" valign="top">${headingText}</td>
+                </tr>
+              </table>`
+    : `<div style="margin-top:16px;">${headingText}</div>`;
 
   return `<!doctype html>
 <html lang="es" style="color-scheme:light only;supported-color-schemes:light only;">
@@ -477,9 +530,8 @@ export function instrumentDocument(opts: InstrumentDocumentOpts): string {
                   <td align="right" valign="middle"><span style="${tag.style}">${esc(opts.tagText ?? tag.text)}</span></td>
                 </tr>
               </table>
-              <div style="font-size:13px;color:${T.text2};line-height:1.4;margin-top:16px;">${esc(opts.heading.kicker)}</div>
-              <h1 class="title force-text-dark" style="margin:4px 0 0 0;font-family:${FONT_SANS};font-size:26px;font-weight:600;letter-spacing:-0.01em;line-height:1.2;color:${T.ink};">${esc(opts.heading.title)}</h1>
-              ${headingMeta}
+              ${headingBlock}
+              ${opts.heading.extraHtml ?? ''}
             </td>
           </tr>
 

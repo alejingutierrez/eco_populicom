@@ -24,6 +24,7 @@ import {
   FONT_MONO,
   FONT_SANS,
   actionRow,
+  compareTable,
   deltaMono,
   heroImage,
   instrumentDocument,
@@ -210,35 +211,20 @@ function renderGlance(data: WeeklySummaryRenderData, sec: string): string {
 
 function renderWeekVsWeek(data: WeeklySummaryRenderData, sec: string): string {
   const { totals, prevTotals } = data;
-  const rows = [
-    `<tr>
-                  <td style="font-size:14px;font-weight:600;padding:8px 0;border-bottom:1px solid ${T.line};">Menciones</td>
-                  <td align="right" style="${TD_NUM}font-weight:600;">${fmtInt(totals.total)}</td>
-                  <td align="right" style="${TD_NUM}color:${T.text2};">${fmtInt(prevTotals.total)}</td>
-                  <td align="right" style="${TD_NUM}">${deltaOrDash(data.totalDelta, false)}</td>
-                </tr>`,
-    ...SENTIMENTS.map((s, i) => {
-      const last = i === SENTIMENTS.length - 1;
-      const b = last ? 'border-bottom:0;' : '';
-      return `<tr>
-                  <td style="font-size:14px;padding:8px 0;border-bottom:1px solid ${T.line};${b}">${swatch(s.color)}${esc(s.label)}</td>
-                  <td align="right" style="${TD_NUM}${b}">${fmtInt(totals[s.key])} <span style="color:${T.text3};font-size:12px;">· ${share(totals[s.key], totals.total)}%</span></td>
-                  <td align="right" style="${TD_NUM}${b}color:${T.text2};">${fmtInt(prevTotals[s.key])}</td>
-                  <td align="right" style="${TD_NUM}${b}">${deltaOrDash(data.sentimentDelta[s.key], s.key !== 'neutral')}</td>
-                </tr>`;
-    }),
-  ].join('');
   return sectionRow(`
               ${sectionLabel(`${sec} · Semana vs semana`)}
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <th align="left" style="${TH}font-family:${FONT_SANS};">Sentimiento</th>
-                  <th align="right" style="${TH}">Esta</th>
-                  <th align="right" style="${TH}">Anterior</th>
-                  <th align="right" style="${TH}">Cambio</th>
-                </tr>
-                ${rows}
-              </table>`);
+              ${compareTable({
+                headers: ['Sentimiento', 'Esta', 'Anterior', 'Cambio'],
+                rows: [
+                  { labelHtml: 'Menciones', cur: fmtInt(totals.total), prev: fmtInt(prevTotals.total), changeHtml: deltaOrDash(data.totalDelta, false), strong: true },
+                  ...SENTIMENTS.map((s) => ({
+                    labelHtml: `${swatch(s.color)}${esc(s.label)}`,
+                    cur: `${fmtInt(totals[s.key])} <span style="color:${T.text3};font-size:12px;">· ${share(totals[s.key], totals.total)}%</span>`,
+                    prev: fmtInt(prevTotals[s.key]),
+                    changeHtml: deltaOrDash(data.sentimentDelta[s.key], s.key !== 'neutral'),
+                  })),
+                ],
+              })}`);
 }
 
 function renderRhythm(data: WeeklySummaryRenderData, sec: string): string {
