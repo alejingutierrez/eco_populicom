@@ -7,10 +7,11 @@ import {
   formatPeriodLabel,
   loadMetricsForWindow,
   loadHourlySentimentSeries,
+  loadDailySentimentSeries,
   formatMetric,
   formatDelta,
 } from '@eco/shared';
-import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay, HourlyPoint } from '@eco/shared';
+import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay, HourlyPoint, DailyPoint } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
@@ -24,7 +25,19 @@ const TZ = 'America/Puerto_Rico';
 // custom from/to en días AST inclusivos. El mapa de períodos válidos es el
 // PERIOD_DAYS canónico del paquete compartido.
 
+/** Siglas de la cabecera — las mismas que imprime el correo (agencyShortName). */
+const SHORT_NAMES: Record<string, string> = { aaa: 'AAA', ddecpr: 'DDEC' };
+
+/**
+ * Tendencia con la ventana previa al lado (bloque 04, como el «Ritmo diario»
+ * del correo): solo hasta 14 días. Con 30/90 días serían 60/180 barras y la
+ * comparación deja de leerse.
+ */
+const PREV_SERIES_MAX_DAYS = 14;
+
 interface OverviewResponse {
+  /** Cabecera con la forma del correo: "DDEC · Departamento de …". */
+  agency: { slug: string; name: string; shortName: string } | null;
   periodLabel: string;
   periodStart: string;
   periodEnd: string;
@@ -33,6 +46,23 @@ interface OverviewResponse {
   totals: SentimentReport['totals'];
   deltaVsPrev: SentimentReport['deltaVsPrev'];
   dailySeries: SentimentReport['dailySeries'];
+  /**
+   * Serie diaria de la ventana previa, mismo universo que dailySeries. null
+   * cuando la ventana pasa de PREV_SERIES_MAX_DAYS días o es de un solo día.
+   */
+  prevDailySeries: DailyPoint[] | null;
+  /**
+   * Riesgo de crisis del bloque 02. `window`/`prevWindow` son la métrica de la
+   * VENTANA (la misma del correo: loadMetricsForWindow); `daily` es el
+   * snapshot de cada día (cinta bajo la tendencia, pico y cierre).
+   */
+  crisis: {
+    window: number | null;
+    prevWindow: number | null;
+    daily: Array<{ date: string; score: number }>;
+    peak: { date: string; score: number } | null;
+    last: { date: string; score: number } | null;
+  };
   /**
    * Granularidad de la tendencia. 'hour' cuando la ventana es de UN día
    * (chip 1D o custom de un solo día): a nivel diario ese caso rendía un
@@ -116,12 +146,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // reciente, lo que producía valores idénticos para todos los periods
     // (Crisis ayer = 0.185 para 1D/7D/1M/3M/6M/1A) — inconsistencia visible
     // contra el Scorecard que sí recalculaba (0.588 para 7D).
-    const winCur = await loadMetricsForWindow(pool, agencyId, startYmd, endYmd);
+    const singleDayWindow = startYmd === endYmd;
+    const windowDays = report.dailySeries.length;
+    const [winCur, winPrev, prevDailySeries, crisisDaily, agencyRow] = await Promise.all([
+      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
+      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+      !singleDayWindow && windowDays <= PREV_SERIES_MAX_DAYS
+        ? loadDailySentimentSeries(pool, agencyId, prevStartYmd, prevEndYmd)
+        : Promise.resolve(null),
+      pool.query<{ d: string; score: number | string | null }>(
+        `SELECT to_char(date, 'YYYY-MM-DD') AS d, crisis_risk_score AS score
+           FROM daily_metric_snapshots
+          WHERE agency_id = $1 AND date BETWEEN $2::date AND $3::date
+            AND crisis_risk_score IS NOT NULL
+          ORDER BY date`,
+        [agencyId, startYmd, endYmd],
+      ),
+      pool.query<{ slug: string; name: string }>(`SELECT slug, name FROM agencies WHERE id = $1 LIMIT 1`, [agencyId]),
+    ]);
+    const daily = crisisDaily.rows.map((r) => ({ date: r.d, score: Number(r.score) }));
+    const peak = daily.reduce<{ date: string; score: number } | null>((best, p) => (!best || p.score > best.score ? p : best), null);
+    const ag = agencyRow.rows[0];
 
     // Tendencia por HORA cuando la ventana es de un solo día. Mismo universo
     // y mismos bordes AST que la serie diaria, así que la suma de las 24
     // horas cuadra con el total del termómetro.
-    const singleDay = startYmd === endYmd;
+    const singleDay = singleDayWindow;
     const hourlySeries = singleDay
       ? await loadHourlySentimentSeries(pool, agencyId, startYmd, endYmd)
       : null;
@@ -137,6 +187,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : (report.totals.total > 0 ? 100 : 0);
 
     const response: OverviewResponse = {
+      agency: ag ? { slug: ag.slug, name: ag.name, shortName: SHORT_NAMES[ag.slug] ?? ag.slug.toUpperCase() } : null,
       periodLabel: formatPeriodLabel(startYmd, endYmd),
       periodStart: startYmd,
       periodEnd: endYmd,
@@ -145,6 +196,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       totals: report.totals,
       deltaVsPrev: report.deltaVsPrev,
       dailySeries: report.dailySeries,
+      prevDailySeries,
+      crisis: {
+        window: winCur.crisisRiskScore,
+        prevWindow: winPrev.crisisRiskScore,
+        daily,
+        peak,
+        last: daily.length ? daily[daily.length - 1] : null,
+      },
       trendGranularity: singleDay ? 'hour' : 'day',
       hourlySeries,
       topicsTable: report.topicsTable,

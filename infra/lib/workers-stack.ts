@@ -439,6 +439,10 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
         BEDROCK_FALLBACK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        // Foto de portada del Overview (period-insights): se copia a `media/`
+        // del bucket crudo porque /overview se sirve con CSP img-src 'self'.
+        MEDIA_BUCKET: props.rawBucket.bucketName,
+        MEDIA_PUBLIC_BASE_URL: 'https://citizenecho.com/media',
       },
       logGroup: importLogGroup('AiTasksLogGroup', 'eco-ai-tasks'),
       bundling: bundlingOptions,
@@ -452,6 +456,8 @@ export class WorkersStack extends cdk.Stack {
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
     }));
+    // Solo `media/*`, igual que el processor: la foto de portada del Overview.
+    props.rawBucket.grantPut(this.aiTasksFunction, 'media/*');
 
     // EventBridge schedule — briefing ejecutivo 4×/día (00, 06, 12, 18 hora AST
     // = 04, 10, 16, 22 UTC). El lambda sin payload corre la acción 'briefing'.

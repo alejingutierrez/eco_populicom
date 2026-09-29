@@ -391,3 +391,77 @@ export async function loadTodaySamples(client: any, agencyId: string, endYmd: st
     source: row.content_source_name ?? null,
   }));
 }
+
+/**
+ * Lo que se dijo UN día (TZ Puerto Rico): las menciones pertinentes de más
+ * resonancia, de cualquier sentimiento. Alimenta el rótulo de los días pico
+ * de la tendencia del Overview — el modelo nombra qué pasó a partir de esto.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadDaySamples(client: any, agencyId: string, ymd: string, limit = 6): Promise<MentionSample[]> {
+  const r = await client.query(
+    `SELECT m.id, m.published_at, m.title, m.snippet, m.author, m.content_source_name, m.url,
+            m.page_type, m.engagement_score, m.nlp_pertinence,
+            COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment
+       FROM mentions m
+      WHERE m.agency_id = $1
+        AND m.is_duplicate = false
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
+        AND m.nlp_pertinence IN ('alta','media')
+      ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+      LIMIT ${Math.max(1, Math.min(20, limit))}`,
+    [agencyId, ymd],
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return r.rows.map((row: any) => ({
+    id: row.id,
+    createdAt: (row.published_at as Date).toISOString(),
+    text: `${row.title ? row.title + ' — ' : ''}${row.snippet ?? ''}`.trim(),
+    sentiment: row.sentiment === 'negativo' || row.sentiment === 'negative' ? 'negative'
+      : row.sentiment === 'positivo' || row.sentiment === 'positive' ? 'positive' : 'neutral',
+    author: row.author,
+    source: row.content_source_name,
+    url: row.url,
+    pageType: row.page_type,
+    engagement: row.engagement_score != null ? Number(row.engagement_score) : null,
+    pertinence: (row.nlp_pertinence as 'alta' | 'media' | 'baja' | null) ?? null,
+  }));
+}
+
+/**
+ * Candidatas a foto de portada del periodo — la MISMA consulta que la foto del
+ * correo (eco-weekly-report loadHeroImage, #120/#121): noticias, blogs y foros
+ * pertinentes, las de pertinencia alta primero y luego por resonancia. El
+ * filtro de tipo va en SQL y no después del LIMIT: las redes dominan el
+ * engagement y las noticias quedarían fuera del corte.
+ */
+export interface HeroCandidate {
+  url: string | null;
+  pageType: string | null;
+  resolvedImageUrl: string | null;
+  sourceName: string | null;
+  publishedAt: Date;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadHeroCandidates(client: any, agencyId: string, startYmd: string, endYmd: string): Promise<HeroCandidate[]> {
+  const r = await client.query(
+    `SELECT m.url, m.page_type, m.resolved_image_url, m.content_source_name, m.published_at
+       FROM mentions m
+      WHERE m.agency_id = $1
+        AND m.is_duplicate = false
+        AND m.nlp_pertinence IN ('alta','media')
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date BETWEEN $2::date AND $3::date
+        AND lower(m.page_type) IN ('news','blog','forum')
+      ORDER BY (m.nlp_pertinence = 'alta') DESC, COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+      LIMIT 5`,
+    [agencyId, startYmd, endYmd],
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return r.rows.map((row: any) => ({
+    url: row.url ?? null,
+    pageType: row.page_type ?? null,
+    resolvedImageUrl: row.resolved_image_url ?? null,
+    sourceName: row.content_source_name ?? null,
+    publishedAt: new Date(row.published_at),
+  }));
+}

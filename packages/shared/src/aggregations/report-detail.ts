@@ -598,6 +598,23 @@ export function findPeaks(
     .filter((p) => p.total > 0);
 }
 
+/**
+ * Días que la tendencia del Overview rotula con lo que pasó. Un día entra si
+ * se sale claramente de su ventana (z ≥ 1.5 sobre la propia serie) y tiene
+ * volumen suficiente para que el rótulo diga algo (≥ 10 menciones). Máximo
+ * `max`, en orden cronológico. Ventanas de más de 31 días no se rotulan: con
+ * barras de pocos píxeles el rótulo tapa el gráfico en vez de explicarlo.
+ */
+export function selectAnnotatedPeaks(
+  dailySeries: Array<{ date: string; negative: number; neutral: number; positive: number }>,
+  max = 2,
+): DayPeak[] {
+  if (dailySeries.length > 31) return [];
+  return findPeaks(dailySeries, max)
+    .filter((p) => p.zScore >= 1.5 && p.total >= 10)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ============================================================
 // API pública
 // ============================================================

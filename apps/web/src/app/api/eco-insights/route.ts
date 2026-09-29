@@ -125,6 +125,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const STALE_MS = 60 * 60 * 1000; // 1h
 
     if (row) {
+      // Filas previas a la migración 0008 no traen lede (titular, viñetas,
+      // rótulos de picos, foto). Se sirven igual y se recalculan UNA vez en
+      // segundo plano, también las históricas: sin esto el bloque 03 del
+      // Overview quedaría sin titular para siempre en esas ventanas.
+      const missingLede = row.lede == null && row.dailySummary != null;
       const ready = {
         status: 'ready' as const,
         periodStart: startYmd,
@@ -135,11 +140,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           positive: (row.positiveInsights as string[] | null) ?? [],
         },
         dailySummary: row.dailySummary,
+        lede: row.lede ?? null,
         generatedAt: row.generatedAt,
-        stale: !isHistorical && ageMs > STALE_MS,
+        stale: missingLede || (!isHistorical && ageMs > STALE_MS),
       };
-      // Background recalc si stale y es ventana rolling (incluye hoy/ayer).
-      if (!isHistorical && ageMs > STALE_MS) {
+      // Background recalc si stale y es ventana rolling (incluye hoy/ayer),
+      // o si a la fila le falta el lede.
+      if (missingLede || (!isHistorical && ageMs > STALE_MS)) {
         // No await — fire and forget.
         triggerLambdaAsync(agencySlug, startYmd, endYmd).catch((e) => {
           log.warn('eco-insights', 'background recalc failed to invoke', { err: (e as Error).message });
