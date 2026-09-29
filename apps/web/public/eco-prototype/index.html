@@ -488,6 +488,9 @@
   .eco-seg > button:hover { color: var(--text); background: var(--control-bg-hover); }
   .eco-seg > button.on { background: var(--action); color: var(--on-action); }
   .eco-search-btn { min-width: 180px; }
+  /* Bajo ~1280px el header envuelve y el separador quedaba huérfano al final de
+     la primera fila, separando el período de nada. */
+  @media (max-width: 1280px) { .eco-header-sep { display: none !important; } }
 
   /* Rail y menús flotantes: hover sin croma. */
   .eco-rail-item { cursor: pointer; transition: background var(--dur-fast) var(--ease); }
@@ -1729,7 +1732,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc82';
+        s.src = base + '/' + f + '?v=prodc83';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
