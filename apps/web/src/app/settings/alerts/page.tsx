@@ -111,7 +111,7 @@ export default function AlertsCrisisSettingsPage() {
     }
   }, [selectedAgencySlug, message]);
 
-  const layoutBg = isEmbedded ? 'transparent' : '#F4F7FA';
+  const layoutBg = isEmbedded ? 'transparent' : 'var(--bg)';
   // 16 px embebido = el mismo padding que `.card-bd` del prototype, que es la caja
   // que contiene este iframe. Con '12px 4px 4px 4px' el primer control del
   // formulario arrancaba 12 px a la izquierda del título de la card con el que
@@ -122,11 +122,11 @@ export default function AlertsCrisisSettingsPage() {
   return (
     <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: layoutBg }}>
       {!isEmbedded && (
-        <Header style={{ background: '#FFFFFF', borderBottom: '1px solid #EEF2F6', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link href="/dashboard" style={{ color: '#64748B', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Header style={{ background: 'var(--canvas)', borderBottom: '1px solid var(--hairline)', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Link href="/dashboard" style={{ color: 'var(--text-2)', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <ArrowLeftOutlined /> Panel
           </Link>
-          <Title level={4} style={{ margin: 0, color: '#0E1E2C' }}>Configuración · Alertas de crisis</Title>
+          <Title level={4} style={{ margin: 0, color: 'var(--text)' }}>Configuración · Alertas de crisis</Title>
         </Header>
       )}
       <Content style={{ padding: contentPadding, maxWidth: contentMaxWidth, margin: '0 auto', width: '100%' }}>
@@ -334,11 +334,13 @@ function ConfigForm({
               flex: 1,
               padding: '4px 11px',
               fontSize: 14,
-              border: '1px solid #d9d9d9',
+              border: '1px solid var(--hairline-strong)',
               borderRight: 'none',
-              borderRadius: '6px 0 0 6px',
+              borderRadius: 'var(--r-md) 0 0 var(--r-md)',
               outline: 'none',
-              height: 32,
+              height: 'var(--control-h)',
+              background: 'var(--control-bg)',
+              color: 'var(--text)',
             }}
           />
           <Button onClick={handleAddEmail}>Añadir</Button>

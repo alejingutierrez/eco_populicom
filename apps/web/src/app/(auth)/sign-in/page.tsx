@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Card, Form, Input, Button, Alert, Typography } from 'antd';
+import { Form, Input, Button, Alert } from 'antd';
 import type { CognitoUser } from 'amazon-cognito-identity-js';
 import {
   signIn,
@@ -12,8 +12,6 @@ import {
   type AuthResult,
 } from '@/lib/auth/cognito';
 
-const { Title, Text } = Typography;
-
 type Mode = 'signin' | 'newPassword' | 'forgotRequest' | 'forgotConfirm';
 
 interface SignInFormValues {
@@ -22,16 +20,87 @@ interface SignInFormValues {
 }
 
 // Política del pool: min 8, mayúscula y dígito (símbolos/minúscula opcionales).
+
+// Las mismas tres reglas, a la vista mientras se escribe. Antes solo aparecían
+// cuando fallaban, al enviar: la persona que activaba su cuenta las descubría
+// una por una. Acromáticas a propósito («Instrumento»): la regla cumplida se
+// marca con un check y pasa a --text, no se pinta de verde.
+const PASSWORD_CHECKS: { label: string; test: (v: string) => boolean }[] = [
+  { label: 'Al menos 8 caracteres', test: (v) => v.length >= 8 },
+  { label: 'Una letra mayúscula', test: (v) => /[A-Z]/.test(v) },
+  { label: 'Un número', test: (v) => /[0-9]/.test(v) },
+];
+
+// Una sola regla que junta las tres (se validan contra PASSWORD_CHECKS): la
+// lista de requisitos de debajo ya dice cuál falta mientras se escribe, así que
+// tres mensajes rojos repitiéndola por separado eran ruido.
 const PASSWORD_RULES = [
   { required: true, message: 'Ingrese una contraseña' },
-  { min: 8, message: 'Mínimo 8 caracteres' },
-  { pattern: /[A-Z]/, message: 'Debe incluir al menos una mayúscula' },
-  { pattern: /[0-9]/, message: 'Debe incluir al menos un número' },
+  {
+    validator: (_: unknown, value: string) =>
+      !value || PASSWORD_CHECKS.every((c) => c.test(value))
+        ? Promise.resolve()
+        : Promise.reject(new Error('La contraseña aún no cumple los requisitos de abajo')),
+  },
 ];
+
+function PasswordChecklist({ value }: { value: string }) {
+  return (
+    <ul aria-label="Requisitos de la contraseña" style={{ listStyle: 'none', margin: '-4px 0 20px', padding: 0, display: 'grid', gap: 4 }}>
+      {PASSWORD_CHECKS.map((c) => {
+        const ok = c.test(value || '');
+        return (
+          <li key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-body-sm)', color: ok ? 'var(--text)' : 'var(--text-3)' }}>
+            <span aria-hidden="true" style={{
+              width: 16, height: 16, borderRadius: 'var(--r-circle)', flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              border: `1px solid ${ok ? 'var(--action)' : 'var(--hairline-strong)'}`,
+              background: ok ? 'var(--action)' : 'transparent',
+            }}>
+              {ok && (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--on-fill)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+              )}
+            </span>
+            <span>{c.label}</span>
+            <span className="sr-only">{ok ? ' — cumplido' : ' — pendiente'}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// Marca de ECO: los arcos de eco del rail, en grafito. Decorativa; el nombre
+// va en texto al lado.
+function EcoMark({ size = 36 }: { size?: number }) {
+  return (
+    <span aria-hidden="true" style={{
+      width: size, height: size, borderRadius: 'var(--r-md)', flexShrink: 0,
+      background: 'var(--rail-bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="none">
+        <path d="M 7 19 A 7 7 0 0 1 7 5" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.35" />
+        <path d="M 10 17 A 5 5 0 0 1 10 7" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.6" />
+        <path d="M 13 15 A 3 3 0 0 1 13 9" stroke="var(--rail-fg-active)" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
+        <circle cx="16.5" cy="12" r="1.9" fill="var(--rail-fg-active)" />
+      </svg>
+    </span>
+  );
+}
+
+// Cabecera de cada paso: dónde estás (eyebrow), qué haces (título) y, si hace
+// falta, una línea de contexto. Antes los cuatro modos compartían el mismo
+// «ECO / Monitoreo de medios…» y solo cambiaba el formulario de abajo.
+const STEP_COPY: Record<Mode, { eyebrow: string; title: string; lead?: string }> = {
+  signin: { eyebrow: 'Acceso', title: 'Inicia sesión' },
+  newPassword: { eyebrow: 'Activación · paso 2 de 2', title: 'Crea tu contraseña', lead: 'Es la que usarás desde ahora para entrar. La temporal del correo de invitación deja de servir.' },
+  forgotRequest: { eyebrow: 'Recuperar acceso · paso 1 de 2', title: 'Restablece tu contraseña', lead: 'Te enviaremos un código de verificación a tu correo.' },
+  forgotConfirm: { eyebrow: 'Recuperar acceso · paso 2 de 2', title: 'Ingresa el código', lead: 'Escribe el código que te llegó y elige una contraseña nueva.' },
+};
 
 export default function SignInPage() {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#F4F7FA' }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--bg)' }} />}>
       <SignInPageInner />
     </Suspense>
   );
@@ -48,6 +117,13 @@ function SignInPageInner() {
   const [pendingUser, setPendingUser] = useState<CognitoUser | null>(null);
   // Correo recordado entre "pedir código" y "confirmar código" de recuperación.
   const [forgotEmail, setForgotEmail] = useState('');
+  // Correo de la cuenta que se está activando: se muestra en el paso 2 para que
+  // la persona sepa QUÉ cuenta activa (la invitación pudo llegar a otra bandeja).
+  const [activatingEmail, setActivatingEmail] = useState('');
+  const [newPasswordForm] = Form.useForm();
+  const [forgotConfirmForm] = Form.useForm();
+  const newPasswordValue = Form.useWatch('password', newPasswordForm) || '';
+  const forgotPasswordValue = Form.useWatch('password', forgotConfirmForm) || '';
 
   function goTo(next: Mode) {
     setError('');
@@ -126,6 +202,7 @@ function SignInPageInner() {
       if (result.kind === 'newPasswordRequired') {
         // Cuenta nueva (invitación): debe crear su contraseña antes de entrar.
         setPendingUser(result.user);
+        setActivatingEmail(values.email);
         goTo('newPassword');
         return;
       }
@@ -186,76 +263,83 @@ function SignInPageInner() {
   if (checking) {
     return (
       <div
+        role="status"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 12,
           minHeight: '100vh',
-          backgroundColor: '#F4F7FA',
-          color: '#64748B',
-          fontSize: 14,
+          background: 'var(--bg)',
+          color: 'var(--text-2)',
+          fontSize: 'var(--fs-body)',
         }}
       >
+        <EcoMark size={28} />
         Restaurando sesión…
       </div>
     );
   }
 
+  const step = STEP_COPY[mode];
+
   return (
-    <div
+    <main
       style={{
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 24,
         minHeight: '100vh',
-        backgroundColor: '#F4F7FA',
+        background: 'var(--bg)',
+        color: 'var(--text)',
         padding: 'clamp(16px, 5vw, 32px)',
       }}
     >
-      <Card
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 420 }}>
+        <EcoMark />
+        <div style={{ lineHeight: 1.25 }}>
+          <div style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, letterSpacing: '0.04em' }}>ECO</div>
+          <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>
+            Escucha ciudadana · Gobierno de Puerto Rico
+          </div>
+        </div>
+      </div>
+
+      <section
+        aria-labelledby="eco-auth-title"
         style={{
           width: '100%',
           maxWidth: 420,
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+          background: 'var(--canvas)',
+          border: '1px solid var(--hairline)',
+          borderRadius: 'var(--r-lg)',
+          padding: 'clamp(20px, 5vw, 32px)',
         }}
       >
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 12,
-              background: 'linear-gradient(135deg, #1B3A4B 0%, #3B82F6 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 16px',
-            }}
-          >
-            <span
-              style={{
-                color: '#FFFFFF',
-                fontSize: 22,
-                fontWeight: 700,
-                letterSpacing: 1,
-              }}
-            >
-              ECO
-            </span>
+        <header style={{ marginBottom: 24 }}>
+          <div className="mono" style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', color: 'var(--text-3)' }}>
+            {step.eyebrow}
           </div>
-          <Title level={3} style={{ margin: 0, color: '#0E1E2C' }}>
-            ECO
-          </Title>
-          <Text style={{ color: '#64748B' }}>
-            Monitoreo de medios y redes — Gobierno de Puerto Rico
-          </Text>
-        </div>
+          <h1 id="eco-auth-title" style={{ margin: '6px 0 0', fontSize: 'var(--fs-display-md)', fontWeight: 700, letterSpacing: 'var(--tracking-display)', lineHeight: 1.2 }}>
+            {step.title}
+          </h1>
+          {mode === 'newPassword' && activatingEmail && (
+            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-body)', color: 'var(--text-2)' }}>
+              Activando la cuenta <span className="mono" style={{ color: 'var(--text)', wordBreak: 'break-all' }}>{activatingEmail}</span>
+            </p>
+          )}
+          {step.lead && (
+            <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-body)', color: 'var(--text-2)', lineHeight: 1.55 }}>{step.lead}</p>
+          )}
+        </header>
 
         {notice && (
-          <Alert message={notice} type="success" showIcon style={{ marginBottom: 24 }} />
+          <Alert title={notice} type="success" showIcon style={{ marginBottom: 20 }} />
         )}
         {error && (
-          <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
+          <Alert title={error} type="error" showIcon style={{ marginBottom: 20 }} />
         )}
 
         {mode === 'signin' && (
@@ -281,12 +365,13 @@ function SignInPageInner() {
               name="password"
               rules={[{ required: true, message: 'Ingrese su contraseña' }]}
               style={{ marginBottom: 8 }}
+              extra="Si es tu primer ingreso, usa la contraseña temporal del correo de invitación."
             >
               <Input.Password autoComplete="current-password" />
             </Form.Item>
 
-            <div style={{ textAlign: 'right', marginBottom: 16 }}>
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => goTo('forgotRequest')}>
+            <div style={{ textAlign: 'right', marginBottom: 20 }}>
+              <Button type="link" style={{ padding: 0, height: 'auto', minHeight: 24, fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }} onClick={() => goTo('forgotRequest')}>
                 ¿Olvidaste tu contraseña?
               </Button>
             </div>
@@ -301,22 +386,20 @@ function SignInPageInner() {
 
         {mode === 'newPassword' && (
           <Form
+            form={newPasswordForm}
             layout="vertical"
             onFinish={handleNewPassword}
             requiredMark={false}
             size="large"
           >
-            <Text style={{ display: 'block', color: '#64748B', marginBottom: 16 }}>
-              Crea tu contraseña para activar tu cuenta.
-            </Text>
-            <Form.Item label="Nueva contraseña" name="password" rules={PASSWORD_RULES} hasFeedback>
+            <Form.Item label="Nueva contraseña" name="password" rules={PASSWORD_RULES} validateTrigger="onBlur" style={{ marginBottom: 12 }}>
               <Input.Password autoComplete="new-password" />
             </Form.Item>
+            <PasswordChecklist value={newPasswordValue} />
             <Form.Item
               label="Confirmar contraseña"
               name="confirm"
               dependencies={['password']}
-              hasFeedback
               rules={[
                 { required: true, message: 'Confirme la contraseña' },
                 ({ getFieldValue }) => ({
@@ -344,9 +427,6 @@ function SignInPageInner() {
             requiredMark={false}
             size="large"
           >
-            <Text style={{ display: 'block', color: '#64748B', marginBottom: 16 }}>
-              Ingresa tu correo y te enviaremos un código para restablecer tu contraseña.
-            </Text>
             <Form.Item
               label="Correo electrónico"
               name="email"
@@ -358,12 +438,12 @@ function SignInPageInner() {
             >
               <Input placeholder="usuario@agencia.pr.gov" autoComplete="username" />
             </Form.Item>
-            <Form.Item style={{ marginBottom: 8 }}>
+            <Form.Item style={{ marginBottom: 12 }}>
               <Button type="primary" htmlType="submit" loading={loading} block>
                 Enviar código
               </Button>
             </Form.Item>
-            <Button type="link" size="small" block onClick={() => goTo('signin')}>
+            <Button type="link" block style={{ fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }} onClick={() => goTo('signin')}>
               Volver a iniciar sesión
             </Button>
           </Form>
@@ -371,6 +451,7 @@ function SignInPageInner() {
 
         {mode === 'forgotConfirm' && (
           <Form
+            form={forgotConfirmForm}
             layout="vertical"
             onFinish={handleForgotConfirm}
             requiredMark={false}
@@ -381,16 +462,16 @@ function SignInPageInner() {
               name="code"
               rules={[{ required: true, message: 'Ingrese el código que recibió' }]}
             >
-              <Input placeholder="123456" inputMode="numeric" autoComplete="one-time-code" />
+              <Input placeholder="123456" inputMode="numeric" autoComplete="one-time-code" style={{ fontFamily: 'var(--ff-mono)', letterSpacing: '0.2em' }} />
             </Form.Item>
-            <Form.Item label="Nueva contraseña" name="password" rules={PASSWORD_RULES} hasFeedback>
+            <Form.Item label="Nueva contraseña" name="password" rules={PASSWORD_RULES} validateTrigger="onBlur" style={{ marginBottom: 12 }}>
               <Input.Password autoComplete="new-password" />
             </Form.Item>
+            <PasswordChecklist value={forgotPasswordValue} />
             <Form.Item
               label="Confirmar contraseña"
               name="confirm"
               dependencies={['password']}
-              hasFeedback
               rules={[
                 { required: true, message: 'Confirme la contraseña' },
                 ({ getFieldValue }) => ({
@@ -403,17 +484,17 @@ function SignInPageInner() {
             >
               <Input.Password autoComplete="new-password" />
             </Form.Item>
-            <Form.Item style={{ marginBottom: 8 }}>
+            <Form.Item style={{ marginBottom: 12 }}>
               <Button type="primary" htmlType="submit" loading={loading} block>
                 Actualizar contraseña
               </Button>
             </Form.Item>
-            <Button type="link" size="small" block onClick={() => goTo('signin')}>
+            <Button type="link" block style={{ fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }} onClick={() => goTo('signin')}>
               Volver a iniciar sesión
             </Button>
           </Form>
         )}
-      </Card>
-    </div>
+      </section>
+    </main>
   );
 }

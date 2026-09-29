@@ -216,18 +216,18 @@ export default function ReportsSettingsPage() {
   // duplicados. El padding NO se elimina: se iguala a los 16 px de `.card-bd`,
   // que es la caja que contiene el iframe. Con '12px 4px 4px 4px' el primer
   // control arrancaba 12 px a la izquierda del título de la card.
-  const layoutBg = isEmbedded ? 'transparent' : '#F4F7FA';
+  const layoutBg = isEmbedded ? 'transparent' : 'var(--bg)';
   const contentPadding = isEmbedded ? '16px' : '28px';
   const contentMaxWidth = isEmbedded ? '100%' : 960;
 
   return (
     <Layout style={{ minHeight: isEmbedded ? 'auto' : '100vh', background: layoutBg }}>
       {!isEmbedded && (
-        <Header style={{ background: '#FFFFFF', borderBottom: '1px solid #EEF2F6', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link href="/dashboard" style={{ color: '#64748B', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Header style={{ background: 'var(--canvas)', borderBottom: '1px solid var(--hairline)', padding: '0 28px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Link href="/dashboard" style={{ color: 'var(--text-2)', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <ArrowLeftOutlined /> Panel
           </Link>
-          <Title level={4} style={{ margin: 0, color: '#0E1E2C' }}>Configuración · Reportes por correo</Title>
+          <Title level={4} style={{ margin: 0, color: 'var(--text)' }}>Configuración · Reportes por correo</Title>
         </Header>
       )}
       <Content style={{ padding: contentPadding, maxWidth: contentMaxWidth, margin: '0 auto', width: '100%' }}>
@@ -468,9 +468,9 @@ function HistoryTable({ rows }: { rows: HistoryEntry[] }) {
           width: 140,
           render: (s: HistoryEntry['stats']) => s ? (
             <Space size={4}>
-              <Badge color="#E86452" /><Text>{s.negative}</Text>
-              <Badge color="#94A3B8" /><Text>{s.neutral}</Text>
-              <Badge color="#52C47A" /><Text>{s.positive}</Text>
+              <Badge color="var(--neg)" /><Text>{s.negative}</Text>
+              <Badge color="var(--neu)" /><Text>{s.neutral}</Text>
+              <Badge color="var(--pos)" /><Text>{s.positive}</Text>
             </Space>
           ) : <Text type="secondary">—</Text>,
         },
