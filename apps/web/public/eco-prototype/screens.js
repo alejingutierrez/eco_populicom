@@ -5773,7 +5773,10 @@ function OverviewResumen({ insights, pieces, onMentionClick }) {
         )}
         {lede?.hero?.url && (
           <figure style={{ margin: '0 0 var(--sp-3)' }}>
-            <img src={lede.hero.url} alt="" loading="lazy"
+            {/* La copia propia se guarda con URL absoluta (citizenecho.com/media/…);
+                como ruta relativa carga en cualquiera de los dos dominios bajo
+                la CSP img-src 'self' de /overview. */}
+            <img src={String(lede.hero.url).replace(/^https?:\/\/[^/]+(?=\/media\/)/, '')} alt="" loading="lazy"
               onError={(e) => { const f = e.currentTarget.closest('figure'); if (f) f.style.display = 'none'; }}
               style={{ width: '100%', maxWidth: '100%', aspectRatio: '1200 / 717', objectFit: 'cover', borderRadius: 'var(--r-md)', display: 'block', background: 'var(--canvas-2)' }} />
             {lede.hero.caption && (
