@@ -717,7 +717,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
         </div>
       )}
 
-      <div className="hide-mobile" style={{ width: 1, height: 24, background: 'var(--hairline-strong)', flex: 'none' }} />
+      <div className="hide-mobile eco-header-sep" style={{ width: 1, height: 24, background: 'var(--hairline-strong)', flex: 'none' }} />
 
       {/* Acciones: contenedor propio con flex:none para que envuelvan JUNTAS. En
           móvil suben a la fila del título y el período baja entero (index.html). */}
@@ -1479,8 +1479,12 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   // no hacer parpadear el botón en cada apertura del drill-down.
   const canCreateAlert = ecoHasCap('manage_alert_rules');
   const volume = liveSlice ? liveSlice.total : slice.volume;
-  const sentiment = liveSlice ? liveSlice.sentiment : (slice.sentiment || {});
-  const mentions = liveSlice ? liveSlice.mentions : (slice.mentions || []);
+  // `|| {}` / `|| []` también del lado vivo: una respuesta de error del endpoint
+  // (500 con solo `{ error }`) llega por el mismo `.then` y, sin esto, el
+  // destructuring de abajo tiraba la PANTALLA ENTERA al error boundary en vez de
+  // mostrar el modal vacío. Visto al grabar los GIFs del correo de bienvenida.
+  const sentiment = (liveSlice ? liveSlice.sentiment : slice.sentiment) || {};
+  const mentions = (liveSlice ? liveSlice.mentions : slice.mentions) || [];
   const histogram = slice.histogram;
   const { pos = 0, neu = 0, neg = 0 } = sentiment;
 
