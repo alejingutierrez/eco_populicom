@@ -716,7 +716,9 @@ async function buildWeeklySummaryEmail(
       snippet: m.text.length > 220 ? `${m.text.slice(0, 220)}…` : m.text,
       url: m.url ?? null,
       engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
-      publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
+      // Día en hora de PR: createdAt es un instante UTC y slice(0,10) corría
+      // al día siguiente las menciones de la noche.
+      publishedAtLabel: formatShortDay(ymdInTimeZone(new Date(m.createdAt), REPORT_TIMEZONE)),
       tone: m.sentiment,
       imageUrl: thumbs.get(m.id) ?? null,
     }));
@@ -975,7 +977,9 @@ async function buildAppointmentEmail(
       snippet: m.text.length > 220 ? `${m.text.slice(0, 220)}…` : m.text,
       url: m.url ?? null,
       engagementLabel: `${(m.engagement ?? 0).toLocaleString('es-PR')} interacciones`,
-      publishedAtLabel: formatShortDay(m.createdAt.slice(0, 10)),
+      // Día en hora de PR: createdAt es un instante UTC y slice(0,10) corría
+      // al día siguiente las menciones de la noche.
+      publishedAtLabel: formatShortDay(ymdInTimeZone(new Date(m.createdAt), REPORT_TIMEZONE)),
       tone: m.sentiment,
       imageUrl: thumbs.get(m.id) ?? null,
     }));

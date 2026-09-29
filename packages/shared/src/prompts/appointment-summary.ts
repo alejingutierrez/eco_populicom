@@ -19,6 +19,7 @@
 
 import type { MentionSample, WeeklyAggregates } from './weekly-report-insights';
 import { HTML_INLINE_RULE } from './constitution';
+import { formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 
 export interface AppointmentFacts {
   /** Nombre de la persona nombrada, como se le nombra en prensa. */
@@ -67,7 +68,7 @@ function signedPct(cur: number, prev: number): string {
 
 function formatSample(i: number, m: MentionSample): string {
   const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 500);
-  const dateShort = m.createdAt.slice(0, 10);
+  const dateShort = formatPromptDayOfInstant(m.createdAt);
   const meta = [
     m.topic ? `topic=${m.topic}` : null,
     m.source ? `src=${m.source}` : null,
@@ -108,9 +109,9 @@ CORREO: NOMBRAMIENTO — se envía una sola vez, a raíz de un cambio de titular
 EL HECHO:
 - Persona nombrada: ${facts.personName}
 - Cargo: ${facts.position}
-${facts.predecessor ? `- Sustituye a: ${facts.predecessor}\n` : ''}- Fecha del nombramiento: ${facts.announcedOn}
+${facts.predecessor ? `- Sustituye a: ${facts.predecessor}\n` : ''}- Fecha del nombramiento: ${formatPromptDay(facts.announcedOn)}
 ${facts.notes ? `- Contexto registrado por el analista: ${facts.notes}\n` : ''}
-PERIODO CUBIERTO: ${current.periodStart} a ${current.periodEnd} (${inputs.windowLabel}), ${inputs.windowDays} día(s) naturales. INCLUYE HOY, que es un día PARCIAL — no leas la caída del último día como una caída real de la conversación.
+PERIODO CUBIERTO: del ${formatPromptDay(current.periodStart)} al ${formatPromptDay(current.periodEnd)} (${inputs.windowLabel}), ${inputs.windowDays} día(s) naturales. INCLUYE HOY, que es un día PARCIAL — no leas la caída del último día como una caída real de la conversación.
 LÍNEA BASE DE COMPARACIÓN: los ${inputs.windowDays} día(s) inmediatamente ANTERIORES al nombramiento (${inputs.baselineLabel}). Sirve para separar el efecto del nombramiento del nivel normal de la agencia.
 
 TOTALES — DESDE EL NOMBRAMIENTO vs DÍAS PREVIOS:
@@ -123,7 +124,7 @@ INDICADORES COMPUESTOS (escala pública del dashboard):
 ${indicatorBlock || '- (sin indicadores)'}
 
 VOLUMEN DIARIO DESDE EL NOMBRAMIENTO:
-${current.dailySeries.map((d) => `- ${d.date}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
+${current.dailySeries.map((d) => `- ${formatPromptDay(d.date)}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
 
 TÓPICOS EN EL PERIODO (ordenados por volumen):
 ${topicBlock || '- (sin menciones clasificadas por tópico)'}

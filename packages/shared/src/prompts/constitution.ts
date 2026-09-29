@@ -76,6 +76,10 @@ REGLAS DE REDACCIÓN (las mismas para todo ECO — violarlas anula la respuesta)
     2026-08-12. Si el texto se lee la mañana siguiente al día que describe, di
     el día de la semana o la fecha en palabras — no digas "hoy" ni "ayer",
     porque el lector no sabe cuándo se generó el texto.
+    El DÍA DE LA SEMANA se copia de los datos, nunca se deduce: cada fecha que
+    recibes ya trae el suyo ("jueves 24 sep 2026"). Si una fecha no lo trae,
+    nómbrala sin él ("el 24 de septiembre"). Un pico o una mención pertenecen
+    al día con el que vienen etiquetados, no a uno vecino.
 
 06. SI NO HAY QUÉ EXPLICAR, DILO Y PARA.
     Antes que rellenar con una cifra sin historia, entrega menos. Ningún bloque

@@ -19,6 +19,7 @@
  */
 
 import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { formatPromptDay } from '../format-period';
 
 export interface ExecutiveSummaryTopic {
   name: string;
@@ -206,7 +207,7 @@ export function buildExecutiveSummaryPrompt(agg: ExecutiveSummaryAggregates): st
 
   return `
 AGENCIA: ${agg.agencyName} (${agg.agencyShortName})
-PERIODO: ${agg.periodLabel} — ${agg.periodDays} ${agg.periodDays === 1 ? 'día' : 'días'} calendario en America/Puerto_Rico (${agg.periodStart} a ${agg.periodEnd}).
+PERIODO: ${agg.periodLabel} — ${agg.periodDays} ${agg.periodDays === 1 ? 'día' : 'días'} calendario en America/Puerto_Rico (del ${formatPromptDay(agg.periodStart)} al ${formatPromptDay(agg.periodEnd)}).
 
 VOLUMEN DEL PERIODO:
 - Total: ${agg.totals.total} menciones${deltaTotal !== null ? ` (${deltaTotal > 0 ? '+' : ''}${deltaTotal}% vs. las ${agg.periodDays === 1 ? '24 horas' : `${agg.periodDays} días`} previas — ${agg.prevTotals.total} menciones)` : ' (sin base de comparación)'}

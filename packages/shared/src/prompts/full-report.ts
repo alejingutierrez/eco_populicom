@@ -22,6 +22,7 @@ import type { SentimentReport } from '../aggregations/sentiment-report';
 import type { ReportDetail } from '../aggregations/report-detail';
 import type { WindowMetrics } from '../metrics';
 import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { formatPromptDay } from '../format-period';
 
 // ============================================================
 // Contexto que reciben todos los prompts
@@ -134,10 +135,10 @@ ${metricLine('Tasa de amplificación (%)', metrics.amplificationRate, prevMetric
 - Anomalía de volumen (z-score): ${metrics.volumeAnomalyZscore ?? 'n/d'}
 
 VOLUMEN DIARIO:
-${report.dailySeries.map((d) => `- ${d.date} (${d.dayLabel}): neg=${d.negative}, neu=${d.neutral}, pos=${d.positive}, total=${d.negative + d.neutral + d.positive}`).join('\n')}
+${report.dailySeries.map((d) => `- ${formatPromptDay(d.date)}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive}, total=${d.negative + d.neutral + d.positive}`).join('\n')}
 
 DÍAS ATÍPICOS (mayor desviación de volumen respecto al promedio del período):
-${detail.peaks.length ? detail.peaks.map((p) => `- ${p.date} (${p.dayLabel}): ${p.total} menciones, ${p.negative} negativas, z=${p.zScore}`).join('\n') : '- (la ventana es demasiada corta o plana para identificar picos)'}
+${detail.peaks.length ? detail.peaks.map((p) => `- ${formatPromptDay(p.date)} [clave ${p.date}]: ${p.total} menciones, ${p.negative} negativas, z=${p.zScore}`).join('\n') : '- (la ventana es demasiada corta o plana para identificar picos)'}
 
 AGENDA TEMÁTICA (cada mención bajo su tópico de mayor confianza; "secundarias" = menciones donde el tópico aparece sin ser el principal):
 ${report.topicsTable.map((r) => `- ${r.topic}${r.subtopics ? ` [${r.subtopics}]` : ''}: total=${r.total}, neg=${r.negative} (${pct(r.negative, r.total)}%), neu=${r.neutral}, pos=${r.positive}, secundarias=${r.secondaryCount}`).join('\n') || '- (sin tópicos)'}
@@ -167,10 +168,10 @@ DISTRIBUCIÓN HORARIA (hora AST → menciones):
 ${detail.byHour.map((c, h) => (c > 0 ? `${h}h=${c}` : null)).filter(Boolean).join(', ') || '(sin datos)'}
 
 MENCIONES CON MÁS ENGAGEMENT DEL PERÍODO:
-${detail.topByEngagement.slice(0, 10).map((m, i) => `${i + 1}. [${m.date}] "${m.title.slice(0, 180)}" — ${m.author ?? 'autor n/d'} · ${m.channel} · ${m.domain ?? 's/d'} · sentimiento=${m.sentiment ?? 'n/d'} · tópico=${m.topic ?? 'sin clasificar'} · engagement=${num(m.engagement)} · alcance=${num(m.reach)}${m.emotions.length ? ` · emociones=${m.emotions.join('/')}` : ''}`).join('\n') || '- (sin menciones)'}
+${detail.topByEngagement.slice(0, 10).map((m, i) => `${i + 1}. [${formatPromptDay(m.date)}] "${m.title.slice(0, 180)}" — ${m.author ?? 'autor n/d'} · ${m.channel} · ${m.domain ?? 's/d'} · sentimiento=${m.sentiment ?? 'n/d'} · tópico=${m.topic ?? 'sin clasificar'} · engagement=${num(m.engagement)} · alcance=${num(m.reach)}${m.emotions.length ? ` · emociones=${m.emotions.join('/')}` : ''}`).join('\n') || '- (sin menciones)'}
 
 MENCIONES NEGATIVAS CON MÁS ENGAGEMENT:
-${detail.topNegative.slice(0, 8).map((m, i) => `${i + 1}. [${m.date}] "${m.title.slice(0, 180)}" — ${m.author ?? 'autor n/d'} · ${m.channel} · ${m.domain ?? 's/d'} · tópico=${m.topic ?? 'sin clasificar'} · engagement=${num(m.engagement)}${m.emotions.length ? ` · emociones=${m.emotions.join('/')}` : ''}`).join('\n') || '- (sin menciones negativas)'}
+${detail.topNegative.slice(0, 8).map((m, i) => `${i + 1}. [${formatPromptDay(m.date)}] "${m.title.slice(0, 180)}" — ${m.author ?? 'autor n/d'} · ${m.channel} · ${m.domain ?? 's/d'} · tópico=${m.topic ?? 'sin clasificar'} · engagement=${num(m.engagement)}${m.emotions.length ? ` · emociones=${m.emotions.join('/')}` : ''}`).join('\n') || '- (sin menciones negativas)'}
 `.trim();
 }
 
@@ -324,7 +325,7 @@ export const TREND_ANALYSIS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            date: { type: 'string', description: 'YYYY-MM-DD, exactamente como se recibió.' },
+            date: { type: 'string', description: 'La clave YYYY-MM-DD del día, exactamente como se recibió entre corchetes.' },
             note: { type: 'string', description: '20-40 palabras: qué concentró ese día según las menciones y tópicos del material recibido. Si no hay evidencia del disparador, dilo.' },
           },
           required: ['date', 'note'],

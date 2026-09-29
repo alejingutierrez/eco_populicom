@@ -941,6 +941,7 @@ async function fireCrisisAlert(
     agencyName: agency.name,
     agencyShortName: agencyShortName(agency.slug),
     generatedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
+    triggerDay: today,
     band,
     crisisRiskScore: snap.crisis_risk_score ?? 0,
     crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
