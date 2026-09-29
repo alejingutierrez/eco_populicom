@@ -1,124 +1,196 @@
 import { theme as antdTheme, type ThemeConfig } from 'antd';
 
 /**
- * WS-F9 — un solo sistema de diseño.
+ * Tema de Ant Design para las páginas Next.js (sign-in / activación y los
+ * paneles de Configuración que la SPA embebe por iframe) — dirección B
+ * «Instrumento», la misma de `public/eco-prototype/tokens.css`.
  *
- * Este archivo declaraba un producto DISTINTO del dashboard: primario
- * `#0A7EA4` (turquesa) contra el `#FF6A3D` (naranja) de la SPA, fondos
- * `#FFFFFF` fijos SIN `darkAlgorithm`, radios 8/14/6 contra los 4/6/10 de los
- * tokens, `controlHeight: 36` (bajo el mínimo táctil de 44) y `fontFamily` de
- * fuentes del sistema con el comentario "no external loading" — así que estas
- * páginas nunca iban a recibir Besley/Krub.
+ * Dos reglas de la dirección que aquí se notan:
+ *   1. La acción es GRAFITO, no un color de marca: el botón primario es casi
+ *      negro en claro y se INVIERTE en oscuro (claro con texto oscuro).
+ *   2. El color solo codifica dato; en estas páginas eso deja el croma para
+ *      éxito, error y aviso (estados del formulario), nada más.
  *
- * Y no es una pantalla aparte: se EMBEBEN por iframe dentro de la SPA
- * (screens.js:2938 y 3060), así que el panel de configuración aparecía como una
- * isla clara de otra marca dentro de un dashboard oscuro.
+ * El MODO sigue a la SPA (`eco.mode.v2`, ver Providers.tsx): los paneles se
+ * embeben dentro del dashboard, y con un modo fijo aparecían como una isla de
+ * otro color. Claro por defecto.
  *
- * Ahora los valores se derivan de `tokens.css` — la misma fuente que consume la
- * SPA. Los hex están duplicados aquí porque Ant Design necesita literales en
- * tiempo de configuración y no puede leer custom properties; el comentario de
- * cada uno dice de qué token viene, y `globals.css` importa `tokens.css` para
- * que todo lo que NO sea Ant use la variable directamente.
+ * Los hex están duplicados porque Ant necesita literales en tiempo de
+ * configuración y no lee custom properties; cada uno dice de qué token viene.
+ * Lo que NO es Ant usa `var(--…)` directamente (globals.css importa tokens.css).
  */
 
-export const ecoTheme: ThemeConfig = {
-  // MISMO modo que la SPA. Sin esto los paneles embebidos por iframe salían en
-  // claro dentro de un dashboard oscuro.
-  algorithm: antdTheme.darkAlgorithm,
-  token: {
-    // Colores — derivados de tokens.css (tema mando, modo oscuro)
-    colorPrimary: '#FF6A3D',        // --accent
-    colorSuccess: '#3FD47A',        // --pos
-    colorError: '#FF5470',          // --neg  (ya separado de --accent)
-    colorWarning: '#FFC043',        // --warn
-    colorInfo: '#58A6FF',           // --info
-    colorBgLayout: '#060A10',       // --bg
-    colorBgContainer: '#0E1620',    // --canvas
-    colorBgElevated: '#16202C',     // --surface-raised
-    colorText: '#E6ECF3',           // --text
-    colorTextSecondary: '#A2ACBA',  // --text-2   (7.92:1)
-    colorTextTertiary: '#7C8798',   // --text-3   (5.00:1, antes fallaba AA)
-    colorTextQuaternary: '#525B68', // --text-disabled
-    colorBorder: 'rgba(255,255,255,0.12)',   // --hairline-strong
-    colorBorderSecondary: 'rgba(255,255,255,0.06)', // --hairline
+export type EcoMode = 'light' | 'dark';
 
-    // Radios — --r-md / --r-lg / --r-sm. Antes 8/14/6, que no coincidía con
-    // ningún token y hacía que las cards embebidas tuvieran otra curvatura.
-    borderRadius: 6,
-    borderRadiusLG: 10,
-    borderRadiusSM: 4,
-
-    // Elevación — --shadow / --shadow-lg
-    boxShadow: '0 1px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6)',
-    boxShadowSecondary: '0 24px 64px -24px rgba(0,0,0,0.8)',
-
-    // Tipografía — las MISMAS familias que la SPA. Se cargan en layout.tsx.
-    fontFamily: "'Krub', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    fontSize: 14,       // --fs-body. Antes el default de Ant (14) coincidía por azar.
-    fontSizeSM: 12,     // --fs-caption, el piso de legibilidad
-    fontSizeLG: 15,     // --fs-body-lg
-    fontSizeHeading3: 20,
-    fontSizeHeading4: 17,
-
-    // Tamaño de control: 44px es el mínimo táctil (WCAG 2.1 AAA SC 2.5.5) y 24
-    // el mínimo AA (WCAG 2.2 SC 2.5.8). Antes 36/40/28 — el SM quedaba bajo AA
-    // en algunos temas.
-    controlHeight: 40,
-    controlHeightLG: 44,
-    controlHeightSM: 32,
+const PALETTE = {
+  light: {
+    action: '#14171C',        // --action
+    actionHover: '#2A2F38',   // --action-hover
+    actionActive: '#05070A',  // --action-active
+    onFill: '#FFFFFF',        // --on-fill
+    pos: '#087443',           // --pos
+    neg: '#C01A34',           // --neg
+    warn: '#845100',          // --warn
+    info: '#1F4FD8',          // --info
+    bg: '#F4F5F7',            // --bg
+    canvas: '#FFFFFF',        // --canvas
+    canvas2: '#FAFBFC',       // --canvas-2
+    pop: '#FFFFFF',           // --surface-pop
+    control: '#FFFFFF',       // --control-bg
+    controlHover: '#F4F5F7',  // --control-bg-hover
+    text: '#0B0D10',          // --text
+    text2: '#4B5563',         // --text-2
+    text3: '#626975',         // --text-3
+    textDisabled: '#9CA3AF',  // --text-disabled
+    hairline: '#E5E7EB',      // --hairline
+    hairlineStrong: '#CBD2D9',// --hairline-strong
+    shadowPop: '0 8px 24px -8px rgba(11, 13, 16, 0.18), 0 0 0 1px rgba(11, 13, 16, 0.04)',
+    shadowModal: '0 24px 64px -16px rgba(11, 13, 16, 0.28)',
   },
-  components: {
-    Layout: {
-      headerBg: '#0E1620',        // --canvas
-      headerHeight: 56,
-      siderBg: 'transparent',
-    },
-    Menu: {
-      darkItemBg: 'transparent',
-      darkItemSelectedBg: 'rgba(255,106,61,0.18)',  // --rail-active-bg
-      darkItemSelectedColor: '#FFFFFF',             // --rail-fg-active
-      darkItemColor: 'rgba(255,255,255,0.44)',      // --rail-fg
-      darkItemHoverColor: 'rgba(255,255,255,0.7)',
-      darkItemHoverBg: 'rgba(255,255,255,0.05)',
-    },
-    Card: {
-      borderRadiusLG: 10,   // --r-lg
-      paddingLG: 20,        // --pad-card-lg
-      colorBgContainer: '#0E1620',
-    },
-    Table: {
-      headerBg: '#091018',                       // --canvas-2
-      rowHoverBg: '#16202C',                     // --surface-raised
-      borderColor: 'rgba(255,255,255,0.06)',     // --hairline
-    },
-    Select: {
-      borderRadius: 4,      // --r-sm
-    },
-    Button: {
-      borderRadius: 4,      // --r-sm
-      // El primario es naranja y el texto encima va OSCURO: blanco sobre
-      // --accent da 2.85:1 y falla AA. Es la misma regla --on-accent de la SPA.
-      primaryColor: '#1A0A04',
-      primaryShadow: 'none',
-    },
-    Tag: {
-      borderRadiusSM: 4,
-    },
-    Input: {
+  dark: {
+    action: '#ECEFF3',
+    actionHover: '#FFFFFF',
+    actionActive: '#D4D9E0',
+    onFill: '#0C0E11',
+    pos: '#2FBE72',
+    neg: '#FF6B85',
+    warn: '#E0A22A',
+    info: '#6E9BFF',
+    bg: '#0C0E11',
+    canvas: '#14171C',
+    canvas2: '#0F1215',
+    pop: '#1B1F26',
+    control: '#1B1F26',
+    controlHover: '#242A33',
+    text: '#ECEFF3',
+    text2: '#A8B0BB',
+    text3: '#8A93A0',
+    textDisabled: '#5B6472',
+    hairline: '#262B33',
+    hairlineStrong: '#3A414C',
+    shadowPop: '0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04)',
+    shadowModal: '0 24px 64px -16px rgba(0, 0, 0, 0.7)',
+  },
+} as const;
+
+export function ecoThemeFor(mode: EcoMode): ThemeConfig {
+  const c = PALETTE[mode];
+  return {
+    algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+    token: {
+      colorPrimary: c.action,
+      colorPrimaryHover: c.actionHover,
+      colorPrimaryActive: c.actionActive,
+      colorTextLightSolid: c.onFill,
+      colorSuccess: c.pos,
+      colorError: c.neg,
+      colorWarning: c.warn,
+      colorInfo: c.info,
+      // Enlace = texto + subrayado, no color (ver `.link` en la SPA).
+      colorLink: c.text,
+      colorLinkHover: c.text2,
+      colorLinkActive: c.text,
+      linkDecoration: 'underline',
+      linkHoverDecoration: 'underline',
+
+      colorBgLayout: c.bg,
+      colorBgContainer: c.canvas,
+      colorBgElevated: c.pop,
+      colorText: c.text,
+      colorTextSecondary: c.text2,
+      colorTextTertiary: c.text3,
+      colorTextQuaternary: c.textDisabled,
+      colorTextPlaceholder: c.text3,
+      colorBorder: c.hairlineStrong,
+      colorBorderSecondary: c.hairline,
+      // Foco grafito (regla 3 de la dirección): el anillo azul por defecto de Ant
+      // sería el único cromo con croma en pantalla.
+      controlOutline: mode === 'dark' ? 'rgba(236, 239, 243, 0.24)' : 'rgba(20, 23, 28, 0.18)',
+      controlOutlineWidth: 2,
+
+      // Radios — --r-md / --r-lg / --r-sm.
       borderRadius: 4,
-      colorBgContainer: '#070C13',   // --surface-inset
+      borderRadiusLG: 6,
+      borderRadiusSM: 3,
+
+      // La tarjeta se define por su BORDE; la sombra es solo de lo que flota.
+      boxShadow: 'none',
+      boxShadowSecondary: c.shadowPop,
+      boxShadowTertiary: 'none',
+
+      fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      fontFamilyCode: "'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace",
+      fontSize: 14,          // --fs-body
+      fontSizeSM: 13,        // --fs-body-sm: el PISO del texto (era 12)
+      fontSizeLG: 15,        // --fs-body-lg
+      fontSizeHeading3: 24,  // --fs-display-md
+      fontSizeHeading4: 18,  // --fs-title-lg
+      fontWeightStrong: 600,
+
+      // --control-h-sm / --control-h / --control-h-lg.
+      controlHeight: 36,
+      controlHeightLG: 44,
+      controlHeightSM: 28,
+
+      motionEaseOut: 'cubic-bezier(0.16, 1, 0.3, 1)',  // --ease
+      motionDurationMid: '0.2s',                       // --dur
+      motionDurationFast: '0.12s',                     // --dur-fast
     },
-    Modal: {
-      contentBg: '#1B2632',          // --surface-overlay
-      headerBg: '#1B2632',
-      borderRadiusLG: 10,
+    components: {
+      Layout: {
+        headerBg: c.canvas,
+        headerHeight: 56,
+        bodyBg: c.bg,
+        siderBg: 'transparent',
+      },
+      Card: {
+        borderRadiusLG: 6,
+        paddingLG: 24,
+        colorBgContainer: c.canvas,
+      },
+      Table: {
+        headerBg: c.canvas2,
+        rowHoverBg: c.controlHover,
+        borderColor: c.hairline,
+      },
+      Button: {
+        primaryColor: c.onFill,
+        primaryShadow: 'none',
+        defaultShadow: 'none',
+        dangerShadow: 'none',
+        defaultBorderColor: c.hairlineStrong,
+        fontWeight: 500,
+      },
+      Input: {
+        colorBgContainer: c.control,
+        activeShadow: 'none',
+        activeBorderColor: c.action,
+        hoverBorderColor: c.text3,
+      },
+      Select: {
+        colorBgContainer: c.control,
+        activeOutlineColor: 'transparent',
+      },
+      Modal: {
+        contentBg: c.pop,
+        headerBg: c.pop,
+        borderRadiusLG: 6,
+        boxShadow: c.shadowModal,
+      },
+      Drawer: {
+        colorBgElevated: c.pop,
+      },
+      Tooltip: {
+        colorBgSpotlight: mode === 'dark' ? c.pop : c.action,
+        colorTextLightSolid: mode === 'dark' ? c.text : c.onFill,
+      },
+      Alert: {
+        // El aviso de estado lleva el color del estado; nada más en la página.
+        borderRadiusLG: 4,
+      },
     },
-    Drawer: {
-      colorBgElevated: '#1B2632',
-    },
-    Tooltip: {
-      colorBgSpotlight: '#1B2632',
-      colorTextLightSolid: '#E6ECF3',
-    },
-  },
-};
+  };
+}
+
+/** Compatibilidad: el tema claro, por defecto. */
+export const ecoTheme = ecoThemeFor('light');
