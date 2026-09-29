@@ -29,6 +29,10 @@ export const overviewPeriodInsights = pgTable(
     positiveInsights: jsonb('positive_insights').notNull().default('[]'),
     dailySummary: text('daily_summary'),
     modelUsed: text('model_used').notNull(),
+    // Lede del Overview con la forma del correo diario (sep-2026):
+    // { headline, highlights[], peaks[{date,label,total,negative}], hero{url,caption}|null }.
+    // NULL en filas generadas antes de 0008 — el endpoint las recalcula.
+    lede: jsonb('lede'),
     generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

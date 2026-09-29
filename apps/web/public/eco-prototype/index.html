@@ -573,6 +573,9 @@
   /* Row hover */
   .row-hover { transition: background var(--dur-fast) var(--ease); min-height: 28px; }
   .row-hover:hover, .row-hover:focus-visible { background: var(--canvas-2); }
+  /* Tendencia del Overview: el día bajo el cursor o con foco se resalta. */
+  .eco-trend-day:hover .eco-trend-hit, .eco-trend-day:focus-visible .eco-trend-hit { fill: var(--action-fill); }
+  .eco-trend-day:focus-visible { outline: none; }
 
   /* Spotlight / command palette */
   .spotlight-backdrop {
@@ -1732,7 +1735,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc83';
+        s.src = base + '/' + f + '?v=prodc84';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

@@ -5305,23 +5305,91 @@ function Field({ label, required, children }) {
 }
 
 // =============== OVERVIEW ===============
-// Espejo del correo diario (eco-weekly-report) sin LLM. Consume /api/overview
-// que internamente usa el mismo @eco/shared/buildSentimentReport que el
-// lambda — totales, deltas, daily series y la tabla de tópicos coinciden
-// byte-por-byte con el correo de las 6 AM cuando period=7D.
-//
-// Layout (top a bottom):
-//   1. Hero — período + total
-//   2. Termómetro (01) — 3 KPIs neg/neu/pos con Δ vs ventana previa
-//   3. Riesgo de crisis (02)
-//   4. Tendencia (03) — multi-line neg/neu/pos; por HORA si la ventana es de
-//      un día (trendGranularity='hour'), por día en el resto
-//   5. Insights (04) — análisis IA del periodo
-//   6. Tópico principal (05) — top-7 + Otros + Sin clasificar
-//
 // Las filas de tópico son clickeables: abren el slice modal con topicMode=primary
 // (top-confidence) por defecto, con un toggle "+ Incluir secundarias" para ver
 // el conteo multi-clasificación.
+// ============================================================
+// OverviewScreen — la Overview con la forma del correo [Diario] (sep-2026).
+// ============================================================
+// Petición del sponsor: que el dashboard se lea como el correo. Mismo orden y
+// mismos rótulos que el Diario, con el detalle que el correo no puede dar:
+//   cabecera · 01 Termómetro · 02 Riesgo de crisis · 03 Resumen del periodo ·
+//   04 Tendencia (14 días, picos rotulados, crisis diaria) · 05 Insights ·
+//   06 Tópicos.
+// Las cifras salen de las MISMAS funciones que el correo (buildSentimentReport
+// y loadMetricsForWindow vía /api/overview); el texto de 03 y 05 sale de
+// overview_period_insights (/api/eco-insights), que genera eco-ai-tasks con
+// el mismo esquema de lede que el correo: titular, párrafo y viñetas.
+
+// Polling del análisis IA (cache-or-202). Rampa: 2s los primeros 20s, 4s
+// después; ~27 peticiones en 90s, bajo el rate limit de 30/min del endpoint.
+function useOverviewInsights(periodStart, periodEnd, agency) {
+  const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
+  React.useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    setState({ phase: 'loading', data: null, error: null });
+    const startedAt = Date.now();
+    const MAX_POLL_MS = 90 * 1000;
+    const ctrl = new AbortController();
+    let timer = null;
+    async function fetchOnce() {
+      const params = new URLSearchParams({ from: periodStart, to: periodEnd });
+      if (agency) params.set('agency', agency);
+      try {
+        const res = await fetch('/api/eco-insights?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal });
+        if (res.status === 202) { setState((s) => ({ ...s, phase: 'computing' })); return 'computing'; }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setState({ phase: 'error', data: null, error: body.error || `HTTP ${res.status}` });
+          return 'error';
+        }
+        const json = await res.json();
+        setState({ phase: 'ready', data: json, error: null });
+        // Fila sin lede (anterior a la migración 0008): el endpoint ya disparó
+        // el recálculo; seguimos consultando hasta que llegue el titular.
+        return json && json.lede == null && json.dailySummary ? 'computing' : 'ready';
+      } catch (e) {
+        if (e?.name === 'AbortError') return 'aborted';
+        setState({ phase: 'error', data: null, error: String(e?.message || e) });
+        return 'error';
+      }
+    }
+    async function loop() {
+      const status = await fetchOnce();
+      if (status !== 'computing') return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed > MAX_POLL_MS) {
+        setState((s) => (s.phase === 'ready' ? s : { phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' }));
+        return;
+      }
+      timer = setTimeout(loop, elapsed < 20_000 ? 2_000 : 4_000);
+    }
+    loop();
+    return () => { ctrl.abort(); if (timer) clearTimeout(timer); };
+  }, [periodStart, periodEnd, agency]);
+  return state;
+}
+
+// Las publicaciones de más interacción de la ventana, del MISMO endpoint que
+// el modal y el feed (/api/eco-mentions, universo pertinente) para que el
+// click abra el MentionDrawer con la forma que espera.
+function useTopPieces(periodStart, periodEnd, agency) {
+  const [items, setItems] = React.useState(null);
+  React.useEffect(() => {
+    if (!periodStart || !periodEnd) return;
+    setItems(null);
+    const params = new URLSearchParams({ from: periodStart, to: periodEnd, sortBy: 'engagement', limit: '5' });
+    if (agency) params.set('agency', agency);
+    const ctrl = new AbortController();
+    fetch('/api/eco-mentions?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
+      .then((j) => setItems(Array.isArray(j.mentions) ? j.mentions : []))
+      .catch((e) => { if (e?.name !== 'AbortError') setItems([]); });
+    return () => ctrl.abort();
+  }, [periodStart, periodEnd, agency]);
+  return items;
+}
+
 function OverviewScreen({ period, agency, onMentionClick }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -5347,13 +5415,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     return () => ctrl.abort();
   }, [period, agency]);
 
-  // Los dos estados de entrada de la pantalla dejan de ser copias a mano.
-  // El fallo va por EmptyState reason="error", que es la primitiva declarada
-  // para esto (shell.js:1336: «Nunca se debe pintar como vacío») y aporta el
-  // icono, el título en --neg y el role="alert" que la copia no tenía.
-  // La línea de carga adopta el tamaño que ya usan los otros dos «Cargando…»
-  // de pantalla completa (--sp-10 / --fs-body-sm / --text-3, :3037 y :4244);
-  // este era el único que heredaba el tamaño por defecto del cuerpo.
+  const insights = useOverviewInsights(data?.periodStart, data?.periodEnd, agency);
+  const pieces = useTopPieces(data?.periodStart, data?.periodEnd, agency);
+
+  // El fallo va por EmptyState reason="error" (shell.js: «Nunca se debe
+  // pintar como vacío»); la carga, con el tamaño de los otros «Cargando…» de
+  // pantalla completa.
   if (error) {
     return (
       <div className="card">
@@ -5379,17 +5446,13 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       volume: count,
       mentions: [],
       // Ventana del termómetro (/api/overview: cerrada, universo pertinente —
-      // el mismo default del modal). Sin el desglose one-hot sintético que
-      // afirmaba "0" en los otros sentimientos mientras cargaba — el real
-      // llega del fetch del modal.
+      // el mismo default del modal).
       _filter: { from: data.periodStart, to: data.periodEnd, sentiment: name },
     });
   }
 
-  // openDaySlice — click en un día del gráfico de tendencias. Abre el modal
-  // con las menciones de ESE día específico, leyendo los conteos del propio
-  // datapoint. El _filter.day se interpreta como YYYY-MM-DD en TZ Puerto Rico
-  // por el endpoint /api/eco-mentions.
+  // Click en un día de la tendencia: el modal con las menciones de ESE día
+  // (day = YYYY-MM-DD en TZ PR, lo interpreta /api/eco-mentions).
   function openDaySlice(d) {
     if (!d || !d.fullDate) return;
     const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
@@ -5403,16 +5466,11 @@ function OverviewScreen({ period, agency, onMentionClick }) {
       volume: total,
       sentiment: { pos: d.positive || 0, neu: d.neutral || 0, neg: d.negative || 0 },
       mentions: [],
-      // La serie diaria del Overview cuenta el universo pertinente (default
-      // del modal); `day` acota al día exacto server-side.
       _filter: { day: d.fullDate },
     });
   }
 
-  // openHourSlice — click en una hora del gráfico de tendencias cuando la
-  // ventana es de un solo día (granularity 'hour'). El _filter combina `day`
-  // (día calendario AST) con `hour` (EXTRACT HOUR en AST) — ambos ya
-  // soportados por /api/eco-mentions.
+  // Ventana de UN día (granularity 'hour'): el filtro combina day + hour.
   function openHourSlice(d) {
     if (!d || !d.fullHour) return;
     const total = (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
@@ -5431,7 +5489,6 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
-  // openMetricInsight — abre MetricInsightModal vía helper compartido.
   function openMetricInsight(metric, value, accent) {
     const labels = {
       crisis: 'Riesgo de crisis',
@@ -5455,34 +5512,33 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
+  const lede = insights.phase === 'ready' ? (insights.data?.lede || null) : null;
+
   return (
-    // --gap-section, no --sp-4: el token existe declarado como «la separación
-    // entre bloques numerados del Overview» (tokens.css:117-128) y no tenía un
-    // solo consumidor, mientras esta pantalla —la única con bloques numerados—
-    // usaba el paso crudo de la escala. Un token sin consumidores no es una
-    // fuente única, es documentación.
+    // --gap-section: la separación declarada entre bloques numerados del
+    // Overview (tokens.css).
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
       <OverviewHero data={data} />
       <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
-      <OverviewHighlights metrics={data.currentMetrics} onOpenInsight={openMetricInsight} />
+      <OverviewHighlights metrics={data.currentMetrics} crisis={data.crisis} onOpenInsight={openMetricInsight} />
+      <OverviewResumen insights={insights} pieces={pieces} onMentionClick={onMentionClick} />
       <OverviewTendencia
         dailySeries={data.dailySeries}
+        prevDailySeries={data.prevDailySeries}
         hourlySeries={data.hourlySeries}
         granularity={data.trendGranularity}
+        crisisDaily={data.crisis?.daily}
+        peaks={lede?.peaks || []}
         onDayClick={openDaySlice}
         onHourClick={openHourSlice}
       />
-      {/* Insights en posición 04, antes de Tópicos (orden explícito del
-          usuario: "los insights deben asumir la posición 4 y bajar los
-          tópicos a la posición donde están los insights"). */}
-      <OverviewInsights periodStart={data.periodStart} periodEnd={data.periodEnd} agency={agency} />
+      <OverviewInsights insights={insights} totals={data.totals} />
       <OverviewTopicos
         rows={data.topicsTable}
         totals={data.totals}
         onTopicClick={(row) => {
-          // Buscar el slug del tópico en D.TOPICS (eco-data) para que el modal
-          // pueda filtrar. La tabla del Overview viene de buildSentimentReport
-          // (matchea correo) que solo expone el name; resolvemos el slug aquí.
+          // La tabla viene de buildSentimentReport (la del correo), que solo
+          // expone el name; el slug se resuelve contra D.TOPICS.
           const topic = (D.TOPICS || []).find((t) => t.name === row.topic);
           if (!topic) return;
           const palette = window.ECO_CAT;
@@ -5494,10 +5550,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
             title: topic.name,
             accent,
             mentions: [],
-            // Misma ventana y universo que la fila de la tabla
-            // (buildSentimentReport: cerrada, primario, todas las
-            // pertinencias). El default primary del modal cuadra con el
-            // conteo de la fila; el toggle muestra las secundarias.
+            // Misma ventana y universo que la fila (cerrada, primario).
             _filter: { from: data.periodStart, to: data.periodEnd, topic: topic.slug },
           });
         }}
@@ -5507,32 +5560,40 @@ function OverviewScreen({ period, agency, onMentionClick }) {
   );
 }
 
+// Número de sección del Overview: el mismo «NN · Rótulo» del correo.
+function OverviewEyebrow({ n, children, right }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
+      <div className="section-eyebrow" style={{ marginBottom: 0 }}>{n} · {children}</div>
+      {right}
+    </div>
+  );
+}
+
 function OverviewHero({ data }) {
   const total = data.totals.total || 0;
-  // Sin padding propio: los 4px de padding-left desplazaban el H1 y el subtítulo
-  // del eje vertical en el que caen el borde izquierdo de todas las cards y la
-  // tinta de los eyebrows (.section-eyebrow no lleva padding lateral). El
-  // titular de la página era el único bloque fuera de la canaleta.
+  const days = (data.dailySeries || []).length;
+  const ag = data.agency;
+  // Cabecera del correo: siglas · nombre, «Conversación pública, <periodo>» y
+  // la línea de metadatos. Sin padding propio: el H1 cae en el mismo eje
+  // vertical que el borde de las cards.
   return (
     <div>
-      {/* Sin section-eyebrow: el periodo / fechas viven en el Header (chips +
-          calendar icon) y la palabra "Overview" ya está en el header / sidebar.
-          Repetirlas aquí era ruido (instrucción explícita del usuario). */}
+      {ag && (
+        <div style={{ color: 'var(--text-2)', fontSize: 'var(--fs-body-sm)', marginBottom: 'var(--sp-05)' }}>
+          {ag.shortName} · {ag.name}
+        </div>
+      )}
       <h1 style={{
         fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-display-lg)', fontWeight: 600,
         lineHeight: 1.2, margin: '0 0 4px', letterSpacing: 'var(--letter-display)',
-        color: 'var(--text)',
+        color: 'var(--text)', textWrap: 'balance',
       }}>
-        Conversación pública de los últimos {data.dailySeries.length} días
+        Conversación pública, {data.periodLabel || (data.periodStart + ' → ' + data.periodEnd)}
       </h1>
-      <div style={{ color: 'var(--text-2)', fontSize: 'var(--fs-body-sm)' }}>
-        {/* `periodLabel` es el rótulo canónico del periodo (formatPeriodLabel en
-            @eco/shared, el mismo que imprime el correo): "21 – 27 jul 2026". La
-            API ya lo enviaba y aquí se imprimían las dos fechas ISO crudas, así
-            que la pantalla tenía tres vocabularios de fecha (ISO en el hero,
-            "mié 21" en el eje, el rótulo en el modal). */}
+      <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
         {total > 0
-          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {data.periodLabel || (data.periodStart + ' → ' + data.periodEnd)}</>
+          ? <><span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{total.toLocaleString('es-PR')}</span> menciones · {days} {days === 1 ? 'día cerrado' : 'días cerrados'}</>
           : <>Sin menciones registradas en la ventana seleccionada.</>}
       </div>
     </div>
@@ -5540,9 +5601,8 @@ function OverviewHero({ data }) {
 }
 
 function OverviewTermometro({ totals, deltas, onSliceClick }) {
-  // Defensa contra payload incompleto: `totals` ausente tumbaba TODA la pantalla
-  // principal al error boundary. Un hipo del endpoint no debe dejar al usuario
-  // sin Overview; sin datos la tarjeta se dibuja en cero y lo dice.
+  // Defensa contra payload incompleto: sin `totals` la tarjeta se dibuja en
+  // cero en vez de tumbar la pantalla al error boundary.
   const T = totals || {};
   const D = deltas || {};
   const t = T.total || 1;
@@ -5551,19 +5611,14 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
     { name: 'Neutral',  sentKey: 'neutral',  value: T.neutral,  delta: D.neutral,  accent: 'var(--neu)', invert: false },
     { name: 'Positivo', sentKey: 'positivo', value: T.positive, delta: D.positive, accent: 'var(--pos)', deltaMetric: 'positiveCount' },
   ];
+  const share = (v) => (T.total > 0 ? ((v || 0) / t) * 100 : 0);
   return (
     <div>
-      <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>01 · Termómetro · vs ventana previa</div>
+      <OverviewEyebrow n="01">Termómetro · vs ventana previa</OverviewEyebrow>
       <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
         {cards.map((c) => {
           const pct = T.total > 0 ? Math.round(((c.value || 0) / t) * 100) : 0;
-          // La dirección del delta la decide ECO_METRIC_DIRECTION vía DeltaBadge
-          // (negativeCount = up-bad, positiveCount = up-good, volumen = neutro).
-          // Esta card recalculaba el color con su propio criterio y el resultado
-          // se pisaba con el del badge: dos reglas para el mismo átomo.
-          // Las cards del termómetro abren MentionsSliceModal con el sentimiento
-          // correspondiente. Usar <button> para teclado/aria; padding/estilos
-          // imitan el card. Sin underline o cursor pointer por defecto del btn.
+          // La dirección del delta la decide DeltaBadge (ECO_METRIC_DIRECTION).
           return (
             <button key={c.name}
               onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
@@ -5575,26 +5630,15 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
               }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.accent }} />
-                {/* .t-overline es la clase declarada para esto (tokens.css §7):
-                    11px, mayúsculas, --tracking-overline. Antes cada eyebrow
-                    repetía los cinco estilos inline con su propio tracking. */}
-                <div className="t-overline">
-                  {c.name}
-                </div>
+                <div className="t-overline">{c.name}</div>
                 <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
                 <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--ff-display)', lineHeight: 1 }}>
                   {fmt(c.value)}
                 </div>
-                {/* Cifra de apoyo del titular: --fs-body-sm/--text-2, igual que
-                    KpiCard (156) y que la card 02 (4333). Antes iba 12px/--text-3
-                    aquí y 13px/--text-2 allá, mismo rol en cards contiguas. */}
                 <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{pct}%</div>
               </div>
-              {/* El color y el tamaño del delta los decide DeltaBadge (WS-F8);
-                  este contenedor sólo coloca. Fijar aquí `color: dColor` era una
-                  segunda política de color sobre el mismo átomo. */}
               <div style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
                 <DeltaBadge value={c.delta} metricKey={c.deltaMetric || 'volume'} />
               </div>
@@ -5602,46 +5646,58 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
           );
         })}
       </div>
+      {/* La barra de mezcla del correo («Menciones · 7 días vs 7 previos»):
+          las tres cards en una sola regla, en el orden canónico del producto
+          (negativo → neutral → positivo, como en el correo). */}
+      {T.total > 0 && (
+        <div role="img" aria-label={`Mezcla del periodo: ${Math.round(share(T.negative))}% negativo, ${Math.round(share(T.neutral))}% neutral, ${Math.round(share(T.positive))}% positivo`}
+          style={{ display: 'flex', height: 8, borderRadius: 'var(--r-sm)', overflow: 'hidden', marginTop: 'var(--sp-3)', background: 'var(--canvas-2)' }}>
+          <span style={{ width: `${share(T.negative)}%`, background: 'var(--neg)' }} />
+          <span style={{ width: `${share(T.neutral)}%`, background: 'var(--neu)' }} />
+          <span style={{ flex: 1, background: 'var(--pos)' }} />
+        </div>
+      )}
     </div>
   );
 }
 
-// OverviewHighlights — reducido a un único termómetro de Crisis. Antes había
-// 3 tarjetas (NSS · Riesgo, Volúmenes, Brand Health). Por petición explícita
-// del usuario quitamos NSS / Volúmenes / Brand Health del Overview (esas
-// métricas viven en el tab Scorecard); Crisis se queda como termómetro pero
-// ya no está fusionada con NSS — vive aquí en su propia card slim.
-//
-// Clickable: abre MetricInsightModal con insight LLM + subcomponentes
-// (severity/velocity/relevance/confidence del snapshot diario).
-function OverviewHighlights({ metrics, onOpenInsight }) {
+// 02 · Riesgo de crisis — la métrica de la VENTANA (la misma del correo, con
+// su cambio en puntos contra la ventana previa), la escala por bandas y tres
+// datos de apoyo: el pico diario, el cierre del último día y la ventana
+// previa. Clickable: abre MetricInsightModal.
+function OverviewHighlights({ metrics, crisis, onOpenInsight }) {
   const m = metrics || {};
-  if (m.crisisRiskScore == null) return null;
-  // Crisis Risk en escala 0–1 (backtest 482d, PR #37). Thresholds:
-  // NORMAL <0.25, ELEVADO <0.40, ALERTA <0.60, CRISIS ≥0.60.
-  const score = m.crisisRiskScore;
+  const C = crisis || {};
+  const score = C.window != null ? C.window : m.crisisRiskScore;
+  if (score == null) return null;
   const cb = crisisBand(score);
-  // Formato legible (palabra + % de riesgo) desde el API (@eco/shared/format),
-  // con fallback al crisisBand local por si el payload no trae display.
   const cd = (m.display && m.display.crisis) || null;
-  const band = cb.label;
   const word = cd ? cd.word : cb.label;
-  const valueLabel = cd && cd.value ? cd.value : (Math.round(score * 100) + '%');
-  // El titular y su banda leen el MISMO color, y sale de CRISIS_BANDS. Antes el
-  // titular tomaba `cd.color` —el tone que calcula BAND_TONE en el backend— y la
-  // banda tomaba `cb.color` de la tabla local: para el veredicto ALERTA el
-  // backend daba --neg y la tabla otro color, así que la palabra y la barra que
-  // está 30px más abajo discrepaban sobre el mismo dato. Manda la tabla, porque
-  // es la que dibuja la barra que el usuario compara.
-  const wordColor = cb.color;
-  const bandColor = cb.color;
+  const pctOf = (v) => Math.round(v * 100);
+  const valueLabel = cd && cd.value ? cd.value : (pctOf(score) + '%');
+  // Cambio en puntos, invertido (subir la crisis es malo) — mismo formato que
+  // el correo: «▲ +21 pts».
+  const deltaPts = C.prevWindow != null ? pctOf(score) - pctOf(C.prevWindow) : null;
+  const dayLabel = (ymd) => {
+    const hit = ymd ? new Date(ymd + 'T12:00:00') : null;
+    return hit ? hit.toLocaleDateString('es-PR', { weekday: 'short', day: 'numeric' }).replace('.', '') : '';
+  };
+  const rows = [
+    C.peak && { k: `Pico diario · ${dayLabel(C.peak.date)}`, v: pctOf(C.peak.score) + '%', color: crisisBand(C.peak.score).color },
+    C.last && (!C.peak || C.last.date !== C.peak.date) && { k: `Cierre del ${dayLabel(C.last.date)}`, v: pctOf(C.last.score) + '%' },
+    C.prevWindow != null && { k: 'Ventana previa', v: pctOf(C.prevWindow) + '%' },
+  ].filter(Boolean);
+  const mobile = window.ecoIsMobile();
+  const divider = mobile
+    ? { paddingTop: 'var(--sp-3)', borderTop: '1px solid var(--hairline)' }
+    : { paddingLeft: 'var(--sp-4)', borderLeft: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', justifyContent: 'center' };
   return (
     <button
       onClick={() => onOpenInsight && onOpenInsight('crisis', valueLabel, 'var(--neg)')}
       className="card row-hover"
       style={{
         padding: 'var(--sp-4)',
-        display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-4)', alignItems: 'stretch',
+        display: 'grid', gridTemplateColumns: window.ecoCols(rows.length ? '1fr 1.3fr 1fr' : '1fr 2fr', '1fr'), gap: 'var(--sp-4)', alignItems: 'stretch',
         cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)',
         textAlign: 'left', width: '100%',
       }}
@@ -5649,71 +5705,281 @@ function OverviewHighlights({ metrics, onOpenInsight }) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-15)' }}>
           <Icons.Shield size={14} color="var(--neg)" />
-          {/* 02, 03 y 04 son UNA card cada una y llevan el mismo rótulo de card
-              (.card-hd-title, serif 15px). 01 y 05 rotulan GRUPOS de tres cards
-              y por eso viven fuera, en .section-eyebrow. Antes 02 usaba un
-              eyebrow de 11px en mayúsculas y parecía de otra familia que sus dos
-              pares, con el mismo patrón de información (número · nombre). */}
-          <div className="card-hd-title">
-            02 · Riesgo de crisis
-          </div>
+          <div className="card-hd-title">02 · Riesgo de crisis</div>
           <Icons.ArrowRight size={11} color="var(--text-3)" style={{ marginLeft: 'auto' }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
-          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: wordColor, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+          <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color: cb.color, fontFamily: 'var(--ff-display)', lineHeight: 1.1 }}>
             {word}
           </div>
           <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{valueLabel}</div>
+          {deltaPts != null && <DeltaBadge value={deltaPts} metricKey="crisisRiskScore" suffix=" pts" />}
         </div>
       </div>
-      {/* El divisor es vertical en 2 columnas y horizontal cuando la rejilla
-          colapsa en móvil: un borde izquierdo en una sola columna no separa nada. */}
-      {/* La escala ocupa las dos últimas columnas de las tres, así el divisor cae
-          en el tercio de la rejilla y no a media card. En móvil la rejilla es de
-          una columna y el divisor pasa a horizontal (un borde izquierdo en una
-          sola columna no separa nada). El flex + justifyContent centra la escala
-          verticalmente mientras el borde recorre la card COMPLETA: con
-          alignItems:'center' en la rejilla el borde medía 25px dentro de una card
-          de 101px y separaba aire de aire. */}
-      <div style={window.ecoIsMobile()
-        ? { paddingTop: 'var(--sp-3)', borderTop: '1px solid var(--hairline)' }
-        : { gridColumn: '2 / span 2', paddingLeft: 'var(--sp-4)', borderLeft: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-        <BandScale bands={CRISIS_BANDS} value={score} max={1}
-          valueLabel={valueLabel} ariaLabel="Riesgo de crisis" />
+      <div style={divider}>
+        <BandScale bands={CRISIS_BANDS} value={score} max={1} valueLabel={valueLabel} ariaLabel="Riesgo de crisis" />
       </div>
+      {rows.length > 0 && (
+        <div style={divider}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)', padding: 'var(--sp-15) 0', borderTop: i ? '1px solid var(--hairline)' : 'none', fontSize: 'var(--fs-body-sm)' }}>
+              <span style={{ color: 'var(--text-2)' }}>{r.k}</span>
+              <span className="num" style={{ fontWeight: 600, color: r.color || 'var(--text)' }}>{r.v}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </button>
   );
 }
 
-function OverviewTendencia({ dailySeries, hourlySeries, granularity, onDayClick, onHourClick }) {
-  // Con ventana de UN día el API devuelve trendGranularity='hour' + hourlySeries:
-  // a nivel diario ese caso rendía un único punto sin forma. Guardamos
-  // fullDate / fullHour para que el onPointClick pueda filtrar las menciones
-  // del bucket seleccionado en MentionsSliceModal.
+const OVERVIEW_SOURCE_LABEL = { facebook: 'Facebook', instagram: 'Instagram', news: 'Noticias', twitter: 'X', youtube: 'YouTube', linkedin: 'LinkedIn', blog: 'Blog', blogs: 'Blog', tiktok: 'TikTok', reddit: 'Reddit', forum: 'Foro', bluesky: 'Bluesky' };
+
+// 03 · Resumen del periodo — el lede del correo (titular, foto, párrafo y
+// viñetas numeradas) a la izquierda; las publicaciones que más movieron la
+// ventana a la derecha.
+function OverviewResumen({ insights, pieces, onMentionClick }) {
+  const { phase, data } = insights;
+  const lede = data?.lede || null;
+  const summary = data?.dailySummary || null;
+  const highlights = (lede?.highlights || []).filter(Boolean);
+  const loading = phase === 'loading' || phase === 'computing';
+  const status = phase === 'computing'
+    ? <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}><span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-2)' }} />Generando…</span>
+    : (phase === 'ready' && data?.stale ? <span className="pill pill-info" style={{ fontSize: 'var(--fs-overline)' }} title="Datos cacheados; se están recalculando en segundo plano">Actualizando…</span> : null);
+
+  let left;
+  if (phase === 'error') {
+    left = <EmptyState reason="error" compact title="No se pudo cargar el resumen" detail={insights.error} />;
+  } else if (loading && !summary) {
+    left = (
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', paddingTop: 'var(--sp-4)' }}>
+        <div className="skeleton" style={{ height: 22, width: '80%' }} />
+        <div className="skeleton" style={{ height: 14 }} />
+        <div className="skeleton" style={{ height: 14, width: '92%' }} />
+        <div className="skeleton" style={{ height: 14, width: '70%' }} />
+      </div>
+    );
+  } else if (!summary) {
+    left = <EmptyState reason="pending" title="Todavía no hay suficiente señal"
+      detail="El resumen necesita al menos 10 menciones en la ventana. Prueba una ventana más amplia." />;
+  } else {
+    left = (
+      <div className="card-bd" style={{ paddingTop: 'var(--sp-4)' }}>
+        {lede?.headline && (
+          <h2 style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, lineHeight: 1.3, margin: '0 0 var(--sp-3)', letterSpacing: 'var(--tracking-tight)', textWrap: 'balance', color: 'var(--text)' }}>
+            {lede.headline}
+          </h2>
+        )}
+        {lede?.hero?.url && (
+          <figure style={{ margin: '0 0 var(--sp-3)' }}>
+            {/* La copia propia se guarda con URL absoluta (citizenecho.com/media/…);
+                como ruta relativa carga en cualquiera de los dos dominios bajo
+                la CSP img-src 'self' de /overview. */}
+            <img src={String(lede.hero.url).replace(/^https?:\/\/[^/]+(?=\/media\/)/, '')} alt="" loading="lazy"
+              onError={(e) => { const f = e.currentTarget.closest('figure'); if (f) f.style.display = 'none'; }}
+              style={{ width: '100%', maxWidth: '100%', aspectRatio: '1200 / 717', objectFit: 'cover', borderRadius: 'var(--r-md)', display: 'block', background: 'var(--canvas-2)' }} />
+            {lede.hero.caption && (
+              <figcaption className="num" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-15)' }}>{lede.hero.caption}</figcaption>
+            )}
+          </figure>
+        )}
+        <div style={{ fontSize: 'var(--fs-body-lg)', lineHeight: 1.6, color: 'var(--text)', maxWidth: '72ch' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(summary) }} />
+        {highlights.length > 0 && (
+          <ol style={{ listStyle: 'none', margin: 'var(--sp-3) 0 0', padding: 0 }}>
+            {highlights.map((h, i) => (
+              <li key={i} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 'var(--sp-3)', padding: 'var(--sp-3) 0', borderTop: '1px solid var(--hairline)' }}>
+                <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)', paddingTop: 2 }}>{i + 1}</span>
+                <span style={{ fontSize: 'var(--fs-body)', lineHeight: 1.55, color: 'var(--text)', maxWidth: '70ch' }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(h) }} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <OverviewEyebrow n="03" right={status}>Resumen del periodo</OverviewEyebrow>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0,1.5fr) minmax(0,1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+        <div className="card">{left}</div>
+        <div className="card">
+          <div className="card-hd">
+            <div>
+              <div className="card-hd-title">Las piezas que movieron la ventana</div>
+              <div className="card-hd-sub">por interacciones · click para abrir la mención</div>
+            </div>
+          </div>
+          <div className="card-bd" style={{ paddingTop: 'var(--sp-2)' }}>
+            {pieces == null ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+                {[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 44 }} />)}
+              </div>
+            ) : pieces.length === 0 ? (
+              <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>Sin publicaciones con interacción en la ventana.</div>
+            ) : pieces.map((mn, i) => {
+              const tone = mn.sentiment === 'negativo' ? 'var(--neg)' : mn.sentiment === 'positivo' ? 'var(--pos)' : 'var(--neu)';
+              const src = OVERVIEW_SOURCE_LABEL[mn.source] || mn.domain || 'Web';
+              const who = mn.author || mn.domain || src;
+              return (
+                <button key={mn.id} onClick={() => onMentionClick && onMentionClick(mn)} className="row-hover"
+                  style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', display: 'grid', gridTemplateColumns: '28px minmax(0,1fr) auto', gap: 'var(--sp-3)', padding: 'var(--sp-3) var(--sp-1)', borderTop: i ? '1px solid var(--hairline)' : 'none', alignItems: 'start' }}>
+                  <Avatar name={who} size={28} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone, flexShrink: 0 }} aria-label={mn.sentiment} />
+                      <span style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{who}</span>
+                      <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>{src}{mn.publishedAt ? ` · ${mn.publishedAt}` : ''}</span>
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', marginTop: 'var(--sp-05)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {mn.title || mn.snippet}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="num" style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, color: 'var(--text)' }}>{fmt(mn.engagement)}</div>
+                    <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>interac.</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Barras apiladas por día con la ventana previa en gris a la izquierda, los
+// días pico rotulados y, debajo del eje, la cinta del riesgo de crisis diario.
+// Una sola escala vertical para las dos ventanas (así se comparan).
+function OverviewTrendChart({ days, prev, crisisDaily, peaks, onDayClick }) {
+  const [ref, w] = useChartWidth(720);
+  const titleId = React.useId ? React.useId() : 'ov-trend-title';
+  const all = [...(prev || []).map((d) => ({ ...d, isPrev: true })), ...days];
+  const hasCrisis = Array.isArray(crisisDaily) && crisisDaily.length > 0 && days.length <= 31;
+  const crisisBy = {};
+  (crisisDaily || []).forEach((c) => { crisisBy[c.date] = c.score; });
+  const peakBy = {};
+  (peaks || []).forEach((p) => { peakBy[p.date] = p; });
+  const tot = (d) => (d.negative || 0) + (d.neutral || 0) + (d.positive || 0);
+  const maxV = Math.max(1, ...all.map(tot));
+  // Escala "bonita": el máximo redondeado al múltiplo de 5/10/20/50… siguiente.
+  const niceStep = (() => { const raw = maxV / 4; const pow = Math.pow(10, Math.floor(Math.log10(raw))); const n = raw / pow; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow; })();
+  const yMax = Math.ceil(maxV / niceStep) * niceStep;
+  const ticks = []; for (let t = 0; t <= yMax + 1e-9; t += niceStep) ticks.push(Math.round(t));
+  const hasPeaks = Object.keys(peakBy).length > 0;
+  // Arriba, dos franjas que no se tocan: los rótulos de los picos (y 14–33)
+  // y, debajo, las etiquetas de las dos ventanas (padT - 10).
+  const padL = hasCrisis ? 48 : 34, padR = 8, padT = hasPeaks ? 66 : (prev ? 30 : 12), padB = hasCrisis ? 50 : 26;
+  const H = 280 + (hasPeaks ? 20 : 0);
+  const iw = Math.max(10, w - padL - padR), ih = H - padT - padB;
+  const bw = iw / Math.max(1, all.length);
+  const y = (v) => padT + ih - (v / yMax) * ih;
+  const labelEvery = Math.max(1, Math.ceil(46 / bw));
+  const showValues = bw >= 22;
+  const xOf = (i) => padL + i * bw;
+  const prevEndX = prev && prev.length ? xOf(prev.length) : null;
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <svg width="100%" height={H} viewBox={`0 0 ${Math.max(w, 1)} ${H}`} role="img" aria-labelledby={titleId} style={{ display: 'block', overflow: 'visible' }}>
+        <title id={titleId}>Menciones por día y sentimiento{prev ? ', con la ventana previa' : ''}{hasCrisis ? ' y el riesgo de crisis diario' : ''}</title>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={padL} x2={padL + iw} y1={y(t)} y2={y(t)} stroke="var(--hairline)" />
+            <text x={padL - 6} y={y(t) + 4} textAnchor="end" className="num" style={{ fontSize: 11, fill: 'var(--text-3)' }}>{t}</text>
+          </g>
+        ))}
+        {prevEndX != null && (
+          <g>
+            <line x1={prevEndX} x2={prevEndX} y1={padT - 22} y2={padT + ih} stroke="var(--hairline-strong)" strokeDasharray="3 3" />
+            <text x={prevEndX - 6} y={padT - 10} textAnchor="end" style={{ fontSize: 11, fill: 'var(--text-3)' }}>ventana previa · {fmt(prev.reduce((a, d) => a + tot(d), 0))}</text>
+            <text x={prevEndX + 6} y={padT - 10} style={{ fontSize: 11, fill: 'var(--text-3)' }}>esta ventana · {fmt(days.reduce((a, d) => a + tot(d), 0))}</text>
+          </g>
+        )}
+        {all.map((d, i) => {
+          const x0 = xOf(i) + bw * 0.18, bwi = Math.max(1, bw * 0.64);
+          const total = tot(d);
+          let yy = y(0);
+          const seg = (v, fill, key) => { if (!v) return null; const hh = (v / yMax) * ih; yy -= hh; return <rect key={key} x={x0} y={yy} width={bwi} height={hh} fill={fill} />; };
+          const bars = d.isPrev
+            ? seg(total, 'color-mix(in oklab, var(--text-3) 35%, var(--canvas))', 'p')
+            : [seg(d.positive, 'var(--pos)', 'pos'), seg(d.neutral, 'var(--neu)', 'neu'), seg(d.negative, 'var(--neg)', 'neg')];
+          const clickable = !d.isPrev && onDayClick;
+          const cs = crisisBy[d.fullDate];
+          const cb = cs != null ? crisisBand(cs) : null;
+          return (
+            <g key={d.fullDate || i}
+              onClick={clickable ? () => onDayClick(d) : undefined}
+              onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDayClick(d); } } : undefined}
+              tabIndex={clickable ? 0 : undefined} role={clickable ? 'button' : undefined}
+              aria-label={clickable ? `${d.date}: ${total} menciones` : undefined}
+              className={clickable ? 'eco-trend-day' : undefined}
+              style={{ cursor: clickable ? 'pointer' : 'default' }}>
+              <rect x={xOf(i)} y={padT - 4} width={bw} height={ih + 4} fill={peakBy[d.fullDate] ? 'var(--action-fill)' : 'transparent'} className="eco-trend-hit" />
+              {bars}
+              {!d.isPrev && showValues && total > 0 && (
+                <text x={xOf(i) + bw / 2} y={y(total) - 5} textAnchor="middle" className="num" style={{ fontSize: 11, fill: 'var(--text-2)' }}>{total}</text>
+              )}
+              {i % labelEvery === 0 && (
+                <text x={xOf(i) + bw / 2} y={padT + ih + 15} textAnchor="middle" className="num" style={{ fontSize: 11, fill: 'var(--text-3)' }}>{d.date}</text>
+              )}
+              {hasCrisis && !d.isPrev && cb && (
+                <g>
+                  <rect x={x0} y={padT + ih + 24} width={bwi} height={15} rx={2} fill={cb.color} />
+                  {bwi >= 26 && <text x={xOf(i) + bw / 2} y={padT + ih + 35} textAnchor="middle" className="num" style={{ fontSize: 10, fontWeight: 600, fill: 'var(--canvas)' }}>{Math.round(cs * 100)}%</text>}
+                </g>
+              )}
+            </g>
+          );
+        })}
+        {hasCrisis && <text x={padL - 6} y={padT + ih + 35} textAnchor="end" style={{ fontSize: 10, fill: 'var(--text-3)' }}>crisis</text>}
+        {all.map((d, i) => {
+          const p = !d.isPrev && peakBy[d.fullDate];
+          if (!p) return null;
+          const cx = xOf(i) + bw / 2;
+          const top = y(tot(d)) - (showValues ? 18 : 6);
+          const yA = 14;
+          // El rótulo va a la derecha del marcador, o a la izquierda si el pico
+          // está en el último tercio; y nunca se sale del dibujo (en móvil el
+          // gráfico mide ~300px y un rótulo de 40 caracteres no cabe centrado).
+          const sub = `${p.total} menciones · ${p.negative} negativas`;
+          const textW = Math.max(String(p.label).length * 6.9, sub.length * 6.7);
+          const end = cx > padL + iw * 0.62;
+          const tx = Math.max(2, Math.min(Math.max(w, 1) - textW - 2, end ? cx - 8 - textW : cx + 8));
+          return (
+            <g key={'pk' + i} pointerEvents="none">
+              <line x1={cx} x2={cx} y1={Math.max(yA, top)} y2={yA} stroke="var(--text-2)" />
+              <circle cx={cx} cy={yA} r={2.5} fill="var(--text)" />
+              <text x={tx} y={yA + 4} style={{ fontSize: 12, fontWeight: 600, fill: 'var(--text)' }}>{p.label}</text>
+              <text x={tx} y={yA + 19} className="num" style={{ fontSize: 11, fill: 'var(--text-3)' }}>{sub}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function OverviewTendencia({ dailySeries, prevDailySeries, hourlySeries, granularity, crisisDaily, peaks, onDayClick, onHourClick }) {
+  // Con ventana de UN día el API devuelve trendGranularity='hour' +
+  // hourlySeries: ese caso conserva las franjas por hora (SeriesPanels).
   const hourly = granularity === 'hour' && Array.isArray(hourlySeries) && hourlySeries.length > 0;
-  const chartData = hourly
-    ? hourlySeries.map((d) => ({
-        date: d.hourLabel,
-        fullHour: d.hour,
-        negative: d.negative,
-        neutral: d.neutral,
-        positive: d.positive,
-        totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
-      }))
-    : (dailySeries || []).map((d) => ({
-        date: d.dayLabel,
-        fullDate: d.date,
-        negative: d.negative,
-        neutral: d.neutral,
-        positive: d.positive,
-        totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
-      }));
   const series = [
     { key: 'negative', label: 'Negativo', color: 'var(--neg)' },
     { key: 'neutral',  label: 'Neutral',  color: 'var(--neu)' },
     { key: 'positive', label: 'Positivo', color: 'var(--pos)' },
   ];
-  if (chartData.length === 0) {
+  const days = (dailySeries || []).map((d) => ({
+    date: d.dayLabel, fullDate: d.date, negative: d.negative, neutral: d.neutral, positive: d.positive,
+    totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
+  }));
+  const prev = Array.isArray(prevDailySeries) && prevDailySeries.length > 0
+    ? prevDailySeries.map((d) => ({ date: d.dayLabel, fullDate: d.date, negative: d.negative, neutral: d.neutral, positive: d.positive }))
+    : null;
+  if (!hourly && days.length === 0) {
     return (
       <div className="card">
         <EmptyState reason="empty" title="Sin datos de tendencia"
@@ -5721,42 +5987,114 @@ function OverviewTendencia({ dailySeries, hourlySeries, granularity, onDayClick,
       </div>
     );
   }
+  const legendItem = (color, label) => (
+    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />{label}
+    </span>
+  );
   return (
     <div className="card">
-      <div className="card-hd">
+      <div className="card-hd" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
         <div>
-          <div className="card-hd-title">03 · Tendencia · {hourly ? 'Hora a hora' : 'Día a día'}</div>
+          <div className="card-hd-title">04 · Tendencia · {hourly ? 'Hora a hora' : 'Día a día'}</div>
           <div className="card-hd-sub">
             {hourly
               ? 'Volumen por sentimiento, hora a hora (TZ Puerto Rico) · click una hora para ver sus menciones'
-              : 'Volumen por sentimiento, día a día (TZ Puerto Rico) · click un día para ver sus menciones'}
+              : 'Volumen por sentimiento (TZ Puerto Rico) · click un día para ver sus menciones'}
           </div>
         </div>
+        {!hourly && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-3)' }}>
+            {legendItem('var(--neg)', 'Negativo')}
+            {legendItem('var(--neu)', 'Neutral')}
+            {legendItem('var(--pos)', 'Positivo')}
+            {prev && legendItem('color-mix(in oklab, var(--text-3) 35%, var(--canvas))', 'Ventana previa')}
+          </div>
+        )}
       </div>
       <div className="card-bd">
-        {/* WS-C2 (arreglo de F2). Antes: MultiLineChart con normalización POR
-            SERIE, que dibujaba positivo=33 un ~40% más arriba que negativo=35
-            — el lector concluía lo contrario de lo que dicen los números.
-            Activar `sharedScale` en el gráfico superpuesto tampoco servía:
-            con un pico grande (neg=203 en un día de crisis) la variación diaria
-            normal se comprime en una banda plana al fondo, que es justo la
-            queja que originó la normalización por serie.
-            SeriesPanels separa las series en franjas que COMPARTEN el eje: cada
-            una conserva su forma y su curva suave (petición explícita del
-            usuario) y las alturas sí son comparables.
-
-            El handler de click cambia con la granularidad: con la ventana en un
-            solo día los puntos son HORAS y el modal filtra por day+hour. */}
-        <SeriesPanels
-          data={chartData}
-          series={series}
-          panelHeight={72}
-          onPointClick={hourly ? onHourClick : onDayClick}
-          a11yTitle={hourly
-            ? 'Volumen por sentimiento, hora a hora'
-            : 'Volumen por sentimiento, día a día'}
-        />
+        {hourly ? (
+          <SeriesPanels
+            data={hourlySeries.map((d) => ({
+              date: d.hourLabel, fullHour: d.hour,
+              negative: d.negative, neutral: d.neutral, positive: d.positive,
+              totalMentions: (d.negative || 0) + (d.neutral || 0) + (d.positive || 0),
+            }))}
+            series={series}
+            panelHeight={72}
+            onPointClick={onHourClick}
+            a11yTitle="Volumen por sentimiento, hora a hora"
+          />
+        ) : (
+          <OverviewTrendChart days={days} prev={prev} crisisDaily={crisisDaily} peaks={peaks} onDayClick={onDayClick} />
+        )}
       </div>
+    </div>
+  );
+}
+
+// 05 · Insights — las tres columnas del correo (negativo, neutral, positivo),
+// cada una con su peso en el total. El resumen general ya vive en 03.
+function OverviewInsights({ insights, totals }) {
+  const state = insights;
+  const T = totals || {};
+  const share = (v) => (T.total > 0 ? Math.round(((v || 0) / T.total) * 100) : 0);
+  const eyebrow = <OverviewEyebrow n="05">Insights · análisis IA del periodo</OverviewEyebrow>;
+  if (state.phase === 'error') {
+    return (
+      <div>
+        {eyebrow}
+        <div className="card">
+          <EmptyState reason="error" compact title="No se pudieron cargar los insights" detail={state.error} />
+        </div>
+      </div>
+    );
+  }
+  const cols = [
+    { key: 'negative', title: 'Negativo', empty: 'Sin insights negativos', accent: 'var(--neg)', share: share(T.negative), items: state.data?.insights?.negative ?? [] },
+    { key: 'neutral',  title: 'Neutral',  empty: 'Sin insights neutrales', accent: 'var(--neu)', share: share(T.neutral),  items: state.data?.insights?.neutral ?? [] },
+    { key: 'positive', title: 'Positivo', empty: 'Sin insights positivos', accent: 'var(--pos)', share: share(T.positive), items: state.data?.insights?.positive ?? [] },
+  ];
+  const isLoading = state.phase !== 'ready';
+  const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);
+  return (
+    <div>
+      {eyebrow}
+      {allEmpty ? (
+        <div className="card">
+          <EmptyState reason="pending" title="Todavía no hay suficiente señal"
+            detail="Los insights necesitan más menciones en el período para decir algo con fundamento. Prueba una ventana más amplia." />
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
+          {cols.map((col) => (
+            <div key={col.key} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', borderTop: `2px solid ${col.accent}` }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--sp-2)' }}>
+                <div className="t-overline">{col.title}</div>
+                <div className="num" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{col.share}% del total</div>
+              </div>
+              {isLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                  <div className="skeleton" style={{ height: 14 }} />
+                  <div className="skeleton" style={{ height: 14, width: '92%' }} />
+                  <div className="skeleton" style={{ height: 14, width: '78%' }} />
+                </div>
+              ) : col.items.length === 0 ? (
+                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{col.empty} para este periodo.</div>
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+                  {col.items.map((it, i) => (
+                    // La constitución editorial autoriza <strong>; mismo saneado
+                    // que el resto del Overview (solo sobrevive <strong>).
+                    <li key={i} style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)', lineHeight: 1.55 }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(it) }} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -5811,7 +6149,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">05 · Tópico principal</div>
+          <div className="card-hd-title">06 · Tópicos</div>
           <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
         </div>
       </div>
@@ -5914,178 +6252,6 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
           conteos más altos en la pestaña Tópicos por esa razón.
         </span>
       </div>
-    </div>
-  );
-}
-
-// OverviewInsights — 3 columnas (negativos / positivos / resumen general)
-// generadas por LLM y cacheadas por (agency, periodStart, periodEnd).
-// Patrón cache-or-202: si el endpoint devuelve 'ready' renderiza inmediato.
-// Si devuelve 'computing' arranca polling cada 3s hasta cap 90s.
-function OverviewInsights({ periodStart, periodEnd, agency }) {
-  const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
-  const pollRef = React.useRef(null);
-  const startedAt = React.useRef(0);
-  const MAX_POLL_MS = 90 * 1000;
-  // Polling en rampa: 2s durante los primeros 20s (cuando es más probable que
-  // el lambda ya haya terminado — los dos llamados a Bedrock ahora corren en
-  // paralelo, ~la mitad del wall-clock que antes) y 4s después.
-  //
-  // El techo lo pone el rate limit de /api/eco-insights: 30 req/min. Con esta
-  // rampa son ~10 polls en los primeros 20s + ~17 en los 70s restantes = 27
-  // en la ventana de 90s, bajo el límite. Un intervalo fijo de 1.5s habría
-  // dado 60 polls y devuelto 429 a mitad de la generación.
-  const pollDelay = (elapsedMs) => (elapsedMs < 20_000 ? 2_000 : 4_000);
-
-  React.useEffect(() => {
-    if (!periodStart || !periodEnd) return;
-    setState({ phase: 'loading', data: null, error: null });
-    startedAt.current = Date.now();
-    const ctrl = new AbortController();
-
-    async function fetchOnce() {
-      const params = new URLSearchParams({ from: periodStart, to: periodEnd });
-      if (agency) params.set('agency', agency);
-      try {
-        const res = await fetch('/api/eco-insights?' + params.toString(), {
-          credentials: 'same-origin',
-          cache: 'no-store',
-          signal: ctrl.signal,
-        });
-        if (res.status === 202) {
-          setState((s) => ({ ...s, phase: 'computing' }));
-          return 'computing';
-        }
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setState({ phase: 'error', data: null, error: body.error || `HTTP ${res.status}` });
-          return 'error';
-        }
-        const json = await res.json();
-        setState({ phase: 'ready', data: json, error: null });
-        return 'ready';
-      } catch (e) {
-        if (e?.name === 'AbortError') return 'aborted';
-        setState({ phase: 'error', data: null, error: String(e?.message || e) });
-        return 'error';
-      }
-    }
-
-    async function loop() {
-      const status = await fetchOnce();
-      if (status === 'computing') {
-        const elapsed = Date.now() - startedAt.current;
-        if (elapsed > MAX_POLL_MS) {
-          setState({ phase: 'error', data: null, error: 'Timeout esperando insights (>90s)' });
-          return;
-        }
-        pollRef.current = setTimeout(loop, pollDelay(elapsed));
-      }
-    }
-    loop();
-
-    return () => {
-      ctrl.abort();
-      if (pollRef.current) clearTimeout(pollRef.current);
-    };
-  }, [periodStart, periodEnd, agency]);
-
-  const eyebrow = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-      <div className="section-eyebrow" style={{ marginBottom: 0 }}>04 · Insights · análisis IA del periodo</div>
-      {state.phase === 'computing' && (
-        <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-          <span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
-          GENERANDO…
-        </span>
-      )}
-      {state.phase === 'ready' && state.data?.stale && (
-        <span className="pill pill-info" style={{ fontSize: 'var(--fs-overline)' }} title="Datos cacheados; el lambda está recomputando en background">
-          Actualizando…
-        </span>
-      )}
-    </div>
-  );
-
-  if (state.phase === 'error') {
-    return (
-      <div>
-        {eyebrow}
-        {/* Un fallo pintado como nota gris de 12px es el anti-patrón que
-            EmptyState reason="error" existe para cerrar (shell.js:1336-1338):
-            aquí el usuario leía el error al tamaño de un metadato y sin ninguna
-            señal de alarma. `compact` mantiene la tira delgada dentro del bloque
-            04 en vez de abrir un hueco de 120px de alto. */}
-        <div className="card">
-          <EmptyState reason="error" compact title="No se pudieron cargar los insights" detail={state.error} />
-        </div>
-      </div>
-    );
-  }
-
-  const cols = [
-    { key: 'negative', title: 'Negativos', accent: 'var(--neg)', items: state.data?.insights?.negative ?? [] },
-    { key: 'positive', title: 'Positivos', accent: 'var(--pos)', items: state.data?.insights?.positive ?? [] },
-    { key: 'general',  title: 'Resumen del periodo', accent: 'var(--accent)', items: state.data?.dailySummary ? [state.data.dailySummary] : [] },
-  ];
-  const isLoading = state.phase !== 'ready';
-  const allEmpty = !isLoading && cols.every((c) => c.items.length === 0);
-
-  return (
-    <div>
-      {eyebrow}
-      {allEmpty ? (
-        <div className="card">
-          <EmptyState reason="pending" title="Todavía no hay suficiente señal"
-            detail="Los insights necesitan más menciones en el período para decir algo con fundamento. Prueba una ventana más amplia." />
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
-          {cols.map((col) => (
-            <div key={col.key} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', borderTop: `2px solid ${col.accent}` }}>
-              <div className="t-overline">{col.title}</div>
-              {isLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-                  {/* El esqueleto declaraba el espaciado DOS veces: el gap --sp-3
-                      del contenedor de la columna MÁS un marginBottom --sp-15,
-                      que sumaban 18px entre barras cuando la lista que sustituye
-                      respira --sp-2 (8px). Con su propio contenedor el gap del
-                      esqueleto es el del contenido y la separación respecto del
-                      título la sigue poniendo la columna, igual que en el estado
-                      final: la card deja de dar un salto de alto al llegar los
-                      insights. */}
-                  <div className="skeleton" style={{ height: 14 }} />
-                  <div className="skeleton" style={{ height: 14, width: '92%' }} />
-                  <div className="skeleton" style={{ height: 14, width: '78%' }} />
-                </div>
-              ) : col.items.length === 0 ? (
-                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
-                  Sin {col.key === 'general' ? 'resumen' : 'insights'} para este periodo.
-                </div>
-              ) : col.key === 'general' ? (
-                <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', lineHeight: 1.5 }}
-                  dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(col.items[0]) }} />
-              ) : (
-                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-                  {col.items.map((it, i) => (
-                    <li key={i} style={{ fontSize: 'var(--fs-caption)', color: 'var(--text)', lineHeight: 1.45, display: 'flex', gap: 'var(--sp-2)' }}>
-                      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: col.accent, marginTop: 'var(--sp-15)' }} />
-                      {/* La constitución editorial autoriza <strong> en las
-                          viñetas (packages/shared/src/prompts/constitution.ts),
-                          y las filas de overview_period_insights lo traen. Como
-                          texto plano el lector veía la etiqueta literal
-                          ("<strong>Francisco Domenech</strong>") en medio de la
-                          frase. Mismo saneado que la columna de resumen: sólo
-                          sobrevive <strong>. */}
-                      <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(it) }} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

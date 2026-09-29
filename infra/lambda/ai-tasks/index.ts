@@ -22,6 +22,7 @@
  */
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import {
   EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
   buildExecutiveBriefingPrompt,
@@ -46,8 +47,18 @@ import {
   type WeeklyAggregates,
   type MetricKey,
   type CachedMetricInsightInput,
+  type PeriodPeakInput,
+  selectAnnotatedPeaks,
+  coerceBulletList,
+  isArticlePageType,
+  isGenericImageUrl,
+  validateImageUrl,
+  fetchOgImage,
+  mirrorImage,
+  formatShortDay,
+  ymdInTimeZone,
 } from '@eco/shared';
-import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext } from './aggregates';
+import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext, loadDaySamples, loadHeroCandidates } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -816,9 +827,99 @@ const DAILY_SUMMARY_TOOL_SCHEMA = {
       minLength: 80, maxLength: 1400,
       description: 'Párrafo de 3–5 oraciones describiendo el PERIODO ENTERO (no solo el último día). Para 1D coincide con un daily summary; para 5D/7D/30D/custom describe la ventana completa.',
     },
+    headline: {
+      type: 'string',
+      description: 'Titular del periodo: 8 a 16 palabras, con sujeto y verbo, sin cifras y sin punto final.',
+    },
+    highlights: {
+      type: 'array',
+      items: { type: 'string' },
+      description: '2 a 4 viñetas; cada una cuenta un hecho del periodo con su cifra de apoyo, nunca una cifra con etiqueta.',
+    },
+    peak_labels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', description: 'YYYY-MM-DD del día pico, tal como viene en el prompt.' },
+          label: { type: 'string', description: '3 a 7 palabras que nombran qué pasó ese día.' },
+        },
+        required: ['date', 'label'],
+      },
+      description: 'Un rótulo por día pico listado en el prompt. Vacío si no se listó ninguno.',
+    },
   },
-  required: ['summary'],
+  required: ['summary', 'headline', 'highlights'],
 };
+
+/**
+ * Lede del Overview (headline + viñetas + rótulos de picos + foto), con la
+ * forma del lede del correo diario. Vive en `overview_period_insights.lede`.
+ */
+interface PeriodLede {
+  headline: string | null;
+  highlights: string[];
+  peaks: Array<{ date: string; label: string; total: number; negative: number }>;
+  hero: { url: string; caption: string } | null;
+}
+
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET ?? '';
+const MEDIA_PUBLIC_BASE_URL = process.env.MEDIA_PUBLIC_BASE_URL ?? 'https://citizenecho.com/media';
+const s3 = new S3Client({});
+
+/**
+ * Foto de portada del periodo. Mismas reglas que la del correo: og:image solo
+ * de páginas tipo artículo (a un visitante sin sesión las redes le sirven su
+ * logo) y sin imágenes genéricas. Además se COPIA a `media/` del bucket crudo:
+ * el dashboard sirve /overview con CSP `img-src 'self'`, así que una foto de
+ * otro dominio no se pintaría. Sin bucket configurado no hay foto.
+ */
+async function loadPeriodHero(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agencyId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<{ url: string; caption: string } | null> {
+  if (!MEDIA_BUCKET) return null;
+  try {
+    const candidates = (await loadHeroCandidates(client, agencyId, periodStart, periodEnd))
+      .filter((c) => isArticlePageType(c.pageType));
+    for (const c of candidates) {
+      let img: string | null = null;
+      const stored = c.resolvedImageUrl;
+      if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored).catch(() => false)) {
+        img = stored;
+      } else if (c.url) {
+        img = await fetchOgImage(c.url).catch(() => null);
+      }
+      if (!img) continue;
+      const own = img.startsWith(MEDIA_PUBLIC_BASE_URL) ? img : await mirrorImage(img, {
+        publicBaseUrl: MEDIA_PUBLIC_BASE_URL,
+        put: async (key, body, contentType) => {
+          await s3.send(new PutObjectCommand({
+            Bucket: MEDIA_BUCKET,
+            Key: `media/${key}`,
+            Body: body,
+            ContentType: contentType,
+            CacheControl: 'public, max-age=31536000, immutable',
+          }));
+        },
+      });
+      if (!own) continue;
+      let source = c.sourceName ?? 'fuente';
+      try { if (c.url) source = new URL(c.url).hostname.replace(/^www\./, ''); } catch { /* queda el nombre de la fuente */ }
+      const day = formatShortDay(ymdInTimeZone(c.publishedAt, 'America/Puerto_Rico'));
+      return { url: own, caption: `Foto: ${source} · ${day}` };
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[ai-tasks] period hero failed: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+const stripTags = (s: string): string => s.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
 async function generatePeriodInsightsFor(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -850,7 +951,7 @@ async function generatePeriodInsightsFor(
     // para que el endpoint la sirva sin reintentar.
     const empty: PeriodInsightsOutput = { negative: [], neutral: [], positive: [] };
     if (!dryRun) {
-      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, PRIMARY_MODEL);
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, null, PRIMARY_MODEL);
     }
     return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: { ...empty, daily_summary: null } };
   }
@@ -883,9 +984,19 @@ async function generatePeriodInsightsFor(
     // en periodos ≥7D devolviendo input vacío silenciosamente. Si el primer
     // intento devuelve summary corto, reintentamos con 3000 tokens. Si tras eso
     // sigue vacío, log VISIBLE para que se note en CloudWatch.
-    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples);
-    const trySummary = async (maxTokens: number): Promise<string | null> => {
-      const sum = await invokeClaudeWithTool<{ summary: string }>({
+    // Días pico que la tendencia rotula: los elige el código, el modelo solo
+    // nombra qué pasó. Las muestras de cada día salen de lo que se dijo ESE día.
+    const peakDays = selectAnnotatedPeaks(aggregates.dailySeries);
+    const peaks: PeriodPeakInput[] = await Promise.all(peakDays.map(async (p) => ({
+      date: p.date, total: p.total, negative: p.negative,
+      samples: await loadDaySamples(client, agency.id, p.date).catch(() => []),
+    })));
+    const heroPromise = loadPeriodHero(client, agency.id, periodStart, periodEnd);
+
+    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples, peaks);
+    type SummaryOut = { summary: string; headline: string | null; highlights: string[]; peakLabels: Array<{ date: string; label: string }> };
+    const trySummary = async (maxTokens: number): Promise<SummaryOut | null> => {
+      const sum = await invokeClaudeWithTool<{ summary: string; headline?: unknown; highlights?: unknown; peak_labels?: unknown }>({
         client: bedrock,
         systemPrompt: INSIGHTS_SYSTEM_PROMPT,
         userPrompt: summaryPrompt,
@@ -900,7 +1011,19 @@ async function generatePeriodInsightsFor(
         },
       });
       const trimmed = (sum.summary ?? '').trim().slice(0, 1400);
-      return trimmed.length >= 80 ? trimmed : null;
+      if (trimmed.length < 80) return null;
+      const headline = typeof sum.headline === 'string' ? stripTags(sum.headline).replace(/\.$/, '').slice(0, 200) : '';
+      const peakDates = new Set(peaks.map((p) => p.date));
+      const peakLabels = (Array.isArray(sum.peak_labels) ? sum.peak_labels : [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((x: any) => ({ date: String(x?.date ?? ''), label: stripTags(String(x?.label ?? '')).replace(/\.$/, '').slice(0, 70) }))
+        .filter((x) => peakDates.has(x.date) && x.label.length > 0);
+      return {
+        summary: trimmed,
+        headline: headline || null,
+        highlights: coerceBulletList(sum.highlights, 4).map((h) => sanitizeStrongOnly(h).slice(0, 400)),
+        peakLabels,
+      };
     };
 
     // Los dos llamados a Bedrock (insights + summary) son INDEPENDIENTES: no
@@ -910,7 +1033,7 @@ async function generatePeriodInsightsFor(
     // el wall-clock es el del más lento, ~la mitad. (Reportado por el usuario:
     // "cuando cambio de temporalidad siento que los insights están tardando
     // mucho tiempo en generarse".)
-    const summaryPromise = (async (): Promise<string | null> => {
+    const summaryPromise = (async (): Promise<SummaryOut | null> => {
       try {
         const first = await trySummary(1500);
         if (first) return first;
@@ -927,7 +1050,17 @@ async function generatePeriodInsightsFor(
       }
     })();
 
-    const [insights, dailySummary] = await Promise.all([insightsPromise, summaryPromise]);
+    const [insights, summaryOut, hero] = await Promise.all([insightsPromise, summaryPromise, heroPromise]);
+    const dailySummary = summaryOut?.summary ?? null;
+    const lede: PeriodLede = {
+      headline: summaryOut?.headline ?? null,
+      highlights: summaryOut?.highlights ?? [],
+      peaks: (summaryOut?.peakLabels ?? []).map((l) => {
+        const p = peaks.find((x) => x.date === l.date)!;
+        return { date: l.date, label: l.label, total: p.total, negative: p.negative };
+      }),
+      hero,
+    };
 
     if (!dailySummary) {
       // El usuario reportó que para 2026-04-12→2026-05-11 no se generó resumen
@@ -942,12 +1075,12 @@ async function generatePeriodInsightsFor(
     };
 
     if (!dryRun) {
-      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, PRIMARY_MODEL);
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, lede, PRIMARY_MODEL);
     }
     return {
       agencySlug: agency.slug,
       status: 'ok',
-      output: { ...validated, daily_summary: dailySummary },
+      output: { ...validated, daily_summary: dailySummary, lede },
     };
   } catch (err) {
     return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
@@ -1118,14 +1251,15 @@ async function persistPeriodInsights(
   periodEnd: string,
   insights: PeriodInsightsOutput,
   dailySummary: string | null,
+  lede: PeriodLede | null,
   modelUsed: string,
 ): Promise<void> {
   await client.query(
     `INSERT INTO overview_period_insights
        (agency_id, period_start_date, period_end_date,
         negative_insights, neutral_insights, positive_insights,
-        daily_summary, model_used, generated_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, NOW())
+        daily_summary, model_used, lede, generated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb, NOW())
      ON CONFLICT ON CONSTRAINT uq_overview_period_insights_agency_range
      DO UPDATE SET
        negative_insights = EXCLUDED.negative_insights,
@@ -1133,6 +1267,7 @@ async function persistPeriodInsights(
        positive_insights = EXCLUDED.positive_insights,
        daily_summary     = EXCLUDED.daily_summary,
        model_used        = EXCLUDED.model_used,
+       lede              = EXCLUDED.lede,
        generated_at      = NOW()`,
     [
       agencyId, periodStart, periodEnd,
@@ -1140,6 +1275,7 @@ async function persistPeriodInsights(
       JSON.stringify(insights.neutral),
       JSON.stringify(insights.positive),
       dailySummary, modelUsed,
+      lede ? JSON.stringify(lede) : null,
     ],
   );
 }
@@ -1315,6 +1451,8 @@ async function ensureOverviewPeriodInsightsSchema(client: any): Promise<void> {
     CREATE INDEX IF NOT EXISTS "idx_overview_period_insights_recent"
       ON "overview_period_insights"("agency_id", "period_end_date" DESC)
   `);
+  // Lede del Overview (sep-2026) — espejo de la migración 0008.
+  await client.query(`ALTER TABLE "overview_period_insights" ADD COLUMN IF NOT EXISTS "lede" JSONB`);
 }
 
 async function ensureBriefingsSchema(client: any): Promise<void> {

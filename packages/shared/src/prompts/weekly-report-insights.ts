@@ -274,9 +274,24 @@ SALIDA: llama la herramienta con los tres campos — headline, paragraph, highli
 // VENTANA ENTERA, no solo el último día. Mantiene los mismos guardrails
 // descriptivos del INSIGHTS_SYSTEM_PROMPT.
 
+/**
+ * Día pico que el modelo debe rotular en la tendencia del Overview. Lo elige
+ * el código (selectAnnotatedPeaks), no el modelo: el modelo solo nombra QUÉ
+ * pasó ese día a partir de lo que se dijo.
+ */
+export interface PeriodPeakInput {
+  /** YYYY-MM-DD en TZ PR. */
+  date: string;
+  total: number;
+  negative: number;
+  /** Las menciones de más resonancia de ese día. */
+  samples: MentionSample[];
+}
+
 export function buildPeriodSummaryPrompt(
   aggregates: WeeklyAggregates,
   samples: { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] },
+  peaks: PeriodPeakInput[] = [],
 ): string {
   const days = aggregates.dailySeries.length || 1;
   const { totals, deltaVsPrevWeek } = aggregates;
@@ -346,7 +361,26 @@ PROHIBIDO:
 - Recomendaciones, sugerencias, juicios prescriptivos ("se debería", "convendría", "urge").
 - Hablar de la audiencia como bloque ("la ciudadanía", "el sector privado") sin identificar el actor concreto en los datos.
 
-SALIDA: usa la tool emit_period_summary con el campo "summary" (1 párrafo de 3-5 oraciones, 80-1400 chars).
+PIEZAS QUE ACOMPAÑAN AL PÁRRAFO (el Overview las muestra igual que el lede del correo diario):
+
+1) "headline" — el titular del periodo. UNA oración de 8 a 16 palabras que diga lo más importante de la ventana. Es un titular de prensa, no una etiqueta: tiene sujeto y verbo, y quien lea solo esa línea ya sabe qué pasó. Sin cifras dentro. Sin punto final.
+   BIEN: "La pesquisa del FEI contra el subsecretario domina la conversación del DDEC"
+   BIEN: "Un paro de empleados se monta sobre la crisis de agua"
+   MAL:  "Resumen del periodo" · "Caída de 65% en el volumen" · "Gestión / Administración"
+
+2) "highlights" — de 2 a 4 viñetas. CADA UNA CUENTA ALGO QUE PASÓ en la ventana, con su cifra detrás como apoyo; no son etiquetas con números. Una sola oración de 20 a 40 palabras cada una. No repitas con las mismas palabras lo que ya dice el párrafo: aporta otro ángulo (un frente que sigue vivo por su cuenta, quién empuja la conversación, algo que no apareció y uno esperaría).
+   BIEN: "El día más flojo de la semana fue también el más negativo: cuando se apaga la cobertura del anuncio, lo que sobrevive es la crítica."
+   MAL:  "Negatividad: 54% del total, 20 de 37 menciones."
+${peaks.length > 0 ? `
+3) "peak_labels" — la tendencia del Overview marca los días pico de abajo. Para CADA uno, un rótulo de 3 a 7 palabras que nombre QUÉ pasó ese día (el hecho, no la cifra), a partir de lo que se dijo ese día. Sin cifras, sin punto final, sin <strong>. Si ese día no tiene un hecho identificable, omítelo — no inventes.
+   BIEN: "FEI amplía la pesquisa a Lefranc Fortuño" · "Anuncio de inversión de PharmaEssentia"
+   MAL:  "Pico de volumen" · "75 menciones" · "Día más activo"
+
+DÍAS PICO QUE HAY QUE ROTULAR:
+${peaks.map((p) => `- ${formatPromptDay(p.date)} (date=${p.date}): ${p.total} menciones, ${p.negative} negativas. Lo que se dijo ese día:
+${p.samples.map((m, i) => '  ' + formatSample(i + 1, m)).join('\n') || '  - (sin muestras)'}`).join('\n')}
+` : ''}
+SALIDA: usa la tool emit_period_summary con "summary" (1 párrafo de 3-5 oraciones, 80-1400 chars), "headline" y "highlights"${peaks.length > 0 ? ' y "peak_labels" (lista de {date, label})' : ''}.
 `.trim();
 }
 
