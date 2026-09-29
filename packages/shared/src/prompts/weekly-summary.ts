@@ -11,6 +11,7 @@
 
 import type { MentionSample, WeeklyAggregates } from './weekly-report-insights';
 import { HTML_INLINE_RULE } from './constitution';
+import { formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 
 export interface WeeklyComparisonInputs {
   /** Agregados de la semana actual (misma forma que el reporte diario). */
@@ -48,7 +49,7 @@ function signedPct(cur: number, prev: number): string {
 
 function formatSample(i: number, m: MentionSample): string {
   const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 500);
-  const dateShort = m.createdAt.slice(0, 10);
+  const dateShort = formatPromptDayOfInstant(m.createdAt);
   const meta = [
     m.topic ? `topic=${m.topic}` : null,
     m.source ? `src=${m.source}` : null,
@@ -110,7 +111,7 @@ INDICADORES COMPUESTOS (escala pública del dashboard):
 ${indicatorBlock || '- (sin indicadores)'}
 
 VOLUMEN DIARIO DE LA SEMANA ACTUAL:
-${current.dailySeries.map((d) => `- ${d.date}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
+${current.dailySeries.map((d) => `- ${formatPromptDay(d.date)}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
 
 TÓPICOS — COMPARACIÓN SEMANA VS SEMANA (ordenados por volumen actual):
 ${topicCompareBlock || '- (sin menciones clasificadas por tópico)'}

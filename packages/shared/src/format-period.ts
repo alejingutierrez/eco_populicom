@@ -3,6 +3,8 @@
  * y por /api/overview para que las etiquetas de periodo y día coincidan.
  */
 
+import { ymdInTimeZone } from './dates';
+
 const ES_MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const ES_DOW_SHORT = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const ES_DOW_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -35,6 +37,33 @@ export function formatLongDay(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return `${ES_DOW_LONG[dt.getUTCDay()]} ${d} de ${ES_MONTH_LONG[m - 1]}`;
+}
+
+/**
+ * "jueves 24 sep 2026" — la fecha tal como entra en los DATOS de un prompt.
+ *
+ * Existe porque los prompts pasaban fechas ISO sueltas (2026-09-24) y el
+ * modelo deducía el día de la semana por su cuenta, y se equivocaba: el
+ * diario del 28-sep-2026 atribuyó al "miércoles" el pico que la serie ponía
+ * el jueves, y el editorial de crisis del mismo día llamó "sábado" a un
+ * lunes. Con el día ya calculado, el modelo solo tiene que copiarlo (ley 05
+ * de la constitución editorial). El año va para que no haya que inferirlo.
+ */
+export function formatPromptDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return `${ES_DOW_LONG[dt.getUTCDay()]} ${d} ${ES_MONTH_SHORT[m - 1]} ${y}`;
+}
+
+/**
+ * El día de un INSTANTE (published_at de una mención) en hora de Puerto Rico,
+ * con su día de la semana. `iso.slice(0, 10)` daba la fecha en UTC: una
+ * mención de las 10 p.m. del miércoles quedaba fechada el jueves.
+ */
+export function formatPromptDayOfInstant(iso: string | Date, timeZone = 'America/Puerto_Rico'): string {
+  const dt = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso).slice(0, 10);
+  return formatPromptDay(ymdInTimeZone(dt, timeZone));
 }
 
 /** "mié 29" — etiqueta del eje X de la tendencia diaria. */

@@ -14,11 +14,18 @@
  */
 import type { MentionSample } from './weekly-report-insights';
 import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 
 export interface CrisisEditorialInputs {
   agencyName: string;
   agencyShortName: string;
   generatedAtLabel: string;
+  /**
+   * Día calendario detonante (YYYY-MM-DD, hora de PR): el día EN CURSO sobre
+   * el que se calculó la crisis. Opcional para no romper callers viejos; sin
+   * él, el modelo no tenía fecha y la inventaba ("sábado 28" siendo lunes).
+   */
+  triggerDay?: string;
   /** Banda actual: NORMAL | ELEVADO | ALERTA | CRISIS. */
   band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS';
 
@@ -163,7 +170,8 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
           const channel = s.source ? ` [medio=${s.source}]` : s.pageType ? ` [canal=${s.pageType}]` : '';
           const topic = s.topic ? ` (${s.topic})` : '';
           const text = (s.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 600);
-          return `${i + 1}.${channel}${topic} ${text}`;
+          const day = s.createdAt ? ` (${formatPromptDayOfInstant(s.createdAt)})` : '';
+          return `${i + 1}.${day}${channel}${topic} ${text}`;
         })
         .join('\n')
     : '(sin muestras textuales disponibles)';
@@ -171,7 +179,7 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
   return `
 AGENCIA: ${inp.agencyName} (abreviada: ${inp.agencyShortName})
 GENERADO: ${inp.generatedAtLabel}
-BANDA ACTUAL: ${inp.band}
+${inp.triggerDay ? `DÍA DETONANTE: ${formatPromptDay(inp.triggerDay)} — el día EN CURSO (parcial). Si lo nombras en el texto, usa exactamente ese día de la semana y esa fecha, nunca otros.\n` : ''}BANDA ACTUAL: ${inp.band}
 
 INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas; son los MISMOS que el lector ve en el correo):
 - Crisis Score: ${fmtPct(inp.crisisRiskScore)} ${scoreDelta}

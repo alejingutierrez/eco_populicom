@@ -11,7 +11,7 @@
  * por sentimiento (la «opción A») porque la plantilla del correo ya los tiene
  * pintados de color.
  */
-import { formatLongDay } from '../format-period';
+import { formatLongDay, formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface MentionSample {
@@ -136,7 +136,7 @@ TOTALES DEL PERIODO:
 - Total:    ${totals.total}
 
 VOLUMEN DIARIO (todas las menciones por fecha y sentimiento):
-${aggregates.dailySeries.map((d) => `- ${d.date}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
+${aggregates.dailySeries.map((d) => `- ${formatPromptDay(d.date)}: neg=${d.negative}, neu=${d.neutral}, pos=${d.positive} (total ${d.negative + d.neutral + d.positive})`).join('\n')}
 
 DESGLOSE POR TÓPICO (ordenado por volumen descendente):
 ${topicBlock || '- (sin menciones clasificadas por tópico)'}
@@ -214,9 +214,9 @@ export function buildDailySummaryPrompt(
 
   return `
 AGENCIA: ${aggregates.agencyName}
-DÍA QUE SE RESUME: ${dayLabel} (en tu texto llámalo así, "${dayLabel}" o "el ${dayLabel.split(' ')[0]}" — NUNCA ${todayDate}, NUNCA "hoy" ni "ayer"). Día calendario completo en America/Puerto_Rico. Es el último día cerrado del periodo de 7 días; el correo se entrega la mañana siguiente.
+DÍA QUE SE RESUME: ${dayLabel} (en tu texto llámalo así, "${dayLabel}" o "el ${dayLabel.split(' ')[0]}" — NUNCA la fecha en números, NUNCA "hoy" ni "ayer"). Día calendario completo en America/Puerto_Rico. Es el último día cerrado del periodo de 7 días; el correo se entrega la mañana siguiente.
 
-VOLUMEN DEL DÍA REPORTADO (${todayDate}):
+VOLUMEN DEL DÍA REPORTADO (${formatPromptDay(todayDate)}):
 - Total: ${totalToday} menciones
 - Negativo: ${today?.negative ?? 0}
 - Neutral:  ${today?.neutral ?? 0}
@@ -229,7 +229,7 @@ COMPARACIÓN CON EL DÍA ANTERIOR:
 - Posición del día dentro de los últimos 7 días: ${rankInWeek(aggregates, todayDate)}
 
 CONTEXTO SEMANAL (serie diaria completa):
-${aggregates.dailySeries.map((d) => `- ${d.date}: total=${d.negative + d.neutral + d.positive}, neg=${d.negative}`).join('\n')}
+${aggregates.dailySeries.map((d) => `- ${formatPromptDay(d.date)}: total=${d.negative + d.neutral + d.positive}, neg=${d.negative}`).join('\n')}
 
 TOP TÓPICOS DE LA SEMANA (para identificar lo estructural vs. lo coyuntural):
 ${aggregates.byTopic.slice(0, 5).map((t) => `- ${t.topic}: ${t.total} (neg ${t.negative})`).join('\n') || '- (sin datos)'}
@@ -285,7 +285,7 @@ export function buildPeriodSummaryPrompt(
 
   const dailyVolumeLine = aggregates.dailySeries.map((d) => {
     const t = d.negative + d.neutral + d.positive;
-    return `${d.date}=${t}`;
+    return `${formatPromptDay(d.date)}=${t}`;
   }).join(' · ');
 
   const sampleSummary = (label: string, items: MentionSample[]): string => {
@@ -373,7 +373,7 @@ function translateSentiment(s: 'negative' | 'neutral' | 'positive'): string {
 
 function formatSample(i: number, m: MentionSample): string {
   const clean = m.text.replace(/\s+/g, ' ').trim().slice(0, 320);
-  const dateShort = m.createdAt.slice(0, 10);
+  const dateShort = formatPromptDayOfInstant(m.createdAt);
   const meta = [
     m.municipality ? `muni=${m.municipality}` : null,
     m.topic ? `topic=${m.topic}` : null,
