@@ -154,6 +154,10 @@ export class WorkersStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         ALERTS_QUEUE_URL: props.alertsQueue.queueUrl,
         BEDROCK_MODEL_ID: 'us.anthropic.claude-opus-4-6-v1',
+        // Copias propias de imágenes que caducan (CDN de Meta, ~5 días): se
+        // guardan en `media/` del bucket crudo y la web las sirve en /media.
+        MEDIA_BUCKET: props.rawBucket.bucketName,
+        MEDIA_PUBLIC_BASE_URL: 'https://citizenecho.com/media',
       },
       logGroup: importLogGroup('ProcessorLogGroup', 'eco-processor'),
       bundling: bundlingOptions,
@@ -181,6 +185,8 @@ export class WorkersStack extends cdk.Stack {
       resources: ['*'],
     }));
     props.rawBucket.grantRead(this.processorFunction);
+    // Solo `media/*`: el processor no escribe nada más en el bucket crudo.
+    props.rawBucket.grantPut(this.processorFunction, 'media/*');
     props.alertsQueue.grantSendMessages(this.processorFunction);
     this.processorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],

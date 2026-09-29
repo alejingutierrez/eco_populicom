@@ -32,6 +32,7 @@ export * from './prompts/full-report';
 export * from './report';
 export * from './narratives-math';
 export * from './scrape-image';
+export * from './media-mirror';
 export * from './article-text';
 // `./bedrock` se importa directamente desde lambdas via
 // `@eco/shared/src/bedrock`. NO se re-exporta aquí porque trae el SDK

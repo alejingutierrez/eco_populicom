@@ -1,15 +1,45 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, type ArticleTextResult } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
 const sm = new SecretsManagerClient({});
+const s3 = new S3Client({});
+
+/**
+ * Copia propia de imágenes que caducan (CDN de Facebook/Instagram, ~5 días):
+ * se guardan en `media/` del bucket crudo y la app las sirve en
+ * `${MEDIA_PUBLIC_BASE_URL}/<clave>`. Sin bucket configurado no se copia nada
+ * y la mención conserva la URL original, como antes.
+ */
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET ?? process.env.RAW_BUCKET ?? '';
+const MEDIA_PUBLIC_BASE_URL = process.env.MEDIA_PUBLIC_BASE_URL ?? 'https://citizenecho.com/media';
+
+async function mirrorIfExpiring(url: string | null): Promise<string | null> {
+  if (!url || !MEDIA_BUCKET || !isExpiringImageUrl(url)) return url;
+  const mirrored = await mirrorImage(url, {
+    publicBaseUrl: MEDIA_PUBLIC_BASE_URL,
+    put: async (key, body, contentType) => {
+      await s3.send(new PutObjectCommand({
+        Bucket: MEDIA_BUCKET,
+        Key: `media/${key}`,
+        Body: body,
+        ContentType: contentType,
+        // La clave es el hash de la URL de origen: el contenido no cambia.
+        CacheControl: 'public, max-age=31536000, immutable',
+      }));
+    },
+  });
+  if (!mirrored) console.warn(`[media] no se pudo copiar ${url.slice(0, 80)}…`);
+  return mirrored ?? url;
+}
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const ALERTS_QUEUE_URL = process.env.ALERTS_QUEUE_URL!;
@@ -67,7 +97,13 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
 }
 
 type ReprocessEvent = { action: 'reprocess-nlp-errors' | 'reprocess-unclassified'; limit?: number };
-type ProcessorEvent = SQSEvent | ReprocessEvent;
+/** Backfill de copias propias: menciones recientes cuya imagen aún no venció. */
+type MirrorMediaEvent = { action: 'mirror-media'; sinceHours?: number; limit?: number };
+type ProcessorEvent = SQSEvent | ReprocessEvent | MirrorMediaEvent;
+
+function isMirrorMediaEvent(e: ProcessorEvent): e is MirrorMediaEvent {
+  return (e as MirrorMediaEvent).action === 'mirror-media';
+}
 
 function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
   return typeof (e as ReprocessEvent).action === 'string'
@@ -86,6 +122,14 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   const pg = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
+
+  if (isMirrorMediaEvent(event)) {
+    try {
+      return await mirrorRecentMedia(client, event.sinceHours ?? 120, event.limit ?? 400);
+    } finally {
+      await client.end();
+    }
+  }
 
   if (isReprocessEvent(event)) {
     try {
@@ -255,6 +299,9 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   } catch {
     resolvedImageUrl = null;
   }
+  // Las imágenes del CDN de Meta vencen a los ~5 días: se copian ahora, que
+  // todavía son válidas. Si la copia falla, queda la original (como antes).
+  resolvedImageUrl = await mirrorIfExpiring(resolvedImageUrl);
 
   // Insert mention
   const mentionResult = await pgClient.query(
@@ -817,4 +864,44 @@ async function getDatabaseUrl(): Promise<string> {
   );
   const parsed = JSON.parse(secret.SecretString!);
   return `postgresql://${parsed.username}:${encodeURIComponent(parsed.password)}@${parsed.host}:${parsed.port}/${parsed.dbname}`;
+}
+
+/**
+ * Backfill de copias propias: menciones publicadas en las últimas
+ * `sinceHours` horas cuya imagen es de un CDN que caduca y todavía no se
+ * copió. Pasadas ~120 h la URL ya venció (403) y no hay nada que salvar.
+ * Idempotente: una mención ya copiada apunta a MEDIA_PUBLIC_BASE_URL y el
+ * filtro la excluye.
+ */
+async function mirrorRecentMedia(client: any, sinceHours: number, limit: number): Promise<unknown> {
+  const hours = Math.max(1, Math.min(24 * 14, Math.floor(sinceHours)));
+  const cap = Math.max(1, Math.min(2000, Math.floor(limit)));
+  const rows = (await client.query(
+    `SELECT id, resolved_image_url
+       FROM mentions
+      WHERE resolved_image_url IS NOT NULL
+        AND published_at >= now() - ($1::int * INTERVAL '1 hour')
+        AND (resolved_image_url ~* '^https?://[^/]*(fbcdn\\.net|cdninstagram\\.com)/'
+             OR resolved_image_url ~* '[?&](oe|x-amz-expires|expires)=')
+      ORDER BY published_at DESC
+      LIMIT $2`,
+    [hours, cap],
+  )).rows as Array<{ id: string; resolved_image_url: string }>;
+
+  let mirrored = 0;
+  let failed = 0;
+  // De 5 en 5: el CDN de Meta corta con ráfagas grandes.
+  for (let i = 0; i < rows.length; i += 5) {
+    await Promise.all(rows.slice(i, i + 5).map(async (r) => {
+      const url = await mirrorIfExpiring(r.resolved_image_url);
+      if (url && url !== r.resolved_image_url) {
+        await client.query('UPDATE mentions SET resolved_image_url = $1 WHERE id = $2 AND resolved_image_url = $3', [url, r.id, r.resolved_image_url]);
+        mirrored++;
+      } else {
+        failed++;
+      }
+    }));
+  }
+  console.log(`[mirror-media] ${hours}h: candidatas=${rows.length} copiadas=${mirrored} fallidas=${failed}`);
+  return { candidates: rows.length, mirrored, failed };
 }
