@@ -59,10 +59,12 @@ export interface AppointmentRenderData {
     notes?: string | null;
     /**
      * Retrato de la persona. Debe ser una URL ESTABLE y servida por nosotros
-     * (`{dashboard}/appointments/<slug>.jpg`): las og:image de los medios de PR
-     * vienen con token firmado (`?auth=…`) que expira y dejaría el correo con
-     * la imagen rota semanas después. Si falta, se dibuja un monograma con las
-     * iniciales — el correo nunca depende de la foto.
+     * (`{dashboard}/appointments/<slug>.jpg`): así controlamos el recorte y no
+     * dependemos de que el medio mantenga la nota publicada. (Ojo: la firma
+     * `?auth=…` del resizer de El Nuevo Día NO caduca —verificado sep 2026—;
+     * lo que sí caduca a los ~5 días es el CDN de Facebook/Instagram, ver
+     * `media-mirror.ts`.) Si falta, se dibuja un monograma con las iniciales —
+     * el correo nunca depende de la foto.
      */
     photoUrl?: string | null;
   };
