@@ -2469,32 +2469,605 @@ function EmotionsCard({ emotions, onEmotionClick }) {
 }
 
 // =============== TOPICS ===============
+// ============================================================
+// TopicsScreen — orden 1 «Del mapa al detalle» (oct-2026).
+// ============================================================
+//   01 Panorámica (treemap · burbujas · lista) → 02 Ranking del periodo →
+//   03 Cuadrante → 04 Tópico del día.
+// Reglas comunes a las cuatro piezas:
+//   · Un color por tópico en toda la página (ECO_CAT por posición en
+//     D.TOPICS, la misma regla que ya usaba el calendario). El sentimiento va
+//     SIEMPRE en la barra de mezcla, nunca en el color del tópico.
+//   · El cambio se escribe en menciones (2 → 70, ×35), no en % (+3400%).
+//   · Pasar el cursor o enfocar un tópico abre su ficha corta (TopicPeek); el
+//     clic sigue abriendo el detalle.
+// Conteo: el de siempre — cada mención una vez bajo su tópico principal
+// (TOPICS.count de /api/eco-data, igual que correo y Overview).
+
+const TOPIC_VIEW_KEY = 'eco.topics.view';
+
+function topicColorFor(slug) {
+  const i = (D.TOPICS || []).findIndex((t) => t.slug === slug);
+  return window.ecoCat(i < 0 ? 0 : i);
+}
+
+// Normaliza un tópico del payload. Los campos nuevos (negative, prevCount,
+// prevNegative, topVoice) pueden faltar en un boot viejo cacheado: entonces se
+// derivan de los porcentajes y el cambio queda «—» en vez de inventarse.
+function topicRow(t) {
+  const count = Number(t.count) || 0;
+  const negative = t.negative != null ? Number(t.negative) : Math.round(((t.negativePct || 0) / 100) * count);
+  const positive = t.positive != null ? Number(t.positive) : Math.round(((t.positivePct || 0) / 100) * count);
+  const neutral = t.neutral != null ? Number(t.neutral) : Math.max(0, count - negative - positive);
+  const hasPrev = t.prevCount != null;
+  const subs = ((D.SUBTOPICS || {})[t.slug] || []).filter((s) => (s.count || 0) > 0);
+  return {
+    slug: t.slug, name: t.name, short: String(t.name).split(' / ')[0],
+    count, negative, neutral, positive,
+    negPct: count ? Math.round((negative / count) * 100) : 0,
+    prev: hasPrev ? Number(t.prevCount) : null,
+    prevNeg: hasPrev ? Number(t.prevNegative || 0) : null,
+    presence: count + (Number(t.secondaryCount) || 0),
+    subs, voice: t.topVoice || null, description: t.description || null,
+    evolution: t.evolution || [], color: topicColorFor(t.slug),
+  };
+}
+
+// Serie diaria del tópico en la ventana del payload (días sin menciones = 0).
+// Ventanas de más de 35 días se agrupan por semana para que la mini-serie se lea.
+function topicSeries(row) {
+  const P = (window.ECO_DATA || {}).PERIOD || {};
+  if (!P.startYmd || !P.endYmd) return row.evolution.map((e) => e.count);
+  const by = {};
+  row.evolution.forEach((e) => { by[String(e.fullDate).slice(0, 10)] = e.count; });
+  const out = [];
+  for (let d = P.startYmd; d <= P.endYmd; d = window.ecoAddDaysYmd ? window.ecoAddDaysYmd(d, 1) : new Date(Date.parse(d + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10)) {
+    out.push(by[d] || 0);
+    if (out.length > 400) break;
+  }
+  if (out.length <= 35) return out;
+  const weeks = [];
+  for (let i = 0; i < out.length; i += 7) weeks.push(out.slice(i, i + 7).reduce((a, b) => a + b, 0));
+  return weeks;
+}
+
+function TopicChange({ count, prev }) {
+  if (prev == null) return <span style={{ color: 'var(--text-3)' }}>—</span>;
+  if (!prev && !count) return <span style={{ color: 'var(--text-3)' }}>—</span>;
+  if (!prev) return <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>nuevo</span>;
+  const d = count - prev;
+  const mult = prev > 0 && count / prev >= 3 ? Math.round(count / prev) : null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', whiteSpace: 'nowrap' }}>
+      <span className="num" style={{ fontWeight: 600, color: d > 0 ? 'var(--text)' : 'var(--text-3)' }}>
+        {d > 0 ? '▲ +' : d < 0 ? '▼ ' : '· '}{d}
+      </span>
+      {mult && <span className="pill pill-neg" style={{ fontSize: 'var(--fs-overline)' }}>×{mult}</span>}
+    </span>
+  );
+}
+
+function TopicMix({ row, scale = 1, height = 8 }) {
+  const n = row.count || 1;
+  return (
+    <div title={`positivo ${row.positive} · neutral ${row.neutral} · negativo ${row.negative}`}
+      style={{ display: 'flex', height, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--canvas-2)', width: `${Math.max(3, scale * 100)}%` }}>
+      <span style={{ width: `${(row.positive / n) * 100}%`, background: 'var(--pos)' }} />
+      <span style={{ width: `${(row.neutral / n) * 100}%`, background: 'var(--neu)' }} />
+      <span style={{ flex: 1, background: 'var(--neg)' }} />
+    </div>
+  );
+}
+
+function TopicSpark({ values, color, height = 24 }) {
+  const vals = values.length > 1 ? values : [0, ...(values.length ? values : [0])];
+  const w = 120, max = Math.max(1, ...vals);
+  const x = (i) => 2 + (i * (w - 4)) / (vals.length - 1), y = (v) => height - 3 - (v / max) * (height - 6);
+  const p = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" aria-hidden="true" style={{ display: 'block' }}>
+      <path d={`${p}L${x(vals.length - 1)},${height - 3}L${x(0)},${height - 3}Z`} fill={color} opacity="0.12" />
+      <path d={p} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+// Ficha corta al pasar el cursor o enfocar un tópico. Un solo estado para toda
+// la página: { row, x, y } o null.
+function TopicPeek({ peek }) {
+  if (!peek) return null;
+  const { row } = peek;
+  const W = 280;
+  const left = Math.min(window.innerWidth - W - 12, peek.x + 14);
+  const top = Math.max(8, Math.min(window.innerHeight - 220, peek.y + 14));
+  const line = (k, v) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)' }}>
+      <span style={{ color: 'var(--text-2)' }}>{k}</span><span className="num" style={{ fontWeight: 600 }}>{v}</span>
+    </div>
+  );
+  return (
+    <div role="tooltip" style={{
+      position: 'fixed', left, top, width: W, zIndex: 60, pointerEvents: 'none',
+      background: 'var(--surface-pop)', border: '1px solid var(--hairline-strong)', borderRadius: 'var(--r-md)',
+      boxShadow: 'var(--shadow-pop)', padding: 'var(--sp-3)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.45, color: 'var(--text)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-15)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: row.color, flexShrink: 0 }} />
+        <b style={{ fontWeight: 600 }}>{row.name}</b>
+      </div>
+      {line('Menciones', fmt(row.count))}
+      {row.prev != null && line('Ventana previa', `${fmt(row.prev)} → ${fmt(row.count)}`)}
+      {line('% negativo', row.count ? `${row.negPct}%` : '—')}
+      {row.presence > row.count && line('Aparece en', fmt(row.presence))}
+      {row.subs[0] && <div style={{ marginTop: 'var(--sp-15)', color: 'var(--text-2)' }}>{row.subs[0].name} ({fmt(row.subs[0].count)})</div>}
+      {row.voice && <div style={{ color: 'var(--text-3)' }}>Lo empuja: {row.voice.name}</div>}
+      <div style={{ marginTop: 'var(--sp-15)', color: 'var(--text-3)' }}>Clic para abrir el tópico</div>
+    </div>
+  );
+}
+
+// Handlers de vista previa para cualquier elemento que represente un tópico.
+function peekHandlers(row, setPeek, onSelect) {
+  return {
+    onMouseMove: (e) => setPeek({ row, x: e.clientX, y: e.clientY }),
+    onMouseLeave: () => setPeek(null),
+    onFocus: (e) => { const r = e.currentTarget.getBoundingClientRect(); setPeek({ row, x: r.right - 12, y: r.top }); },
+    onBlur: () => setPeek(null),
+    onClick: () => { setPeek(null); onSelect(row.slug); },
+    onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPeek(null); onSelect(row.slug); } },
+  };
+}
+
+// Treemap squarified: el ÁREA es el volumen. (El de antes era una rejilla de
+// fichas iguales: 70 y 1 menciones ocupaban lo mismo.)
+function squarifyTopics(items, x, y, w, h) {
+  const total = items.reduce((a, t) => a + t.v, 0) || 1;
+  const scale = (w * h) / total;
+  let rest = items.map((t) => ({ ...t, a: t.v * scale }));
+  const out = [];
+  const worst = (row, side) => {
+    const s = row.reduce((a, r) => a + r.a, 0);
+    const mx = Math.max(...row.map((r) => r.a)), mn = Math.min(...row.map((r) => r.a));
+    return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+  };
+  while (rest.length) {
+    const side = Math.min(w, h);
+    const row = [rest[0]]; let i = 1;
+    while (i < rest.length && worst([...row, rest[i]], side) <= worst(row, side)) { row.push(rest[i]); i++; }
+    const s = row.reduce((a, r) => a + r.a, 0);
+    if (w >= h) {
+      const cw = s / h; let cy = y;
+      row.forEach((r) => { const ch = r.a / cw; out.push({ ...r, x, y: cy, w: cw, h: ch }); cy += ch; });
+      x += cw; w -= cw;
+    } else {
+      const ch = s / w; let cx = x;
+      row.forEach((r) => { const cw2 = r.a / ch; out.push({ ...r, x: cx, y, w: cw2, h: ch }); cx += cw2; });
+      y += ch; h -= ch;
+    }
+    rest = rest.slice(i);
+  }
+  return out;
+}
+
+function TopicTreemap({ rows, onSelect, setPeek }) {
+  const [ref, w] = useChartWidth(720);
+  const H = Math.round(Math.max(240, Math.min(360, w * 0.42)));
+  const rects = squarifyTopics(rows.filter((r) => r.count > 0).map((row) => ({ row, v: row.count })), 0, 0, Math.max(1, w), H);
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%', height: H }}>
+      {rects.map(({ row, x, y, w: rw, h: rh }) => {
+        const big = rw > 130 && rh > 80, mid = rw > 70 && rh > 44;
+        return (
+          <button key={row.slug} {...peekHandlers(row, setPeek, onSelect)}
+            aria-label={`${row.name}: ${row.count} menciones, ${row.negPct}% negativo`}
+            className="eco-tm-tile"
+            style={{
+              position: 'absolute', left: x, top: y, width: rw, height: rh,
+              background: row.color, color: 'var(--canvas)', border: '2px solid var(--canvas)', borderRadius: 'var(--r-md)',
+              padding: mid ? 'var(--sp-2) var(--sp-3)' : 'var(--sp-1)', textAlign: 'left', cursor: 'pointer', overflow: 'hidden',
+              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            }}>
+            <div style={{ minWidth: 0 }}>
+              {mid && <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}>{big ? row.name : row.short}</div>}
+              <div className="num" style={{ fontSize: mid ? 'var(--fs-num-md)' : 'var(--fs-body-sm)', fontWeight: 600, marginTop: mid ? 'var(--sp-1)' : 0 }}>{fmt(row.count)}</div>
+            </div>
+            {big && (
+              <div>
+                <div className="num" style={{ fontSize: 'var(--fs-caption)', opacity: 0.9 }}>
+                  {row.prev != null ? `${fmt(row.prev)} → ${fmt(row.count)} · ` : ''}{row.negPct}% neg.
+                </div>
+                <div style={{ display: 'flex', height: 8, borderRadius: 'var(--r-sm)', overflow: 'hidden', marginTop: 'var(--sp-15)', boxShadow: '0 0 0 1.5px var(--canvas)', background: 'color-mix(in oklab, var(--canvas) 35%, transparent)' }}>
+                  <span style={{ width: `${(row.positive / row.count) * 100}%`, background: 'var(--pos)' }} />
+                  <span style={{ width: `${(row.neutral / row.count) * 100}%`, background: 'color-mix(in oklab, var(--canvas) 75%, transparent)' }} />
+                  <span style={{ flex: 1, background: 'var(--neg)' }} />
+                </div>
+              </div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Burbujas empaquetadas sin solapes, de mayor a menor desde el centro; el
+// anillo exterior es la mezcla de sentimiento. (Las de antes se colocaban con
+// posiciones pseudoaleatorias y podían solaparse.)
+function TopicBubbles({ rows, onSelect, setPeek }) {
+  const [ref, w] = useChartWidth(720);
+  const W = Math.max(280, Math.round(w));
+  const H = window.ecoIsMobile() ? 420 : 340;
+  const data = rows.filter((r) => r.count > 0);
+  const placed = React.useMemo(() => {
+    const cx = W / 2, cy = H / 2;
+    const maxN = Math.max(1, ...data.map((r) => r.count));
+    const rmax = Math.min(H * 0.42, W * 0.2);
+    const out = [];
+    [...data].sort((a, b) => b.count - a.count).forEach((row, i) => {
+      const r = Math.max(14, Math.sqrt(row.count / maxN) * rmax);
+      if (!i) { out.push({ row, x: cx, y: cy, r }); return; }
+      let best = null;
+      for (let a = 0; a < 1440 && !best; a += 4) {
+        const ang = (a * Math.PI) / 180, dist = (a / 1440) * Math.min(W, H) * 1.2;
+        const x = cx + Math.cos(ang) * dist * (W > H ? 1.35 : 1), y = cy + Math.sin(ang) * dist * (W > H ? 0.75 : 1);
+        if (x - r < 4 || x + r > W - 4 || y - r < 4 || y + r > H - 4) continue;
+        if (out.every((p) => Math.hypot(p.x - x, p.y - y) >= p.r + r + 4)) best = { row, x, y, r };
+      }
+      out.push(best || { row, x: cx, y: cy, r });
+    });
+    return out;
+  }, [data.map((r) => r.slug + r.count).join('|'), W, H]);
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Burbujas de tópicos por volumen" style={{ display: 'block' }}>
+        {placed.map((p) => {
+          const C = 2 * Math.PI * (p.r + 3);
+          let off = 0;
+          const ring = [[p.row.positive, 'var(--pos)'], [p.row.neutral, 'var(--neu)'], [p.row.negative, 'var(--neg)']].map(([v, c], k) => {
+            const L = (v / (p.row.count || 1)) * C;
+            const el = <circle key={k} cx={p.x} cy={p.y} r={p.r + 3} fill="none" stroke={c} strokeWidth="4" strokeDasharray={`${L} ${C - L}`} strokeDashoffset={-off} transform={`rotate(-90 ${p.x} ${p.y})`} />;
+            off += L; return el;
+          });
+          const label = p.row.short.length * 7 < p.r * 1.8 ? p.row.short : p.row.short.slice(0, Math.max(3, Math.floor(p.r / 3.8))) + '…';
+          return (
+            <g key={p.row.slug} {...peekHandlers(p.row, setPeek, onSelect)} tabIndex={0} role="button"
+              aria-label={`${p.row.name}: ${p.row.count} menciones`} style={{ cursor: 'pointer' }} className="eco-bubble">
+              {ring}
+              <circle cx={p.x} cy={p.y} r={p.r} fill={p.row.color} />
+              {p.r > 30 ? (
+                <>
+                  <text x={p.x} y={p.y - 2} textAnchor="middle" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, fill: 'var(--canvas)', pointerEvents: 'none' }}>{label}</text>
+                  <text x={p.x} y={p.y + 15} textAnchor="middle" className="num" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, fill: 'var(--canvas)', pointerEvents: 'none' }}>{fmt(p.row.count)}</text>
+                </>
+              ) : (
+                <text x={p.x} y={p.y + 4} textAnchor="middle" className="num" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, fill: 'var(--canvas)', pointerEvents: 'none' }}>{fmt(p.row.count)}</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// Tabla ordenable. `full` = el ranking (con anterior, 14 días, voz y
+// presencia); sin `full` = la lista compacta de la panorámica.
+function TopicTable({ rows, onSelect, setPeek, full = false }) {
+  const [sort, setSort] = React.useState({ k: 'count', dir: -1 });
+  const maxCount = Math.max(1, ...rows.map((r) => r.count));
+  const cols = full
+    ? [['name', 'Tópico', '24%'], ['count', 'Esta', '7%'], ['prev', 'Anterior', '8%'], ['chg', 'Cambio', '11%'], ['negPct', '% neg.', '7%'], ['mix', 'Mezcla', '17%', false], ['spark', 'Tendencia', '12%', false], ['presence', 'Aparece en', '14%']]
+    : [['name', 'Tópico', '38%'], ['count', 'Menciones', '13%'], ['chg', 'Cambio', '17%'], ['negPct', '% neg.', '10%'], ['mix', 'Mezcla', '22%', false]];
+  const val = (r, k) => (k === 'chg' ? (r.prev == null ? -Infinity : r.count - r.prev) : k === 'prev' ? (r.prev ?? -1) : k === 'negPct' ? (r.count ? r.negative / r.count : -1) : r[k]);
+  const sorted = [...rows].sort((a, b) => {
+    const A = val(a, sort.k), B = val(b, sort.k);
+    if (typeof A === 'string') return A.localeCompare(B, 'es') * sort.dir;
+    return (A > B ? 1 : A < B ? -1 : 0) * sort.dir;
+  });
+  const th = (k, label, sortable = true) => {
+    const active = sort.k === k;
+    if (!sortable) return label;
+    return (
+      <button onClick={() => setSort((s) => (s.k === k ? { k, dir: -s.dir } : { k, dir: k === 'name' ? 1 : -1 }))}
+        aria-sort={active ? (sort.dir < 0 ? 'descending' : 'ascending') : 'none'}
+        style={{ all: 'unset', cursor: 'pointer', color: active ? 'var(--text)' : 'inherit', fontWeight: active ? 600 : 500 }}>
+        {label}{active ? (sort.dir < 0 ? ' ↓' : ' ↑') : ''}
+      </button>
+    );
+  };
+  const cell = { padding: 'var(--sp-2)', borderTop: '1px solid var(--hairline)', textAlign: 'right', verticalAlign: 'middle' };
+  return (
+    <div className="scroll-x">
+      <table style={{ width: '100%', minWidth: full ? 900 : 560, borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 'var(--fs-body-sm)' }}>
+        <colgroup>{cols.map(([k, , w]) => <col key={k} style={{ width: w }} />)}</colgroup>
+        <thead>
+          <tr>
+            {cols.map(([k, label, , sortable]) => (
+              <th key={k} style={{ padding: 'var(--sp-2)', textAlign: k === 'name' || k === 'mix' || k === 'spark' ? 'left' : 'right', fontWeight: 500, color: 'var(--text-3)', borderBottom: '1px solid var(--hairline-strong)', whiteSpace: 'nowrap' }}>
+                {th(k, label, sortable !== false)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr key={r.slug} {...peekHandlers(r, setPeek, onSelect)} tabIndex={0} className="row-hover" style={{ cursor: 'pointer' }}>
+              {cols.map(([k]) => {
+                if (k === 'name') return (
+                  <td key={k} style={{ ...cell, textAlign: 'left' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontWeight: 600, color: 'var(--text)', minWidth: 0 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: r.color, flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                    </div>
+                    {full && (
+                      <div style={{ color: 'var(--text-3)', marginTop: 'var(--sp-05)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {[r.subs.slice(0, 2).map((s) => s.name).join(' · '), r.voice ? r.voice.name : null].filter(Boolean).join(' · ') || '—'}
+                      </div>
+                    )}
+                  </td>
+                );
+                if (k === 'count') return <td key={k} className="num" style={{ ...cell, fontWeight: 600, color: 'var(--text)' }}>{fmt(r.count)}</td>;
+                if (k === 'prev') return <td key={k} className="num" style={{ ...cell, color: 'var(--text-3)' }}>{r.prev == null ? '—' : fmt(r.prev)}</td>;
+                if (k === 'chg') return <td key={k} style={cell}><TopicChange count={r.count} prev={r.prev} /></td>;
+                if (k === 'negPct') return <td key={k} className="num" style={{ ...cell, color: r.negPct >= 20 ? 'var(--neg)' : 'var(--text-2)', fontWeight: r.negPct >= 20 ? 600 : 400 }}>{r.count ? `${r.negPct}%` : '—'}</td>;
+                if (k === 'mix') return <td key={k} style={{ ...cell, textAlign: 'left' }}><TopicMix row={r} scale={r.count / maxCount} /></td>;
+                if (k === 'spark') return <td key={k} style={{ ...cell, textAlign: 'left' }}><TopicSpark values={topicSeries(r)} color={r.color} /></td>;
+                if (k === 'presence') return (
+                  <td key={k} className="num" style={cell}>
+                    {fmt(r.presence)}{r.presence > r.count && <span style={{ color: 'var(--text-3)' }}> (+{fmt(r.presence - r.count)})</span>}
+                  </td>
+                );
+                return <td key={k} style={cell} />;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TopicPanorama({ rows, onSelect, setPeek }) {
+  const [view, setViewRaw] = React.useState(() => {
+    try { const v = localStorage.getItem(TOPIC_VIEW_KEY); if (v === 'treemap' || v === 'bubbles' || v === 'list') return v; } catch (e) { /* sin storage */ }
+    return window.ecoIsMobile() ? 'list' : 'treemap';
+  });
+  const setView = (v) => { setViewRaw(v); setPeek(null); try { localStorage.setItem(TOPIC_VIEW_KEY, v); } catch (e) { /* sin storage */ } };
+  const views = [['treemap', 'Treemap', 'Grid'], ['bubbles', 'Burbujas', 'Circle'], ['list', 'Lista', 'List']];
+  return (
+    <div className="card">
+      <div className="card-hd" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+        <div>
+          <div className="card-hd-title">01 · Panorámica del periodo</div>
+          <div className="card-hd-sub">Área = volumen · color = tópico · barra = sentimiento · pasa el cursor para ver la ficha, clic para abrirla</div>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--sp-15)' }} role="group" aria-label="Vista">
+          {views.map(([k, l, icon]) => {
+            const IC = Icons[icon];
+            return (
+              <button key={k} onClick={() => setView(k)} aria-pressed={view === k} className={`chip ${view === k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                {IC && <IC size={11} />} {l}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="card-bd">
+        {rows.length === 0 ? (
+          <EmptyState reason="empty" title="Sin tópicos clasificados" detail="Ninguna mención del período recibió un tópico con confianza suficiente." />
+        ) : view === 'treemap' ? <TopicTreemap rows={rows} onSelect={onSelect} setPeek={setPeek} />
+          : view === 'bubbles' ? <TopicBubbles rows={rows} onSelect={onSelect} setPeek={setPeek} />
+          : <TopicTable rows={rows} onSelect={onSelect} setPeek={setPeek} />}
+      </div>
+      <div style={{ padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--hairline)', display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
+        <span style={{ fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)' }}>Sentimiento</span>
+        {[['var(--neg)', 'Negativo'], ['var(--neu)', 'Neutral'], ['var(--pos)', 'Positivo']].map(([c, l]) => (
+          <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: c }} /> {l}</span>
+        ))}
+        <span style={{ marginLeft: 'auto' }}>Cambio en menciones contra la ventana previa · — sin base de comparación</span>
+      </div>
+    </div>
+  );
+}
+
+// Tres hallazgos que el ranking demuestra; cada tarjeta solo aparece si el
+// dato la sostiene (con poco volumen no hay «más negativo» que valga).
+function TopicHallazgos({ rows, onSelect }) {
+  const withPrev = rows.filter((r) => r.prev != null);
+  const grew = [...withPrev].filter((r) => r.count - r.prev > 0).sort((a, b) => (b.count - b.prev) - (a.count - a.prev))[0];
+  const totalNeg = rows.reduce((a, r) => a + r.negative, 0);
+  const worst = [...rows].filter((r) => r.count >= 10 && r.negative > 0).sort((a, b) => b.negPct - a.negPct)[0];
+  const hidden = [...rows].filter((r) => r.presence - r.count >= 10).sort((a, b) => (b.presence / Math.max(1, b.count)) - (a.presence / Math.max(1, a.count)))[0];
+  const cards = [
+    grew && { k: 'Lo que más creció', row: grew, big: `${fmt(grew.prev)} → ${fmt(grew.count)}`, extra: grew.prev > 0 && grew.count / grew.prev >= 3 ? <span className="pill pill-neg">×{Math.round(grew.count / grew.prev)}</span> : null, sub: grew.subs[0] ? grew.subs[0].name : null },
+    worst && { k: 'El más negativo', row: worst, big: `${worst.negPct}%`, sub: `${fmt(worst.negative)} de ${fmt(worst.count)}${totalNeg ? ` · ${Math.round((worst.negative / totalNeg) * 100)}% de todo lo negativo` : ''}` },
+    hidden && { k: 'Presencia oculta', row: hidden, big: `${fmt(hidden.count)} → ${fmt(hidden.presence)}`, sub: `principal en ${fmt(hidden.count)}, aparece en ${fmt(hidden.presence)}` },
+  ].filter(Boolean);
+  if (!cards.length) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols(`repeat(${cards.length}, minmax(0,1fr))`, '1fr'), gap: 'var(--sp-3)' }}>
+      {cards.map((c) => (
+        <button key={c.k} onClick={() => onSelect(c.row.slug)} className="card row-hover"
+          style={{ padding: 'var(--sp-4)', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--hairline)', background: 'var(--canvas)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+          <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>{c.k}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-title-md)', fontWeight: 600, color: 'var(--text)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: c.row.color, flexShrink: 0 }} />{c.row.name}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            <span className="num" style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 600, color: 'var(--text)' }}>{c.big}</span>
+            {c.extra}
+          </span>
+          {c.sub && <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>{c.sub}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Cuadrante volumen × % negativo, con flecha desde la ventana previa y el
+// detalle del tópico en un panel lateral.
+function TopicQuadrant({ rows, onSelect }) {
+  const [ref, w] = useChartWidth(640);
+  const pts = rows.filter((r) => r.count >= 3 || (r.prev || 0) >= 3);
+  const [sel, setSel] = React.useState(() => {
+    const top = [...rows].filter((r) => r.count >= 10).sort((a, b) => b.negPct - a.negPct || b.count - a.count)[0] || rows[0];
+    return top ? top.slug : null;
+  });
+  if (pts.length === 0) return null;
+  const W = Math.max(300, w), H = Math.round(Math.max(300, Math.min(420, W * 0.62)));
+  const L = 46, R = 16, Tp = 16, B = 40;
+  const maxCount = Math.max(...pts.map((r) => Math.max(r.count, r.prev || 0)));
+  const xMax = Math.max(10, Math.ceil(maxCount / 10) * 10);
+  const negOf = (n, neg) => (n ? (neg / n) * 100 : 0);
+  const maxNeg = Math.max(...pts.map((r) => Math.max(negOf(r.count, r.negative), r.prev ? negOf(r.prev, r.prevNeg || 0) : 0)));
+  const yMax = Math.min(100, Math.max(40, Math.ceil((maxNeg + 5) / 20) * 20));
+  const volThr = Math.max(5, Math.round(xMax * 0.25));
+  const negThr = 20;
+  const x = (v) => L + (Math.sqrt(Math.max(0, v)) / Math.sqrt(xMax)) * (W - L - R);
+  const y = (p) => Tp + (1 - Math.min(p, yMax) / yMax) * (H - Tp - B);
+  const r = (n) => 5 + Math.sqrt(n) * 1.6;
+  const yTicks = []; for (let t = 0; t <= yMax; t += 20) yTicks.push(t);
+  const xTicks = [0, Math.round(xMax * 0.06), volThr, Math.round(xMax * 0.56), xMax].filter((v, i, a) => a.indexOf(v) === i);
+  const labelled = (row) => row.count >= volThr * 0.5 || (row.count && row.negPct >= 15);
+  const placed = [];
+  const labels = [];
+  [...pts].sort((a, b) => b.count - a.count).forEach((row) => {
+    if (!labelled(row)) return;
+    const cx = x(row.count), cy = y(negOf(row.count, row.negative)), rr = r(row.presence);
+    const wT = row.short.length * 7.2;
+    const right = cx + rr + 4 + wT < W - R;
+    const lx = right ? cx + rr + 4 : cx - rr - 4 - wT;
+    let ly = cy - rr - 4 < Tp + 12 ? cy + 4 : cy - rr - 4;
+    while (placed.some((q) => Math.abs(q.y - ly) < 14 && lx < q.x + q.w && lx + wT > q.x)) ly -= 14;
+    placed.push({ x: lx, y: ly, w: wT });
+    labels.push(<text key={'l' + row.slug} x={lx} y={ly} style={{ fontSize: 12, fontWeight: 600, fill: 'var(--text)', pointerEvents: 'none' }}>{row.short}</text>);
+  });
+  const periphery = pts.filter((row) => !labelled(row));
+  const s = rows.find((row) => row.slug === sel) || null;
+  const maxSub = s ? Math.max(1, ...s.subs.map((z) => z.count)) : 1;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0,1.6fr) minmax(0,1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+      <div className="card">
+        <div className="card-hd">
+          <div>
+            <div className="card-hd-title">03 · Cuadrante · volumen × tono</div>
+            <div className="card-hd-sub">Flecha desde la ventana previa · tamaño = presencia · clic en un tópico para ver su detalle</div>
+          </div>
+        </div>
+        <div className="card-bd" ref={ref}>
+          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Cuadrante de tópicos por volumen y porcentaje negativo" style={{ display: 'block' }}>
+            <defs><marker id="eco-q-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--text-3)" /></marker></defs>
+            <rect x={x(volThr)} y={Tp} width={Math.max(0, W - R - x(volThr))} height={Math.max(0, y(negThr) - Tp)} fill="var(--neg-bg)" opacity="0.7" />
+            {yTicks.map((t) => (
+              <g key={'y' + t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--hairline)" /><text x={L - 6} y={y(t) + 4} textAnchor="end" className="num" style={{ fontSize: 11, fill: 'var(--text-3)' }}>{t}%</text></g>
+            ))}
+            {xTicks.map((v) => (
+              <g key={'x' + v}><line x1={x(v)} x2={x(v)} y1={Tp} y2={H - B} stroke="var(--hairline)" /><text x={x(v)} y={H - B + 16} textAnchor="middle" className="num" style={{ fontSize: 11, fill: 'var(--text-3)' }}>{v}</text></g>
+            ))}
+            <line x1={x(volThr)} x2={x(volThr)} y1={Tp} y2={H - B} stroke="var(--hairline-strong)" strokeDasharray="4 3" />
+            <line x1={L} x2={W - R} y1={y(negThr)} y2={y(negThr)} stroke="var(--hairline-strong)" strokeDasharray="4 3" />
+            <text x={W - R - 6} y={Tp + 16} textAnchor="end" style={{ fontSize: 12, fontWeight: 600, fill: 'var(--neg)' }}>Frente crítico</text>
+            <text x={L + 6} y={Tp + 16} style={{ fontSize: 12, fontWeight: 600, fill: 'var(--text-2)' }}>Foco por vigilar</text>
+            <text x={W - R - 6} y={y(negThr) + 16} textAnchor="end" style={{ fontSize: 12, fontWeight: 600, fill: 'var(--text-2)' }}>Agenda propia</text>
+            <text x={(L + W - R) / 2} y={H - 6} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--text-3)' }}>menciones como tópico principal (escala raíz)</text>
+            <text transform={`translate(12 ${(Tp + H - B) / 2}) rotate(-90)`} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--text-3)' }}>% negativo</text>
+            {pts.map((row) => {
+              if (row.prev == null) return null;
+              const x0 = x(row.prev), y0 = y(negOf(row.prev, row.prevNeg || 0));
+              const x1 = x(row.count), y1 = y(negOf(row.count, row.negative));
+              const d = Math.hypot(x1 - x0, y1 - y0), rr = r(row.presence);
+              if (d <= rr + 10) return null;
+              return (
+                <g key={'a' + row.slug}>
+                  <line x1={x0} y1={y0} x2={x1 - ((x1 - x0) * rr) / d} y2={y1 - ((y1 - y0) * rr) / d} stroke="var(--text-3)" strokeWidth="1.2" markerEnd="url(#eco-q-arrow)" />
+                  <circle cx={x0} cy={y0} r={3} fill="var(--canvas)" stroke="var(--text-3)" />
+                </g>
+              );
+            })}
+            {[...pts].sort((a, b) => b.presence - a.presence).map((row) => (
+              <g key={row.slug} tabIndex={0} role="button" aria-label={`${row.name}: ${row.count} menciones, ${row.negPct}% negativo`}
+                onClick={() => setSel(row.slug)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(row.slug); } }}
+                style={{ cursor: 'pointer' }} className="eco-bubble">
+                <title>{`${row.name} · ${row.count} · ${row.negPct}% neg.`}</title>
+                <circle cx={x(row.count)} cy={y(negOf(row.count, row.negative))} r={r(row.presence)} fill={row.color} fillOpacity="0.9"
+                  stroke={sel === row.slug ? 'var(--text)' : 'var(--canvas)'} strokeWidth={sel === row.slug ? 2 : 1.5} />
+              </g>
+            ))}
+            {labels}
+          </svg>
+          {periphery.length > 0 && (
+            <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-2)' }}>
+              Sin rótulo, en la periferia: {periphery.map((row) => `${row.short} ${row.count}`).join(' · ')}.
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="card">
+        {s ? (
+          <div className="card-bd" style={{ paddingTop: 'var(--sp-4)' }}>
+            <div className="t-overline">Tópico</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-title-lg)', fontWeight: 600, margin: 'var(--sp-1) 0 var(--sp-2)', color: 'var(--text)' }}>
+              <span style={{ width: 12, height: 12, borderRadius: 'var(--r-sm)', background: s.color, flexShrink: 0 }} />{s.name}
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)', flexWrap: 'wrap', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+              <span><b className="num" style={{ color: 'var(--text)' }}>{fmt(s.count)}</b> principal</span>
+              {s.presence > s.count && <span><b className="num" style={{ color: 'var(--text)' }}>{fmt(s.presence)}</b> aparece</span>}
+              <span><b className="num" style={{ color: s.negPct >= 20 ? 'var(--neg)' : 'var(--text)' }}>{s.negPct}%</b> neg.</span>
+              <TopicChange count={s.count} prev={s.prev} />
+            </div>
+            {s.description && (
+              <p style={{ fontSize: 'var(--fs-body-sm)', lineHeight: 1.55, color: 'var(--text-2)', margin: 'var(--sp-3) 0' }}
+                dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(s.description.length > 320 ? s.description.slice(0, 317) + '…' : s.description) }} />
+            )}
+            {s.subs.length > 0 && (
+              <div style={{ marginTop: 'var(--sp-2)' }}>
+                <div className="t-overline" style={{ marginBottom: 'var(--sp-1)' }}>Subtópicos</div>
+                {s.subs.slice(0, 4).map((z) => (
+                  <div key={z.slug || z.name} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 36px', gap: 'var(--sp-2)', alignItems: 'center', padding: 'var(--sp-1) 0', fontSize: 'var(--fs-body-sm)' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.name}</div>
+                      <div style={{ height: 6, borderRadius: 'var(--r-sm)', background: s.color, width: `${(z.count / maxSub) * 100}%`, marginTop: 'var(--sp-05)' }} />
+                    </div>
+                    <span className="num" style={{ textAlign: 'right' }}>{fmt(z.count)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {s.voice && (
+              <div style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+                <span className="t-overline" style={{ display: 'block', marginBottom: 'var(--sp-05)' }}>Quién lo empuja</span>
+                {s.voice.name} ({fmt(s.voice.count)})
+              </div>
+            )}
+            <button onClick={() => onSelect(s.slug)} className="btn btn-primary" style={{ marginTop: 'var(--sp-4)' }}>Abrir el tópico</button>
+          </div>
+        ) : (
+          <EmptyState reason="empty" title="Elige un tópico" detail="Haz clic en un punto del cuadrante para ver su detalle." />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TopicsScreen({ onMentionClick }) {
-  // The open topic lives in the URL (/topics/<slug>) so the browser Back button
-  // returns to the topic list (not the previous screen) and a topic is
-  // deep-linkable / shareable. `selected` mirrors the URL slug.
   const topicSlugFromUrl = () => {
     const m = location.pathname.match(/^\/topics\/(.+)$/);
     return m ? decodeURIComponent(m[1]) : null;
   };
-  const [selected, setSelectedRaw] = useState(topicSlugFromUrl); // null = overview, else slug for drill-in
-  const [view, setView] = useState('treemap'); // treemap | bubbles | list
-  const [dayModal, setDayModal] = useState(null); // { date, fullDate, topicSlug, topicName, volume, sentiment }
+  const [selected, setSelectedRaw] = useState(topicSlugFromUrl); // null = panorámica; slug = detalle
+  const [dayModal, setDayModal] = useState(null);
+  const [peek, setPeek] = useState(null);
 
   const openTopic = React.useCallback((slug) => {
     if (!slug) return;
+    setPeek(null);
     history.pushState({ eco: 'topics', topic: slug, fromList: true }, '', '/topics/' + encodeURIComponent(slug));
     setSelectedRaw(slug);
   }, []);
   const closeTopic = React.useCallback(() => {
-    // Drilled in from the list this session → go Back so the pushed entry is
-    // consumed and Back/forward stay consistent. On a cold deep-link there is no
-    // list entry to return to, so rewrite the URL in place instead.
     if (history.state && history.state.fromList) history.back();
     else { history.replaceState({ eco: 'topics' }, '', '/topics'); setSelectedRaw(null); }
   }, []);
-  // Sync on browser Back/forward (popstate) and on sidebar re-clicks that reset
-  // the section (eco:locationchange, fired by App.setActive).
   React.useEffect(() => {
     const sync = () => setSelectedRaw(topicSlugFromUrl());
     window.addEventListener('popstate', sync);
@@ -2505,11 +3078,9 @@ function TopicsScreen({ onMentionClick }) {
     };
   }, []);
 
-  const sel = selected ? D.TOPICS.find(t => t.slug === selected) : null;
+  const sel = selected ? D.TOPICS.find((t) => t.slug === selected) : null;
   const subs = sel ? (D.SUBTOPICS[sel.slug] || []) : [];
 
-  // URL points at a topic absent from the current dataset (stale link, or
-  // filtered out by the active period) → drop the drill-in and clean the URL.
   React.useEffect(() => {
     if (selected && !sel) {
       history.replaceState({ eco: 'topics' }, '', '/topics');
@@ -2517,99 +3088,40 @@ function TopicsScreen({ onMentionClick }) {
     }
   }, [selected, sel]);
 
-  // Real "topic of the day" data viene del endpoint (TOPIC_CALENDAR), que
-  // agrupa mention_topics por (published_at AT TZ AST)::date y se queda con
-  // el top-1 tópico por día. El backend ya respeta el periodo seleccionado
-  // (35d para periodos cortos, hasta 365d para "1A"/"Max"), así que aquí
-  // pasamos toda la lista — el render por semanas se encarga.
-  const calendarData = React.useMemo(() => {
-    return (D.TOPIC_CALENDAR || []).map((d) => {
-      return {
-        date: d.date,
-        fullDate: d.fullDate,
-        volume: d.volume,
-        topicSlug: d.topicSlug,
-        topicName: d.topicName,
-        sentiment: d.sentiment,
-      };
-    });
-  }, []);
+  const rows = React.useMemo(() => (D.TOPICS || []).map(topicRow), [D.TOPICS]);
 
-  // Drill-in view
+  const calendarData = React.useMemo(() => (D.TOPIC_CALENDAR || []).map((d) => ({
+    date: d.date, fullDate: d.fullDate, volume: d.volume, topicSlug: d.topicSlug, topicName: d.topicName, sentiment: d.sentiment,
+  })), []);
+
   if (sel) return <TopicDetail topic={sel} subs={subs} onBack={closeTopic} onMentionClick={onMentionClick} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      {/* Panorámica con view toggle */}
-      <div className="card">
-        <div className="card-hd">
-          <div><div className="card-hd-title">Tópicos · vista panorámica</div><div className="card-hd-sub">Haz clic en un tópico para ver sus subtópicos</div></div>
-          <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
-            {[
-              { k: 'treemap', l: 'Treemap', icon: 'Grid' },
-              { k: 'bubbles', l: 'Burbujas', icon: 'Circle' },
-              { k: 'list',    l: 'Lista',    icon: 'List' },
-            ].map(o => {
-              const IC = Icons[o.icon];
-              return (
-                <button key={o.k} onClick={() => setView(o.k)} className={`chip ${view === o.k ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
-                  <IC size={11} /> {o.l}
-                </button>
-              );
-            })}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
+      <TopicPanorama rows={rows} onSelect={openTopic} setPeek={setPeek} />
+
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          <div className="section-eyebrow" style={{ marginBottom: 0 }}>02 · Ranking del periodo · contra la ventana previa</div>
+          <TopicHallazgos rows={rows} onSelect={openTopic} />
+          <div className="card">
+            <div className="card-bd"><TopicTable rows={rows} onSelect={openTopic} setPeek={setPeek} full /></div>
+            <div style={{ padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
+              «Aparece en» cuenta todas las menciones que tocan el tópico, sea principal o secundario; por eso la suma pasa del total del periodo.
+            </div>
           </div>
         </div>
-        <div className="card-bd">
-          {view === 'treemap' && <TopicTreemap topics={D.TOPICS} onSelect={openTopic} />}
-          {view === 'bubbles' && <TopicBubbles topics={D.TOPICS} onSelect={openTopic} />}
-          {view === 'list' &&    <TopicList topics={D.TOPICS} onSelect={openTopic} />}
-          {/* La leyenda vive en la card, no dentro de una vista: los tres modos
-              codifican el estado con la misma familia de color y el treemap
-              (vista por defecto) no explicaba la suya. */}
-          <TopicSentimentLegend />
-        </div>
-        {/* Leyenda única para las 3 vistas: la barra de distribución significa
-            lo mismo en treemap, burbujas y lista (petición del usuario:
-            "que en cualquier tipo de visualización sean más consistentes y
-            claras"). */}
-        <div style={{
-          padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--hairline)',
-          display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap',
-          // 11 crudo -> el token del mismo valor: check-tokens.py no ve un
-          // número inline, y era el único tamaño de letra escrito a mano en la
-          // pantalla. NO sube a --fs-caption: el 11px de leyenda es patrón de
-          // todo el producto (mapa, heatmap, calendario) y cambiarlo aquí solo
-          // desalinearía esta card del resto.
-          fontSize: 'var(--fs-overline)', color: 'var(--text-3)',
-        }}>
-          <span style={{ fontWeight: 500, letterSpacing: 'var(--tracking-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-overline)' }}>Distribución</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--pos)' }} /> Positivo</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--text-3)' }} /> Neutral</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span style={{ width: 10, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--neg)' }} /> Negativo</span>
-          {/* La leyenda glosa los glifos que las tres vistas IMPRIMEN
-              (ecoDeltaArrow: ▲ ▼ ·). Con "Δ" explicaba un símbolo que sólo
-              aparecía en el encabezado de la lista y dejaba sin explicar el
-              "—", que es justo el que separa "sin base de comparación" de
-              "cambio cero". */}
-          <span style={{ marginLeft: 'auto' }}>▲ ▼ variación vs. período anterior · — sin base de comparación</span>
-        </div>
-      </div>
+      )}
 
-      {/* Calendario de tópico principal por día */}
+      {rows.length > 0 && <TopicQuadrant rows={rows} onSelect={openTopic} />}
+
+      {/* 04 · El calendario del tópico del día, al final (pedido explícito). */}
       <TopicCalendar data={calendarData} onSelect={openTopic} onDayClick={setDayModal} />
 
       {dayModal && (() => {
-        const palette = window.ECO_CAT;
-        const slugIdx = {};
-        D.TOPICS.forEach((t, i) => { slugIdx[t.slug] = i; });
-        const accent = palette[slugIdx[dayModal.topicSlug] % palette.length] || 'var(--accent)';
+        const accent = topicColorFor(dayModal.topicSlug) || 'var(--accent)';
         const dateStr = dayModal.dt.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         const dayIso = dayModal.dt.toISOString().slice(0, 10);
-        // topicMode 'all': la celda del calendario cuenta multi-clasificación
-        // (universo pertinente) — el modal abre en la MISMA base para que el
-        // total cuadre con la celda. (El histograma
-        // "Volumen por hora" que se mostraba aquí era una senoide sintética
-        // con jitter — eliminado, auditoría 2026-08.)
         return (
           <MentionsSliceModal
             slice={{
@@ -2628,289 +3140,20 @@ function TopicsScreen({ onMentionClick }) {
         );
       })()}
 
-      {/* Nota explicativa: la pestaña Tópicos usa el MISMO conteo que el correo
-          y el Overview (top-confidence). Si una mención toca varios tópicos,
-          cuenta una vez en su tópico principal — el "+N también lo tocan"
-          señala las menciones donde ese tópico es secundario. */}
       <div style={{ padding: 'var(--sp-3) var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-2)' }}>
         <Icons.Info size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 'var(--sp-05)' }} />
         <span>
-          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo
-          criterio del correo y del Overview). El "+N también lo tocan"
-          indica menciones donde el tópico aparece como tema secundario. Al
-          hacer clic en un tópico verás las primarias por defecto, con un
-          toggle para incluir las secundarias.
+          Cada mención cuenta una vez bajo su tópico de mayor confianza (mismo criterio del correo y del Overview). «Aparece en» suma
+          las menciones donde el tópico es tema secundario. Al abrir un tópico verás las primarias por defecto, con un toggle para
+          incluir las secundarias.
         </span>
       </div>
+
+      <TopicPeek peek={peek} />
     </div>
   );
 }
 
-// --- Treemap variant (existing style, with click drill-in) ---
-//
-// Rediseño (ago 2026): la barra de sentimiento se SALÍA del tile en las
-// baldosas pequeñas. Causa: filas de 76px con padding 14 dejaban ~48px de
-// contenido, y nombre (hasta 2 líneas) + conteo + "+N también lo tocan" +
-// barra sumaban más que eso, sin `overflow: hidden` que lo contuviera.
-//
-// La forma nueva, consistente en las 3 vistas (treemap / burbujas / lista):
-//   - el tile es un grid de 2 filas: contenido (1fr) y barra (auto). La barra
-//     tiene su propia fila reservada, así que nunca compite por el espacio.
-//   - `overflow: hidden` + `minWidth: 0` contienen cualquier desborde.
-//   - el nombre se limita a 2 líneas con line-clamp (no rompe el layout).
-//   - "+N también lo tocan" solo en los tiles grandes, donde cabe.
-//   - filas de 92px: hay aire real para las tres bandas de la barra.
-function TopicTreemap({ topics, onSelect }) {
-  // La fila crece con su contenido. Con `gridAutoRows: '76px'` fijo el tile
-  // sumaba ~109px de contenido (32 de padding + nombre + cifra + "+N también lo
-  // tocan" + barra) y, sin recorte, el sobrante se pintaba ENCIMA del tile de la
-  // fila siguiente: la barra de distribución y el delta de un tópico quedaban
-  // rotulados dentro de OTRO tópico. Eso es misatribución de dato, no sólo
-  // desborde. En móvil el nombre envuelve a 2-3 líneas, así que el mínimo sube.
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gridAutoRows: window.ecoCols('minmax(76px, auto)', 'minmax(96px, auto)'), gap: 'var(--sp-1)' }}>
-      {topics.map((t, i) => {
-        // Rótulo y tinte del tile, de la MISMA familia. El tinte de 'mixed'
-        // caía en --canvas-2, un token de SUPERFICIE inset (más oscuro que la
-        // card), así que los tópicos sin dominancia se leían como agujeros en la
-        // rejilla mientras su rótulo iba en ámbar. Ahora los tres estados son
-        // overlays al 10% sobre la card. 'mixed' va a la familia NEUTRA y no a
-        // --warn: el ámbar es el color de RIESGO del producto (escala de crisis,
-        // alertas) y "ninguna polaridad domina" no es un riesgo; además el
-        // calendario ya pinta en gris ese mismo estado, así que un solo hue para
-        // un solo concepto.
-        const color = window.ecoSentimentColor(t.dominantSentiment);
-        const bg = t.dominantSentiment === 'positivo' ? 'var(--pos-bg)' : t.dominantSentiment === 'negativo' ? 'var(--neg-bg)' : 'var(--neu-bg)';
-        // Tiles UNIFORMES. `span = i < 2 ? 2 : 1` daba 4 celdas a los dos
-        // primeros tópicos por su POSICIÓN en el array, no por su valor: con los
-        // datos de julio, Empleo (173) ocupaba la CUARTA PARTE del área de
-        // Permisos (213) — 19% menos dato, 75% menos área — y la MISMA área que
-        // Agricultura (53), que vale 3.3x menos. En una rejilla de celdas fijas
-        // el área no puede ser fiel al dato, así que se retira como canal: el
-        // volumen lo dicen la cifra impresa y el orden de lectura (el endpoint
-        // devuelve los tópicos por primary_count DESC).
-        return (
-          <button key={t.slug} onClick={() => onSelect(t.slug)}
-            title={`${t.name} · ${fmt(t.count)} menciones`}
-            style={{
-              padding: 'var(--sp-4)', textAlign: 'left',
-              background: bg, borderRadius: 'var(--r-lg)',
-              border: '1.5px solid transparent',
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              // Guarda: si el contenido volviera a exceder la fila, se recorta
-              // DENTRO de su tile en vez de atribuirse al tópico vecino.
-              overflow: 'hidden',
-              cursor: 'pointer', transition: 'all 0.2s var(--ease)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = color; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
-          >
-            <div>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color, textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>{t.name}</div>
-              {/* Una sola talla, y desde la escala: 30 vs 18 por índice era
-                  1.67x de talla tipográfica para 1.46x de dato (253 vs 173), y
-                  premiaba la posición en el array, no el valor. */}
-              <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: 'var(--text)', marginTop: 'var(--sp-1)', fontFamily: 'var(--ff-display)' }}>{fmt(t.count)}</div>
-              {t.secondaryCount > 0 && (
-                <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500, marginTop: 'var(--sp-05)' }}>+{t.secondaryCount} también lo tocan</div>
-              )}
-            </div>
-            <SentimentBar t={t} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// Componente común para la fila inferior de un tile/list-row: barra de
-// distribución pos/neu/neg + delta. Manejo de delta=null ("—") para distinguir
-// "sin base de comparación" de "delta=0".
-function SentimentBar({ t }) {
-  const deltaStr = t.delta == null
-    ? '—'
-    : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`;
-  // El volumen de un tópico es NEUTRO: que "Turismo y promoción" suba no es
-  // malo. Antes esto pintaba toda subida en --neg y toda bajada en --pos, y el
-  // Scorecard hacía justo lo contrario con el mismo dato.
-  const deltaColor = window.ecoDeltaColor('volume', t.delta);
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginTop: 'var(--sp-15)' }}>
-      {/* La pista es relleno de dato neutro (--neu-bg), no una superficie
-          inset: con --canvas-2 tenía contraste CERO contra el fondo de un tile
-          'mixed', que era ese mismo token. */}
-      <div style={{ display: 'flex', flex: 1, height: 6, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--neu-bg)', minWidth: 40 }}>
-        <div style={{ flexGrow: Math.max(0, t.positivePct || 0), background: 'var(--pos)' }} />
-        <div style={{ flexGrow: Math.max(0, t.neutralPct || 0),  background: 'var(--neu)' }} />
-        <div style={{ flexGrow: Math.max(0, t.negativePct || 0), background: 'var(--neg)' }} />
-      </div>
-      <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 40, textAlign: 'right' }}>
-        {deltaStr}
-      </span>
-    </div>
-  );
-}
-
-// --- Bubbles variant ---
-function TopicBubbles({ topics, onSelect }) {
-  const max = Math.max(...topics.map(t => t.count));
-  // El viewBox mide lo que mide el contenedor (1 unidad = 1 píxel), como el
-  // resto de las gráficas. Antes era 960×360 fijo con `height: 360`: en móvil
-  // (~309px de ancho útil) el SVG se escalaba a 0.32, los rótulos de 11 unidades
-  // se pintaban a 3.5px —ilegibles, y por debajo del piso de 11px que la escala
-  // fija— y el dibujo ocupaba 116px dentro de una caja de 360px. Sin escala, los
-  // tamaños de letra son los reales.
-  const [wrapRef, cw] = useChartWidth(720);
-  const isMob = window.ecoIsMobile();
-  const W = Math.max(280, Math.round(cw));
-  // En móvil la caja es vertical: cabe el mismo dibujo sin achicarlo.
-  const H = isMob ? 520 : 360;
-  // Los radios se escalan con el ÁREA de la caja para conservar la densidad del
-  // empaquetado; la RAZÓN entre radios —que es lo que codifica el dato— no
-  // cambia con el tamaño de la caja.
-  const rk = Math.sqrt((W * H) / (960 * 360));
-  const positioned = React.useMemo(() => {
-    const out = [];
-    const rng = (i) => {
-      // cheap deterministic jitter
-      const s = Math.sin(i * 9973) * 10000;
-      return s - Math.floor(s);
-    };
-    topics.forEach((t, i) => {
-      const r = (30 + (t.count / max) * 70) * rk;
-      let x = 60 + rng(i) * (W - 120);
-      let y = 60 + rng(i + 7) * (H - 120);
-      // Push away from prior bubbles
-      for (let k = 0; k < out.length; k++) {
-        const dx = x - out[k].x, dy = y - out[k].y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const minD = r + out[k].r + 6;
-        if (dist < minD && dist > 0) {
-          x += (dx / dist) * (minD - dist);
-          y += (dy / dist) * (minD - dist);
-        }
-      }
-      x = Math.max(r + 8, Math.min(W - r - 8, x));
-      y = Math.max(r + 8, Math.min(H - r - 8, y));
-      out.push({ ...t, x, y, r });
-    });
-    return out;
-  }, [topics, W, H, rk]);
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
-        {positioned.map((t) => {
-          // Mismo mapa que el treemap y que la leyenda (un solo hue por estado).
-          const color = window.ecoSentimentColor(t.dominantSentiment);
-          return (
-            <g key={t.slug} style={{ cursor: 'pointer' }} onClick={() => onSelect(t.slug)}>
-              <circle cx={t.x} cy={t.y} r={t.r} fill={color} fillOpacity="0.18" stroke={color} strokeWidth="1.5" />
-              {/* Ahora que 1 unidad = 1 píxel, estos tamaños son tamaños REALES
-                  de letra y salen de la escala (11 y 15). En móvil el rótulo se
-                  corta antes porque la burbuja también es más pequeña. */}
-              <text x={t.x} y={t.y - 4} textAnchor="middle" fontSize="var(--fs-overline)" fontWeight="700" fill="var(--text)" style={{ pointerEvents: 'none' }}>
-                {t.name.length > (isMob ? 12 : 18) ? t.name.slice(0, (isMob ? 12 : 18) - 1) + '…' : t.name}
-              </text>
-              <text x={t.x} y={t.y + 12} textAnchor="middle" fontSize="var(--fs-num-sm)" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'var(--ff-display)', pointerEvents: 'none' }}>
-                {fmt(t.count)}
-              </text>
-              <text x={t.x} y={t.y + 26} textAnchor="middle" fontSize="var(--fs-overline)"
-                fill={window.ecoDeltaColor('volume', t.delta)}
-                fontWeight="700" style={{ pointerEvents: 'none' }}>
-                {t.delta == null ? '—' : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      {/* La leyenda ya la pone la card (TopicSentimentLegend), común a las tres
-          vistas y sin la entrada "Neutral" que el endpoint no emite. */}
-    </div>
-  );
-}
-
-// Leyenda ÚNICA del estado de sentimiento de un tópico, compartida por las tres
-// vistas de la panorámica. El treemap —la vista por DEFECTO— no tenía ninguna:
-// sus tintes quedaban sin explicar. La de burbujas, además, listaba una cuarta
-// entrada ("Neutral") que el endpoint no puede emitir para un tópico (sólo
-// positivo | negativo | mixed), o sea prometía un estado inalcanzable. Aquí se
-// escribe también la DEFINICIÓN de mixto, que no estaba en ninguna parte.
-function TopicSentimentLegend() {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-3)' }}>
-      {[['positivo', 'Positivo dominante'], ['negativo', 'Negativo dominante'], ['mixed', 'Mixto · ningún lado domina (≤ 8 pp)']].map(([k, l]) => (
-        <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
-          <span className="dot" style={{ background: window.ecoSentimentColor(k) }} /> {l}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-// --- List variant ---
-function TopicList({ topics, onSelect }) {
-  const sorted = [...topics].sort((a, b) => b.count - a.count);
-  return (
-    <div className="scroll-x">
-      <div style={{ display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', padding: '8px 12px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>
-        {/* "Cambio", no "Δ": era la única etiqueta de la SPA que obligaba a
-            buscar un glosario, y sólo existía en esta vista — treemap y
-            burbujas imprimen el MISMO delta sin encabezado. */}
-        <span>#</span><span>Tópico</span><span style={{ textAlign: 'right' }}>Menciones</span><span>Sentimiento</span><span>Distribución</span><span style={{ textAlign: 'right' }}>Cambio</span><span />
-      </div>
-      {sorted.map((t, i) => (
-        <button key={t.slug} onClick={() => onSelect(t.slug)} className="row-hover"
-          style={{
-            display: 'grid', gridTemplateColumns: '24px 2fr 80px 110px 1.2fr 70px 24px', minWidth: 700, gap: 'var(--sp-3)', alignItems: 'center',
-            padding: '10px 12px', fontSize: 'var(--fs-caption)', textAlign: 'left', cursor: 'pointer',
-            borderTop: i > 0 ? '1px solid var(--hairline)' : '1px solid var(--hairline)',
-            width: '100%',
-          }}>
-          <span className="mono" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{String(i+1).padStart(2,'0')}</span>
-          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-            {t.secondaryCount > 0 && (
-              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 500 }}>+{t.secondaryCount} también lo tocan</span>
-            )}
-          </span>
-          <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(t.count)}</span>
-          {/* Nunca el enum: con .pill en mayúsculas esto imprimía "MIXED".
-              Y la clase pasa a pill-neu, que index.html define justo para
-              "clasificado, no vacío" — pill-warn es el ámbar de riesgo. */}
-          <span className={`pill ${t.dominantSentiment === 'positivo' ? 'pill-pos' : t.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{window.ecoSentimentLabel(t.dominantSentiment)}</span>
-          {/* "Distribución" es COMPOSICIÓN: la pista mide lo mismo en todas las
-              filas y las bandas son porcentaje de ese largo — la misma
-              codificación que el treemap. Antes el largo total codificaba
-              VOLUMEN (count/max) con las bandas dentro, así que un tópico 60%
-              negativo y poco volumen mostraba una banda roja diminuta aquí y una
-              banda roja larga en el treemap, bajo el mismo rótulo. El volumen ya
-              está impreso, exacto, en la columna "Menciones". */}
-          <div style={{ position: 'relative', height: 14 }}>
-            <div style={{ position: 'absolute', inset: '3px 0', borderRadius: 'var(--r-sm)', display: 'flex', overflow: 'hidden', background: 'var(--neu-bg)' }}>
-              <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-              <div style={{ width: `${t.neutralPct}%`, background: 'var(--neu)' }} />
-              <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
-            </div>
-          </div>
-          {/* El delta de VOLUMEN es neutro (ECO_METRIC_DIRECTION, data.js):
-              aquí salía rojo al subir y verde al bajar, el contrato OPUESTO al
-              del treemap, que ya pasa por ecoDeltaColor. El mismo −8% de
-              "Permisos y trámites" se leía gris en una vista y verde en la otra,
-              a un clic de distancia. La flecha también sale del helper para que
-              las tres vistas escriban el delta igual. */}
-          <span style={{ textAlign: 'right', fontSize: 'var(--fs-overline)', fontWeight: 600,
-            color: window.ecoDeltaColor('volume', t.delta) }}>
-            {t.delta == null ? '—' : `${window.ecoDeltaArrow(t.delta)} ${Math.abs(t.delta)}%`}
-          </span>
-          <Icons.ChevronRight size={14} color="var(--text-3)" />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// --- Drill-in: topic detail with subtopics + back ---
 function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   // pill-neu (no pill-warn): el ámbar del producto significa riesgo.
   const sentPill = topic.dominantSentiment === 'positivo' ? 'pill-pos' : topic.dominantSentiment === 'negativo' ? 'pill-neg' : 'pill-neu';
@@ -3223,7 +3466,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   if (!data || data.length === 0) {
     return (
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Calendario de tópicos</div><div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">04 · Calendario de tópicos</div><div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div></div></div>
         <div className="card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
           Sin actividad de tópicos en este periodo.
         </div>
@@ -3275,7 +3518,7 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">Calendario de tópicos</div>
+          <div className="card-hd-title">04 · Calendario de tópicos</div>
           <div className="card-hd-sub">Tópico principal y volumen del día · período seleccionado</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
