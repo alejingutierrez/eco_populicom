@@ -134,7 +134,9 @@ describe('tripwire — predicados de universo por endpoint', () => {
   // Nota: los conteos incluyen menciones en comentarios (p. ej. eco-data
   // tiene 9 "is_duplicate = false": 8 queries + 1 comentario).
   const MANIFEST: Array<{ file: string; rawDup: number; rawPert: number; drzDup: number; drzPert: number }> = [
-    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 9, rawPert: 8, drzDup: 1, drzPert: 2 },
+    // +2 queries (sep-2026): ventana previa por tópico y voz principal del
+    // ranking de Tópicos, ambas sobre el universo pertinente.
+    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 11, rawPert: 10, drzDup: 1, drzPert: 2 },
     { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 2, rawPert: 0, drzDup: 1, drzPert: 1 },
     { file: 'apps/web/src/app/api/eco-geo/route.ts', rawDup: 0, rawPert: 0, drzDup: 1, drzPert: 1 },
     { file: 'apps/web/src/app/api/eco-topic-description/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },

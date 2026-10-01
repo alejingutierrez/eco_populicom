@@ -19,6 +19,7 @@ import {
   sourceKey, sourceLabel,
   loadSentimentTotals,
   loadDailySentimentSeries,
+  decodeHtmlEntities,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -613,9 +614,21 @@ export async function GET(request: NextRequest) {
         secondaryCount: secondary,
         positivePct, negativePct, neutralPct,
         dominantSentiment: dominant,
+        // Conteos absolutos del sentimiento (la página Tópicos muestra el %
+        // negativo como cifra y el cuadrante necesita la base exacta).
+        negative: neg,
+        neutral: neu,
+        positive: pos,
         // `delta` se computa más abajo cuando ya cargamos la evolution; puede
         // ser `null` cuando no hay base de comparación (la UI lo renderiza "—").
         delta: null as number | null,
+        // Ventana previa de igual duración, misma base (primaria, pertinente):
+        // el ranking muestra el cambio en MENCIONES (2 → 70), no en % (+3400%),
+        // y el cuadrante dibuja la flecha desde el % negativo previo.
+        prevCount: 0,
+        prevNegative: 0,
+        // La voz con más menciones del tópico en la ventana.
+        topVoice: null as { name: string; count: number } | null,
         description: descBySlug.get(r.slug) ?? null,
         evolution: [] as Array<{ date: string; fullDate: string; count: number }>,
       };
@@ -799,6 +812,63 @@ export async function GET(request: NextRequest) {
       } else {
         t.delta = Math.round(((recent - previous) / previous) * 100);
       }
+    }
+
+    // ---- TOPIC RANKING (sep-2026): ventana previa y voz principal ----
+    // Misma atribución (tópico de mayor confianza) y mismo universo pertinente
+    // que TOPICS.count, para que «anterior → esta» compare lo mismo.
+    const [prevTopicRows, voiceRows] = await Promise.all([
+      db.execute<{ slug: string; c: number | string; neg: number | string }>(sql`
+        SELECT t.slug AS slug,
+               COUNT(*) AS c,
+               COUNT(*) FILTER (WHERE pm.sentiment IN ('negativo','negative')) AS neg
+          FROM (
+            SELECT m.id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                   (SELECT topic_id FROM mention_topics
+                      WHERE mention_id = m.id
+                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+              FROM mentions m
+             WHERE m.agency_id = ${agencyId}
+               AND m.is_duplicate = false
+               AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${prevStartYmd}::date
+               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${prevEndYmd}::date
+          ) pm
+          JOIN topics t ON t.id = pm.topic_id
+         GROUP BY t.slug
+      `),
+      db.execute<{ slug: string; who: string; n: number | string }>(sql`
+        SELECT slug, who, n FROM (
+          SELECT t.slug AS slug, pm.who AS who, COUNT(*) AS n,
+                 ROW_NUMBER() OVER (PARTITION BY t.slug ORDER BY COUNT(*) DESC, pm.who ASC) AS rn
+            FROM (
+              SELECT COALESCE(NULLIF(TRIM(m.author_fullname), ''), NULLIF(TRIM(m.author), ''), m.domain) AS who,
+                     (SELECT topic_id FROM mention_topics
+                        WHERE mention_id = m.id
+                        ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
+                FROM mentions m
+               WHERE m.agency_id = ${agencyId}
+                 AND m.is_duplicate = false
+                 AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+                 AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${startYmd}::date
+                 AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
+            ) pm
+            JOIN topics t ON t.id = pm.topic_id
+           WHERE pm.who IS NOT NULL
+           GROUP BY t.slug, pm.who
+        ) x
+        WHERE rn = 1
+      `),
+    ]);
+    const asRows = <R,>(res: unknown): R[] => (Array.isArray(res) ? (res as R[]) : (((res as { rows?: R[] }).rows) ?? []));
+    const prevBySlug = new Map(asRows<{ slug: string; c: number | string; neg: number | string }>(prevTopicRows).map((r) => [r.slug, r]));
+    const voiceBySlug = new Map(asRows<{ slug: string; who: string; n: number | string }>(voiceRows).map((r) => [r.slug, r]));
+    for (const t of TOPICS) {
+      const p = prevBySlug.get(t.slug);
+      t.prevCount = p ? Number(p.c) : 0;
+      t.prevNegative = p ? Number(p.neg) : 0;
+      const v = voiceBySlug.get(t.slug);
+      t.topVoice = v ? { name: decodeHtmlEntities(String(v.who)).trim(), count: Number(v.n) } : null;
     }
 
     // ---- TOPIC CALENDAR (per-day dominant topic, ventana AST cerrada) ----
