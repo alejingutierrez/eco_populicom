@@ -24,6 +24,8 @@ export const dynamic = 'force-dynamic';
 
 const TZ = 'America/Puerto_Rico';
 const AI_TASKS_FUNCTION_NAME = process.env.AI_TASKS_FUNCTION_NAME ?? 'eco-ai-tasks';
+/** Versión vigente del lede que escribe eco-ai-tasks (PeriodLede.v). */
+const LEDE_VERSION = 2;
 
 // PERIOD_DAYS: mapa canónico de @eco/shared. El local anterior no tenía
 // 'Max' y el chip Max devolvía 400 al abrir insights (auditoría 2026-08).
@@ -126,10 +128,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (row) {
       // Filas previas a la migración 0008 no traen lede (titular, viñetas,
-      // rótulos de picos, foto). Se sirven igual y se recalculan UNA vez en
-      // segundo plano, también las históricas: sin esto el bloque 03 del
-      // Overview quedaría sin titular para siempre en esas ventanas.
-      const missingLede = row.lede == null && row.dailySummary != null;
+      // rótulos de picos, foto), y las de lede v1 traen una foto que no
+      // dependía de la ventana (la nota más reciente). Se sirven igual y se
+      // recalculan UNA vez en segundo plano, también las históricas.
+      const ledeVersion = Number((row.lede as { v?: number } | null)?.v ?? 1);
+      const missingLede = row.dailySummary != null && (row.lede == null || ledeVersion < LEDE_VERSION);
       const ready = {
         status: 'ready' as const,
         periodStart: startYmd,

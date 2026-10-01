@@ -5323,6 +5323,7 @@ function Field({ label, required, children }) {
 
 // Polling del análisis IA (cache-or-202). Rampa: 2s los primeros 20s, 4s
 // después; ~27 peticiones en 90s, bajo el rate limit de 30/min del endpoint.
+const OVERVIEW_LEDE_VERSION = 2;
 function useOverviewInsights(periodStart, periodEnd, agency) {
   const [state, setState] = React.useState({ phase: 'loading', data: null, error: null });
   React.useEffect(() => {
@@ -5345,9 +5346,11 @@ function useOverviewInsights(periodStart, periodEnd, agency) {
         }
         const json = await res.json();
         setState({ phase: 'ready', data: json, error: null });
-        // Fila sin lede (anterior a la migración 0008): el endpoint ya disparó
-        // el recálculo; seguimos consultando hasta que llegue el titular.
-        return json && json.lede == null && json.dailySummary ? 'computing' : 'ready';
+        // Fila sin lede o con lede de una versión anterior: el endpoint ya
+        // disparó el recálculo; seguimos consultando hasta que llegue el
+        // vigente (OVERVIEW_LEDE_VERSION, la misma que /api/eco-insights).
+        const outdated = json && json.dailySummary && (json.lede == null || Number(json.lede.v || 1) < OVERVIEW_LEDE_VERSION);
+        return outdated ? 'computing' : 'ready';
       } catch (e) {
         if (e?.name === 'AbortError') return 'aborted';
         setState({ phase: 'error', data: null, error: String(e?.message || e) });
@@ -5743,6 +5746,7 @@ function OverviewResumen({ insights, pieces, onMentionClick }) {
   const lede = data?.lede || null;
   const summary = data?.dailySummary || null;
   const highlights = (lede?.highlights || []).filter(Boolean);
+  const showHero = !!(lede?.hero?.url && Number(lede.v || 1) >= OVERVIEW_LEDE_VERSION);
   const loading = phase === 'loading' || phase === 'computing';
   const status = phase === 'computing'
     ? <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}><span className="pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-2)' }} />Generando…</span>
@@ -5767,31 +5771,38 @@ function OverviewResumen({ insights, pieces, onMentionClick }) {
     left = (
       <div className="card-bd" style={{ paddingTop: 'var(--sp-4)' }}>
         {lede?.headline && (
-          <h2 style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, lineHeight: 1.3, margin: '0 0 var(--sp-3)', letterSpacing: 'var(--tracking-tight)', textWrap: 'balance', color: 'var(--text)' }}>
+          <h2 style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, lineHeight: 1.3, margin: '0 0 var(--sp-3)', letterSpacing: 'var(--tracking-tight)', textWrap: 'balance', color: 'var(--text)' }}>
             {lede.headline}
           </h2>
         )}
-        {lede?.hero?.url && (
-          <figure style={{ margin: '0 0 var(--sp-3)' }}>
-            {/* La copia propia se guarda con URL absoluta (citizenecho.com/media/…);
-                como ruta relativa carga en cualquiera de los dos dominios bajo
-                la CSP img-src 'self' de /overview. */}
-            <img src={String(lede.hero.url).replace(/^https?:\/\/[^/]+(?=\/media\/)/, '')} alt="" loading="lazy"
-              onError={(e) => { const f = e.currentTarget.closest('figure'); if (f) f.style.display = 'none'; }}
-              style={{ width: '100%', maxWidth: '100%', aspectRatio: '1200 / 717', objectFit: 'cover', borderRadius: 'var(--r-md)', display: 'block', background: 'var(--canvas-2)' }} />
-            {lede.hero.caption && (
-              <figcaption className="num" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-15)' }}>{lede.hero.caption}</figcaption>
-            )}
-          </figure>
-        )}
-        <div style={{ fontSize: 'var(--fs-body-lg)', lineHeight: 1.6, color: 'var(--text)', maxWidth: '72ch' }}
-          dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(summary) }} />
+        {/* Foto al lado del párrafo (no encima): con la columna ancha, una foto
+            a todo el ancho estiraba el bloque el doble de alto que las piezas
+            de al lado. En móvil vuelve a ir encima, a todo el ancho. Solo se
+            pinta la foto del lede vigente: la de una versión anterior no
+            dependía de la ventana y se está recalculando. */}
+        <div style={{ display: 'grid', gridTemplateColumns: showHero ? window.ecoCols('minmax(0,1fr) minmax(0,38%)', '1fr') : '1fr', gap: 'var(--sp-4)', alignItems: 'start' }}>
+          <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.6, color: 'var(--text)', maxWidth: '72ch', order: window.ecoIsMobile() ? 2 : 1 }}
+            dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(summary) }} />
+          {showHero && (
+            <figure style={{ margin: 0, order: window.ecoIsMobile() ? 1 : 2 }}>
+              {/* La copia propia se guarda con URL absoluta (citizenecho.com/media/…);
+                  como ruta relativa carga en cualquiera de los dos dominios bajo
+                  la CSP img-src 'self' de /overview. */}
+              <img src={String(lede.hero.url).replace(/^https?:\/\/[^/]+(?=\/media\/)/, '')} alt="" loading="lazy"
+                onError={(e) => { const f = e.currentTarget.closest('figure'); if (f) f.style.display = 'none'; }}
+                style={{ width: '100%', maxWidth: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 'var(--r-md)', display: 'block', background: 'var(--canvas-2)' }} />
+              {lede.hero.caption && (
+                <figcaption className="num" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-15)' }}>{lede.hero.caption}</figcaption>
+              )}
+            </figure>
+          )}
+        </div>
         {highlights.length > 0 && (
           <ol style={{ listStyle: 'none', margin: 'var(--sp-3) 0 0', padding: 0 }}>
             {highlights.map((h, i) => (
-              <li key={i} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 'var(--sp-3)', padding: 'var(--sp-3) 0', borderTop: '1px solid var(--hairline)' }}>
-                <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)', paddingTop: 2 }}>{i + 1}</span>
-                <span style={{ fontSize: 'var(--fs-body)', lineHeight: 1.55, color: 'var(--text)', maxWidth: '70ch' }}
+              <li key={i} style={{ display: 'grid', gridTemplateColumns: '24px minmax(0,1fr)', gap: 'var(--sp-3)', padding: 'var(--sp-2) 0', borderTop: '1px solid var(--hairline)' }}>
+                <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)', paddingTop: 1 }}>{i + 1}</span>
+                <span style={{ fontSize: 'var(--fs-body-sm)', lineHeight: 1.55, color: 'var(--text)', maxWidth: '70ch' }}
                   dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(h) }} />
               </li>
             ))}
@@ -5804,7 +5815,8 @@ function OverviewResumen({ insights, pieces, onMentionClick }) {
   return (
     <div>
       <OverviewEyebrow n="03" right={status}>Resumen del periodo</OverviewEyebrow>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0,1.5fr) minmax(0,1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+      {/* El resumen pesa más que las piezas: 1.85 : 1 (antes 1.5 : 1). */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0,1.85fr) minmax(0,1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
         <div className="card">{left}</div>
         <div className="card">
           <div className="card-hd">
