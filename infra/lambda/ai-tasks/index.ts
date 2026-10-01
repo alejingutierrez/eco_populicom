@@ -58,7 +58,7 @@ import {
   formatShortDay,
   ymdInTimeZone,
 } from '@eco/shared';
-import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext, loadDaySamples, loadHeroCandidates } from './aggregates';
+import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext, loadDaySamples, loadHeroCandidates, type HeroCandidate } from './aggregates';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -848,6 +848,10 @@ const DAILY_SUMMARY_TOOL_SCHEMA = {
       },
       description: 'Un rótulo por día pico listado en el prompt. Vacío si no se listó ninguno.',
     },
+    hero_index: {
+      type: 'integer',
+      description: 'Número de la nota candidata cuya foto mejor ilustra el titular. Omitir si no se listaron candidatas.',
+    },
   },
   required: ['summary', 'headline', 'highlights'],
 };
@@ -857,6 +861,12 @@ const DAILY_SUMMARY_TOOL_SCHEMA = {
  * forma del lede del correo diario. Vive en `overview_period_insights.lede`.
  */
 interface PeriodLede {
+  /**
+   * Versión del lede. 2 = la foto la elige el modelo entre notas
+   * representativas de la ventana; las filas con v < 2 traían la nota más
+   * reciente (la misma para 7/30/90 días) y /api/eco-insights las recalcula.
+   */
+  v: number;
   headline: string | null;
   highlights: string[];
   peaks: Array<{ date: string; label: string; total: number; negative: number }>;
@@ -875,17 +885,12 @@ const s3 = new S3Client({});
  * otro dominio no se pintaría. Sin bucket configurado no hay foto.
  */
 async function loadPeriodHero(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
-  agencyId: string,
-  periodStart: string,
-  periodEnd: string,
+  candidates: HeroCandidate[],
 ): Promise<{ url: string; caption: string } | null> {
   if (!MEDIA_BUCKET) return null;
   try {
-    const candidates = (await loadHeroCandidates(client, agencyId, periodStart, periodEnd))
-      .filter((c) => isArticlePageType(c.pageType));
-    for (const c of candidates) {
+    // Como mucho 4 intentos: cada uno puede costar 3s de og:image + 5s de copia.
+    for (const c of candidates.slice(0, 4)) {
       let img: string | null = null;
       const stored = c.resolvedImageUrl;
       if (stored && /^https?:\/\//i.test(stored) && !isGenericImageUrl(stored) && await validateImageUrl(stored).catch(() => false)) {
@@ -991,12 +996,20 @@ async function generatePeriodInsightsFor(
       date: p.date, total: p.total, negative: p.negative,
       samples: await loadDaySamples(client, agency.id, p.date).catch(() => []),
     })));
-    const heroPromise = loadPeriodHero(client, agency.id, periodStart, periodEnd);
+    // Notas candidatas a foto: se listan en el prompt y el modelo elige la que
+    // ilustra su titular (hero_index). Solo páginas tipo artículo.
+    const heroCandidates = (await loadHeroCandidates(client, agency.id, periodStart, periodEnd).catch(() => []))
+      .filter((c) => isArticlePageType(c.pageType));
+    const sourceOf = (c: HeroCandidate): string => {
+      try { if (c.url) return new URL(c.url).hostname.replace(/^www\./, ''); } catch { /* sin URL válida */ }
+      return c.sourceName ?? 'medio';
+    };
 
-    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples, peaks);
-    type SummaryOut = { summary: string; headline: string | null; highlights: string[]; peakLabels: Array<{ date: string; label: string }> };
+    const summaryPrompt = buildPeriodSummaryPrompt(aggregates, samples, peaks,
+      heroCandidates.map((c) => ({ day: c.day, source: sourceOf(c), title: c.title })));
+    type SummaryOut = { summary: string; headline: string | null; highlights: string[]; peakLabels: Array<{ date: string; label: string }>; heroIndex: number | null };
     const trySummary = async (maxTokens: number): Promise<SummaryOut | null> => {
-      const sum = await invokeClaudeWithTool<{ summary: string; headline?: unknown; highlights?: unknown; peak_labels?: unknown }>({
+      const sum = await invokeClaudeWithTool<{ summary: string; headline?: unknown; highlights?: unknown; peak_labels?: unknown; hero_index?: unknown }>({
         client: bedrock,
         systemPrompt: INSIGHTS_SYSTEM_PROMPT,
         userPrompt: summaryPrompt,
@@ -1023,6 +1036,8 @@ async function generatePeriodInsightsFor(
         headline: headline || null,
         highlights: coerceBulletList(sum.highlights, 4).map((h) => sanitizeStrongOnly(h).slice(0, 400)),
         peakLabels,
+        heroIndex: Number.isInteger(Number(sum.hero_index)) && Number(sum.hero_index) >= 0 && Number(sum.hero_index) < heroCandidates.length
+          ? Number(sum.hero_index) : null,
       };
     };
 
@@ -1050,9 +1065,17 @@ async function generatePeriodInsightsFor(
       }
     })();
 
-    const [insights, summaryOut, hero] = await Promise.all([insightsPromise, summaryPromise, heroPromise]);
+    const [insights, summaryOut] = await Promise.all([insightsPromise, summaryPromise]);
     const dailySummary = summaryOut?.summary ?? null;
+    // La elegida por el modelo primero; las demás en el orden de relevancia,
+    // por si la elegida no tiene una foto utilizable.
+    const pick = summaryOut?.heroIndex;
+    const ordered = pick != null
+      ? [heroCandidates[pick], ...heroCandidates.filter((_, i) => i !== pick)]
+      : heroCandidates;
+    const hero = await loadPeriodHero(ordered);
     const lede: PeriodLede = {
+      v: 2,
       headline: summaryOut?.headline ?? null,
       highlights: summaryOut?.highlights ?? [],
       peaks: (summaryOut?.peakLabels ?? []).map((l) => {

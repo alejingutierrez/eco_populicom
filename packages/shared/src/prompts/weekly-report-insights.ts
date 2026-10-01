@@ -288,10 +288,19 @@ export interface PeriodPeakInput {
   samples: MentionSample[];
 }
 
+/** Nota candidata a foto de portada del Overview (la elige el modelo). */
+export interface PeriodHeroCandidateInput {
+  /** YYYY-MM-DD en TZ PR. */
+  day: string;
+  source: string;
+  title: string;
+}
+
 export function buildPeriodSummaryPrompt(
   aggregates: WeeklyAggregates,
   samples: { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] },
   peaks: PeriodPeakInput[] = [],
+  heroCandidates: PeriodHeroCandidateInput[] = [],
 ): string {
   const days = aggregates.dailySeries.length || 1;
   const { totals, deltaVsPrevWeek } = aggregates;
@@ -380,7 +389,11 @@ DÍAS PICO QUE HAY QUE ROTULAR:
 ${peaks.map((p) => `- ${formatPromptDay(p.date)} (date=${p.date}): ${p.total} menciones, ${p.negative} negativas. Lo que se dijo ese día:
 ${p.samples.map((m, i) => '  ' + formatSample(i + 1, m)).join('\n') || '  - (sin muestras)'}`).join('\n')}
 ` : ''}
-SALIDA: usa la tool emit_period_summary con "summary" (1 párrafo de 3-5 oraciones, 80-1400 chars), "headline" y "highlights"${peaks.length > 0 ? ' y "peak_labels" (lista de {date, label})' : ''}.
+${heroCandidates.length > 0 ? `
+${peaks.length > 0 ? '4' : '3'}) "hero_index" — la foto que acompaña al titular sale de UNA de estas notas de prensa del periodo. Elige el número de la nota que mejor ILUSTRA lo que dice tu titular: el mismo hecho, no solo el mismo tema. Si ninguna trata del hecho del titular, elige la que trate del asunto más cercano.
+${heroCandidates.map((c, i) => `  [${i}] ${formatPromptDay(c.day)} · ${c.source} · ${c.title}`).join('\n')}
+` : ''}
+SALIDA: usa la tool emit_period_summary con "summary" (1 párrafo de 3-5 oraciones, 80-1400 chars), "headline" y "highlights"${peaks.length > 0 ? ', "peak_labels" (lista de {date, label})' : ''}${heroCandidates.length > 0 ? ' y "hero_index" (número entero)' : ''}.
 `.trim();
 }
 

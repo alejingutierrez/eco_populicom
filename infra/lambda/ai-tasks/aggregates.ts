@@ -429,39 +429,88 @@ export async function loadDaySamples(client: any, agencyId: string, ymd: string,
 }
 
 /**
- * Candidatas a foto de portada del periodo — la MISMA consulta que la foto del
- * correo (eco-weekly-report loadHeroImage, #120/#121): noticias, blogs y foros
- * pertinentes, las de pertinencia alta primero y luego por resonancia. El
- * filtro de tipo va en SQL y no después del LIMIT: las redes dominan el
- * engagement y las noticias quedarían fuera del corte.
+ * Candidatas a foto de portada del periodo: noticias, blogs y foros
+ * pertinentes de la ventana (a un visitante sin sesión las redes le sirven su
+ * logo como og:image).
+ *
+ * El orden NO puede depender del engagement: en las noticias vale ~0, así que
+ * el desempate por fecha elegía siempre la nota más reciente y la foto era la
+ * misma para 7, 30 y 90 días. Se ordena por lo que hace a una nota
+ * representativa de la ventana —cae en un día de mucho volumen, su tópico pesa
+ * en la ventana, pertinencia alta, medio grande— y se reparten: una nota por
+ * tópico y día, hasta tres por día. Sin ese reparto, en 30 días (tópico
+ * dominante «Desarrollo Empresarial») el día pico solo aportaba notas de
+ * ayudas a comerciantes y el titular del FEI salía con una foto de billetes.
+ * La elección final la hace el modelo que escribe el titular (hero_index).
  */
 export interface HeroCandidate {
   url: string | null;
+  title: string;
   pageType: string | null;
   resolvedImageUrl: string | null;
   sourceName: string | null;
   publishedAt: Date;
+  /** YYYY-MM-DD en TZ PR. */
+  day: string;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function loadHeroCandidates(client: any, agencyId: string, startYmd: string, endYmd: string): Promise<HeroCandidate[]> {
+export async function loadHeroCandidates(client: any, agencyId: string, startYmd: string, endYmd: string, limit = 12): Promise<HeroCandidate[]> {
   const r = await client.query(
-    `SELECT m.url, m.page_type, m.resolved_image_url, m.content_source_name, m.published_at
-       FROM mentions m
-      WHERE m.agency_id = $1
-        AND m.is_duplicate = false
-        AND m.nlp_pertinence IN ('alta','media')
-        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date BETWEEN $2::date AND $3::date
-        AND lower(m.page_type) IN ('news','blog','forum')
-      ORDER BY (m.nlp_pertinence = 'alta') DESC, COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
-      LIMIT 5`,
+    `WITH win AS (
+       SELECT m.id, m.url, m.title, m.snippet, m.page_type, m.resolved_image_url, m.content_source_name,
+              m.published_at, m.nlp_pertinence, m.monthly_visitors, m.reach_estimate,
+              (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS d,
+              (SELECT mt.topic_id FROM mention_topics mt
+                WHERE mt.mention_id = m.id
+                ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC LIMIT 1) AS topic_id
+         FROM mentions m
+        WHERE m.agency_id = $1
+          AND m.is_duplicate = false
+          AND m.nlp_pertinence IN ('alta','media')
+          AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date BETWEEN $2::date AND $3::date
+     ),
+     day_vol AS (SELECT d, COUNT(*) AS n FROM win GROUP BY d),
+     topic_vol AS (SELECT topic_id, COUNT(*) AS n FROM win WHERE topic_id IS NOT NULL GROUP BY topic_id),
+     per_topic_day AS (
+       SELECT w.*, dv.n AS day_n, COALESCE(tv.n, 0) AS topic_n,
+              ROW_NUMBER() OVER (
+                PARTITION BY w.d, w.topic_id
+                ORDER BY (w.nlp_pertinence = 'alta') DESC,
+                         COALESCE(w.monthly_visitors, w.reach_estimate, 0) DESC,
+                         w.published_at DESC
+              ) AS rn_topic
+         FROM win w
+         JOIN day_vol dv ON dv.d = w.d
+         LEFT JOIN topic_vol tv ON tv.topic_id = w.topic_id
+        WHERE lower(w.page_type) IN ('news','blog','forum')
+          AND w.url IS NOT NULL
+     ),
+     ranked AS (
+       SELECT p.*,
+              ROW_NUMBER() OVER (
+                PARTITION BY p.d
+                ORDER BY p.topic_n DESC, (p.nlp_pertinence = 'alta') DESC,
+                         COALESCE(p.monthly_visitors, p.reach_estimate, 0) DESC
+              ) AS rn_day
+         FROM per_topic_day p
+        WHERE p.rn_topic = 1
+     )
+     SELECT url, COALESCE(NULLIF(TRIM(title), ''), LEFT(snippet, 160)) AS title, page_type,
+            resolved_image_url, content_source_name, published_at, to_char(d, 'YYYY-MM-DD') AS day
+       FROM ranked
+      WHERE rn_day <= 3
+      ORDER BY day_n DESC, rn_day ASC, published_at DESC
+      LIMIT ${Math.max(1, Math.min(20, limit))}`,
     [agencyId, startYmd, endYmd],
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return r.rows.map((row: any) => ({
     url: row.url ?? null,
+    title: String(row.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
     pageType: row.page_type ?? null,
     resolvedImageUrl: row.resolved_image_url ?? null,
     sourceName: row.content_source_name ?? null,
     publishedAt: new Date(row.published_at),
+    day: row.day,
   }));
 }
