@@ -24,7 +24,9 @@ import http.server, json, os, socketserver, sys, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', 'public'))
-FIX = os.path.join(HERE, 'fixtures')
+# ECO_FIXTURES permite apuntar a otro juego (p. ej. datos reales de prod
+# generados en local, que no se versionan).
+FIX = os.environ.get('ECO_FIXTURES') or os.path.join(HERE, 'fixtures')
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8822
 
 # Las rutas de la SPA son client-side: cualquiera de ellas devuelve el index.
@@ -36,6 +38,7 @@ SPA_ROUTES = {
 # ruta de API -> archivo de fixture. El sufijo se resuelve por prefijo, así que
 # /api/narrative/<id> y /api/narrative/<id>/day caen en el fixture correcto.
 API = [
+    ('/api/narrative/overview', 'narrative-overview.json'),
     ('/api/narrative/edges', 'narrative-edges.json'),
     ('/api/narrative/', 'narrative-detail.json'),   # incluye /day, ver abajo
     ('/api/narrative', 'narrative-list.json'),
@@ -56,6 +59,11 @@ API = [
 def fixture_for(path):
     if path.startswith('/api/narrative/') and path.rstrip('/').endswith('/day'):
         return 'narrative-day.json'
+    if path.startswith('/api/narrative/') and path.rstrip('/').endswith('/propagation'):
+        # Uno por narrativa si existe (narrative-propagation/<id>.json); si no, el genérico.
+        nid = path.rstrip('/').split('/')[-2]
+        per = os.path.join('narrative-propagation', nid + '.json')
+        return per if os.path.exists(os.path.join(FIX, per)) else 'narrative-propagation.json'
     for prefix, name in API:
         if path.startswith(prefix):
             return name

@@ -801,778 +801,96 @@
   .eco-map-marker:hover { stroke-width: 3 !important; }
 
   /* ============================================== */
-  /* Narrativas — análisis con streamgraph + menu    */
+  /* Narrativas — página integrada (oct-2026)        */
   /* ============================================== */
-  .narrative-screen {
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    /* 14px no existe en la escala de espaciado (tokens.css §2). */
-    gap: var(--gap-grid);
-    min-height: calc(100vh - 140px);
-  }
-  .narrative-menu {
-    background: var(--canvas);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-lg);
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    height: calc(100vh - 140px);
-    position: sticky;
-    top: 12px;
-    overflow: hidden;
-  }
-  .narrative-search {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: var(--r);
-    border: 1px solid var(--hairline-strong);
-    background: var(--canvas-2);
-    color: var(--text);
-    font-family: var(--ff-sans);
-    font-size: 13px;
-    outline: none;
-    box-sizing: border-box;
-  }
-  /* ─────────────────────────────────────────────────────────────────────
-     NARRATIVAS · el naranja (--accent) queda reservado para LINKS.
-     ─────────────────────────────────────────────────────────────────────
-     Instrucción del usuario: "el naranja debería estar reservado para links,
-     hoy no lo está". En esta página el naranja se usaba para estados de
-     selección (chip activo, item activo), foco, tags de plataforma, el pico
-     del timeline y las barras de "Top voces" — todos elementos que NO son
-     enlaces, y que competían por atención con los "Ver fuente →" reales.
-
-     Nueva regla, alcance = página de Narrativas:
-       - selección / foco / activo  → neutro (--text, --hairline-strong,
-         --canvas-2). La jerarquía la da el peso y el fondo, no el color.
-       - color semántico de estado  → el punto de color del estado de la
-         narrativa (peaking/active/…), que ya existía.
-       - naranja                    → SOLO .narrative-link y <a>.
-     ───────────────────────────────────────────────────────────────────── */
-  .narrative-search:focus { border-color: var(--text-2); }
-  .narrative-status-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  /* ─────────────────────────────────────────────────────────────────────
-     NARRATIVAS · el naranja (--accent) queda reservado para LINKS.
-     ─────────────────────────────────────────────────────────────────────
-     Instrucción del usuario: "el naranja debería estar reservado para links,
-     hoy no lo está". En esta página el naranja marcaba estados de selección
-     (chip de estado activo, item de la lista activo), foco, tags de plataforma
-     y los marcadores del timeline — ninguno es un enlace, y todos competían
-     por atención con los "Ver fuente →" reales.
-
-     La selección pasa a neutro (peso + relleno en --text), que es más fuerte
-     que un tinte de color y no gasta el hue de los links. El color semántico
-     sigue viviendo en el punto de estado de la narrativa.
-
-     Nota de alcance: el usuario eligió aplicar esto SOLO a Narrativas, así que
-     la primitiva global `.chip.active` (línea ~336) no se toca; esto es un
-     override acotado a `.narrative-status-filters`. */
-  .narrative-status-filters .chip.active {
-    background: var(--text);
-    border-color: var(--text);
-    color: var(--canvas);
-  }
-  /* El aro del punto de estado se calculaba contra --on-accent (el relleno de
-     acento). Sobre el relleno neutro el par correcto es --canvas. */
-  .narrative-status-filters .chip.active .narrative-dot {
-    box-shadow: 0 0 0 1.5px var(--canvas);
-  }
-  /* .btn-chip era un SEGUNDO primitivo de chip con la representación de
-     "activo" INVERTIDA respecto de .chip (tinte contra relleno sólido) a 40px
-     de distancia en la misma pantalla. Los filtros de Narrativas usan ahora
-     .chip; lo único que .btn-chip aportaba y .chip no tenía era el estado
-     deshabilitado, que sube a la primitiva. */
+  /* Estado deshabilitado de la primitiva .chip (vivía en el bloque viejo de
+     Narrativas; lo usan los chips de orden de otras pantallas). */
   .chip.disabled,
   .chip:disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
-  /* Sobre el relleno sólido del chip activo, un punto de DATO queda a ~1.6:1;
-     el aro lo devuelve al primer plano sin tocar su hue. */
-  .chip.active .narrative-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
-  .narrative-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: var(--r-circle);
-    flex-shrink: 0;
-    display: inline-block;
-    box-sizing: border-box;
-    background: var(--narr-tone, var(--text-3));
-  }
-  /* "Sin clasificar" NO puede ser un segundo gris: --narr-unknown y
-     --narr-dormant están a ΔE76 10.7 en oscuro y 6.0 en claro, indistinguibles
-     en un punto de 8px y en un trazo de sparkline de 1.2px. Se separan por
-     FORMA —anillo hueco— igual que .pill-unknown se separa por trama: una
-     narrativa muerta y una que el clasificador no supo etiquetar son cosas
-     distintas y son 3 de las 8 narrativas de la lista. */
-  .narrative-dot.is-unknown {
-    background: transparent;
-    border: 1.5px solid var(--narr-tone, var(--text-3));
-  }
-  .narrative-menu-count { font-family: var(--ff-mono);
-    font-size: var(--fs-overline);
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-overline);
-    padding: 0 2px;
-  }
-  .narrative-list {
-    list-style: none;
-    margin: 0;
-    padding: 0 4px 0 0;
-    overflow-y: auto;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .narrative-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: var(--r);
-    cursor: pointer;
-    border: 1px solid transparent;
-    transition: background 0.12s var(--ease);
-  }
-  .narrative-item:hover { background: var(--canvas-2); }
-  .narrative-item.active {
-    background: var(--canvas-2);
-    border-color: var(--hairline-strong);
-    box-shadow: inset 2px 0 0 var(--text);
-  }
-  .narrative-item .narrative-dot { margin-top: 4px; align-self: flex-start; }
-  .narrative-item-body { flex: 1; min-width: 0; }
-  .narrative-item-name {
-    font-size: var(--fs-body-sm);
-    font-weight: 600;
-    color: var(--text);
-    line-height: 1.3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-  .narrative-item-meta {
-    font-size: var(--fs-caption);
-    color: var(--text-3);
-    display: flex;
-    gap: var(--sp-15);
-    margin-top: 2px;
-  }
-  .narrative-sparkline {
-    width: 56px;
-    height: 18px;
-    flex-shrink: 0;
-    opacity: 0.85;
-  }
-  .narrative-empty-li {
-    padding: 24px 12px;
-    color: var(--text-3);
-    font-size: 13px;
-    text-align: center;
-  }
-
-  /* El inset vive en la CARD, no en uno de sus hijos. El conmutador
-     Detalle/Mapa, la card del grafo y el EmptyState de "elige una narrativa"
-     son HERMANOS de .narrative-analysis, así que con el padding puesto en el
-     hijo el pill saturado del conmutador arrancaba a 0px del borde de la card
-     (medido: borde en x=1164, relleno del pill en x=1166) mientras la píldora
-     de estado, el streamgraph y los seis paneles arrancaban a 20px. Un solo
-     padding alinea los cuatro hermanos. */
-  .narrative-canvas {
-    background: var(--canvas);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-lg);
-    overflow: auto;
-    padding: var(--pad-card) var(--pad-card-lg) var(--sp-6);
-  }
-  .narrative-empty {
-    padding: 80px 24px;
-    color: var(--text-2);
-    text-align: center;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .narrative-empty-error { color: var(--neg); }
-  .narrative-empty-small {
-    padding: 16px;
-    font-size: var(--fs-caption);
-    color: var(--text-3);
-    font-style: italic;
-    text-align: center;
-  }
-
-  .narrative-analysis { padding: 0; } /* el inset lo pone .narrative-canvas */
-
-  .narrative-header {
-    display: flex;
-    gap: 16px;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--hairline);
-    margin-bottom: 16px;
-  }
-  .narrative-header-main { flex: 1; min-width: 0; }
-  .narrative-header-row {
-    display: flex;
-    /* baseline, no center: cuando el título envuelve a dos líneas ("Apagones y
-       confianza en" / "LUMA" en 390px) `center` dejaba la píldora PICO flotando
-       entre las dos líneas, sin pertenecer a ninguna. Con baseline se apoya en
-       la línea base de la primera, que es la que lleva el nombre. */
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  /* Píldora TINTADA, no rellena. Antes era `color: white` sobre el color del
-     estado (2.38:1 con el naranja de "Pico"): el mismo defecto de blanco sobre
-     relleno saturado que tokens.css resuelve con --on-*. Tintada usa el color
-     del estado como TEXTO —los seis pasan AA sobre --canvas— y como fondo una
-     versión translúcida, igual que .pill-pos / .pill-neg. */
-  /* Hereda .pill (radio de píldora, padding, tamaño, nowrap): era el único
-     rectángulo de --r-sm rodeado de píldoras de --r-pill — en la captura PICO
-     sale cuadrado y apagón/LUMA/abonados ovalados. Aquí queda SÓLO el tono:
-     píldora tintada, no rellena, porque `color: white` sobre el color del
-     estado daba 2.38:1 con el naranja de "Pico". */
-  .narrative-status-pill {
-    font-weight: 600;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--narr-tone, var(--text-2));
-    background: color-mix(in oklab, var(--narr-tone, var(--text-2)) 14%, transparent);
-    border: 1px solid color-mix(in oklab, var(--narr-tone, var(--text-2)) 32%, transparent);
-  }
-  .narrative-title {
-    margin: 0;
-    font-family: var(--ff-display);
-    /* Token fluido: 20px fijos eran el mismo tamaño en 390px que en 1440px, y
-       el nombre de la narrativa es el objeto de toda la pantalla. */
-    font-size: var(--fs-display-lg);
-    line-height: var(--lh-display-lg);
-    font-weight: 700;
-    color: var(--text);
-    letter-spacing: var(--letter-display);
-  }
-  .narrative-summary {
-    color: var(--text-2);
-    font-size: 13px;
-    line-height: 1.5;
-    margin: 4px 0 8px;
-    max-width: 740px;
-  }
-  .narrative-keywords {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-15);
-    margin-top: 4px;
-  }
-  .narrative-tag {
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: var(--canvas-2);
-    border: 1px solid var(--hairline-strong);
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-  }
-  .narrative-tag-mini {
-    padding: 1px 6px;
-    border-radius: 4px;
-    /* Neutro, no --accent: un tag de plataforma ("Facebook", "news") no es un
-       enlace, y en Narrativas el naranja queda reservado para links. */
-    background: var(--canvas-2);
-    border: 1px solid var(--hairline-strong);
-    color: var(--text-2);
-    font-size: var(--fs-caption);
-    margin-left: 4px;
-  }
-  /* Las cifras las pinta <StatBox> (screens.js), el primitivo de KPI del
-     sistema; aquí sólo queda la caja que las alinea. Las tres reglas que había
-     (.narrative-metric / -label / -value) eran una copia a mano de StatBox con
-     18px en vez de 30px, otro peso y otro tracking: se borran para que no puedan
-     volver a divergir. `text-align: right` para que etiqueta y cifra compartan
-     el borde derecho del encabezado (en ≤980px pasa a rejilla a la izquierda).
-     18px tampoco existía en la escala de espaciado. */
-  .narrative-header-metrics {
-    display: flex;
-    gap: var(--sp-5);
-    flex-shrink: 0;
-    text-align: right;
-  }
-
-  .narrative-stream-wrap {
-    /* Un solo medianil vertical en el panel: había 12px entre columnas, 14px
-       entre filas y 16px bajo el streamgraph. */
-    margin-bottom: var(--gap-grid);
-    padding: var(--sp-3);
-    background: var(--canvas-2);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r);
-  }
-  .narrative-stream-legend {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-    margin-bottom: 8px;
-    flex-wrap: wrap;
-  }
-  .narrative-stream-key {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-15);
-  }
-  .narrative-stream-key i {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    /* --r-sm: la misma curvatura que las demás muestras cuadradas de leyenda. */
-    border-radius: var(--r-sm);
-  }
-  /* Anclas de escala del timeline (días, total, pico) — separadas de la
-     leyenda de color por un hairline para que se lean como metadatos. */
-  .narrative-stream-scale {
-    color: var(--text-2);
-    font-size: var(--fs-caption);
-    padding-left: 12px;
-    border-left: 1px solid var(--hairline);
-    font-variant-numeric: tabular-nums;
-  }
-  .narrative-stream-hint {
-    margin-left: auto;
-    color: var(--text-3);
-    font-style: italic;
-    font-size: var(--fs-caption);
-  }
-  .narrative-stream-svg {
-    width: 100%;
-    height: auto;
-    max-height: 280px;
-    display: block;
-  }
-  /* Un estado, un color. La banda del día seleccionado se pintaba con
-     rgba(63,181,216,…) —el azul del tema `costa`, ajeno a esta paleta, el mismo
-     defecto que tokens.css:349-352 documenta para HourActivityCard— mientras la
-     línea y el punto del MISMO día iban en --accent; y el hover usaba ese mismo
-     cian, así que hover y selección compartían hue. Ahora el hover es neutro y
-     sólo la selección usa el hue de selección.
-     `.is-selected` va DESPUÉS del hover a propósito: misma especificidad, gana
-     la última, así que el cursor sobre el día ya elegido no lo apaga.
-
-     Selección en NEUTRO y no en --accent-fill: en Narrativas el naranja queda
-     reservado para links (instrucción del usuario), y el día seleccionado no
-     es un enlace. El contraste lo da la mezcla sobre --text, que funciona en
-     claro y oscuro. */
-  .narrative-stream-day:hover rect { fill: var(--hairline); }
-  .narrative-stream-day.is-selected rect { fill: color-mix(in oklab, var(--text) 14%, transparent); }
-
-  /* Horizontal y vertical con el MISMO token: 12/14 mezclados hacían que la
-     retícula de paneles no cuadrara consigo misma, y 14 no está en la escala. */
-  .narrative-grid-3 {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: var(--gap-grid);
-    margin-bottom: var(--gap-grid);
-  }
-  .narrative-grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--gap-grid);
-    margin-bottom: var(--gap-grid);
-  }
-  .narrative-panel {
-    background: var(--canvas-2);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r);
-    padding: var(--sp-3);
-    margin-bottom: var(--gap-grid);
-  }
-  .narrative-grid-3 .narrative-panel,
-  .narrative-grid-2 .narrative-panel { margin-bottom: 0; }
-  .narrative-panel-label { font-family: var(--ff-mono);
-    font-size: var(--fs-overline);
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-overline);
-    margin-bottom: 10px;
-  }
-  .narrative-sentiment-bar {
-    display: flex;
-    height: 10px;
-    border-radius: 5px;
-    overflow: hidden;
-    background: var(--canvas);
-    margin-bottom: 8px;
-  }
-  .narrative-sentiment-bar span { display: block; height: 100%; }
-  .narrative-sentiment-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-  }
-  .narrative-sentiment-row > span {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-15);
-  }
-  .narrative-sentiment-row i {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-  .narrative-peak {
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--hairline);
-  }
-  .narrative-bar-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .narrative-bar-list li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-caption);
-    color: var(--text);
-  }
-  .narrative-bar-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* Sin `max-width`: el tope de 80px recortaba la escala de magnitud a un tercio
-     de la columna y regalaba el resto al hueco entre un nombre corto ("News") y
-     la pista. El dominio y la escala no cambian —siguen siendo lineales sobre el
-     máximo del panel—, cambia el CONTENEDOR: los dos flex (nombre 1 : pista 1.2)
-     se reparten el ancho disponible, así que la pista crece con la columna y en
-     ≤768px, donde el grid colapsa a 1fr, aprovecha el ancho completo. */
-  .narrative-bar-track {
-    flex: 1.2;
-    height: 6px;
-    background: var(--canvas);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  /* --neu (gris del DATO) y no --text-3 (gris del TEXTO, y además --chart-axis):
-     el largo de esta barra ES el dato, así que su relleno es relleno de dato. No
-     --seq-*: en esta lista el color no codifica nada —las seis barras van del
-     mismo color y lo que varía es el largo—, y la rampa --seq-* es del hue de
-     accent, que aquí queda reservado para links. */
-  .narrative-bar-fill {
-    display: block;
-    height: 100%;
-    background: var(--neu);
-    border-radius: 3px;
-  }
-
-  /* Barra de impacto por narrativa: sitúa su volumen contra la más grande del
-     conjunto. Color = estado de la narrativa (inline), no naranja. */
-  .narrative-item-impact {
-    display: block;
-    height: 3px;
-    /* --r-pill: en una barra de 3px de alto, 2px de radio ya es una cápsula. El
-       sistema tiene un token para eso y así la micro-barra no queda como el único
-       radio fuera de escala del archivo. */
-    border-radius: var(--r-pill);
-    background: var(--canvas);
-    margin-top: 5px;
-    overflow: hidden;
-  }
-  .narrative-item-impact span {
-    display: block;
-    height: 100%;
-    /* El relleno hereda la cápsula de su pista: con 3px de alto, `inherit` y
-       --r-pill dan lo mismo, y así el relleno no puede desincronizarse del track
-       si mañana cambia el radio de la pista. */
-    border-radius: inherit;
-    opacity: 0.75;
-  }
-  .narrative-bar-count {
-    color: var(--text-2);
-    font-size: var(--fs-caption);
-    font-variant-numeric: tabular-nums;
-    min-width: 30px;
-    text-align: right;
-  }
-
-  .narrative-init-author {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text);
-    font-size: 13px;
-  }
-  .narrative-init-date,
-  .narrative-init-meta {
-    color: var(--text-3);
-    font-size: var(--fs-caption);
-    margin-top: 4px;
-  }
-  .narrative-init-snippet {
-    color: var(--text-2);
-    font-size: var(--fs-caption);
-    margin-top: 8px;
-    line-height: 1.5;
-  }
-  .narrative-link {
-    display: inline-block;
-    color: var(--accent);
-    font-size: var(--fs-caption);
-    text-decoration: none;
-    margin-top: 6px;
-  }
-  .narrative-link:hover { text-decoration: underline; }
-
-  .narrative-mentions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .narrative-mention-row {
-    padding: 8px 10px;
-    background: var(--canvas);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-sm);
-  }
-  .narrative-mention-title {
-    font-size: var(--fs-body-sm);
-    font-weight: 500;
-    color: var(--text);
-    line-height: 1.35;
-  }
-  .narrative-mention-meta {
-    font-size: var(--fs-caption);
-    color: var(--text-3);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 4px;
-    align-items: center;
-  }
-  .narrative-mention-meta a { color: var(--accent); text-decoration: none; }
-  .narrative-sentiment-mini {
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: var(--fs-caption);
-    text-transform: capitalize;
-    background: var(--canvas-2);
-  }
-  .narrative-sentiment-mini.sent-positivo,
-  .narrative-sentiment-mini.sent-positive { color: var(--pos); background: var(--pos-bg); }
-  .narrative-sentiment-mini.sent-negativo,
-  .narrative-sentiment-mini.sent-negative { color: var(--neg); background: var(--neg-bg); }
-
-  .narrative-related-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .narrative-related-btn {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-sm);
-    background: var(--canvas);
-    color: var(--text);
-    font-family: var(--ff-sans);
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.12s var(--ease);
-  }
-  .narrative-related-btn:hover {
-    border-color: var(--accent);
-    background: var(--accent-fill);
-  }
-  .narrative-related-name {
-    flex: 1;
-    font-size: var(--fs-body-sm);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .narrative-related-meta {
-    color: var(--text-3);
-    font-size: var(--fs-caption);
-    text-transform: lowercase;
-  }
-
-  /* Day drawer */
-  .narrative-day-drawer {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-  }
-  .narrative-day-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(2px);
-    animation: dayOverlayIn 0.18s ease;
-  }
-  .narrative-day-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(540px, 92vw);
-    background: var(--canvas);
-    border-left: 1px solid var(--hairline-strong);
-    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.18);
-    display: flex;
-    flex-direction: column;
-    animation: drawerIn 0.22s var(--ease);
-  }
-  @keyframes drawerIn {
-    from { transform: translateX(16px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
-  @keyframes dayOverlayIn {
-    from { opacity: 0; } to { opacity: 1; }
-  }
-  .narrative-day-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--hairline);
-  }
-  .narrative-day-eyebrow { font-family: var(--ff-mono);
-    font-size: var(--fs-overline);
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-overline);
-  }
-  .narrative-day-title {
-    font-family: var(--ff-display);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text);
-    margin-top: 4px;
-  }
-  .narrative-day-count {
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-    margin-top: 4px;
-  }
-  .narrative-day-close {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 1px solid var(--hairline-strong);
-    background: var(--canvas-2);
-    color: var(--text);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .narrative-day-close:hover { background: var(--canvas); border-color: var(--accent); }
-  .narrative-day-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px 20px;
-  }
-  .narrative-day-cluster {
-    margin-bottom: 18px;
-  }
-  .narrative-day-cluster-label { font-family: var(--ff-mono);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-overline);
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-overline);
-    color: var(--text-2);
-    margin-bottom: 8px;
-  }
-  .narrative-day-cluster-label em {
-    font-style: normal;
-    color: var(--text-3);
-    font-size: var(--fs-caption);
-  }
-  .narrative-day-mention {
-    padding: 10px 12px;
-    background: var(--canvas-2);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-sm);
-    margin-bottom: 6px;
-  }
-  .narrative-day-mention-title {
-    font-size: var(--fs-body-sm);
-    font-weight: 500;
-    color: var(--text);
-    line-height: 1.4;
-  }
-  .narrative-day-mention-meta {
-    font-size: var(--fs-caption);
-    color: var(--text-3);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 4px;
-    align-items: center;
-  }
-  .narrative-day-mention-meta strong { color: var(--text-2); font-weight: 600; }
-  .narrative-day-mention-snippet {
-    font-size: var(--fs-caption);
-    color: var(--text-2);
-    margin-top: 6px;
-    line-height: 1.45;
-  }
-
-  /* 1024px, no 980. Los cortes del sistema son DOS —768 y 1024— y son los que
-     `ecoUseBreakpoint()` devuelve como 'mobile' / 'tablet' / 'desktop'. Narrativas
-     era la única pantalla con un corte propio, así que entre 981 y 1024 el CSS ya
-     había colapsado a una columna mientras el JS seguía devolviendo 'desktop' y
-     las reglas táctiles del bloque de 768 no aplicaban: dos ideas distintas del
-     mismo ancho. */
-  @media (max-width: 1024px) {
-    /* En una columna el grid ya no necesita el alto de la ventana: con
-       min-height y dos filas auto, el reparto del sobrante abría 125px de vacío
-       entre dos cards cuyo gap declarado es --gap-grid. */
-    .narrative-screen { grid-template-columns: 1fr; min-height: 0; align-content: start; }
-    /* El alto sale del viewport, no de un 400px fijo del que los chips a 44px
-       (pointer: coarse) se comían ~150px y dejaban 3 de 8 narrativas visibles.
-       El padding se iguala al inset de la card de análisis: apiladas, las dos
-       cards tenían un escalón de 8px (contenido en x=25 contra x=33). */
-    .narrative-menu { position: relative; height: auto; max-height: min(70vh, 520px); padding: var(--pad-card-lg); }
-    .narrative-grid-3, .narrative-grid-2 { grid-template-columns: 1fr; }
-    .narrative-header { flex-direction: column; }
-    /* Rejilla de 3 columnas iguales y texto a la izquierda: con space-between +
-       text-align:right cada cifra cerraba contra su propia celda y la fila de
-       tres KPI se leía sin eje común (la primera cifra colgaba 29px a la
-       derecha del borde izquierdo de su etiqueta). El selector va por hijos
-       para alinear igual con <StatBox> o con los divs antiguos. */
-    .narrative-header-metrics { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
-    .narrative-header-metrics > * { text-align: left; }
-  }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .nx-secn { font: var(--fw-semibold) var(--fs-label) var(--ff-mono); color: var(--canvas); background: var(--text); border-radius: var(--r-sm); padding: 0 var(--sp-15); margin-right: var(--sp-2); }
+  .nx-selbar {
+    display: flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3); background: var(--canvas); border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-md); font-size: var(--fs-body-sm);
+  }
+  .nx-selbar b { font-weight: var(--fw-semibold); }
+  .nx-muted { color: var(--text-3); }
+  .nx-note { font-size: var(--fs-body-sm); color: var(--text-3); margin: var(--sp-3) 0 0; }
+  .nx-over { font-size: var(--fs-overline); font-weight: var(--fw-semibold); letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+  .nx-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--text-3); font-size: var(--fs-body-sm); }
+  .nx-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-15) var(--sp-4); font-size: var(--fs-body-sm); color: var(--text-2); }
+  .nx-legend > span { display: inline-flex; align-items: center; gap: var(--sp-15); }
+  .nx-sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
+  .nx-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .nx-badge { display: inline-flex; padding: 0 var(--sp-15); border-radius: var(--r-sm); font: var(--fw-semibold) var(--fs-label) var(--ff-mono); background: var(--canvas-2); color: var(--text-2); border: 1px solid var(--hairline); white-space: nowrap; }
+  .nx-delta { font: var(--fw-medium) var(--fs-body-sm) var(--ff-mono); white-space: nowrap; color: var(--text-3); }
+  /* Etiquetas de origen y estado: el estado es forma + texto, nunca color. */
+  .nx-org { display: inline-flex; align-items: center; padding: 0 var(--sp-15); border-radius: var(--r-sm); font: var(--fw-semibold) var(--fs-label)/20px var(--ff-sans); white-space: nowrap; border: 1px solid var(--hairline-strong); color: var(--text-2); background: var(--canvas); }
+  .nx-st { display: inline-flex; align-items: center; gap: 5px; font: var(--fw-semibold) var(--fs-label)/20px var(--ff-mono); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+  .nx-st i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-sizing: border-box; }
+  .nx-st.emerging i { border: 2px solid var(--text); }
+  .nx-st.active i { background: var(--text); }
+  .nx-st.declining i { background: linear-gradient(90deg, var(--text-3) 50%, transparent 50%); border: 1px solid var(--text-3); }
+  .nx-st.dormant i { border: 1px solid var(--text-3); }
+  .nx-st.emerging, .nx-st.active { color: var(--text); }
+  .nx-st.declining, .nx-st.dormant { color: var(--text-3); }
+  /* SVG en píxeles reales: 13px es el piso tipográfico. */
+  .nx-svg text { font-family: var(--ff-mono); font-size: var(--fs-caption); fill: var(--text-3); }
+  .nx-svg .nx-sans { font-family: var(--ff-sans); font-size: var(--fs-body-sm); }
+  .nx-svg .nx-dup { font: var(--fw-semibold) var(--fs-caption) var(--ff-mono); text-transform: uppercase; fill: var(--warn); }
+  .nx-band { cursor: pointer; }
+  .nx-band:hover { stroke: var(--action); stroke-width: 2; }
+  .nx-lane { cursor: pointer; outline: none; }
+  .nx-lane:focus-visible rect.nx-hl { stroke: var(--action); stroke-width: 2; }
+  .nx-lane:hover rect.nx-hl { fill: var(--action-fill); }
+  /* 01 · Historias */
+  .nx-hist { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+  @media (max-width: 1100px) { .nx-hist { grid-template-columns: 1fr; } }
+  .nx-leg-head { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 40px; gap: var(--sp-2); padding: 0 var(--sp-15) var(--sp-1); font-size: var(--fs-caption); color: var(--text-3); }
+  .nx-leg-story { margin-bottom: var(--sp-3); }
+  .nx-leg-story h4 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body-sm); font-weight: var(--fw-semibold); margin: 0 0 var(--sp-1); min-width: 0; }
+  .nx-kind { font: var(--fw-semibold) var(--fs-caption) var(--ff-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); flex: none; }
+  .nx-leg-row { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 40px; gap: var(--sp-2); align-items: center; width: 100%; min-height: 36px; padding: var(--sp-1) var(--sp-15); border-radius: var(--r-sm); font-size: var(--fs-body-sm); }
+  .nx-leg-row:hover, .nx-leg-row:focus-visible { background: var(--canvas-2); }
+  .nx-leg-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+  .nx-leg-row[aria-pressed="true"] { background: var(--action-fill); box-shadow: inset 3px 0 0 var(--text); }
+  .nx-nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 02 · Ciclo de vida */
+  .nx-alert { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); overflow: hidden; }
+  .nx-alert-stp { background: var(--neg); }
+  .nx-alert-in { padding: var(--sp-3) var(--sp-4); }
+  .nx-alert h3 { font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); margin: 0 0 var(--sp-1); }
+  .nx-alert p { margin: 0; font-size: var(--fs-body-sm); color: var(--text-2); }
+  .nx-alert-act { padding: var(--sp-3) var(--sp-4); display: flex; align-items: center; }
+  @media (max-width: 640px) { .nx-alert { grid-template-columns: 4px minmax(0, 1fr); } .nx-alert-act { grid-column: 2; padding: 0 var(--sp-4) var(--sp-3); } }
+  .nx-kan { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
+  @media (max-width: 1000px) { .nx-kan { grid-template-columns: 1fr; } }
+  .nx-kcol { background: var(--canvas-2); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+  .nx-kcol h3 { font-size: var(--fs-body-sm); font-weight: var(--fw-semibold); margin: var(--sp-05) var(--sp-1); display: flex; justify-content: space-between; align-items: center; }
+  .nx-card { all: unset; box-sizing: border-box; cursor: pointer; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+  .nx-card:hover { border-color: var(--hairline-strong); }
+  .nx-card:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+  .nx-card[aria-pressed="true"] { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
+  .nx-card h4 { font-size: var(--fs-body); font-weight: var(--fw-semibold); line-height: 1.3; margin: 0; overflow-wrap: anywhere; }
+  .nx-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-body-sm); color: var(--text-3); align-items: center; }
+  .nx-meta b { color: var(--text); font-family: var(--ff-mono); font-weight: var(--fw-semibold); }
+  .nx-cap { font: var(--fw-medium) var(--fs-caption) var(--ff-mono); color: var(--text-3); }
+  .nx-kan-legend { font-size: var(--fs-body-sm); color: var(--text-3); display: flex; flex-wrap: wrap; gap: var(--sp-15) var(--sp-4); }
+  .nx-kan-legend > span { display: inline-flex; align-items: center; gap: var(--sp-15); }
+  /* 03 · Propagación */
+  .nx-prop { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+  @media (max-width: 1100px) { .nx-prop { grid-template-columns: 1fr; } }
+  .nx-mile { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: var(--sp-3); }
+  @media (max-width: 760px) { .nx-mile { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--sp-2); } }
+  .nx-mile > div { border-left: 2px solid var(--hairline-strong); padding: 2px var(--sp-2); font-size: var(--fs-body-sm); color: var(--text-2); min-width: 0; }
+  .nx-mile b { display: block; font: var(--fw-semibold) var(--fs-body-sm) var(--ff-mono); color: var(--text); }
+  .nx-mile span { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .nx-vrow { display: grid; grid-template-columns: 28px minmax(0, 1fr) 64px; gap: var(--sp-2); align-items: center; padding: var(--sp-2) 0; border-top: 1px solid var(--hairline); font-size: var(--fs-body-sm); }
+  .nx-vrow:first-of-type { border-top: 0; }
 </style>
 </head>
 <body>
@@ -1739,7 +1057,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc86';
+        s.src = base + '/' + f + '?v=prodc87';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {
