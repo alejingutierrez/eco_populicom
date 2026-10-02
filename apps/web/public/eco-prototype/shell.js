@@ -568,9 +568,15 @@ function ecoFmtRange(from, to) {
   return `${fd} ${ECO_MONTHS[fm - 1]} ${fy} – ${td} ${ECO_MONTHS[tm - 1]} ${ty}`;
 }
 
+// Ayer en AST (YYYY-MM-DD): el último día cerrado, sea cual sea el periodo.
+function ecoYesterdayAst() {
+  const c = new Date(Date.now() - 4 * 3600 * 1000);
+  c.setUTCDate(c.getUTCDate() - 1);
+  return c.toISOString().slice(0, 10);
+}
+
 // showPeriod=false oculta el control de período y pinta una nota explicando la
-// ausencia. Hoy NINGUNA pantalla lo usa (Narrativas recuperó las fechas en
-// ago-2026); se conserva el prop para no reconstruir el mecanismo.
+// ausencia. Lo usa Narrativas (oct-2026): cada bloque tiene su ventana fija.
 //
 // Header H1 «Una fila» (sep-2026): título + la ventana REAL bajo él; período;
 // buscar (abre ⌘K, que ya busca menciones y URL y navega); exportar; asistente.
@@ -653,7 +659,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
               el usuario dijo, y ahí «al cierre de ayer» sería falso. */}
           {showPeriod && !isCustom && <span>· al cierre de ayer</span>}
           {showPeriod && isCustom && <span>· rango personalizado</span>}
-          {!showPeriod && <span>Sin filtro de fechas · cada narrativa muestra su ciclo completo</span>}
+          {!showPeriod && <span>Ventanas fijas al cierre de ayer ({ecoFmtRange(ecoYesterdayAst(), ecoYesterdayAst())}) · 30 días, 7 contra 7 y 26 semanas</span>}
           {current && current.archived && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--text)' }}>
               <Icons.Info size={12} color="var(--neg)" />Agencia archivada · solo histórico

@@ -6512,1226 +6512,784 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
 }
 
 // ============================================================
-// NarrativeScreen — análisis de UNA narrativa en timeline (streamgraph)
+// NarrativeScreen — página Narrativas (oct-2026, propuesta integrada)
 // ============================================================
-const NARRATIVE_STATUS_ORDER = ['peaking', 'active', 'emerging', 'revived', 'declining', 'dormant'];
-// Colores desde tokens.css (--narr-*). Antes eran hex de Ant Design incrustados
-// aquí; `peaking` (#FA8C16) con texto blanco daba 2.38:1 y fallaba AA.
-const NARRATIVE_STATUS_COLORS = {
-  peaking: 'var(--narr-peaking)',
-  active: 'var(--narr-active)',
-  emerging: 'var(--narr-emerging)',
-  revived: 'var(--narr-revived)',
-  declining: 'var(--narr-declining)',
-  dormant: 'var(--narr-dormant)',
+// Cuatro bloques encadenados sobre UN solo universo de menciones (asignación
+// principal, sin duplicados, pertinente, «solo fecha» cuando la hora llega en
+// blanco, una voz por medio): 01 la serie de las historias de los últimos 30
+// días, 02 el tablero por etapa de vida (7 días contra los 7 anteriores), 03 la
+// propagación de la narrativa elegida y 04 el mapa de 26 semanas con la más
+// reciente a la izquierda. Elegir una narrativa en cualquier bloque cambia la
+// propagación.
+//
+// Ventanas FIJAS que terminan ayer (AST): la página no usa el selector de
+// periodo (app.js lo oculta aquí), porque cada bloque tiene su escala.
+// Todo lo que se cuenta sale de /api/narrative/overview y
+// /api/narrative/[id]/propagation; aquí solo se dibuja.
+//
+// Nombres con prefijo nx/NX: los scripts del SPA comparten el ámbito global.
+const NX_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const NX_DIA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const nxT = (ymd) => Date.parse(ymd + 'T00:00:00Z');
+const nxD = (ymd) => new Date(nxT(ymd));
+const nxAddDays = (ymd, k) => new Date(nxT(ymd) + k * 86400000).toISOString().slice(0, 10);
+const nxDayLab = (ymd) => { const d = nxD(ymd); return `${NX_DIA[d.getUTCDay()]} ${d.getUTCDate()}`; };
+const nxDateLab = (ymd, year) => { const d = nxD(ymd); return `${d.getUTCDate()} ${NX_MES[d.getUTCMonth()]}${year ? ' ' + d.getUTCFullYear() : ''}`; };
+const nxMonthLab = (ymd) => { const d = nxD(ymd); return `${NX_MES[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+const nxTimeLab = (hhmm) => { const H = Number(hhmm.slice(0, 2)); const h12 = H % 12 === 0 ? 12 : H % 12; return `${h12}:${hhmm.slice(3, 5)} ${H < 12 ? 'a.m.' : 'p.m.'}`; };
+const nxHourTxt = (H) => (H === 0 ? '12 a.m.' : H < 12 ? `${H} a.m.` : H === 12 ? '12 m.' : `${H - 12} p.m.`);
+const nxFmt = (n) => Number(n || 0).toLocaleString('es-PR');
+const nxPct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const nxRange = (a, b) => {
+  const da = nxD(a), db = nxD(b);
+  if (da.getUTCMonth() === db.getUTCMonth() && da.getUTCFullYear() === db.getUTCFullYear()) return `${da.getUTCDate()}–${db.getUTCDate()} ${NX_MES[db.getUTCMonth()]}`;
+  return `${nxDateLab(a)} – ${nxDateLab(b)}`;
 };
-const NARRATIVE_STATUS_LABELS = {
-  peaking: 'Pico',
-  active: 'Activa',
-  emerging: 'Emergente',
-  revived: 'Revivida',
-  declining: 'Decae',
-  dormant: 'Dormida',
-};
-// La columna `status` de la DB puede traer valores fuera de este enum (el
-// lambda evoluciona más rápido que la SPA). Antes eso se renderizaba en INGLÉS
-// CRUDO, sin punto de color, y ningún chip lo contaba: se veía "Todas (8)" con
-// chips que sumaban 5 y tres narrativas invisibles al filtrado.
-// La fuerza de la arista puede llegar nula desde /api/narrative/edges. Antes
-// `(r.strength * 100).toFixed(0)` producía la cadena "NaN" y la UI mostraba
-// literalmente "· nan%" al usuario.
-function strengthPct(v) {
-  if (v == null || !Number.isFinite(Number(v))) return null;
-  return `${(Number(v) * 100).toFixed(0)}%`;
+const nxCut = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s);
+// «de» + el nombre con artículo: «del DDEC», «de la Gobernadora».
+const nxDe = (art) => (art.startsWith('el ') ? 'del ' + art.slice(3) : 'de ' + art);
+// Una sola regla de «negativo» para toda la página (la misma de la API).
+const nxIsNeg = (neg, n) => n >= 8 && neg / n >= 0.3;
+
+const NX_STATUS = { emerging: 'Naciendo', active: 'Activa', peaking: 'En pico', revived: 'Revivió', declining: 'Apagándose', dormant: 'Terminada' };
+const nxStCls = (s) => (s === 'peaking' || s === 'revived' ? 'active' : s in NX_STATUS ? s : 'dormant');
+// El estado se codifica con forma y texto, nunca con color: el color de la
+// página es la identidad de la historia, y --narr-* son alias de --cat-*.
+function NxStatus({ s }) {
+  return <span className={'nx-st ' + nxStCls(s)}><i aria-hidden="true" />{NX_STATUS[s] || s}</span>;
 }
-const NARRATIVE_STATUS_UNKNOWN = 'unknown';
-function narrativeStatusKey(status) {
-  return NARRATIVE_STATUS_ORDER.includes(status) ? status : NARRATIVE_STATUS_UNKNOWN;
+function NxOrigin({ o, short }) {
+  const L = { propia: short || 'Propia', prensa: 'Prensa', politica: 'Política', redes: 'Redes' };
+  return <span className="nx-org" title="Quién inició la narrativa">{L[o] || 'Redes'}</span>;
 }
-function narrativeStatusLabel(status) {
-  return NARRATIVE_STATUS_LABELS[status] || 'Sin clasificar';
-}
-function narrativeStatusColor(status) {
-  return NARRATIVE_STATUS_COLORS[status] || 'var(--narr-unknown)';
-}
-// Un solo punto de estado para las tres listas (chips de filtro, narrativas y
-// relacionadas). Antes cada sitio repetía el mismo `style={{ background: … }}`,
-// así que la distinción de `unknown` habría habido que recordarla tres veces.
-function NarrativeStatusDot({ status }) {
-  const key = narrativeStatusKey(status);
+function NxSecHd({ n, title, sub, right }) {
   return (
-    <span
-      className={`narrative-dot ${key === NARRATIVE_STATUS_UNKNOWN ? 'is-unknown' : ''}`}
-      style={{ '--narr-tone': narrativeStatusColor(status) }}
-    />
+    <div className="card-hd" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+      <div style={{ minWidth: 0 }}>
+        <div className="card-hd-title" style={{ display: 'flex', alignItems: 'center' }}><span className="nx-secn">{n}</span>{title}</div>
+        {sub && <div className="card-hd-sub">{sub}</div>}
+      </div>
+      {right}
+    </div>
   );
 }
 
-// Etiquetas amigables para claves crudas de plataforma / tipo de arista
-// (antes se mostraban "facebook_public", "co_occurrence", etc. al usuario).
-const PLATFORM_LABELS = {
-  facebook_public: 'Facebook', facebook: 'Facebook',
-  instagram_public: 'Instagram', instagram: 'Instagram',
-  news: 'Noticias', bluesky: 'Bluesky',
-  twitter: 'X', x: 'X', tumblr: 'Tumblr', youtube: 'YouTube',
-  reddit: 'Reddit', forum: 'Foros', blog: 'Blogs', desconocido: 'Otros',
-};
-function platformLabel(key) {
-  if (!key) return 'Otros';
-  const k = String(key).toLowerCase();
-  if (PLATFORM_LABELS[k]) return PLATFORM_LABELS[k];
-  const base = k.replace(/_(public|private)$/, '');
-  return base.charAt(0).toUpperCase() + base.slice(1);
+// Colores: cada historia (2+ narrativas en la serie) tiene una familia y la
+// claridad separa sus capítulos; una narrativa suelta, su propio color. En el
+// mapa la misma historia lleva el mismo color. Asignados EN ORDEN y sin
+// repetir: cuando se acaban los 8 de la paleta, la marca va en gris.
+function nxColors(data) {
+  const byId = data.byId;
+  const storyCount = {}, groupSize = {};
+  data.series.forEach((id) => { const s = byId[id] && byId[id].storyId; if (s) storyCount[s] = (storyCount[s] || 0) + 1; });
+  const groupOf = {}, groupColor = {}, seriesColor = {}, groupOrder = [];
+  data.series.forEach((id) => {
+    const s = byId[id].storyId;
+    const g = s && storyCount[s] >= 2 ? s : id;
+    groupOf[id] = g;
+    groupSize[g] = (groupSize[g] || 0) + 1;
+  });
+  let k = 0;
+  const seen = {};
+  data.series.forEach((id) => {
+    const g = groupOf[id];
+    if (!(g in groupColor)) { groupColor[g] = window.ecoCat(k++); groupOrder.push(g); }
+    const i = (seen[g] = (seen[g] || 0) + 1) - 1;
+    // La claridad se reparte en todo el grupo: cada capítulo, un tono distinto.
+    const mix = i === 0 ? 100 : Math.round(100 - (i * 55) / Math.max(1, groupSize[g] - 1));
+    seriesColor[id] = i === 0 ? groupColor[g] : `color-mix(in oklab, ${groupColor[g]} ${mix}%, var(--canvas))`;
+  });
+  return { groupOf, groupColor, seriesColor, groupOrder, nextCat: k };
 }
-const EDGE_TYPE_LABELS = {
-  co_occurrence: 'Co-ocurrencia',
-  author_overlap: 'Autores en común',
-  semantic: 'Similitud semántica',
-};
-function edgeTypeLabel(key) {
-  return EDGE_TYPE_LABELS[key] || (key ? String(key).replace(/_/g, ' ') : '');
+// Color de la marca de cada historia del mapa (solo las que se marcan). La
+// historia que también está en la serie conserva su color; las demás toman
+// uno que ninguna otra marca del mapa use (primero los libres en la serie).
+// Gris solo si se acaban los 8.
+function nxStoryColors(data, colors, storyIds) {
+  const out = {}, used = new Set();
+  const seriesUsed = new Set(Object.values(colors.groupColor));
+  const pool = [...window.ECO_CAT.filter((c) => !seriesUsed.has(c)), ...window.ECO_CAT.filter((c) => seriesUsed.has(c))];
+  const pending = [];
+  storyIds.forEach((sid) => {
+    const st = (data.stories || []).find((x) => x.id === sid);
+    const solo = st && st.memberIds.find((id) => colors.groupOf[id] === id);
+    const own = colors.groupColor[sid] || (solo && colors.groupColor[solo]);
+    if (own && !used.has(own)) { out[sid] = own; used.add(own); } else pending.push(sid);
+  });
+  pending.forEach((sid) => {
+    const c = pool.find((x) => !used.has(x));
+    out[sid] = c || 'var(--text-3)';
+    if (c) used.add(c);
+  });
+  return out;
 }
 
-// Catmull-Rom → cubic bezier. Devuelve un string SVG path.
-function smoothPath(points) {
-  if (!points || points.length === 0) return '';
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i += 1) {
-    const p0 = i === 0 ? points[0] : points[i - 1];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = i + 2 < points.length ? points[i + 2] : p2;
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
-  }
-  return d;
-}
-
-function NarrativeSparkline({ data, color, max }) {
-  if (!data || data.length === 0) return null;
-  // 56×18 = el tamaño REAL en CSS (.narrative-sparkline). El viewBox de 64 con
-  // preserveAspectRatio="none" comprimía la forma un 12.5% SÓLO en X y
-  // adelgazaba el trazo en un único eje.
-  const w = 56;
-  const h = 18;
-  // Escala COMPARTIDA por la lista visible. Normalizar por fila hacía que la
-  // altura de tinta fuera (1 - min/max)·16px, o sea INVERSA al volumen: Cierres
-  // (38 menciones) dibujaba una onda 2.4× más alta que Apagones (214),
-  // contradiciendo el número que está 20px a su izquierda. Con el máximo de la
-  // lista la altura vuelve a ser proporcional al volumen, y la base pintada en
-  // cero permite leer el NIVEL además de la forma.
-  const top = Math.max(Number(max) || 0, ...data, 1);
-  const stepX = w / Math.max(data.length - 1, 1);
-  const points = data.map((v, i) => ({ x: i * stepX, y: h - 1 - (v / top) * (h - 2) }));
+// --------------------------- 01 · Historias ---------------------------
+function NxSeriesChart({ data, colors, selected, onSelect }) {
+  const [ref, cw] = useChartWidth(720);
+  const W = Math.max(560, Math.floor(cw)), H = 340, L = 44, R = 12, T = 84, B = 30;
+  const days = data.windows.series.days, n = days.length;
+  const byId = data.byId;
+  const order = colors.groupOrder;
+  const ids = [...data.series].sort((a, b) => (a === selected ? -1 : b === selected ? 1 : 0)
+    || order.indexOf(colors.groupOf[a]) - order.indexOf(colors.groupOf[b]) || data.series.indexOf(a) - data.series.indexOf(b));
+  const totals = days.map((_, i) => ids.reduce((s, id) => s + byId[id].d30[i], 0));
+  const max = Math.max(5, Math.ceil(Math.max(...totals) / 10) * 10);
+  const x = (i) => L + (i * (W - L - R)) / (n - 1);
+  const y = (v) => T + (1 - v / max) * (H - T - B);
+  const base = days.map(() => 0);
+  const bands = {};
+  const paths = ids.map((id) => {
+    const a = byId[id];
+    const top = a.d30.map((c, i) => base[i] + c);
+    const d = top.map((t, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(t).toFixed(1)}`).join('')
+      + base.map((_, i) => `L${x(n - 1 - i).toFixed(1)},${y(base[n - 1 - i]).toFixed(1)}`).join('') + 'Z';
+    bands[id] = { lo: base.slice(), hi: top.slice() };
+    top.forEach((t, i) => { base[i] = t; });
+    return { id, d, a };
+  });
+  // Rótulos: el pico de cada grupo (4+ menciones), sin repetir día, como máximo 3.
+  const peaks = {};
+  ids.forEach((id) => byId[id].d30.forEach((c, i) => { const g = colors.groupOf[id]; if (!peaks[g] || c > peaks[g].c) peaks[g] = { c, i, id }; }));
+  const used = new Set();
+  const placed = [{ y: T - 12, x0: L, x1: L + 140 }]; // «menciones por día»
+  const labels = Object.values(peaks).filter((p) => p.c >= 4).sort((a, b) => b.c - a.c)
+    .filter((p) => (used.has(p.i) ? false : (used.add(p.i), true))).slice(0, 3).map((p) => {
+      const cx = x(p.i); const band = bands[p.id]; const mid = (y(band.hi[p.i]) + y(band.lo[p.i])) / 2;
+      const end = cx > W * 0.55; const label = nxCut(byId[p.id].name, 44); const wTxt = Math.min(320, label.length * 7.4);
+      const x0 = end ? cx - 8 - wTxt : cx + 8, x1 = x0 + wTxt;
+      // Encima de la silueta en su tramo; si choca con otro rótulo sube una
+      // fila, y si ya no cabe arriba se omite (mejor sin rótulo que encimado).
+      const top = Math.min(...days.map((_, i) => (x(i) >= x0 - 10 && x(i) <= x1 + 10 ? y(totals[i]) : H))) - 26;
+      let ly = null;
+      for (let c = Math.min(top, H - B - 40); c >= 16; c -= 38) {
+        if (!placed.some((q) => Math.abs(q.y - c) < 38 && x0 < q.x1 + 12 && x1 > q.x0 - 12)) { ly = c; break; }
+      }
+      if (ly === null) return null;
+      placed.push({ y: ly, x0, x1 });
+      return { p, cx, mid, ly, end, label };
+    }).filter(Boolean);
   return (
-    <svg className="narrative-sparkline" viewBox={`0 0 ${w} ${h}`} aria-hidden="true" focusable="false">
-      <line x1="0" y1={h - 1} x2={w} y2={h - 1} stroke="var(--hairline-strong)" strokeWidth="0.75" />
-      <path d={smoothPath(points)} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-// Grafo de narrativas — force-directed nativo en SVG (sin react-force-graph2d).
-// Porta la idea del NarrativeGraph local del usuario a la arquitectura del SPA,
-// reusando narratives + edges (/api/narrative + /api/narrative/edges) y la
-// paleta de estado. La simulación corre una sola vez por dataset (useMemo).
-function NarrativeGraph({ narratives, edges, focusedId, onSelect }) {
-  const W = 900, H = 560;
-  // El grafo SÍ se queda en un viewBox: la simulación de fuerzas se resuelve una
-  // vez en un espacio fijo (O(n²)·220 iteraciones) y recalcularla en cada resize
-  // costaría frames. Lo que se compensa es el TEXTO, que dentro de un viewBox
-  // escalado se multiplica por la escala de render: --fs-overline (11px) rendía
-  // 9.6px en desktop y 3.7px a 390px de viewport.
-  const [svgRef, svgW] = useChartWidth(W);
-  const layout = React.useMemo(() => {
-    const inEdge = new Set();
-    (edges || []).forEach((e) => { inEdge.add(e.source); inEdge.add(e.target); });
-    let nodes = (narratives || []).filter((n) => inEdge.has(n.id));
-    if (nodes.length < 40) {
-      const extra = [...(narratives || [])]
-        .sort((a, b) => (b.mentionCount || 0) - (a.mentionCount || 0))
-        .filter((n) => !inEdge.has(n.id))
-        .slice(0, 40 - nodes.length);
-      nodes = nodes.concat(extra);
-    }
-    nodes = nodes.slice(0, 80);
-    const idIdx = new Map(nodes.map((n, i) => [n.id, i]));
-    const links = (edges || []).filter((e) => idIdx.has(e.source) && idIdx.has(e.target));
-    const N = nodes.length;
-    const pos = nodes.map((_, i) => {
-      const a = (i / Math.max(1, N)) * Math.PI * 2;
-      return { x: W / 2 + Math.cos(a) * 220, y: H / 2 + Math.sin(a) * 180 };
-    });
-    const vel = pos.map(() => ({ x: 0, y: 0 }));
-    for (let it = 0; it < 220; it++) {
-      for (let i = 0; i < N; i++) {
-        for (let j = i + 1; j < N; j++) {
-          const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
-          const d2 = dx * dx + dy * dy || 0.01;
-          const d = Math.sqrt(d2);
-          const f = 1400 / d2;
-          const fx = (dx / d) * f, fy = (dy / d) * f;
-          vel[i].x += fx; vel[i].y += fy; vel[j].x -= fx; vel[j].y -= fy;
-        }
-      }
-      for (const e of links) {
-        const a = idIdx.get(e.source), b = idIdx.get(e.target);
-        const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const f = (d - 90) * 0.02 * (0.4 + (e.strength || 0.5));
-        const fx = (dx / d) * f, fy = (dy / d) * f;
-        vel[a].x += fx; vel[a].y += fy; vel[b].x -= fx; vel[b].y -= fy;
-      }
-      for (let i = 0; i < N; i++) {
-        vel[i].x += (W / 2 - pos[i].x) * 0.002;
-        vel[i].y += (H / 2 - pos[i].y) * 0.002;
-        vel[i].x *= 0.85; vel[i].y *= 0.85;
-        pos[i].x += vel[i].x; pos[i].y += vel[i].y;
-      }
-    }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    pos.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
-    return { nodes, pos, links, idIdx, bounds: { minX, minY, maxX, maxY } };
-  }, [narratives, edges]);
-
-  const { nodes, pos, links, idIdx, bounds } = layout;
-  const [hovered, setHovered] = React.useState(null);
-  if (!nodes.length) return <EmptyState reason="empty" title="Sin narrativas suficientes para el mapa" detail="Hacen falta al menos dos narrativas con relación entre ellas." />;
-  const pad = 44;
-  const vbW = (bounds.maxX - bounds.minX) + pad * 2;
-  const vbH = (bounds.maxY - bounds.minY) + pad * 2;
-  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${vbW} ${vbH}`;
-  // Con preserveAspectRatio="meet" (el default) la escala real es la MENOR de
-  // las dos relaciones, así que el factor que devuelve el texto a sus píxeles
-  // nominales es la MAYOR de las inversas.
-  const labelScale = Math.max(vbW / Math.max(1, svgW), vbH / H);
-  const maxMent = Math.max(1, ...nodes.map((n) => n.mentionCount || 0));
-  // Nodo activo (hover o foco): resalta sus conexiones y atenúa el resto para
-  // que las relaciones se lean claramente en vez de ser una maraña uniforme.
-  const active = hovered || focusedId;
-  const connected = new Set();
-  if (active) {
-    connected.add(active);
-    links.forEach((e) => {
-      if (e.source === active) connected.add(e.target);
-      if (e.target === active) connected.add(e.source);
-    });
-  }
-  // Etiquetar siempre las narrativas más grandes (top 12 por menciones) para
-  // que el mapa se entienda de un vistazo, no solo al hacer hover.
-  const topLabelIds = new Set(
-    [...nodes].sort((a, b) => (b.mentionCount || 0) - (a.mentionCount || 0)).slice(0, 12).map((n) => n.id)
-  );
-
-  return (
-    <div className="card" style={{ overflow: 'hidden' }}>
-      <div className="card-hd"><div>
-        <div className="card-hd-title">Mapa de conexiones</div>
-        <div className="card-hd-sub">{nodes.length} narrativas · {links.length} conexiones · pasa el cursor para ver relaciones, click para abrir</div>
-      </div></div>
-      <svg ref={svgRef} viewBox={vb} style={{ width: '100%', height: 560, display: 'block' }}>
-        {links.map((e, i) => {
-          const a = pos[idIdx.get(e.source)], b = pos[idIdx.get(e.target)];
-          const on = active && (e.source === active || e.target === active);
-          const dim = active && !on;
-          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-            stroke={on ? 'var(--accent)' : 'var(--hairline-strong)'}
-            strokeOpacity={dim ? 0.06 : on ? 0.9 : 0.2 + (e.strength || 0.3) * 0.5}
-            strokeWidth={(on ? 1.4 : 0.6) + (e.strength || 0.3) * 1.6} />;
-        })}
-        {nodes.map((n, i) => {
-          const p = pos[i];
-          const r = 7 + Math.sqrt((n.mentionCount || 0) / maxMent) * 15;
-          const isFocus = n.id === focusedId;
-          const isActive = n.id === active;
-          const dim = active && !connected.has(n.id);
-          const showLabel = !dim && (isActive || isFocus || topLabelIds.has(n.id) || connected.has(n.id));
+    <div ref={ref} className="scroll-x">
+      <svg width={W} height={H} className="nx-svg" role="group" aria-label="Menciones por día de las narrativas principales, apiladas" style={{ display: 'block' }}>
+        <defs>
+          {ids.filter((id) => byId[id].status === 'dormant').map((id) => (
+            <pattern key={id} id={'nx-hatch-' + id.slice(0, 8)} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="6" height="6" style={{ fill: 'var(--canvas)' }} />
+              <rect width="2.5" height="6" style={{ fill: colors.seriesColor[id] }} />
+            </pattern>
+          ))}
+        </defs>
+        {[0, max / 2, max].map((t) => (
+          <g key={t}>
+            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--hairline)" />
+            <text x={L - 6} y={y(t) + 4} textAnchor="end">{Math.round(t)}</text>
+          </g>
+        ))}
+        <text x={L} y={T - 12} className="nx-sans" style={{ fill: 'var(--text-3)' }}>menciones por día</text>
+        {days.map((d, i) => (i % 5 === 0 || i === n - 1) && (n - 1 - i >= 3 || i === n - 1) ? (
+          <text key={d} x={x(i)} y={H - 8} textAnchor={i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}>{nxDayLab(d)}</text>
+        ) : null)}
+        {paths.map(({ id, d, a }) => {
+          const ended = a.status === 'dormant', sel = id === selected;
           return (
-            <g key={n.id} style={{ cursor: 'pointer' }}
-              onClick={() => onSelect && onSelect(n.id)}
-              onMouseEnter={() => setHovered(n.id)}
-              onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}>
-              {/* narrativeStatusLabel: este tooltip era el único sitio que se
-                  saltaba el mapa y enseñaba el enum crudo de la DB —en inglés—
-                  al usuario. Y el último "menc" de la pantalla. */}
-              <title>{`${n.name} · ${window.ecoFmtCount(n.mentionCount)} menciones · ${narrativeStatusLabel(n.status)}`}</title>
-              <circle cx={p.x} cy={p.y} r={r} fill={narrativeStatusColor(n.status)}
-                fillOpacity={dim ? 0.18 : 0.9}
-                stroke={isActive || isFocus ? 'var(--text)' : 'var(--canvas)'} strokeWidth={isActive || isFocus ? 2.5 : 1} />
-              {showLabel && (
-                <text x={p.x} y={p.y - r - 4} textAnchor="middle"
-                  fill="var(--text)" stroke="var(--canvas)" strokeWidth={3} paintOrder="stroke"
-                  style={{ pointerEvents: 'none', fontWeight: isActive || isFocus ? 700 : 500,
-                    fontSize: `calc(var(--fs-overline) * ${labelScale.toFixed(3)})` }}>
-                  {(n.name || '').slice(0, 28)}
-                </text>
-              )}
-            </g>
+            <path key={id} d={d} className="nx-band" onClick={() => onSelect(id)}
+              style={{ fill: ended ? `url(#nx-hatch-${id.slice(0, 8)})` : colors.seriesColor[id] }}
+              stroke={sel ? 'var(--text)' : ended ? 'var(--text-3)' : 'var(--canvas)'} strokeWidth={sel ? 1.8 : 0.8}
+              strokeDasharray={ended ? '3 2' : undefined}>
+              <title>{`${a.name} · ${a.m30} ${a.m30 === 1 ? 'mención' : 'menciones'} en 30 días`}</title>
+            </path>
           );
         })}
+        {labels.map(({ p, cx, mid, ly, end, label }) => (
+          <g key={p.id} style={{ pointerEvents: 'none' }}>
+            <line x1={cx} x2={cx} y1={ly + 24} y2={mid} stroke="var(--text-2)" />
+            <circle cx={cx} cy={mid} r="2.5" fill="var(--text)" />
+            <text x={end ? cx - 8 : cx + 8} y={ly} textAnchor={end ? 'end' : 'start'} className="nx-sans" style={{ fill: 'var(--text)', fontWeight: 600 }}>{label}</text>
+            <text x={end ? cx - 8 : cx + 8} y={ly + 18} textAnchor={end ? 'end' : 'start'} className="nx-sans" style={{ fill: 'var(--text-3)' }}>{`${nxDayLab(days[p.i])} · ${p.c} de ${totals[p.i]} menciones del día`}</text>
+          </g>
+        ))}
       </svg>
     </div>
   );
 }
 
-function NarrativeScreen({ agency, period }) {
-  const [narratives, setNarratives] = React.useState([]);
-  const [edges, setEdges] = React.useState([]);
-  const [focusedId, setFocusedId] = React.useState(null);
-  const [search, setSearch] = React.useState('');
-  const [statusFilter, setStatusFilter] = React.useState('all');
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
-  const [selectedDay, setSelectedDay] = React.useState(null);
-  const [view, setView] = React.useState('detail'); // 'detail' | 'graph'
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setFocusedId(null);
-    setSelectedDay(null);
-    // CON filtro de período (ago 2026, segunda pasada). En la primera se quitó
-    // el control de fechas porque "no respondía": la ventana llegaba solo a la
-    // lista y el detalle seguía mostrando toda la vida, así que la página se
-    // contradecía. La causa era esa incoherencia, no la ventana en sí.
-    //
-    // Ahora la ventana viaja a AMBOS endpoints y significa lo mismo en los dos:
-    // aparecen las narrativas con AL MENOS UNA mención en el período, y las
-    // cifras son las del período. El detalle mantiene el timeline completo —
-    // ese arco es lo que aporta— pero sus autores, plataformas y menciones
-    // recientes se acotan a la misma ventana. El filtro por ESTADO sigue
-    // estando, ahora como segundo eje.
-    const win = (typeof window.ecoResolvedWindow === 'function') ? window.ecoResolvedWindow() : null;
-    const windowParams = {};
-    if (win && win.from && win.to) {
-      windowParams.from = win.from;
-      windowParams.to = win.to;
-    } else if (period) {
-      windowParams.period = period;
-    }
-    Promise.all([
-      fetch(`/api/narrative?` + new URLSearchParams({ agency: agency || '', limit: '500', ...windowParams }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : Promise.reject(`narrative ${r.status}`))),
-      fetch(`/api/narrative/edges?` + new URLSearchParams({ agency: agency || '', minStrength: '0.15' }).toString(), { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { edges: [] })),
-    ])
-      .then(([nRes, eRes]) => {
-        if (cancelled) return;
-        const list = nRes.narratives || [];
-        setNarratives(list);
-        setEdges(eRes.edges || []);
-        if (list.length > 0) {
-          const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
-          const top = [...list].sort((a, b) => {
-            const ra = RANK[a.status] ?? 9;
-            const rb = RANK[b.status] ?? 9;
-            if (ra !== rb) return ra - rb;
-            return b.mentionCount - a.mentionCount;
-          })[0];
-          setFocusedId(top.id);
-        }
-        setLoading(false);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(String(e));
-        setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [agency, period]);
-
-  const statusCounts = React.useMemo(() => {
-    // Se cuenta por la clave NORMALIZADA, así que todo status fuera del enum cae
-    // en 'unknown' y la suma de los chips cuadra con "Todas".
-    const c = { all: narratives.length };
-    for (const n of narratives) {
-      const k = narrativeStatusKey(n.status);
-      c[k] = (c[k] || 0) + 1;
-    }
-    return c;
-  }, [narratives]);
-
-  // Total de menciones de todas las narrativas — contexto de escala del panel.
-  const totalMentionsAll = React.useMemo(
-    () => narratives.reduce((acc, n) => acc + (n.mentionCount || 0), 0),
-    [narratives],
-  );
-  // Máximo, para dimensionar la barra de impacto de cada fila.
-  const maxMentions = React.useMemo(
-    () => Math.max(1, ...narratives.map((n) => n.mentionCount || 0)),
-    [narratives],
-  );
-
-  const filteredNarratives = React.useMemo(() => {
-    const RANK = { peaking: 0, active: 1, emerging: 2, revived: 3, declining: 4, dormant: 5 };
-    let list = narratives.filter((n) => statusFilter === 'all' || narrativeStatusKey(n.status) === statusFilter);
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (n) =>
-          n.name.toLowerCase().includes(q) ||
-          (n.summary || '').toLowerCase().includes(q) ||
-          (n.keywords || []).some((k) => String(k).toLowerCase().includes(q))
-      );
-    }
-    return list.sort((a, b) => {
-      const ra = RANK[a.status] ?? 9;
-      const rb = RANK[b.status] ?? 9;
-      if (ra !== rb) return ra - rb;
-      return b.mentionCount - a.mentionCount;
-    });
-  }, [narratives, search, statusFilter]);
-
-  const focused = focusedId ? narratives.find((n) => n.id === focusedId) : null;
-
-  // Máximo diario de la lista VISIBLE: los sparklines de la lista se comparan
-  // entre sí, así que tienen que compartir escala. Se recalcula con el filtro
-  // para que la comparación sea siempre entre las filas que se están viendo.
-  const sparkMax = React.useMemo(
-    () => filteredNarratives.reduce((m, n) => (n.sparkline && n.sparkline.length ? Math.max(m, ...n.sparkline) : m), 1),
-    [filteredNarratives]
-  );
-
+function NxHistorias({ data, colors, selected, onSelect }) {
+  const byId = data.byId;
+  const groups = [];
+  data.series.forEach((id) => {
+    const g = colors.groupOf[id];
+    let e = groups.find((x) => x.g === g);
+    if (!e) { e = { g, ids: [] }; groups.push(e); }
+    e.ids.push(id);
+  });
+  const storyById = {};
+  (data.stories || []).forEach((s) => { storyById[s.id] = s; });
+  const ended = data.series.filter((id) => byId[id].status === 'dormant');
+  const live = data.series.length - ended.length;
+  const win = data.windows.series;
+  const endDays = [...new Set(ended.map((id) => byId[id].lastDay))];
+  const endWhen = endDays.length === 1 && ended.length > 1 ? `ambas con última mención el ${nxDateLab(endDays[0])}` : `última mención el ${endDays.map((d) => nxDateLab(d)).join(' y el ')}`;
+  const endTxt = ended.length ? `${ended.length === 1 ? 'la que terminó' : `las ${ended.length} que terminaron`} más recientemente (${endWhen})` : '';
   return (
-    <div className="narrative-screen">
-      <aside className="narrative-menu">
-        <input
-          className="narrative-search"
-          placeholder="Buscar narrativa, keyword…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <div className="narrative-status-filters">
-          <button
-            className={`chip ${statusFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('all')}
-          >
-            Todas ({statusCounts.all || 0})
-          </button>
-          {/* Se incluye el bucket 'unknown' cuando tiene elementos, para que la
-              suma de los chips SIEMPRE cuadre con "Todas". */}
-          {NARRATIVE_STATUS_ORDER.concat(
-            (statusCounts[NARRATIVE_STATUS_UNKNOWN] || 0) > 0 ? [NARRATIVE_STATUS_UNKNOWN] : []
-          ).map((s) => {
-            const count = statusCounts[s] || 0;
+    <div className="card">
+      <NxSecHd n="01" title="Historias de los últimos 30 días"
+        sub={data.series.length === 0 ? `${nxRange(win.from, win.to)} · ninguna narrativa viva o recién terminada tuvo menciones en estos días`
+          : `${nxRange(win.from, win.to)} · ${live === 0 ? `ninguna narrativa viva tuvo menciones; se muestran ${endTxt}` : `${live === 1 ? 'la narrativa viva (naciendo, activa o apagándose) con más menciones' : `las ${live} narrativas vivas (naciendo, activas o apagándose) con más menciones`}${endTxt ? ' y ' + endTxt : ''}`}. Apiladas por historia; elige una para ver su propagación.`} />
+      {data.series.length === 0 ? (
+        <div className="card-bd"><EmptyState reason="empty" compact title="Sin narrativas en estos 30 días" detail="Ninguna narrativa viva o recién terminada tuvo menciones en la ventana. El mapa de abajo muestra las de las últimas 26 semanas." /></div>
+      ) : (
+        <div className="card-bd nx-hist">
+          <NxSeriesChart data={data} colors={colors} selected={selected} onSelect={onSelect} />
+          <div>
+            <div className="nx-leg-head"><span /><span>narrativa</span><span>estado</span><span style={{ textAlign: 'right' }}>30 d</span></div>
+            {groups.map(({ g, ids }) => {
+              const st = storyById[g];
+              return (
+                <div key={g} className="nx-leg-story">
+                  {st && ids.length >= 2 && (
+                    <h4 title={st.subtitle || st.name}>
+                      <span className="nx-sw" style={{ background: colors.groupColor[g] }} />
+                      <span className="nx-kind">Historia</span><span className="truncate">{st.name}</span>
+                    </h4>
+                  )}
+                  {ids.map((id) => {
+                    const a = byId[id];
+                    const ended2 = a.status === 'dormant';
+                    return (
+                      <button key={id} className="nx-leg-row" aria-pressed={id === selected} onClick={() => onSelect(id)} title={a.summary || a.name}>
+                        <span className="nx-sw" style={{ background: ended2 ? `repeating-linear-gradient(45deg, ${colors.seriesColor[id]} 0 2px, var(--canvas) 2px 4px)` : colors.seriesColor[id] }} />
+                        <span className="nx-nm">{a.name}</span>
+                        <NxStatus s={a.status} />
+                        <span className="num" style={{ textAlign: 'right' }}>{a.m30}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <p className="nx-note" style={{ marginTop: 'var(--sp-1)' }}>Rayado = la narrativa terminó. La elegida va abajo del todo, con borde.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --------------------------- 02 · Ciclo de vida ---------------------------
+function NxSpark({ vals, max, color, mark }) {
+  const [ref, cw] = useChartWidth(220);
+  const w = Math.max(80, Math.floor(cw)), h = 28;
+  const M = Math.max(1, max);
+  const x = (i) => 2 + (i * (w - 4)) / (vals.length - 1), y = (v) => h - 3 - (v / M) * (h - 6);
+  const p = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  return (
+    <div ref={ref}>
+      <svg width={w} height={h} aria-hidden="true" style={{ display: 'block' }}>
+        {mark != null && <line x1={x(mark)} x2={x(mark)} y1="0" y2={h} stroke="var(--hairline-strong)" strokeDasharray="2 2" />}
+        <path d={`${p}L${x(vals.length - 1)},${h - 3}L${x(0)},${h - 3}Z`} style={{ fill: color }} opacity=".12" />
+        <path d={p} fill="none" style={{ stroke: color }} strokeWidth="1.5" />
+      </svg>
+    </div>
+  );
+}
+
+function NxCard({ a, data, sMax, selected, onSelect, short }) {
+  const wk = data.windows.week;
+  const neg = nxIsNeg(a.neg7, a.m7);
+  let change;
+  if (a.column === 'declining') change = <span>última mención: {nxDateLab(a.lastDay)}</span>;
+  else if (a.m7p === 0 && a.bornDay >= wk.from) change = <span className="nx-delta">nueva</span>;
+  else {
+    const d = a.m7 - a.m7p;
+    change = <span className="nx-delta" style={{ color: d > 0 ? 'var(--text)' : 'var(--text-3)' }}>{d > 0 ? '▲ +' : d < 0 ? '▼ ' : '· '}{d} <span className="nx-muted">({a.m7p} la semana anterior)</span></span>;
+  }
+  const tone = neg ? <span style={{ color: 'var(--neg)' }}>{nxPct(a.neg7, a.m7)}% negativas</span>
+    : a.neg7 ? <span>{a.neg7} {a.neg7 === 1 ? 'negativa' : 'negativas'}</span>
+      : a.pos7 ? <span>{a.pos7} {a.pos7 === 1 ? 'positiva' : 'positivas'}</span> : null;
+  const spark = a.d30.slice(16);
+  return (
+    <button className="nx-card" aria-pressed={a.id === selected} onClick={() => onSelect(a.id, true)} title={a.summary || a.name}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-2)', alignItems: 'flex-start' }}>
+        <h4>{a.name}</h4><NxOrigin o={a.origin} short={short} />
+      </div>
+      <div className="nx-meta"><span><b>{a.m7}</b> en 7 días</span>{change}</div>
+      <div className="nx-meta">
+        {a.voices7 > 0 && <span>{a.voices7} {a.voices7 === 1 ? 'voz' : 'voces'}</span>}
+        {a.press7 > 0 && <span>{a.press7} de medios</span>}
+        {tone}
+      </div>
+      <NxSpark vals={spark} max={sMax} color={neg ? 'var(--neg)' : 'var(--text-2)'} mark={7} />
+      <div className="nx-cap">{nxRange(data.windows.series.days[16], data.windows.series.to)} · misma escala en todas</div>
+      <div className="nx-meta">
+        <span>la inició: {a.starter}</span>
+        <span>primera mención: {nxDateLab(a.bornDay)}</span>
+        {a.column === 'emerging' && a.createdDay && a.createdDay > a.bornDay && <span>detectada: {nxDateLab(a.createdDay)}</span>}
+      </div>
+    </button>
+  );
+}
+
+// Cada columna muestra las 6 narrativas con más menciones en 7 días; el resto
+// se despliega (Gobernadora llega a 17 en una columna).
+const NX_COL_MAX = 6;
+function NxTablero({ data, selected, onSelect, short, art }) {
+  const [open, setOpen] = useState({});
+  const byId = data.byId;
+  const liveIds = [...data.board.emerging, ...data.board.active, ...data.board.declining];
+  const sMax = Math.max(1, ...liveIds.flatMap((id) => byId[id].d30.slice(16)));
+  const al = data.alertId ? byId[data.alertId] : null;
+  const alStory = al && al.storyId ? (data.stories || []).find((s) => s.id === al.storyId) : null;
+  const sib = alStory ? liveIds.map((id) => byId[id]).find((b) => b.id !== al.id && b.storyId === al.storyId) : null;
+  const wk = data.windows.week, pw = data.windows.prevWeek;
+  const COLS = [['emerging', 'Naciendo'], ['active', 'Activas'], ['declining', 'Apagándose']];
+  return (
+    <div className="card">
+      <NxSecHd n="02" title="Ciclo de vida"
+        sub={`${liveIds.length} ${liveIds.length === 1 ? 'narrativa viva' : 'narrativas vivas'} · ${nxRange(wk.from, wk.to)} contra ${nxRange(pw.from, pw.to)} · las terminadas (${nxFmt(data.counts.dormant)}${data.counts.dormantSince ? ` desde ${nxMonthLab(data.counts.dormantSince)}` : ''}) no entran aquí; el mapa (04) muestra las más grandes de las últimas 26 semanas`} />
+      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        {al && (
+          <div className="nx-alert" role="note">
+            <div className="nx-alert-stp" />
+            <div className="nx-alert-in">
+              <h3>{`Nace una narrativa que no inició ${art}, con ${al.neg7} de ${al.m7} menciones negativas: «${al.name}»`}</h3>
+              <p>{`La inició ${al.starter} el ${nxDayLab(al.bornDay)} de ${NX_MES[nxD(al.bornDay).getUTCMonth()]}${al.starterTime ? ` a las ${nxTimeLab(al.starterTime)}` : ''}; ${al.voices7} ${al.voices7 === 1 ? 'voz' : 'voces'}, ${al.press7} de medios en 7 días.`}
+                {sib ? (alStory.name === sib.name || alStory.name === al.name
+                  ? ` Es parte de la misma historia que «${sib.name}» (${sib.m7} en 7 días).`
+                  : ` Es parte de la historia «${alStory.name}», con «${sib.name}» (${sib.m7} en 7 días).`) : ''}</p>
+            </div>
+            <div className="nx-alert-act"><button className="btn btn-primary" onClick={() => onSelect(al.id, true)}>Ver propagación</button></div>
+          </div>
+        )}
+        <div className="nx-kan">
+          {COLS.map(([c, label]) => {
+            const items = data.board[c].map((id) => byId[id]);
+            // La elegida siempre queda a la vista aunque esté más abajo del tope.
+            const shown = open[c] ? items : items.filter((a, i) => i < NX_COL_MAX || a.id === selected);
             return (
-              <button
-                key={s}
-                className={`chip ${statusFilter === s ? 'active' : ''} ${count === 0 ? 'disabled' : ''}`}
-                onClick={() => count > 0 && setStatusFilter(s)}
-                disabled={count === 0}
-                title={`${narrativeStatusLabel(s)} (${count})`}
-              >
-                <NarrativeStatusDot status={s} />
-                {narrativeStatusLabel(s)} ({count})
-              </button>
+              <div key={c} className="nx-kcol">
+                <h3><span className={'nx-st ' + c}><i aria-hidden="true" />{label}</span><span className="num nx-muted">{items.length}</span></h3>
+                {items.length ? shown.map((a) => <NxCard key={a.id} a={a} data={data} sMax={sMax} selected={selected} onSelect={onSelect} short={short} />)
+                  : <div className="nx-muted" style={{ padding: 'var(--sp-15)', fontSize: 'var(--fs-body-sm)' }}>Nada en esta etapa.</div>}
+                {items.length > shown.length && <button className="btn" onClick={() => setOpen((o) => ({ ...o, [c]: true }))}>{items.length - shown.length === 1 ? 'Ver la restante' : `Ver las ${items.length - shown.length} restantes`}</button>}
+                {open[c] && items.length > NX_COL_MAX && <button className="btn" onClick={() => setOpen((o) => ({ ...o, [c]: false }))}>Ver menos</button>}
+              </div>
             );
           })}
         </div>
-        <div className="narrative-menu-count">
-          {filteredNarratives.length} de {narratives.length} narrativas · {totalMentionsAll.toLocaleString('es-PR')} menciones
+        <div className="nx-kan-legend">
+          <span><NxStatus s="emerging" /> detectada hace menos de 7 días</span>
+          <span><NxStatus s="active" /> con menciones recientes</span>
+          <span><NxStatus s="declining" /> días sin menciones y por debajo de su ritmo</span>
+          <span><NxStatus s="dormant" /> 14 días sin menciones</span>
         </div>
-        <ul className="narrative-list">
-          {filteredNarratives.map((n) => (
-            <li
-              key={n.id}
-              className={`narrative-item ${n.id === focusedId ? 'active' : ''}`}
-              onClick={() => { setFocusedId(n.id); setSelectedDay(null); }}
-            >
-              <NarrativeStatusDot status={n.status} />
-              <div className="narrative-item-body">
-                <div className="narrative-item-name">{n.name}</div>
-                <div className="narrative-item-meta">
-                  {/* "menciones" completo y la cifra destacada: es el indicador
-                      de impacto de la narrativa, no un metadato más. */}
-                  <span><strong style={{ color: 'var(--text-2)' }}>{(n.mentionCount || 0).toLocaleString('es-PR')}</strong> menciones</span>
-                  <span>·</span>
-                  <span>{narrativeStatusLabel(n.status)}</span>
-                </div>
-                {/* Barra de impacto: el conteo por sí solo no dice si 340
-                    menciones es mucho o poco en este conjunto. La barra lo
-                    sitúa contra la narrativa más grande. */}
-                <div className="narrative-item-impact" title={`${(n.mentionCount || 0).toLocaleString('es-PR')} menciones`}>
-                  <span style={{ width: `${Math.max(2, ((n.mentionCount || 0) / maxMentions) * 100)}%`, background: narrativeStatusColor(n.status) }} />
-                </div>
-              </div>
-              {n.sparkline && (
-                <NarrativeSparkline data={n.sparkline} color={narrativeStatusColor(n.status)} max={sparkMax} />
-              )}
-            </li>
-          ))}
-          {filteredNarratives.length === 0 && !loading && (
-            <li><EmptyState reason="filtered" title="Sin resultados" detail="Ninguna narrativa coincide con la búsqueda." compact /></li>
-          )}
-        </ul>
-      </aside>
-
-      <main className="narrative-canvas">
-        {loading ? (
-          <div className="narrative-empty">Cargando…</div>
-        ) : error ? (
-          <EmptyState reason="error" title="No se pudieron cargar las narrativas" detail={String(error)} />
-        ) : (
-          <>
-            <div style={{ display: 'flex', gap: 'var(--sp-15)', marginBottom: 'var(--sp-3)' }}>
-              <button className={`chip ${view === 'detail' ? 'active' : ''}`} onClick={() => setView('detail')}>Detalle</button>
-              <button className={`chip ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>Mapa de conexiones</button>
-            </div>
-            {view === 'graph' ? (
-              <NarrativeGraph
-                narratives={narratives}
-                edges={edges}
-                focusedId={focusedId}
-                onSelect={(id) => { setFocusedId(id); setView('detail'); setSelectedDay(null); }}
-              />
-            ) : !focused ? (
-              <EmptyState reason="empty" title="Elige una narrativa" detail="Selecciónala en la lista de la izquierda para ver su análisis." />
-            ) : (
-              <NarrativeAnalysis
-                narrative={focused}
-                edges={edges}
-                allNarratives={narratives}
-                agency={agency}
-                period={period}
-                selectedDay={selectedDay}
-                onSelectDay={setSelectedDay}
-                onSelectNarrative={(id) => { setFocusedId(id); setSelectedDay(null); }}
-              />
-            )}
-          </>
-        )}
-      </main>
-
-      {selectedDay && focused && (
-        <NarrativeDayDrawer
-          narrative={focused}
-          day={selectedDay}
-          agency={agency}
-          onClose={() => setSelectedDay(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function NarrativeAnalysis({ narrative, edges, allNarratives, agency, period, selectedDay, onSelectDay, onSelectNarrative }) {
-  const [detail, setDetail] = React.useState(null);
-  const [detailLoading, setDetailLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setDetailLoading(true);
-    // MISMA ventana que la lista: sin esto la lista dice "12 menciones" y el
-    // detalle dice "340", que es justo la incoherencia por la que se había
-    // quitado el filtro de fechas de esta pantalla.
-    const win = (typeof window.ecoResolvedWindow === 'function') ? window.ecoResolvedWindow() : null;
-    const qs = { agency: agency || '' };
-    if (win && win.from && win.to) { qs.from = win.from; qs.to = win.to; }
-    else if (period) { qs.period = period; }
-    fetch(`/api/narrative/${narrative.id}?` + new URLSearchParams(qs).toString(), { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) { setDetail(d); setDetailLoading(false); } })
-      .catch(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [narrative.id, agency, period]);
-
-  const timeline = detail?.timeline || [];
-  const topAuthors = detail?.topAuthors || [];
-  const platforms = detail?.platforms || [];
-  const recent = detail?.recentMentions || [];
-
-  // El vecino se buscaba SOLO en la lista, y desde que la lista está acotada al
-  // período una narrativa relacionada sin menciones en la ventana desaparecía:
-  // el panel de relacionadas se vaciaba justo al usar el filtro. Ahora la arista
-  // trae nombre y estado, así que el vecino fuera de ventana se sigue mostrando,
-  // marcado con `outsideWindow` para que la UI no prometa cifras del período.
-  const related = React.useMemo(() => {
-    return edges
-      .filter((e) => e.source === narrative.id || e.target === narrative.id)
-      .map((e) => {
-        const isSource = e.source === narrative.id;
-        const otherId = isSource ? e.target : e.source;
-        const inList = allNarratives.find((n) => n.id === otherId);
-        if (inList) return { ...inList, edgeType: e.type, strength: e.strength, outsideWindow: false };
-        const name = isSource ? e.targetName : e.sourceName;
-        if (!name) return null;
-        return {
-          id: otherId,
-          name,
-          status: isSource ? e.targetStatus : e.sourceStatus,
-          mentionCount: 0,
-          edgeType: e.type,
-          strength: e.strength,
-          outsideWindow: true,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 6);
-  }, [edges, allNarratives, narrative.id]);
-
-  // El STREAMGRAPH dibuja el arco completo a propósito — ese es el aporte del
-  // detalle. Pero las DERIVADAS (sentimiento, pico) tienen que hablar de la
-  // misma ventana que los KPIs de arriba, o el panel se contradice: la caja
-  // dice "12 menciones" (ventana) y el donut de sentimiento suma 340 (vida).
-  // `day` viene como YYYY-MM-DD en hora PR y win.from/to en el mismo formato,
-  // así que la comparación de strings es correcta.
-  const win = detail && detail.window;
-  const windowTimeline = React.useMemo(() => (
-    (win && win.from && win.to)
-      ? timeline.filter((d) => d.day >= win.from && d.day <= win.to)
-      : timeline
-  ), [timeline, win]);
-
-  const sentimentTotals = React.useMemo(() => {
-    let p = 0, neu = 0, neg = 0;
-    for (const d of windowTimeline) {
-      p += d.positive || 0;
-      neu += d.neutral || 0;
-      neg += d.negative || 0;
-    }
-    return { positive: p, neutral: neu, negative: neg, total: p + neu + neg };
-  }, [windowTimeline]);
-
-  const peak = React.useMemo(() => {
-    if (windowTimeline.length === 0) return null;
-    return windowTimeline.reduce((acc, d) => (d.mentions > acc.mentions ? d : acc), windowTimeline[0]);
-  }, [windowTimeline]);
-
-  const init = narrative.initiatorFirst;
-  const inf = narrative.initiatorInfluencer;
-
-  // Cuando el detalle viene vacío, las cinco secciones de desglose se
-  // convertían en cinco cajas idénticas diciendo "Sin datos" — el peor caso del
-  // panel, y el que más se ve, porque una narrativa recién detectada todavía no
-  // tiene desglose. Cinco huecos no informan más que uno: informan menos,
-  // porque hay que leerlos todos para descubrir que ninguno dice nada.
-  const hasBreakdown = sentimentTotals.total > 0 || topAuthors.length > 0
-    || platforms.length > 0 || !!init || !!inf;
-
-  return (
-    <div className="narrative-analysis">
-      <div className="narrative-header">
-        <div className="narrative-header-main">
-          <div className="narrative-header-row">
-            <span className="pill narrative-status-pill" style={{ '--narr-tone': narrativeStatusColor(narrative.status) }}>
-              {/* Misma función que la lista y los chips: leer el mapa a mano
-                  dejaba escapar el status crudo de la DB —en inglés— cuando el
-                  lambda manda un estado que la SPA todavía no conoce. */}
-              {narrativeStatusLabel(narrative.status)}
+        {data.cajones.length > 0 && (
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'baseline', flexWrap: 'wrap', fontSize: 'var(--fs-body-sm)' }}>
+            <span className="nx-badge">{data.cajones.length === 1 ? 'apartada' : 'apartadas'}</span>
+            <span>
+              {data.cajones.slice(0, 3).map((c, i) => (
+                <React.Fragment key={c.id}>{i ? ', ' : ''}<b>«{c.name}»</b> <span className="nx-muted">({nxFmt(c.life)} menciones desde {nxMonthLab(c.bornDay)})</span></React.Fragment>
+              ))}
+              {data.cajones.length > 3 && <span className="nx-muted">{` y ${data.cajones.length - 3} más`}</span>}
+              <span className="nx-muted">{` ${data.cajones.length === 1 ? 'reúne' : 'reúnen'} menciones de muchas semanas sin un tema común, así que no ${data.cajones.length === 1 ? 'entra' : 'entran'} al tablero, la serie ni el mapa.`}</span>
             </span>
-            <h2 className="narrative-title">{narrative.name}</h2>
           </div>
-          {narrative.summary && <div className="narrative-summary">{narrative.summary}</div>}
-          {(narrative.keywords || []).length > 0 && (
-            <div className="narrative-keywords">
-              {narrative.keywords.map((k) => (
-                <span key={k} className="narrative-tag">{k}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        {/* <StatBox>, no un KPI a mano: el mismo concepto (etiqueta overline +
-            cifra) medía 30px en Overview/Scorecard y 18px aquí, con otro peso y
-            otro tracking en la etiqueta. Una cifra de KPI mide lo mismo en las
-            cinco pantallas o no hay sistema. StatBox además trae la clase .num
-            (tabular + lining), que es lo que este bloque replicaba a mano. */}
-        <div className="narrative-header-metrics">
-          {/* ecoFmtCount (data.js) y no `toLocaleString` a mano: es el formateador
-              de CONTEOS del producto —el mismo de la lista de narrativas— y
-              devuelve '—' cuando el dato falta, en vez de un 0 que se lee como
-              medición. La velocidad se queda con un decimal a propósito: es una
-              TASA (menciones/día), no un conteo, y forzarle la regla del conteo
-              le quitaría su única cifra significativa. */}
-          {/* Las tres cifras son de la VENTANA seleccionada. 'Vel. 24h' vivía
-              aquí anclada a NOW() —la calcula el lambda sobre las últimas 24 h
-              reales—, así que en una fila que ahora habla del período elegido
-              se leía como si fuera de ese período: al mirar marzo mostraba la
-              velocidad de hoy. Se sustituye por la tasa de la propia ventana,
-              que es la lectura que la fila promete. */}
-          <StatBox label="Menciones" value={window.ecoFmtCount(narrative.mentionCount)} />
-          <StatBox label="Menc./día" value={(narrative.mentionCount / Math.max(1, (win && win.days) || 1)).toFixed(1)} />
-          <StatBox label="Engagement" value={window.ecoFmtCount(narrative.totalEngagement)} />
-        </div>
+        )}
       </div>
-
-      <NarrativeStreamgraph
-        timeline={timeline}
-        loading={detailLoading}
-        selectedDay={selectedDay}
-        onSelectDay={onSelectDay}
-      />
-
-      {!hasBreakdown && !detailLoading ? (
-        <EmptyState
-          reason="empty"
-          title="Esta narrativa todavía no tiene desglose"
-          detail={`El cluster agrupa ${narrative.mentionCount.toLocaleString('es-PR')} menciones, pero ninguna trae aún los campos de autor, plataforma y sentimiento que este panel necesita. Aparecen cuando el procesador las enriquece.`}
-        />
-      ) : (
-      <>
-      <div className="narrative-grid-3">
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Sentimiento</div>
-          {sentimentTotals.total > 0 ? (
-            <>
-              {/* Los tres colores por ecoSentimentColor (data.js) y no a mano: el
-                  neutral estaba en --text-3, que es el gris del TEXTO y además
-                  --chart-axis. Pasando por el helper, este panel ya no puede
-                  divergir del resto del producto. */}
-              <div className="narrative-sentiment-bar">
-                <span style={{ flex: sentimentTotals.positive, background: window.ecoSentimentColor('positivo') }} />
-                <span style={{ flex: sentimentTotals.neutral, background: window.ecoSentimentColor('neutral') }} />
-                <span style={{ flex: sentimentTotals.negative, background: window.ecoSentimentColor('negativo') }} />
-              </div>
-              <div className="narrative-sentiment-row">
-                <span><i style={{ background: window.ecoSentimentColor('positivo') }} /> {Math.round((sentimentTotals.positive / sentimentTotals.total) * 100)}% positivo</span>
-                <span><i style={{ background: window.ecoSentimentColor('neutral') }} /> {Math.round((sentimentTotals.neutral / sentimentTotals.total) * 100)}% neutral</span>
-                <span><i style={{ background: window.ecoSentimentColor('negativo') }} /> {Math.round((sentimentTotals.negative / sentimentTotals.total) * 100)}% negativo</span>
-              </div>
-              {peak && <div className="narrative-peak">✕ Pico: {peak.day} ({peak.mentions} menciones)</div>}
-            </>
-          ) : detailLoading ? (
-            <div className="narrative-empty-small">Cargando…</div>
-          ) : (
-            <EmptyState reason="empty" title="Sin datos" compact />
-          )}
-        </div>
-
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Top voces</div>
-          {topAuthors.length > 0 ? (
-            <ul className="narrative-bar-list">
-              {topAuthors.slice(0, 6).map((a) => (
-                <li key={a.author}>
-                  <span className="narrative-bar-name" title={a.author}>{a.author}</span>
-                  {/* ecoFmtCount: el número crudo salía sin separador de miles,
-                      así que 1200 menciones se leían "1200" a 200px del
-                      encabezado que escribe "1,200" — el mismo dato con dos
-                      formatos en el mismo viewport. */}
-                  <span className="narrative-bar-count">{window.ecoFmtCount(a.mentions)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : detailLoading ? (
-            <div className="narrative-empty-small">Cargando…</div>
-          ) : (
-            <EmptyState reason="empty" title="Sin datos" compact />
-          )}
-        </div>
-
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Plataformas</div>
-          {platforms.length > 0 ? (
-            <ul className="narrative-bar-list">
-              {platforms.slice(0, 6).map((p) => {
-                const max = platforms[0].mentions || 1;
-                return (
-                  <li key={p.platform}>
-                    <span className="narrative-bar-name">{platformLabel(p.platform)}</span>
-                    <span className="narrative-bar-track">
-                      <span className="narrative-bar-fill" style={{ width: `${(p.mentions / max) * 100}%` }} />
-                    </span>
-                    <span className="narrative-bar-count">{window.ecoFmtCount(p.mentions)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : detailLoading ? (
-            <div className="narrative-empty-small">Cargando…</div>
-          ) : (
-            <EmptyState reason="empty" title="Sin datos" compact />
-          )}
-        </div>
-      </div>
-
-      <div className="narrative-grid-2">
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Primera mención (cronológica)</div>
-          {init ? (
-            <div>
-              <div className="narrative-init-author">
-                <strong>{init.author || '—'}</strong>
-                {init.platform && <span className="narrative-tag-mini">{platformLabel(init.platform)}</span>}
-              </div>
-              <div className="narrative-init-date">
-                {new Date(init.publishedAt).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}
-              </div>
-              {init.snippet && <div className="narrative-init-snippet">{init.snippet}</div>}
-              {init.url && (
-                <a href={init.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
-                  Ver fuente →
-                </a>
-              )}
-            </div>
-          ) : (
-            <EmptyState reason="empty" title="Sin datos" compact />
-          )}
-        </div>
-
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Voz más influyente (24h)</div>
-          {inf ? (
-            <div>
-              <div className="narrative-init-author">
-                <strong>{inf.author || '—'}</strong>
-              </div>
-              <div className="narrative-init-meta">
-                {/* "Alcance", que es la palabra que el producto ya usa (Overview),
-                    no "Reach": la interfaz está en español. Y "Engagement"
-                    completo, como el StatBox del encabezado — "Eng" aquí y "eng"
-                    en el drawer eran dos abreviaturas de una unidad que no tiene
-                    ninguna. `fmt` para el alcance y `ecoFmtCount` para el
-                    engagement no es un descuido: la regla de data.js abrevia lo
-                    que es ESTIMACIÓN de orden de magnitud (reach_estimate) y
-                    escribe exacto lo que el drill-down puede reproducir. */}
-                Alcance {fmt(inf.reach)} · Engagement {window.ecoFmtCount(inf.engagement)}
-              </div>
-              {inf.url && (
-                <a href={inf.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
-                  Ver fuente →
-                </a>
-              )}
-            </div>
-          ) : (
-            <EmptyState reason="pending" title="Aún no se puede calcular" detail="Requiere al menos 24 h de historia." compact />
-          )}
-        </div>
-      </div>
-      </>
-      )}
-
-      {/* El módulo se RENDERIZA vacío en vez de desaparecer: un panel ausente se
-          lee como "esta narrativa no tiene esa sección", no como "todavía no hay
-          datos". Se omite sólo cuando la narrativa entera no tiene desglose,
-          porque ahí ya lo explica un único EmptyState arriba y volveríamos a
-          apilar cajas vacías idénticas. */}
-      {(recent.length > 0 || hasBreakdown) && (
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Menciones recientes</div>
-          {recent.length === 0 ? <EmptyState reason="empty" title="Sin datos" compact /> : (
-          <div className="narrative-mentions-list">
-            {recent.slice(0, 5).map((m) => (
-              <div key={m.id} className="narrative-mention-row">
-                <div className="narrative-mention-title">{m.title || '(sin título)'}</div>
-                <div className="narrative-mention-meta">
-                  {m.author && <span>{m.author}</span>}
-                  {m.pageType && <span className="narrative-tag-mini">{m.pageType}</span>}
-                  {m.sentiment && <span className={`narrative-sentiment-mini sent-${m.sentiment}`}>{m.sentiment}</span>}
-                  <span>{new Date(m.publishedAt).toLocaleDateString('es')}</span>
-                  {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer">→</a>}
-                </div>
-              </div>
-            ))}
-          </div>
-          )}
-        </div>
-      )}
-
-      {(related.length > 0 || hasBreakdown) && (
-        <div className="narrative-panel">
-          <div className="narrative-panel-label">Narrativas relacionadas</div>
-          {related.length === 0 ? <EmptyState reason="empty" title="Sin datos" compact /> : (
-          <ul className="narrative-related-list">
-            {/* Una relacionada fuera de la ventana no está en la lista, así que
-                seleccionarla dejaría el panel vacío: se muestra con su vínculo
-                pero sin click, y se dice por qué. Un enlace muerto es peor que
-                un elemento honestamente inactivo. */}
-            {related.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  className="narrative-related-btn"
-                  disabled={r.outsideWindow}
-                  onClick={() => { if (!r.outsideWindow) onSelectNarrative(r.id); }}
-                  title={r.outsideWindow
-                    ? `${r.name} — sin menciones en el período seleccionado`
-                    : `${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` (${strengthPct(r.strength)})` : ''}`}
-                >
-                  <NarrativeStatusDot status={r.status} />
-                  <span className="narrative-related-name">{r.name}</span>
-                  <span className="narrative-related-meta">
-                    {r.outsideWindow ? 'fuera del período' : `${edgeTypeLabel(r.edgeType)}${strengthPct(r.strength) ? ` · ${strengthPct(r.strength)}` : ''}`}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-// NarrativeStreamgraph — la lectura del timeline era difícil (reporte del
-// usuario: "revisemos bien ese front y sobretodo la línea de tiempo, porque me
-// dijeron que puede ser difícil"). Esta versión combina el trabajo de la
-// auditoría de diseño (#91) con el rediseño de la escala:
-//
-//   De #91 se conserva:
-//     - coordenadas en PÍXELES reales medidas con useChartWidth, no un viewBox
-//       escalado (dentro de un viewBox --fs-overline salía a 3-8px);
-//     - ticks temporales adaptativos al span (día / 2 días / semana / mes), que
-//       antes eran solo mensuales y dejaban series cortas sin escala;
-//     - EmptyState en las ramas sin datos.
-//
-//   Qué cambia aquí, y por qué:
-//     1. Era un streamgraph CENTRADO (baseline = -total/2) y SIN eje Y: la forma
-//        no permitía leer volumen — imposible saber si el punto más ancho eran 5
-//        menciones o 500. Ahora es un área apilada desde CERO con eje Y
-//        etiquetado y gridlines: el borde superior ES el total del día y se lee
-//        contra la escala. Es además el mismo encoding que la pantalla de
-//        Sentimiento, así que se lee igual en todo el producto.
-//     2. Se añaden anclas de lectura en la leyenda (días cubiertos, total del
-//        periodo, tamaño del pico).
-//     3. El naranja (--accent) marcaba selección y pico — usos que no son links.
-//        En Narrativas queda reservado para links, así que los marcadores pasan
-//        a neutro.
-//     4. El marcador de inicio era VERDE, el mismo color que "positivo" en la
-//        leyenda de sentimiento de este mismo gráfico. Ahora es neutro.
-//     5. Pico e inicio se solapaban en narrativas cortas: el pico solo se
-//        etiqueta si queda a más de 60px del inicio.
-function NarrativeStreamgraph({ timeline, loading, selectedDay, onSelectDay }) {
-  // Coordenadas en PÍXELES reales, no en un viewBox de 1080 escalado: dentro de
-  // un viewBox el font-size de los rótulos se multiplica por la escala de
-  // render, así que --fs-overline (11px) salía a 7.8px en desktop y a 3.1px a
-  // 390px de viewport — el piso tipográfico de tokens.css:61-63 no llega ahí.
-  // Es el patrón del resto de las gráficas (charts.js): 1 unidad = 1 píxel.
-  const [wrapRef, w] = useChartWidth(760);
-  const h = 260;
-  // `left` sube a 46 para dar sitio a los rótulos del eje Y.
-  const margin = { top: 18, right: 24, bottom: 34, left: 46 };
-  const innerW = w - margin.left - margin.right;
-  const innerH = h - margin.top - margin.bottom;
+// --------------------------- 03 · Propagación ---------------------------
+const NX_LANES = ['Noticias', 'Facebook', 'Instagram', 'Otras redes'];
+// Hora de la fila en ms «ingenuos» (la hora ya viene en hora de PR). Las
+// «solo fecha» se dibujan al mediodía, huecas.
+const nxRowT = (r) => nxT(r.d) + (r.t ? (Number(r.t.slice(0, 2)) * 60 + Number(r.t.slice(3, 5))) * 60000 : 12 * 3600000);
+// Misma regla que la API: la primera que no es página de etiqueta; en el mismo
+// día gana la que tiene hora.
+const nxEarliest = (rows) => [...rows].sort((a, b) => a.d.localeCompare(b.d) || (a.t ? 0 : 1) - (b.t ? 0 : 1) || (a.t || '').localeCompare(b.t || ''))[0];
 
-  // El div de medición existe en las TRES ramas y en la misma posición: React
-  // reusa el nodo al pasar de "cargando" a "con datos", así que la medición del
-  // ancho sobrevive el cambio de rama (useChartWidth mide al montar).
-  if (loading) {
-    return (
-      <div className="narrative-stream-wrap">
-        <div ref={wrapRef} className="narrative-empty-small">Cargando timeline…</div>
-      </div>
-    );
-  }
-  if (!timeline || timeline.length === 0) {
-    // `pending`, no `empty`: no es que la serie valga cero, es que una narrativa
-    // con menciones de un solo día no tiene evolución que dibujar todavía.
-    return (
-      <div className="narrative-stream-wrap">
-        <div ref={wrapRef}>
-        <EmptyState
-          reason="pending"
-          title="Sin evolución que dibujar todavía"
-          detail="Hacen falta menciones en más de un día para trazar la serie."
-          compact
-        />
-        </div>
-      </div>
-    );
-  }
-
-  const times = timeline.map((d) => new Date(d.day).getTime());
-  const minT = Math.min(...times);
-  const maxT = Math.max(...times);
-  const span = Math.max(1, maxT - minT);
-  const xScale = (t) => margin.left + ((new Date(t).getTime() - minT) / span) * innerW;
-
-  const totalOf = (d) => (d.positive || 0) + (d.neutral || 0) + (d.negative || 0);
-  const rawMax = Math.max(...timeline.map(totalOf), 1);
-  // Techo "redondo" para que los ticks del eje sean números legibles.
-  const niceMax = (() => {
-    const pow = Math.pow(10, Math.floor(Math.log10(rawMax)));
-    for (const m of [1, 2, 2.5, 5, 10]) {
-      const c = m * pow;
-      if (c >= rawMax) return c;
-    }
-    return 10 * pow;
-  })();
-  const yBase = margin.top + innerH;
-  const yScale = (v) => yBase - (v / niceMax) * innerH;
-
-  // Apilado desde CERO: negativo abajo, neutral, positivo arriba. El borde
-  // superior de la última capa = volumen total del día, legible contra el eje.
-  const stackedPoints = timeline.map((d) => {
-    const negTop = d.negative || 0;
-    const neuTop = negTop + (d.neutral || 0);
-    const posTop = neuTop + (d.positive || 0);
-    return {
-      x: xScale(d.day),
-      day: d.day,
-      total: totalOf(d),
-      negative: d.negative || 0,
-      neutral: d.neutral || 0,
-      positive: d.positive || 0,
-      base_y: yScale(0),
-      neg_y: yScale(negTop),
-      neu_y: yScale(neuTop),
-      pos_y: yScale(posTop),
-    };
-  });
-
-  const buildLayerPath = (upperKey, lowerKey) => {
-    const upper = stackedPoints.map((p) => ({ x: p.x, y: p[upperKey] }));
-    const lower = stackedPoints.map((p) => ({ x: p.x, y: p[lowerKey] })).reverse();
-    const upperD = smoothPath(upper);
-    const lowerD = smoothPath(lower).replace(/^M/, 'L');
-    return `${upperD} ${lowerD} Z`;
-  };
-
-  const layers = [
-    // Color por ecoSentimentColor: la banda neutral estaba en --text-3, que ES
-    // --chart-axis, así que el bloque de volumen más grande del gráfico se
-    // pintaba del mismo gris que los ticks y los rótulos del eje Y de este mismo
-    // SVG (los rótulos siguen en --text-3 a propósito: eso sí es cromo).
-    { key: 'negative', d: buildLayerPath('neg_y', 'base_y'), color: window.ecoSentimentColor('negativo') },
-    { key: 'neutral',  d: buildLayerPath('neu_y', 'neg_y'),  color: window.ecoSentimentColor('neutral') },
-    { key: 'positive', d: buildLayerPath('pos_y', 'neu_y'),  color: window.ecoSentimentColor('positivo') },
-  ];
-
-  // Granularidad del eje según el span. Con marcas SÓLO mensuales, una
-  // narrativa de días o semanas producía 0-1 ticks y `setDate(1)` caía ANTES de
-  // minT, con lo que el único tick se dibujaba en x < margin.left —fuera del
-  // área de trazado— y la serie quedaba sin escala temporal legible. Ahora los
-  // ticks se construyen dentro de [minT, maxT] por definición.
-  const DAY_MS = 86400000;
-  const spanDays = span / DAY_MS;
-  const stepDays = spanDays <= 10 ? 1 : spanDays <= 24 ? 2 : spanDays <= 70 ? 7 : 0;
+function NxPropChart({ rows, voices }) {
+  const [ref, cw] = useChartWidth(720);
+  const W = Math.max(560, Math.floor(cw)), H = 290, L = 104, R = 16, T = 26, B = 36, lh = (H - T - B) / NX_LANES.length;
+  const rMax = Math.min(12, lh / 2 - 4);
+  const t0 = nxRowT(rows[0]);
+  const t1 = Math.max(nxRowT(rows[rows.length - 1]), t0 + 6 * 3600000);
+  const span = t1 - t0;
+  // Margen de un radio a cada lado: el círculo del primer y del último punto no se corta.
+  const x = (t) => L + rMax + ((t - t0) / span) * (W - L - R - 2 * rMax);
+  const spanDays = span / 86400000, pxDay = (W - L - R - 2 * rMax) / spanDays;
+  const long = spanDays > 7 || rows[0].d.slice(0, 7) !== rows[rows.length - 1].d.slice(0, 7);
   const ticks = [];
-  if (stepDays === 0) {
-    const cursor = new Date(minT);
-    cursor.setDate(1);
-    cursor.setHours(0, 0, 0, 0);
-    while (cursor.getTime() <= maxT) {
-      if (cursor.getTime() >= minT) ticks.push(new Date(cursor));
-      cursor.setMonth(cursor.getMonth() + 1);
+  if (spanDays < 1.5) {
+    // Todo cabe en un día o poco más: el eje va en horas.
+    const hStep = [1, 2, 3, 6, 12].find((k) => k * (pxDay / 24) >= 64) || 24;
+    for (let t = Math.ceil(t0 / 3600000) * 3600000; t <= t1; t += 3600000) {
+      const H24 = Math.round((t % 86400000) / 3600000) % 24;
+      if (H24 % hStep) continue;
+      ticks.push({ d: String(t), xx: x(t), lab: H24 === 0 ? nxDayLab(new Date(t).toISOString().slice(0, 10)) : nxHourTxt(H24) });
     }
   } else {
-    // Se arranca un paso DESPUÉS de minT porque el borde izquierdo ya lo rotula
-    // el marcador "inicio" con su fecha.
-    for (let t = minT + stepDays * DAY_MS; t <= maxT; t += stepDays * DAY_MS) ticks.push(new Date(t));
+    const step = [1, 2, 7, 14, 30, 61, 91, 182, 365].find((k) => k * pxDay >= 72) || 730;
+    const monthly = step >= 30, everyN = Math.max(1, Math.round(step / 30));
+    let mi = 0;
+    for (let d = rows[0].d, k = 0; nxT(d) <= t1; d = nxAddDays(d, 1), k++) {
+      if (monthly) { if (nxD(d).getUTCDate() !== 1) continue; if ((mi++) % everyN) continue; } else if (k % step) continue;
+      const xx = x(nxT(d)); if (xx < L - 1) continue;
+      ticks.push({ d, xx, lab: monthly ? nxMonthLab(d) : long ? nxDateLab(d) : nxDayLab(d) });
+    }
   }
-  const tickEvery = ticks.length > 12 ? Math.ceil(ticks.length / 10) : 1;
-  const tickFormat = stepDays === 0
-    ? { month: 'short', year: '2-digit' }
-    : { day: 'numeric', month: 'short' };
-
-  const peak = timeline.reduce((acc, d) => (totalOf(d) > totalOf(acc) ? d : acc), timeline[0]);
-  const peakX = xScale(peak.day);
-  const startX = margin.left;
-  // Solo etiquetamos el pico si no se pisa con el marcador de inicio.
-  const showPeakLabel = peakX - startX > 60;
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(niceMax * f));
-  const dayCount = timeline.length;
-  const grandTotal = timeline.reduce((acc, d) => acc + totalOf(d), 0);
-
+  // Un rótulo que se saldría por la derecha se ancla a su final.
+  ticks.forEach((tk) => { tk.end = tk.xx + 3 + tk.lab.length * 7.8 > W; });
+  const eMax = Math.max(1, ...rows.map((p) => p.e));
+  const rOf = (p) => 3 + (rMax - 3) * Math.sqrt(p.e / eMax);
+  const bucket = {};
+  rows.forEach((p) => { const k = `${p.d}${p.t ? p.t.slice(0, 2) : 'z'}|${p.c}`; bucket[k] = (bucket[k] || 0) + 1; });
+  const kMax = Math.max(...Object.values(bucket));
+  const stepY = kMax > 1 ? Math.min(6, (lh / 2 - 3) / Math.ceil((kMax - 1) / 2)) : 0;
+  const usedB = {};
+  const id8 = String(rows.length) + '-' + rows[0].d;
   return (
-    <div className="narrative-stream-wrap">
-      {/* Div sin estilos cuyo ancho ES el área de trazado (el wrap tiene padding
-          y borde, que getBoundingClientRect incluiría). Mismo idioma que las
-          gráficas de charts.js. */}
-      <div ref={wrapRef}>
-      <div className="narrative-stream-legend">
-        {/* Mismo helper que las capas del SVG: una leyenda que toma el color de
-            otra fuente que la serie que describe puede dejar de describirla. */}
-        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('positivo') }} /> Positivo</span>
-        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('neutral') }} /> Neutral</span>
-        <span className="narrative-stream-key"><i style={{ background: window.ecoSentimentColor('negativo') }} /> Negativo</span>
-        {/* Anclas de lectura: sin esto el gráfico no decía cuánto abarca ni de
-            qué tamaño es el pico. */}
-        {/* "de vida" y "en total" son explícitos a propósito: el streamgraph
-            dibuja el arco COMPLETO de la narrativa mientras los StatBox de
-            arriba muestran la ventana elegida. Sin el rótulo, dos cifras
-            distintas a 100 px una de otra se leen como la misma. */}
-        <span className="narrative-stream-scale">
-          {dayCount} {dayCount === 1 ? 'día' : 'días'} de vida · {grandTotal.toLocaleString('es-PR')} menciones en total · pico {totalOf(peak).toLocaleString('es-PR')}/día
-        </span>
-        <span className="narrative-stream-hint">Click un día para ver sus menciones</span>
-      </div>
-      <svg className="narrative-stream-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-        {/* Gridlines + eje Y etiquetado: el ancla que faltaba para poder leer
-            VOLUMEN y no solo forma. */}
-        {yTicks.map((t, i) => {
-          const y = yScale(t);
-          return (
-            <g key={`t${i}`} style={{ pointerEvents: 'none' }}>
-              <line x1={margin.left} y1={y} x2={margin.left + innerW} y2={y}
-                stroke="var(--hairline)" strokeWidth="1" opacity={i === 0 ? 1 : 0.55} />
-              <text x={margin.left - 8} y={y + 3} textAnchor="end" fontSize="var(--fs-caption)" fill="var(--text-3)" fontFamily="var(--ff-numeric)">
-                {t}
-              </text>
-            </g>
-          );
-        })}
-
-        {layers.map((L) => (
-          <path key={L.key} d={L.d} fill={L.color} opacity={0.82} style={{ pointerEvents: 'none' }} />
+    <div ref={ref} className="scroll-x">
+      <svg width={W} height={H} className="nx-svg" role="img" aria-label={`${rows.length} menciones por canal y hora; la lista de quién la amplificó está al lado`} style={{ display: 'block' }}>
+        <defs>
+          {NX_LANES.map((_, i) => <clipPath key={i} id={`nx-ln-${id8}-${i}`}><rect x={L - 2} y={T + lh * i + 1} width={W - L - R + 4} height={lh - 2} /></clipPath>)}
+        </defs>
+        {NX_LANES.map((l, i) => (
+          <g key={l}>
+            <line x1={L} x2={W - R} y1={T + lh * (i + 0.5)} y2={T + lh * (i + 0.5)} stroke="var(--hairline)" />
+            <text x={L - 8} y={T + lh * (i + 0.5) + 4} textAnchor="end" className="nx-sans" style={{ fill: 'var(--text-2)' }}>{l}</text>
+          </g>
         ))}
-
-        {stackedPoints.map((p, i) => {
-          const prev = stackedPoints[i - 1];
-          const next = stackedPoints[i + 1];
-          const x0 = prev ? (prev.x + p.x) / 2 : p.x - 2;
-          const x1 = next ? (p.x + next.x) / 2 : p.x + 2;
-          const isSelected = selectedDay === p.day;
-          return (
-            <g key={p.day} className={`narrative-stream-day ${isSelected ? 'is-selected' : ''}`} style={{ cursor: 'pointer' }}>
-              {/* El relleno de hover/selección lo pinta el CSS
-                  (.narrative-stream-day:hover / .is-selected), en neutro. */}
-              <rect
-                x={x0}
-                y={margin.top}
-                width={Math.max(1, x1 - x0)}
-                height={innerH}
-                fill="transparent"
-                onClick={() => onSelectDay(p.day)}
-              />
-              {isSelected && (
-                <>
-                  <line
-                    x1={p.x} y1={margin.top} x2={p.x} y2={yBase}
-                    stroke="var(--text)" strokeWidth="1" strokeDasharray="3 3"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  <circle cx={p.x} cy={p.pos_y} r="3.5" fill="var(--canvas)" stroke="var(--text)" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
-                </>
-              )}
-              <title>
-                {`${new Date(p.day).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}\n`
-                  + `${p.total} menciones · ${p.positive} pos / ${p.neutral} neu / ${p.negative} neg`}
-              </title>
-            </g>
-          );
-        })}
-
-        {/* Pico: línea + etiqueta NEUTRAS (antes naranja, que aquí se reserva
-            para links). */}
-        <g style={{ pointerEvents: 'none' }}>
-          <line x1={peakX} y1={margin.top} x2={peakX} y2={yBase} stroke="var(--text-2)" strokeWidth="1" strokeDasharray="2 3" opacity={0.7} />
-          {showPeakLabel && (
-            <text x={peakX} y={margin.top + 10} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-caption)" fontWeight="700">
-              pico · {totalOf(peak)}
-            </text>
-          )}
-        </g>
-
-        {/* Marcador de inicio: el timeline arranca en el primer día de actividad
-            (born_at), así que el borde izquierdo es el nacimiento. Neutro y no
-            verde: el verde ya significa "positivo" en este mismo gráfico. */}
-        <g style={{ pointerEvents: 'none' }}>
-          <line x1={startX} y1={margin.top} x2={startX} y2={yBase} stroke="var(--text-2)" strokeWidth="1.5" opacity={0.85} />
-          <text x={startX + 5} y={margin.top + 10} textAnchor="start" fill="var(--text-2)" fontSize="var(--fs-caption)" fontWeight="700">
-            inicio {new Date(timeline[0].day).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
-          </text>
-        </g>
-
-        {ticks.map((d, i) => {
-          if (i % tickEvery !== 0) return null;
-          const x = xScale(d);
-          return (
-            <g key={i} style={{ pointerEvents: 'none' }}>
-              <line x1={x} y1={yBase} x2={x} y2={yBase + 4} stroke="var(--hairline-strong)" />
-              <text x={x} y={yBase + 18} textAnchor="middle" fill="var(--text-2)" fontSize="var(--fs-caption)">
-                {d.toLocaleDateString('es', tickFormat)}
-              </text>
-            </g>
-          );
+        {ticks.map((tk) => (
+          <g key={tk.d}>
+            <line x1={tk.xx} x2={tk.xx} y1={T - 6} y2={H - B} stroke="var(--hairline-strong)" strokeDasharray="3 3" />
+            <text x={tk.end ? tk.xx - 3 : tk.xx + 3} y={H - B + 18} textAnchor={tk.end ? 'end' : 'start'}>{tk.lab}</text>
+          </g>
+        ))}
+        {rows.map((p, idx) => {
+          const k = `${p.d}${p.t ? p.t.slice(0, 2) : 'z'}|${p.c}`;
+          const j = (usedB[k] = (usedB[k] || 0) + 1) - 1;
+          const off = (j % 2 ? 1 : -1) * Math.ceil(j / 2) * stepY;
+          const c = p.s === 'n' ? 'var(--neg)' : p.s === 'p' ? 'var(--pos)' : 'var(--neu)';
+          const cy = T + lh * (p.c + 0.5) + off;
+          const tip = `${voices[p.v] || p.v} · ${nxDayLab(p.d)} ${NX_MES[nxD(p.d).getUTCMonth()]} · ${p.t ? nxTimeLab(p.t) : 'sin hora'} · ${nxFmt(p.e)} interacciones${p.j ? ' · página de etiqueta' : ''}${p.ti ? '\n' + p.ti : ''}`;
+          const hollow = !p.t || p.j;
+          const dot = hollow
+            ? <circle clipPath={`url(#nx-ln-${id8}-${p.c})`} cx={x(nxRowT(p))} cy={cy} r={Math.max(4.5, rOf(p))} style={{ fill: 'var(--canvas)', stroke: c }} strokeWidth="1.6"><title>{tip}</title></circle>
+            : <circle clipPath={`url(#nx-ln-${id8}-${p.c})`} cx={x(nxRowT(p))} cy={cy} r={rOf(p)} style={{ fill: c, stroke: 'var(--canvas)' }} fillOpacity=".72"><title>{tip}</title></circle>;
+          // Los puntos abren la mención con el ratón; fuera del orden de tabulación
+          // (una narrativa grande sumaría cientos de paradas de teclado).
+          return p.u ? <a key={idx} href={p.u} target="_blank" rel="noopener noreferrer" tabIndex={-1}>{dot}</a> : <React.Fragment key={idx}>{dot}</React.Fragment>;
         })}
       </svg>
+    </div>
+  );
+}
+
+function NxPropagacion({ a, prop, loading, error, short, art }) {
+  if (!a) return null;
+  const head = (sub) => <NxSecHd n="03" title={`Propagación · ${a.name}`} sub={sub}
+    right={<div style={{ display: 'flex', gap: 'var(--sp-15)', alignItems: 'center' }}><NxOrigin o={a.origin} short={short} /><NxStatus s={a.status} /></div>} />;
+  if (error) return <div className="card" id="nx-prop">{head(null)}<div className="card-bd"><EmptyState reason="error" compact title="No se pudo cargar la propagación" detail="Vuelve a elegir la narrativa en unos segundos." /></div></div>;
+  if (loading || !prop) return <div className="card" id="nx-prop">{head('Cargando las menciones de la narrativa…')}<div className="card-bd"><div className="nx-empty">Cargando…</div></div></div>;
+  const pts = prop.rows || [];
+  const V = (k) => (prop.voices && prop.voices[k]) || k;
+  if (!pts.length) return <div className="card" id="nx-prop">{head(null)}<div className="card-bd"><div className="nx-empty">Sin menciones en el universo de la página.</div></div></div>;
+  const real = pts.filter((p) => !p.j);
+  const first = nxEarliest(real.length ? real : pts);
+  const sinHora = first.t ? real.filter((p) => !p.t && p.d === first.d).length : 0;
+  const firstMedia = nxEarliest(real.filter((p) => p.m));
+  const perH = {};
+  real.filter((p) => p.t).forEach((p) => { const k = `${p.d} ${p.t.slice(0, 2)}`; perH[k] = (perH[k] || 0) + 1; });
+  const pk = Object.entries(perH).sort((x1, x2) => x2[1] - x1[1] || x1[0].localeCompare(x2[0]))[0];
+  const amp = [...pts].sort((x1, x2) => x2.e - x1.e)[0];
+  const last = pts[pts.length - 1];
+  const long = pts[0].d.slice(0, 7) !== last.d.slice(0, 7) || (nxT(last.d) - nxT(pts[0].d)) / 86400000 > 7;
+  const dl = (d) => (long ? nxDateLab(d, true) : nxDayLab(d));
+  const when = (p) => `${dl(p.d)} · ${p.t ? nxTimeLab(p.t) : 'sin hora'}`;
+  let gap = '—';
+  if (firstMedia) {
+    if (firstMedia === first) gap = 'Al inicio';
+    else if (!firstMedia.t || !first.t) { const dd = Math.round((nxT(firstMedia.d) - nxT(first.d)) / 86400000); gap = dd <= 0 ? 'Mismo día' : `+${dd} d`; }
+    else { const h = (nxRowT(firstMedia) - nxRowT(first)) / 3600000; gap = h < 1 ? 'Misma hora' : h < 48 ? `+${Math.round(h)} h` : `+${Math.round(h / 24)} d`; }
+  }
+  const ampBy = {}, cnt = {};
+  pts.forEach((p) => { ampBy[p.v] = (ampBy[p.v] || 0) + p.e; cnt[p.v] = (cnt[p.v] || 0) + 1; });
+  const top = Object.keys(cnt).sort((k1, k2) => ampBy[k2] - ampBy[k1] || cnt[k2] - cnt[k1]).slice(0, 6);
+  const voicesN = Object.keys(cnt).length, negs = pts.filter((p) => p.s === 'n').length, press = pts.filter((p) => p.m).length, own = pts.filter((p) => p.o).length;
+  const eMax = Math.max(1, ...pts.map((p) => p.e));
+  return (
+    <div className="card" id="nx-prop">
+      {head(`${nxFmt(pts.length)} ${pts.length === 1 ? 'mención' : 'menciones'} desde el ${nxDateLab(first.d, true)} (${nxFmt(a.n180)} en las últimas 26 semanas) · ${voicesN} ${voicesN === 1 ? 'voz' : 'voces'} · ${press} de medios · ${own} de cuentas ${nxDe(art)} · ${negs} ${negs === 1 ? 'negativa' : 'negativas'}`)}
+      <div className="card-bd nx-prop">
+        <div style={{ minWidth: 0 }}>
+          <NxPropChart rows={pts} voices={prop.voices || {}} />
+          <div className="nx-legend" style={{ marginTop: 'var(--sp-15)' }}>
+            <span><span className="nx-dot" style={{ background: 'var(--neg)' }} />Negativo</span>
+            <span><span className="nx-dot" style={{ background: 'var(--neu)' }} />Neutral</span>
+            <span><span className="nx-dot" style={{ background: 'var(--pos)' }} />Positivo</span>
+            <span className="nx-muted">tamaño = interacción (máx. {nxFmt(eMax)}) · ○ hueco = sin hora o página de etiqueta · clic = abrir la mención</span>
+          </div>
+          <div className="nx-mile">
+            <div><b>{when(first)}</b><span>Primera: {V(first.v)}{sinHora ? ` (+${sinHora} sin hora ese día)` : ''}</span></div>
+            <div><b>{gap}</b><span>{firstMedia ? `Primer medio: ${V(firstMedia.v)}${firstMedia === first ? ' (fue la primera)' : ''}` : 'No llegó a medios'}</span></div>
+            <div><b>{pk ? `${dl(pk[0].slice(0, 10))}, ${nxHourTxt(Number(pk[0].slice(11, 13)))}` : '—'}</b><span>{pk ? `Hora pico: ${pk[1]} ${pk[1] === 1 ? 'mención' : 'menciones'}` : 'Sin horas registradas'}</span></div>
+            {amp.e > 0
+              ? <div><b>{nxFmt(amp.e)} {amp.e === 1 ? 'interacción' : 'interacciones'}</b><span>Mención con más interacción: {V(amp.v)}</span></div>
+              : <div><b>Sin interacciones</b><span>Ninguna mención registra interacciones</span></div>}
+            <div><b>{when(last)}</b><span>Última: {V(last.v)}</span></div>
+          </div>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div className="nx-over" style={{ marginBottom: 'var(--sp-15)' }}>Quién la amplificó · {amp.e > 0 ? 'por interacción' : 'por menciones'}</div>
+          {top.map((k) => (
+            <div key={k} className="nx-vrow">
+              <Avatar name={V(k)} size={28} />
+              <div className="truncate"><b style={{ fontWeight: 600 }}>{V(k)}</b> <span className="nx-muted">· {cnt[k]} {cnt[k] === 1 ? 'mención' : 'menciones'}</span></div>
+              <div className="num" style={{ textAlign: 'right' }} title="interacciones">{nxFmt(ampBy[k])}</div>
+            </div>
+          ))}
+          <p className="nx-note">Una voz es un medio o una cuenta; un mismo medio cuenta una vez aunque publique en varios canales.</p>
+        </div>
       </div>
     </div>
   );
 }
 
-function NarrativeDayDrawer({ narrative, day, agency, onClose }) {
-  const [data, setData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
+// --------------------------- 04 · Mapa de 26 semanas ---------------------------
+function NxMapa({ data, colors, selected, onSelect }) {
+  const [all, setAll] = useState(false);
+  const [ref, cw] = useChartWidth(900);
+  const byId = data.byId;
+  // Vista inicial: la serie, la alerta y las más grandes (inMapCore), más la elegida.
+  const inView = (id) => byId[id].inMapCore || id === selected;
+  const lanes = data.lanes.filter((id) => all || inView(id));
+  const hidden = data.lanes.length - data.lanes.filter(inView).length;
+  const weeks = [...data.windows.map.weeks].reverse(); // 0 = semana en curso (izquierda)
+  const asOf = data.asOf;
+  const W = Math.max(760, Math.floor(cw)), L = 270, R = 50, rowH = 28, T = 92;
+  const H = T + lanes.length * rowH + 12;
+  const cwk = (W - L - R) / weeks.length;
+  const vals = lanes.flatMap((id) => byId[id].w).filter(Boolean).sort((a, b) => a - b);
+  const cap = vals[Math.floor(vals.length * 0.95)] || 1;
+  const hOf = (v) => 4 + 16 * Math.sqrt(Math.min(v, cap) / cap);
+  // Meses: cada uno se rotula en su semana más reciente (la de más a la
+  // izquierda), por el jueves de la semana; la semana en curso, por el último día con datos.
+  const months = [];
+  let prev = '';
+  weeks.forEach((w, i) => {
+    const th = nxAddDays(w, 3) > asOf ? asOf : nxAddDays(w, 3);
+    const key = th.slice(0, 7);
+    if (key !== prev) { months.push({ i, lab: NX_MES[nxD(th).getUTCMonth()] }); prev = key; }
+  });
+  const ctx = weeks.map((w) => data.context.find((c) => c.week === w) || { week: w, total: 0, inNarr: 0 });
+  const cMax = Math.max(1, ...ctx.map((c) => c.total));
+  const gapN = ctx.filter((c) => c.total && !c.inNarr).reduce((s, c) => s + c.total, 0);
+  const storyById = {};
+  (data.stories || []).forEach((s) => { storyById[s.id] = s; });
+  const laneStories = {};
+  lanes.forEach((id) => { const s = byId[id].storyId; if (s) laneStories[s] = (laneStories[s] || 0) + 1; });
+  const storyMark = (id) => { const s = byId[id].storyId; return s && laneStories[s] >= 2 ? s : null; };
+  const usedStories = Object.keys(laneStories).filter((s) => laneStories[s] >= 2 && storyById[s]);
+  const storyColor = nxStoryColors(data, colors, usedStories);
+  const nBig = data.lanes.filter((id) => byId[id].n180 >= 15).length;
+  const partial = data.windows.map.partialDays;
+  const nameMax = Math.floor((L - 26) / 7.2);
+  const agencyArt = data.agency.article || 'la agencia';
+  return (
+    <div className="card">
+      <NxSecHd n="04" title="Mapa de 26 semanas"
+        sub={`Las ${nBig} narrativas con 15 o más menciones y todas las de la serie y el tablero (${data.lanes.length} carriles${hidden && !all ? `, ${lanes.length} a la vista` : ''}) · sin cajones · semanas de lunes a domingo · ordenadas por su semana más reciente con menciones`}
+        right={
+          <div className="nx-legend">
+            <span><span className="nx-sw" style={{ background: 'var(--neg)' }} />semana con ≥ 30% negativas (8 o más menciones)</span>
+            <span><span className="nx-sw" style={{ background: 'var(--neu)', opacity: 0.55 }} />resto</span>
+            {gapN > 0 && <span><span className="nx-sw" style={{ background: 'repeating-linear-gradient(45deg,var(--hairline-strong) 0 2px,var(--canvas) 2px 5px)', border: '1px solid var(--text-3)' }} />semana sin menciones asignadas a narrativas</span>}
+          </div>
+        } />
+      <div className="card-bd"><div ref={ref} className="scroll-x">
+        <svg width={W} height={H} className="nx-svg" role="group" aria-label="Narrativas de las últimas 26 semanas; la semana en curso está a la izquierda" style={{ display: 'block' }}>
+          <defs>
+            <pattern id="nx-gap" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="6" height="6" style={{ fill: 'var(--canvas)' }} /><rect width="2" height="6" style={{ fill: 'var(--hairline-strong)' }} />
+            </pattern>
+          </defs>
+          <text x={L} y="14" className="nx-sans" style={{ fill: 'var(--text)', fontWeight: 600 }}>← más reciente</text>
+          <text x={W - R} y="14" textAnchor="end" className="nx-sans" style={{ fill: 'var(--text-3)' }}>más antiguo →</text>
+          {months.map((m) => (
+            <g key={m.i}>
+              {m.i > 0 && <line x1={L + m.i * cwk} x2={L + m.i * cwk} y1="22" y2={H - 6} stroke="var(--hairline)" />}
+              <text x={L + m.i * cwk + 3} y="34">{m.lab}</text>
+            </g>
+          ))}
+          {partial && (
+            <g>
+              <title>{`Semana en curso: ${partial} de 7 días con datos (hasta el ${nxDateLab(asOf)})`}</title>
+              <rect x={L} y="22" width={cwk} height={H - 22} style={{ fill: 'var(--action-fill)' }} stroke="var(--hairline-strong)" strokeDasharray="3 3" />
+              <text x={L + 2} y="52">{partial === 1 ? String(nxD(asOf).getUTCDate()) : `${nxD(weeks[0]).getUTCDate()}–${nxD(asOf).getUTCDate()}`}</text>
+              <text x={L + 2} y="68" className="nx-sans">parcial</text>
+            </g>
+          )}
+          <text x="16" y={T - 10} className="nx-sans" style={{ fill: 'var(--text-2)' }}>{`Todas las menciones ${nxDe(agencyArt)}`}</text>
+          {ctx.map((c, i) => {
+            if (!c.total) return null;
+            const h = 3 + 13 * Math.sqrt(c.total / cMax), gap = c.inNarr === 0;
+            return (
+              <rect key={c.week} x={L + i * cwk + 1.5} y={T - 6 - h} width={Math.max(1, cwk - 3)} height={h} rx="2"
+                style={{ fill: gap ? 'url(#nx-gap)' : 'var(--neu)', opacity: gap ? 1 : 0.55 }} stroke={gap ? 'var(--text-3)' : 'none'}>
+                <title>{`Semana del ${nxDateLab(c.week)}: ${nxFmt(c.total)} ${c.total === 1 ? 'mención' : 'menciones'}, ${nxFmt(c.inNarr)} en narrativas${gap ? ' (el agrupador no asignó ninguna)' : ''}`}</title>
+              </rect>
+            );
+          })}
+          {lanes.map((id, j) => {
+            const a = byId[id];
+            const yy = T + 4 + j * rowH;
+            const vv = [...a.w].reverse(), vn = [...a.wn].reverse();
+            const sel = id === selected;
+            const sk = storyMark(id);
+            const lim = a.dupOf ? nameMax - 10 : nameMax;
+            const act = () => onSelect(id, true);
+            return (
+              <g key={id} className="nx-lane" tabIndex={0} role="button" aria-pressed={sel}
+                aria-label={`${a.name}: ${a.n180} menciones en 26 semanas`}
+                onClick={act} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } }}>
+                <rect className="nx-hl" x="2" y={yy} width={W - 4} height={rowH - 2} rx="4" fill={sel ? 'var(--action-fill)' : 'transparent'} stroke={sel ? 'var(--text)' : 'none'} />
+                {sk && <rect x="6" y={yy + 6} width="4" height={rowH - 14} rx="2" style={{ fill: storyColor[sk] || 'var(--text-3)' }}><title>{`Historia: ${storyById[sk].name}`}</title></rect>}
+                <text x="16" y={yy + 18} className="nx-sans" style={{ fill: 'var(--text)', fontWeight: sel ? 600 : 400 }}>
+                  <title>{a.name + (a.dupOf ? ` · posible duplicado de «${a.dupOf.name}»` : '')}</title>{nxCut(a.name, lim)}
+                </text>
+                {a.dupOf && <text x={L - 8} y={yy + 18} textAnchor="end" className="nx-dup">duplicado</text>}
+                {vv.map((v, i) => {
+                  if (!v) return null;
+                  const h = hOf(v), neg = nxIsNeg(vn[i], v);
+                  return (
+                    <rect key={i} x={L + i * cwk + 1.5} y={yy + 13 - h / 2} width={Math.max(1, cwk - 3)} height={h} rx="2"
+                      style={{ fill: neg ? 'var(--neg)' : 'var(--neu)', opacity: neg ? 1 : 0.55 }} stroke={v > cap ? 'var(--text)' : 'none'}>
+                      <title>{`${a.name} · semana del ${nxDateLab(weeks[i])}${i === 0 && partial ? ' (en curso)' : ''}: ${v} ${v === 1 ? 'mención' : 'menciones'}, ${vn[i]} ${vn[i] === 1 ? 'negativa' : 'negativas'}`}</title>
+                    </rect>
+                  );
+                })}
+                <text x={W - 6} y={yy + 18} textAnchor="end" style={{ fill: 'var(--text-3)' }}>{a.n180}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div></div>
+      <div className="card-bd" style={{ paddingTop: 0 }}>
+        <div className="nx-legend">
+          {usedStories.map((s) => <span key={s} title={storyById[s].subtitle || ''}><span className="nx-sw" style={{ background: storyColor[s], width: 4, height: 12 }} />{storyById[s].name}</span>)}
+          <span className="nx-muted">cifra de la derecha = menciones en 26 semanas</span>
+          {hidden > 0 && (
+            <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => setAll((v) => !v)} aria-expanded={all}>
+              {all ? `Ver solo las ${data.lanes.length - hidden} principales` : hidden === 1 ? 'Ver la restante' : `Ver las ${hidden} restantes`}
+            </button>
+          )}
+        </div>
+        <p className="nx-note">
+          La marca de la izquierda agrupa las narrativas de una misma historia.
+          {lanes.some((id) => byId[id].dupOf) ? ' «Duplicado» marca una narrativa que parece el mismo hecho partido en dos (mismas fechas y mismo tema).' : ''}
+          {partial ? ` La columna sombreada es la semana en curso: ${partial} de 7 días con datos.` : ''}
+          {gapN > 0 ? ` En las semanas con trama hubo ${nxFmt(gapN)} menciones que el agrupador no asignó a ninguna narrativa: esas semanas vacías no son silencio.` : ''}
+        </p>
+      </div>
+    </div>
+  );
+}
 
-  // Cerrar con Escape (mismo patrón que CommandPalette).
-  React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+// --------------------------- Montaje ---------------------------
+function NarrativeScreen({ agency }) {
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+  const [selected, setSelected] = useState(null);
+  const [props, setProps] = useState({});
+  const [live, setLive] = useState('');
+  const pending = React.useRef({});
 
   React.useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    fetch(`/api/narrative/${narrative.id}/day?date=${day}&agency=${agency || ''}`, { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
-      .catch(() => { if (!cancelled) setLoading(false); });
+    setState({ loading: true, error: null, data: null });
+    ecoFetchAuthed('/api/narrative/overview?' + new URLSearchParams({ agency: agency || '' }).toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((raw) => {
+        if (cancelled) return;
+        const byId = {};
+        (raw.narratives || []).forEach((n) => { byId[n.id] = n; });
+        const data = { ...raw, byId };
+        setState({ loading: false, error: null, data });
+        const first = (raw.series || [])[0] || (raw.board ? [...raw.board.emerging, ...raw.board.active, ...raw.board.declining][0] : null) || (raw.lanes || [])[0] || null;
+        setSelected(first);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setState({ loading: false, error: String(e && e.message || e), data: null });
+      });
     return () => { cancelled = true; };
-  }, [narrative.id, day, agency]);
+  }, [agency]);
 
-  const dateLabel = new Date(day).toLocaleDateString('es', { dateStyle: 'long' });
+  // La propagación se pide al elegir una narrativa y se guarda: volver a una
+  // ya vista no repite la consulta.
+  React.useEffect(() => {
+    if (!selected || (props[selected] && !props[selected].error) || pending.current[selected]) return;
+    pending.current[selected] = true;
+    ecoFetchAuthed(`/api/narrative/${encodeURIComponent(selected)}/propagation?` + new URLSearchParams({ agency: agency || '' }).toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((res) => setProps((p) => ({ ...p, [selected]: { data: res } })))
+      .catch((e) => {
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setProps((p) => ({ ...p, [selected]: { error: true } }));
+      })
+      .finally(() => { delete pending.current[selected]; });
+  }, [selected, agency, props]);
 
-  return (
-    <div className="narrative-day-drawer">
-      <div className="narrative-day-overlay" onClick={onClose} />
-      <div className="narrative-day-panel">
-        <div className="narrative-day-header">
-          <div>
-            <div className="narrative-day-eyebrow">{narrative.name}</div>
-            <div className="narrative-day-title">{dateLabel}</div>
-            {data && <div className="narrative-day-count">{window.ecoFmtCount(data.totalMentions)} menciones</div>}
-          </div>
-          <button className="narrative-day-close" onClick={onClose} aria-label="Cerrar">×</button>
-        </div>
-        <div className="narrative-day-body">
-          {loading ? (
-            <div className="narrative-empty-small">Cargando…</div>
-          ) : !data || data.totalMentions === 0 ? (
-            <EmptyState reason="empty" title="Sin menciones este día" detail="La narrativa no registró actividad en la fecha seleccionada." compact />
-          ) : (
-            ['positivo', 'neutral', 'negativo', 'sin_clasificar'].map((kind) => {
-              const items = (data.clusters && data.clusters[kind]) || [];
-              if (items.length === 0) return null;
-              const label = kind === 'sin_clasificar' ? 'Sin clasificar' : kind.charAt(0).toUpperCase() + kind.slice(1);
-              // ecoSentimentColor y no un ternario a mano: era el cuarto sitio de
-              // esta pantalla que decidía por su cuenta el gris del neutral.
-              const color = window.ecoSentimentColor(kind);
-              return (
-                <div key={kind} className="narrative-day-cluster">
-                  <div className="narrative-day-cluster-label">
-                    <span className="narrative-dot" style={{ background: color }} />
-                    {label} <em>({items.length})</em>
-                  </div>
-                  {items.map((m) => (
-                    <div key={m.id} className="narrative-day-mention">
-                      <div className="narrative-day-mention-title">{m.title || '(sin título)'}</div>
-                      <div className="narrative-day-mention-meta">
-                        {m.author && <strong>{m.author}</strong>}
-                        {/* platformLabel: `page_type` es el enum crudo de la DB
-                            ('facebook_public', 'news'), el mismo campo que el
-                            panel de primera mención ya traduce tres paneles antes. */}
-                        {m.pageType && <span className="narrative-tag-mini">{platformLabel(m.pageType)}</span>}
-                        <span>· {new Date(m.publishedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</span>
-                        {/* `fmt` y la palabra completa: el mismo engagement se
-                            leía "12500" aquí y "12.5K" en la tabla de menciones
-                            del producto, y "eng" era la tercera forma de escribir
-                            una unidad que en el encabezado se llama Engagement. */}
-                        {(m.engagement || 0) > 0 && <span>· Engagement {fmt(m.engagement)}</span>}
-                      </div>
-                      {m.snippet && <div className="narrative-day-mention-snippet">{m.snippet}</div>}
-                      {m.url && (
-                        <a href={m.url} target="_blank" rel="noopener noreferrer" className="narrative-link">
-                          Ver fuente →
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              );
-            })
-          )}
-        </div>
+  const data = state.data;
+  const colors = React.useMemo(() => (data ? nxColors(data) : null), [data]);
+  const onSelect = React.useCallback((id, jump) => {
+    if (!data || !data.byId[id]) return;
+    setSelected(id);
+    // Si la propagación de esta narrativa falló, elegirla otra vez la reintenta.
+    setProps((p) => { if (!p[id] || !p[id].error) return p; const q = { ...p }; delete q[id]; return q; });
+    setLive(`Propagación: ${data.byId[id].name}`);
+    if (jump) {
+      setTimeout(() => {
+        const el = document.getElementById('nx-prop');
+        if (!el) return;
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const top = el.getBoundingClientRect().top + window.scrollY - 16;
+        window.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' });
+      }, 0);
+    }
+  }, [data]);
+
+  if (state.loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
+        {['01', '02', '03', '04'].map((n) => <div key={n} className="card"><div className="card-bd"><div className="nx-empty">Cargando narrativas…</div></div></div>)}
       </div>
+    );
+  }
+  if (state.error) {
+    return <div className="card"><div className="card-bd"><EmptyState reason="error" title="No se pudieron cargar las narrativas" detail="Recarga la página en unos segundos. Si persiste, avisa al equipo." /></div></div>;
+  }
+  if (!data || !data.narratives || data.narratives.length === 0) {
+    return <div className="card"><div className="card-bd"><EmptyState reason="empty" title="Sin narrativas en las últimas 26 semanas" detail="El agrupador no encontró narrativas con menciones pertinentes para esta agencia." /></div></div>;
+  }
+  const short = (data.agency && data.agency.short) || 'Propia';
+  const art = (data.agency && data.agency.article) || 'la agencia';
+  const sel = selected && data.byId[selected];
+  const p = selected ? props[selected] : null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
+      {sel && (
+        <div className="nx-selbar">
+          <span className="nx-muted">Narrativa elegida:</span><b className="truncate" style={{ minWidth: 0 }}>{sel.name}</b>
+          <span className="nx-muted hide-mobile">Cambia la propagación (03). Elige otra en la serie, el tablero o el mapa.</span>
+          <span className="nx-muted" style={{ marginLeft: 'auto' }}>Datos al {nxDateLab(data.asOf, true)}</span>
+        </div>
+      )}
+      <NxHistorias data={data} colors={colors} selected={selected} onSelect={onSelect} />
+      <NxTablero data={data} selected={selected} onSelect={onSelect} short={short} art={art} />
+      <NxPropagacion a={sel} prop={p && p.data} loading={!p} error={p && p.error} short={short} art={art} />
+      <NxMapa data={data} colors={colors} selected={selected} onSelect={onSelect} />
+      <div aria-live="polite" className="sr-only">{live}</div>
     </div>
   );
 }

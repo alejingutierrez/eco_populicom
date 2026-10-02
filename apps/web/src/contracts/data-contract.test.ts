@@ -148,6 +148,13 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // Nube de palabras: un solo `baseConds` compartido por el scope y por la
     // referencia, así que los predicados aparecen una vez.
     { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Página Narrativas (oct-2026): la serie, el tablero, el mapa y la
+    // propagación cuentan sobre el universo pertinente (antes las rutas de
+    // narrativas no filtraban pertinencia). overview: el CTE que elige las
+    // narrativas del mapa + sus filas de toda la vida + la fila de contexto
+    // («todas las menciones» por día); propagation: las filas de una narrativa.
+    { file: 'apps/web/src/app/api/narrative/overview/route.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/app/api/narrative/[id]/propagation/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {

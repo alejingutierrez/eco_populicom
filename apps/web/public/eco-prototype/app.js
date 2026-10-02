@@ -427,15 +427,12 @@ function App() {
           onOpenCommand={() => setCmdOpen(true)}
           onOpenMenu={() => setMenuOpen(true)}
           onOpenChat={() => setChatOpen(true)}
-          // Narrativas VUELVE a tener filtro de fechas (ago 2026). Se había
-          // quitado porque "no respondía": la ventana llegaba solo a la lista y
-          // el detalle seguía mostrando toda la vida de la narrativa, así que la
-          // página se contradecía a sí misma. Ahora la ventana viaja a los dos
-          // endpoints con la misma semántica —narrativas con menciones EN el
-          // período, y cifras del período— así que el control cumple lo que
-          // promete. Ya no hay ninguna pantalla sin control de fechas, pero el
-          // prop showPeriod se conserva por si vuelve a hacer falta.
-          showPeriod
+          // Narrativas (oct-2026) usa ventanas FIJAS por bloque —serie de 30
+          // días, tablero 7 contra 7, mapa de 26 semanas, propagación de toda
+          // la vida— que terminan ayer. Un selector que solo moviera una parte
+          // de la página la haría contradecirse (pasó en ago-2026), así que ahí
+          // se oculta y el header dice qué ventanas usa.
+          showPeriod={active !== 'narrative'}
         />
         <main className="eco-page"
           data-screen-label={`${String(Object.keys(SCREEN_META).indexOf(active) + 1).padStart(2, '0')} ${screenMeta.label}`}>

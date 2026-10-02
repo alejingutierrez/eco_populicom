@@ -39,3 +39,4 @@ export * from './article-text';
 // `@aws-sdk/client-bedrock-runtime` al grafo de webpack de apps/web, que
 // no tiene esa dep — y rompe el build de Next.js incluso si nadie llama
 // invokeClaude desde el server route.
+export * from './narrative-signals';
