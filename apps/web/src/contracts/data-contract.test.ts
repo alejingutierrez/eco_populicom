@@ -148,6 +148,12 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // Nube de palabras: un solo `baseConds` compartido por el scope y por la
     // referencia, así que los predicados aparecen una vez.
     { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Scorecard (oct-2026; las consultas viven en lib/scorecard/payload.ts y la
+    // ruta solo las llama): los agregados diarios de los ÍNDICES van sin el
+    // filtro de pertinencia a propósito (mismo universo calibrado que
+    // loadAggregatesForWindow); «Quién habló» y las voces previas cuentan sobre
+    // el universo pertinente, como todo conteo visible.
+    { file: 'apps/web/src/lib/scorecard/payload.ts', rawDup: 3, rawPert: 2, drzDup: 0, drzPert: 0 },
     // Página Narrativas (oct-2026): la serie, el tablero, el mapa y la
     // propagación cuentan sobre el universo pertinente (antes las rutas de
     // narrativas no filtraban pertinencia). overview: el CTE que elige las
@@ -282,7 +288,7 @@ describe('tripwire — toda ruta /api/* está en el matcher del middleware (o es
     // `/api/foo/:path*` no cubre `/api/foo` de forma fiable; los endpoints que
     // se consumen en su raíz necesitan AMBAS entradas.
     const mw = read('apps/web/src/middleware.ts');
-    for (const bare of ['exec-overview', 'eco-executive-summary']) {
+    for (const bare of ['exec-overview', 'eco-executive-summary', 'scorecard']) {
       expect(mw).toContain(`'/api/${bare}'`);
     }
   });
