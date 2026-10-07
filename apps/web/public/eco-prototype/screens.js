@@ -369,14 +369,484 @@ function sanitizeBriefingHtml(html) {
 }
 
 // =============== DASHBOARD ===============
+// ============================================================
+// Scorecard (oct-2026): los bloques de siempre, más claros, y al final tres
+// lecturas nuevas: indicadores en filas, últimas 12 semanas contra lo usual y
+// quién habló.
+// ============================================================
+// Nombres con prefijo sc/Sc/SC_: los scripts del SPA comparten el ámbito global.
+const SC_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const SC_DIA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const scNum = (n, d = 0) => (n == null || Number.isNaN(Number(n)) ? '—' : Number(n).toLocaleString('es-PR', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const scSgn = (n, d = 1) => (n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + scNum(Math.abs(n), d));
+const scT = (ymd) => Date.parse(String(ymd).slice(0, 10) + 'T00:00:00Z');
+const scDay = (ymd) => { const d = new Date(scT(ymd)); return `${SC_DIA[d.getUTCDay()]} ${d.getUTCDate()}`; };
+const scDate = (ymd) => { const d = new Date(scT(ymd)); return `${d.getUTCDate()} ${SC_MES[d.getUTCMonth()]}`; };
+// Un día con menos de 10 menciones va con punto hueco: su índice diario no es estable.
+const SC_FEW = 10;
+
+// Los cinco indicadores. dir: si subir es bueno ('up'), malo ('down') o neutro ('flat').
+const SC_MET = {
+  nss: { label: 'Net Sentiment Score', short: 'NSS', dir: 'up', unit: '', dec: 1, sign: true, dom: [-100, 100], cuts: [-20, -5, 5, 20], dd: 'nss', word: 'nss', ins: 'nss',
+    day: (t) => (t.nss == null ? null : Number(t.nss)), prev: (p) => p.nss },
+  crisis: { label: 'Riesgo de crisis', short: 'Crisis', dir: 'down', unit: '%', dec: 0, dom: [0, 100], cuts: [25, 40, 60], dd: 'crisis', word: 'crisis', ins: 'crisis',
+    day: (t) => (t.crisisRiskScore == null ? null : t.crisisRiskScore * 100), prev: (p) => (p.crisis == null ? null : p.crisis * 100) },
+  volume: { label: 'Menciones', short: 'Menciones', dir: 'flat', unit: '', dec: 0, count: true, dd: 'totalMentions', ins: 'volume',
+    day: (t) => t.totalMentions, prev: (p) => p.mentions },
+  bhi: { label: 'Brand Health', short: 'Brand Health', dir: 'up', unit: '/10', dec: 1, dom: [1, 10], cuts: [4.6, 6.4, 8.2], dd: 'brandHealth', word: 'brandHealth', ins: 'bhi',
+    day: (t) => (t.brandHealthIndex == null ? null : 1 + 9 * t.brandHealthIndex), prev: (p) => (p.bhi == null ? null : 1 + 9 * p.bhi) },
+  pol: { label: 'Polarización', short: 'Polarización', dir: 'down', unit: '%', dec: 0, dom: [0, 100], cuts: [30, 60, 85], dd: 'polarization', word: 'polarization', ins: 'polarization',
+    day: (t) => (t.polarizationIndex == null ? null : Number(t.polarizationIndex)), prev: (p) => p.polarization },
+};
+const SC_ORDER = ['nss', 'crisis', 'volume', 'bhi', 'pol'];
+const scShow = (k, v) => (SC_MET[k].sign ? scSgn(v, SC_MET[k].dec) : scNum(v, SC_MET[k].dec));
+function scCurrent(m) {
+  return {
+    nss: m.nss, crisis: m.crisisRiskScore == null ? null : m.crisisRiskScore * 100, volume: window.ecoPeriodMentionTotal(),
+    bhi: m.brandHealthIndex == null ? null : 1 + 9 * m.brandHealthIndex, pol: m.polarizationIndex,
+  };
+}
+// Cambio contra el periodo previo; el color sale de la dirección del indicador.
+function scChange(m, k) {
+  const d = m.deltaDisplay && m.deltaDisplay[SC_MET[k].dd];
+  if (!d || !d.hasBaseline) return { txt: d ? d.value : 'sin base', cls: 'flat' };
+  const mag = Number(d.magnitude) || 0;
+  const cls = SC_MET[k].dir === 'flat' || mag === 0 ? 'flat' : (mag > 0) === (SC_MET[k].dir === 'up') ? 'good' : 'bad';
+  return { txt: `${d.arrow || ''} ${d.value}`.trim(), cls };
+}
+// El color de la marca es el de la banda canónica de cada índice (las mismas
+// bandas que el modal y el Overview).
+const scBandTone = (k, v) => {
+  if (v == null) return 'var(--text-3)';
+  if (k === 'nss') return v < -20 ? 'var(--neg)' : v < -5 ? 'var(--warn)' : v > 5 ? 'var(--pos)' : 'var(--text-2)';
+  if (k === 'crisis') return bandColorAt(CRISIS_BANDS, v, 100);
+  if (k === 'bhi') return bandColorAt(BHI_BANDS, (v - 1) / 9, 1);
+  return bandColorAt(POLARIZATION_BANDS, v, 1);
+};
+const scNice = (span, n = 4) => { const raw = (span || 1) / n, p = 10 ** Math.floor(Math.log10(raw)); return [1, 2, 2.5, 5, 10].map((x) => x * p).find((x) => x >= raw); };
+
+// Tendencia de la tarjeta: el periodo previo en gris punteado y este en negro.
+function ScSpark({ k, cur, prev, h = 34 }) {
+  const [ref, cw] = useChartWidth(160);
+  const W = Math.max(60, Math.floor(cw)), m = SC_MET[k];
+  const pts = [...(prev || []), ...cur].map((t) => m.day(t));
+  const nPrev = (prev || []).length;
+  const vals = pts.filter((v) => v != null);
+  if (!vals.length) return <div ref={ref} style={{ height: h }} />;
+  const lo = m.count ? 0 : Math.min(...vals), hi = Math.max(...vals, lo + 1);
+  const x = (i) => 2 + (i * (W - 4)) / Math.max(1, pts.length - 1), y = (v) => h - 3 - ((v - lo) / (hi - lo)) * (h - 6);
+  if (m.count) {
+    const bw = Math.max(1, Math.min(8, (W - 4) / pts.length - 1));
+    return <div ref={ref}><svg width={W} height={h} aria-hidden="true" style={{ display: 'block' }}>{pts.map((v, i) => v == null ? null : <rect key={i} x={x(i) - bw / 2} y={y(v)} width={bw} height={Math.max(0.5, h - 3 - y(v))} rx="1" style={{ fill: i < nPrev ? 'var(--hairline-strong)' : 'var(--text-2)' }} />)}</svg></div>;
+  }
+  const path = (a, b) => { let d = ''; for (let i = a; i <= b; i++) if (pts[i] != null) d += `${d ? 'L' : 'M'}${x(i).toFixed(1)},${y(pts[i]).toFixed(1)}`; return d; };
+  return (
+    <div ref={ref}>
+      <svg width={W} height={h} aria-hidden="true" style={{ display: 'block' }}>
+        {nPrev > 0 && <path d={path(0, nPrev)} fill="none" style={{ stroke: 'var(--hairline-strong)' }} strokeWidth="1.6" strokeDasharray="3 2" />}
+        <path d={path(Math.max(0, nPrev - 0), pts.length - 1)} fill="none" style={{ stroke: 'var(--text)' }} strokeWidth="1.6" />
+      </svg>
+    </div>
+  );
+}
+
+// Escala del indicador con sus cortes canónicos y la marca del valor.
+function ScScale({ k, v }) {
+  const m = SC_MET[k];
+  if (!m.dom || v == null) return null;
+  const [lo, hi] = m.dom, p = (x) => Math.max(0, Math.min(100, ((x - lo) / (hi - lo)) * 100));
+  const end = (x) => (k === 'nss' ? scSgn(x, 0) : scNum(x, 0)) + (m.unit === '%' ? '%' : '');
+  return (
+    <div>
+      <div className="sc-scale" role="img" aria-label={`${m.label}: ${scShow(k, v)}${m.unit} en una escala de ${end(lo)} a ${end(hi)}`}>
+        <span className="sc-scale-track" />
+        {m.cuts.map((c) => <i key={c} className="sc-scale-cut" style={{ left: `${p(c)}%` }} />)}
+        <i className="sc-scale-mark" style={{ left: `${p(v)}%`, background: scBandTone(k, v) }} />
+      </div>
+      <div className="sc-scale-ends"><span>{end(lo)}</span><span>{end(hi)}</span></div>
+    </div>
+  );
+}
+
+// Rótulo de la tendencia: «14 días» en 7D; en periodos largos, sin cifra.
+const scSpanLabel = (days, prev) => (prev && days <= 92 ? `${days * 2} días` : prev ? 'este periodo y el previo' : 'este periodo');
+
+function ScKpi({ k, m, cur, prev, onDetails, days }) {
+  const meta = SC_MET[k], v = scCurrent(m)[k], c = scChange(m, k);
+  const word = meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
+  const pv = prev ? meta.prev(prev) : null;
+  return (
+    <div className="card sc-kpi">
+      <div className="sc-kpi-k">{meta.label}</div>
+      <div className="sc-kpi-vrow">
+        <span className="sc-kpi-v num">{scShow(k, v)}{meta.unit && <small>{meta.unit}</small>}</span>
+        <span className={`sc-dl ${c.cls}`}>{c.txt}</span>
+      </div>
+      <div className="sc-kpi-w">{word || (pv != null ? `vs ${scNum(pv)} el periodo previo` : 'en el periodo')}</div>
+      <ScSpark k={k} cur={cur} prev={prev && prev.timeline} />
+      <ScScale k={k} v={v} />
+      <div className="sc-kpi-foot"><span>{scSpanLabel(days, prev)}</span><button className="link" onClick={onDetails}>Detalles</button></div>
+    </div>
+  );
+}
+
+// Evolución: un indicador a la vez, con eje; el periodo previo, punteado y alineado por día.
+function ScEvolution({ cur, prev, onPointClick }) {
+  const [k, setK] = useState('volume');
+  const [ref, cw] = useChartWidth(720);
+  const m = SC_MET[k], W = Math.max(320, Math.floor(cw)), H = Math.round(Math.max(220, Math.min(300, W * 0.32)));
+  const L = 48, R = 12, T = 14, B = 30, n = cur.length;
+  const cv = cur.map((t) => m.day(t)), pv = (prev || []).slice(-n).map((t) => m.day(t));
+  const vals = [...cv, ...pv].filter((v) => v != null);
+  let lo = m.count ? 0 : Math.min(0, ...vals), hi = Math.max(1, ...vals);
+  if (k === 'nss') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  const st = scNice(hi - lo); lo = Math.floor(lo / st) * st; hi = Math.ceil(hi / st) * st;
+  const x = (i) => L + ((i + 0.5) * (W - L - R)) / n, y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const ticks = []; for (let v = lo; v <= hi + 1e-9; v += st) ticks.push(v);
+  const every = n <= 14 ? ((W - L - R) / n < 52 ? 2 : 1) : n <= 31 ? Math.ceil(n / Math.max(3, Math.floor((W - L - R) / 70))) : null;
+  const xl = cur.map((t, i) => {
+    const d = t.fullDate.slice(0, 10), dt = new Date(scT(d));
+    if (every) return i % every === 0 || i === n - 1 ? { i, lab: n <= 14 ? scDay(d) : scDate(d) } : null;
+    return dt.getUTCDate() === 1 || i === 0 ? { i, lab: `${SC_MES[dt.getUTCMonth()]}${dt.getUTCMonth() === 0 || i === 0 ? ' ' + dt.getUTCFullYear() : ''}` } : null;
+  }).filter(Boolean);
+  const bars = m.count && n <= 62, bw = Math.max(2, Math.min(28, ((W - L - R) / n) * 0.55));
+  const line = (arr) => arr.map((v, i) => (v == null ? '' : `${i && arr[i - 1] != null ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join('');
+  const fmtTick = (v) => (k === 'nss' ? scSgn(v, 0) : scNum(v, st < 1 ? 1 : 0)) + (m.unit === '%' ? '%' : '');
+  return (
+    <div className="card">
+      <div className="card-hd" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+        <div><div className="card-hd-title">Evolución</div><div className="card-hd-sub">{m.label} por día</div></div>
+        <div className="sc-seg" role="group" aria-label="Indicador">
+          {SC_ORDER.map((x2) => <button key={x2} aria-pressed={x2 === k} onClick={() => setK(x2)}>{SC_MET[x2].short}</button>)}
+        </div>
+      </div>
+      <div className="card-bd"><div ref={ref}>
+        <svg width={W} height={H} className="sc-svg" role="img" aria-label={`${m.label} por día`} style={{ display: 'block' }}>
+          {ticks.map((v) => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} style={{ stroke: Math.abs(v) < 1e-9 && !m.count ? 'var(--hairline-strong)' : 'var(--hairline)' }} /><text x={L - 6} y={y(v) + 4} textAnchor="end">{fmtTick(v)}</text></g>)}
+          {xl.map((t) => <text key={t.i} x={x(t.i)} y={H - 8} textAnchor={every ? 'middle' : 'start'}>{t.lab}</text>)}
+          {bars ? cur.map((t, i) => {
+            const v = cv[i], p = pv[i];
+            return (
+              <g key={i} className="sc-hit" onClick={() => onPointClick && onPointClick(t, i)}>
+                {p != null && <rect x={x(i) - bw / 2 - 2} y={y(p)} width={bw + 4} height={Math.max(0, y(0) - y(p))} fill="none" style={{ stroke: 'var(--hairline-strong)' }} strokeDasharray="3 2"><title>{`Periodo previo: ${scNum(p)}`}</title></rect>}
+                {v != null && <rect x={x(i) - bw / 2} y={y(v)} width={bw} height={Math.max(0, y(0) - y(v))} rx="2" style={{ fill: 'var(--text-2)' }}><title>{`${scDay(t.fullDate)}: ${scNum(v)} menciones`}</title></rect>}
+              </g>
+            );
+          }) : (
+            <g>
+              {pv.length > 0 && <path d={line(pv)} fill="none" style={{ stroke: 'var(--hairline-strong)' }} strokeWidth="1.6" strokeDasharray="4 3" />}
+              <path d={line(cv)} fill="none" style={{ stroke: 'var(--text)' }} strokeWidth="2" />
+              {n <= 62 && cur.map((t, i) => {
+                const v = cv[i]; if (v == null) return null;
+                const few = (t.totalMentions || 0) < SC_FEW;
+                return (
+                  <circle key={i} className="sc-hit" cx={x(i)} cy={y(v)} r={few ? 4 : 3.5} strokeWidth="1.6"
+                    style={{ fill: few ? 'var(--canvas)' : 'var(--text)', stroke: 'var(--text)' }} onClick={() => onPointClick && onPointClick(t, i)}>
+                    <title>{`${scDay(t.fullDate)}: ${scShow(k, v)}${m.unit} · ${scNum(t.totalMentions)} ${t.totalMentions === 1 ? 'mención' : 'menciones'}`}</title>
+                  </circle>
+                );
+              })}
+            </g>
+          )}
+        </svg>
+        </div>
+        <div className="sc-legend">
+          <span><i className="sc-sw" style={{ background: 'var(--text)' }} />este periodo</span>
+          {prev && prev.length > 0 && <span><i className="sc-sw" style={{ background: 'var(--hairline-strong)' }} />periodo previo</span>}
+          {!m.count && n <= 62 && <span>○ menos de 10 menciones ese día</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Tópicos: la barra es este periodo y la marca, el periodo previo.
+function ScTopics({ topics, onOpen, onAll }) {
+  const rows = [...(topics || [])].filter((t) => t.slug).sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 7);
+  const max = Math.max(1, ...rows.map((t) => Math.max(t.count || 0, t.prevCount || 0)));
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Tópicos</div><div className="card-hd-sub">menciones</div></div><button className="link" onClick={onAll}>Ver todos</button></div>
+      <div className="card-bd">
+        <div className="sc-trow sc-hd"><span /><span className="num">ahora</span><span /><span className="num">antes</span></div>
+        {rows.map((t) => {
+          const neg = (t.negative || 0) / Math.max(1, t.count || 0) >= 0.3;
+          return (
+            <button key={t.slug} className="sc-trow sc-click" onClick={() => onOpen(t)} title={`${t.name}: ${t.count} menciones (antes ${t.prevCount ?? '—'})`}>
+              <span className="sc-nm">{t.name}</span>
+              <span className="num sc-n">{scNum(t.count)}</span>
+              <span className="sc-track"><b style={{ width: `${((t.count || 0) / max) * 100}%`, background: neg ? 'var(--neg)' : 'var(--text-3)' }} />{t.prevCount != null && <i style={{ left: `${(t.prevCount / max) * 100}%` }} />}</span>
+              <span className="num sc-p">{t.prevCount != null ? scNum(t.prevCount) : '—'}</span>
+            </button>
+          );
+        })}
+        {rows.length === 0 && <div className="sc-empty">Sin tópicos clasificados en el periodo.</div>}
+        <div className="sc-legend">
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--text-3)' }} />este periodo</span>
+          <span><i className="sc-sw sc-sw-tick" />periodo previo</span>
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--neg)' }} />30% o más negativas</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fuentes: el largo es el volumen y el relleno, la mezcla de tono.
+function ScSources({ sources, bySource, onOpen }) {
+  const sent = new Map((bySource || []).map((s) => [s.source, s]));
+  const rows = (sources || []).map((s) => ({ ...s, ...(sent.get(s.source) || {}) }));
+  const max = Math.max(1, ...rows.map((s) => s.count || 0));
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Fuentes</div><div className="card-hd-sub">por volumen</div></div></div>
+      <div className="card-bd">
+        {rows.map((s) => {
+          const n = s.count || 0, seg = (v, c) => (n && v ? <b style={{ width: `${(v / n) * 100}%`, background: c }} /> : null);
+          return (
+            <button key={s.key} className="sc-srow sc-click" onClick={() => onOpen({ key: s.key, label: s.source })} title={`${s.source}: ${n} menciones · ${s.negativo || 0} negativas`}>
+              <span className="sc-nm">{s.source}</span>
+              <span className="num sc-n">{scNum(n)}</span>
+              <span className="sc-mix" style={{ width: `${Math.max(2, (n / max) * 100)}%` }}>{seg(s.negativo, 'var(--neg)')}{seg(s.neutral, 'var(--hairline-strong)')}{seg(s.positivo, 'var(--pos)')}</span>
+            </button>
+          );
+        })}
+        <div className="sc-legend">
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--neg)' }} />negativas</span><span><i className="sc-sw sc-sw-box" style={{ background: 'var(--hairline-strong)' }} />neutras</span><span><i className="sc-sw sc-sw-box" style={{ background: 'var(--pos)' }} />positivas</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Actividad por hora: totales por día y por hora al margen; la hora pico, enmarcada.
+const SC_DOW = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+function ScHeat({ data, onCellClick }) {
+  const H = Array.isArray(data) && data.length === 168 ? data : Array.from({ length: 168 }, () => 0);
+  const max = Math.max(...H), total = H.reduce((a, b) => a + b, 0);
+  const rowT = SC_DOW.map((_, d) => H.slice(d * 24, d * 24 + 24).reduce((a, b) => a + b, 0));
+  const colT = Array.from({ length: 24 }, (_, h) => SC_DOW.reduce((s, _2, d) => s + H[d * 24 + h], 0));
+  const mr = Math.max(1, ...rowT), mc = Math.max(1, ...colT);
+  // Con empate en el máximo se enmarcan todas las franjas y el rótulo lo dice.
+  const peaks = max > 0 ? H.map((v, i) => (v === max ? i : -1)).filter((i) => i >= 0) : [];
+  const pk = peaks.length ? peaks[0] : -1;
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <div><div className="card-hd-title">Actividad por hora</div><div className="card-hd-sub">hora de Puerto Rico · toca una franja para ver sus menciones</div></div>
+        {peaks.length === 1 && <div className="card-hd-sub">pico: {SC_DOW[Math.floor(pk / 24)].toLowerCase()} a las {pk % 24}:00 · {max} {max === 1 ? 'mención' : 'menciones'}</div>}
+        {peaks.length > 1 && <div className="card-hd-sub">pico: {max} {max === 1 ? 'mención' : 'menciones'} por hora en {peaks.length} franjas</div>}
+      </div>
+      <div className="card-bd scroll-x">
+        {total === 0 ? <div className="sc-empty">Sin menciones en el periodo.</div> : (
+          <div className="sc-heat">
+            <span />{colT.map((_, h) => <span key={h} className="sc-heat-h">{h % 3 === 0 ? h : ''}</span>)}<span />
+            {SC_DOW.map((dn, d) => (
+              <React.Fragment key={dn}>
+                <span className="sc-heat-d">{dn}</span>
+                {Array.from({ length: 24 }, (_, h) => {
+                  const v = H[d * 24 + h];
+                  return (
+                    <span key={h} role="button" tabIndex={0} className={`sc-heat-c${peaks.includes(d * 24 + h) ? ' pk' : ''}`}
+                      style={{ background: v ? seqColor(v / max) : undefined }} aria-label={`${dn} ${h}:00: ${v} menciones`} title={`${dn} ${h}:00 · ${v} ${v === 1 ? 'mención' : 'menciones'}`}
+                      onClick={() => onCellClick({ day: d, dayLabel: dn, hour: h, hourEnd: h, value: v })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCellClick({ day: d, dayLabel: dn, hour: h, hourEnd: h, value: v }); } }} />
+                  );
+                })}
+                <span className="sc-heat-rt"><b style={{ width: `${(rowT[d] / mr) * 28}px` }} />{rowT[d]}</span>
+              </React.Fragment>
+            ))}
+            <span />{colT.map((v, h) => <span key={h} className="sc-heat-ct" title={`${h}:00 · ${v} menciones`}><b style={{ height: `${(v / mc) * 22}px` }} /></span>)}<span />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Indicadores en filas: el mapeo detallado de los cinco.
+function ScIndicatorRows({ m, cur, prev, days }) {
+  const curV = scCurrent(m);
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Indicadores</div></div></div>
+      <div className="card-bd scroll-x">
+        <div className="sc-krow sc-hd"><span>Indicador</span><span>Este periodo</span><span>Cambio</span><span>{scSpanLabel(days, prev)}{prev ? ' · el previo en gris' : ''}</span><span>Escala</span></div>
+        {SC_ORDER.map((k) => {
+          const meta = SC_MET[k], c = scChange(m, k), word = meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
+          const pv = prev ? meta.prev(prev) : null;
+          return (
+            <div key={k} className="sc-krow">
+              <span><span className="sc-krow-nm">{meta.label}</span>{word && <span className="sc-krow-w">{word}</span>}</span>
+              <span className="sc-krow-v num">{scShow(k, curV[k])}{meta.unit && <small>{meta.unit}</small>}</span>
+              <span><span className={`sc-dl ${c.cls}`}>{c.txt}</span><span className="sc-krow-w num">antes {pv == null ? '—' : `${scShow(k, pv)}${meta.unit}`}</span></span>
+              <span><ScSpark k={k} cur={cur} prev={prev && prev.timeline} h={30} /></span>
+              <span>{meta.dom ? <ScScale k={k} v={curV[k]} /> : <span className="sc-krow-w">sin escala</span>}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Últimas 12 semanas: cada celda contra lo usual de la agencia.
+const SC_WK = { nss: 'nss', crisis: 'crisis', volume: 'n', bhi: 'bhi', pol: 'polarization' };
+function scUsual(k, v, usual) {
+  const u = usual && usual[SC_WK[k]];
+  if (v == null || !u) return { cls: '', txt: 'sin base' };
+  if (v >= u.p25 && v <= u.p75) return { cls: '', txt: 'dentro de lo usual' };
+  const up = v > u.p75;
+  if (SC_MET[k].dir === 'flat') return { cls: 'hi', txt: up ? 'más alto que lo usual' : 'más bajo que lo usual' };
+  const good = up === (SC_MET[k].dir === 'up');
+  return { cls: good ? 'good' : 'bad', txt: up ? 'más alto que lo usual' : 'más bajo que lo usual' };
+}
+function ScWeeks({ data }) {
+  // Abre en la semana actual: en pantallas angostas la cuadrícula se desplaza y
+  // lo primero que se ve debe ser lo más reciente.
+  const scroller = React.useRef(null);
+  useEffect(() => { const el = scroller.current; if (el) el.scrollLeft = el.scrollWidth; }, [data]);
+  if (!data || !data.weeks || !data.weeks.length) return null;
+  const W = data.weeks, last = W[W.length - 1], usual = data.usual;
+  const endDow = SC_DIA[new Date(scT(last.end)).getUTCDay()];
+  const val = (w, k) => (k === 'volume' ? w.n : w[SC_WK[k]]);
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Últimas 12 semanas</div><div className="card-hd-sub">cada semana termina el {endDow}</div></div></div>
+      <div className="card-bd">
+        <div className="scroll-x" ref={scroller}>
+          <div className="sc-wk" style={{ gridTemplateColumns: `${window.ecoIsMobile() ? 96 : 130}px repeat(${W.length}, minmax(56px, 1fr))` }}>
+            <span className="sc-wk-nm" />{W.map((w, i) => <span key={w.end} className={`sc-wk-h${i === W.length - 1 ? ' cur' : ''}`}>{scDate(w.end)}</span>)}
+            {SC_ORDER.map((k) => (
+              <React.Fragment key={k}>
+                <span className="sc-wk-nm">{SC_MET[k].short}</span>
+                {W.map((w, i) => { const v = val(w, k), s = scUsual(k, v, usual), u = usual && usual[SC_WK[k]];
+                  return <span key={w.end} className={`sc-wk-c ${s.cls}${i === W.length - 1 ? ' cur' : ''}`} title={`Semana del ${scDate(w.start)} al ${scDate(w.end)}: ${v == null ? '—' : scShow(k, v) + SC_MET[k].unit} · ${s.txt}${u ? ` (lo usual: ${scShow(k, u.p25)} a ${scShow(k, u.p75)})` : ''}`}>{v == null ? '—' : scShow(k, v)}</span>; })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div className="sc-legend" style={{ marginTop: 'var(--sp-3)' }}>
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--pos-bg)', border: '1px solid var(--pos)' }} />mejor que lo usual</span>
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--canvas-2)', border: '1px solid var(--hairline-strong)' }} />dentro de lo usual</span>
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--neg-bg)', border: '1px solid var(--neg)' }} />peor que lo usual</span>
+          <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--neu-bg)', border: '1px solid var(--neu)' }} />menciones fuera de lo usual</span>
+        </div>
+        {usual && usual.nss && <div className="sc-note">Lo usual: la mitad central de las {usual.nss.weeks} semanas previas desde el {scDate(data.baselineFrom)}.</div>}
+      </div>
+    </div>
+  );
+}
+
+// Quién habló: la agencia, la prensa, gobierno y política, y la ciudadanía.
+const SC_VC = { agencia: 0, prensa: 1, gobierno: 2, ciudadania: 3 };
+const scVColor = (k) => window.ecoCat(SC_VC[k]);
+function ScVoices({ data }) {
+  if (!data || !data.cats) return null;
+  const cats = data.cats, n = cats.reduce((s, c) => s + c.n, 0), nP = cats.reduce((s, c) => s + c.nPrev, 0), mx = Math.max(1, n, nP);
+  const stack = (key, tot) => (
+    <div className="sc-stk" style={{ width: `${(tot / mx) * 100}%` }}>
+      {cats.map((c) => (c[key] ? <b key={c.k} style={{ width: `${(c[key] / tot) * 100}%`, background: scVColor(c.k) }} title={`${c.label}: ${c[key]}`}>{c[key] / tot >= 0.08 ? c[key] : ''}</b> : null))}
+    </div>
+  );
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Quién habló</div><div className="card-hd-sub">{scNum(n)} menciones en este periodo · {scNum(nP)} en el previo</div></div></div>
+      <div className="card-bd">
+        <div className="sc-vbars">
+          <span>Este periodo</span>{n ? stack('n', n) : <span className="sc-krow-w">sin menciones</span>}
+          <span className="sc-krow-w">Periodo previo</span>{nP ? stack('nPrev', nP) : <span className="sc-krow-w">sin menciones</span>}
+        </div>
+        <div className="sc-vrow sc-hd"><span /><span>menciones</span><span>negativas</span><span>antes</span></div>
+        {cats.map((c) => (
+          <div key={c.k} className="sc-vrow">
+            <span><i className="sc-sw sc-sw-box" style={{ background: scVColor(c.k) }} /><span>{c.label}<span className="sc-vrow-prev num">antes {scNum(c.nPrev)} · {scNum(c.negPrev)} neg.</span></span></span>
+            <span className="num">{scNum(c.n)}</span>
+            <span className="num" style={{ color: c.n && c.neg / c.n >= 0.3 ? 'var(--neg)' : undefined }}>{scNum(c.neg)}</span>
+            <span className="num sc-p">{scNum(c.nPrev)} · {scNum(c.negPrev)} neg.</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function ScVoicesDaily({ data }) {
+  const [ref, cw] = useChartWidth(420);
+  if (!data || !data.daily || !data.daily.length) return null;
+  const keys = ['agencia', 'prensa', 'gobierno', 'ciudadania'];
+  // Más de 31 días: se agrupa por semana para que las barras sigan leyéndose.
+  let rows = data.daily, weekly = false;
+  if (rows.length > 31) {
+    weekly = true; const out = [];
+    rows.forEach((r, i) => { if (i % 7 === 0) out.push({ date: r.date, agencia: 0, prensa: 0, gobierno: 0, ciudadania: 0 }); const b = out[out.length - 1]; keys.forEach((k) => { b[k] += r[k]; }); });
+    rows = out;
+  }
+  const tot = rows.map((r) => keys.reduce((s, k) => s + r[k], 0)), max = Math.max(1, ...tot);
+  const W = Math.max(240, Math.floor(cw)), H = 190, L = 34, R = 6, T = 10, B = 26, n = rows.length;
+  const x = (i) => L + ((i + 0.5) * (W - L - R)) / n, y = (v) => T + (1 - v / max) * (H - T - B), bw = Math.max(2, ((W - L - R) / n) * 0.6);
+  const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - L - R) / 52))));
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">{weekly ? 'Por semana' : 'Por día'}</div><div className="card-hd-sub">menciones según quién habló</div></div></div>
+      <div className="card-bd"><div ref={ref}>
+        <svg width={W} height={H} className="sc-svg" role="img" aria-label="Menciones por día según quién habló" style={{ display: 'block' }}>
+          {[0, Math.round(max / 2), max].map((v) => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} style={{ stroke: 'var(--hairline)' }} /><text x={L - 4} y={y(v) + 4} textAnchor="end">{v}</text></g>)}
+          {rows.map((r, i) => { let acc = 0; return (
+            <g key={r.date}>
+              {keys.map((k) => { if (!r[k]) return null; const y0 = y(acc + r[k]), h = y(acc) - y(acc + r[k]); acc += r[k]; return <rect key={k} x={x(i) - bw / 2} y={y0} width={bw} height={h} style={{ fill: scVColor(k) }}><title>{`${scDate(r.date)} · ${(data.cats.find((c) => c.k === k) || {}).label}: ${r[k]}`}</title></rect>; })}
+              {i % every === 0 && <text x={x(i)} y={H - 8} textAnchor="middle">{n <= 10 ? scDay(r.date) : scDate(r.date)}</text>}
+            </g>
+          ); })}
+        </svg>
+        </div>
+        <div className="sc-legend">{data.cats.map((c) => <span key={c.k}><i className="sc-sw sc-sw-box" style={{ background: scVColor(c.k) }} />{c.label}</span>)}</div>
+      </div>
+    </div>
+  );
+}
+function ScInteraction({ data }) {
+  if (!data || !data.concentration) return null;
+  const c = data.concentration, t = c.total || 0;
+  const a = t ? c.top1 / t : 0, b = t ? (c.top5 - c.top1) / t : 0, r = t ? 1 - a - b : 0;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const catLabel = (k) => (data.cats.find((x) => x.k === k) || {}).label;
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Interacción</div><div className="card-hd-sub">{scNum(t)} likes, comentarios y compartidos en el periodo</div></div></div>
+      <div className="card-bd">
+        {t > 0 && (
+          <>
+            <div className="sc-stk">
+              <b style={{ width: pct(a), background: 'var(--text)' }}>{a >= 0.08 ? pct(a) : ''}</b>
+              <b style={{ width: pct(b), background: 'var(--text-3)' }}>{b >= 0.08 ? pct(b) : ''}</b>
+              <b style={{ width: pct(r), background: 'var(--hairline-strong)', color: 'var(--text)' }}>{r >= 0.08 ? pct(r) : ''}</b>
+            </div>
+            <div className="sc-legend" style={{ marginTop: 'var(--sp-15)' }}>
+              <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--text)' }} />la cuenta con más</span>
+              <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--text-3)' }} />las 4 siguientes</span>
+              <span><i className="sc-sw sc-sw-box" style={{ background: 'var(--hairline-strong)' }} />el resto</span>
+            </div>
+          </>
+        )}
+        <div className="sc-stats">
+          <div><div className="sc-big num">{scNum(c.zero)}<small> de {scNum(c.n)}</small></div><div className="sc-krow-w">menciones sin interacción</div></div>
+          <div><div className="sc-big num">{scNum(data.newVoices)}<small> de {scNum(data.distinct)}</small></div><div className="sc-krow-w">voces nuevas en 5 semanas</div></div>
+        </div>
+        {(data.top || []).map((v, i) => (
+          <div key={i} className="sc-voice">
+            <span style={{ minWidth: 0 }}>
+              <span className="sc-voice-n">{v.name || 'Una persona'}</span>
+              <span className="sc-krow-w"><i className="sc-sw sc-sw-box" style={{ background: scVColor(v.cat) }} />{catLabel(v.cat)} · {v.n} {v.n === 1 ? 'mención' : 'menciones'}</span>
+            </span>
+            <span className="num" title="interacciones">{scNum(v.inter)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency }) {
-  const m = D.CURRENT_METRICS;
-  const cb = crisisBand(m && m.crisisRiskScore);
-  // Default: solo "Menciones" (issue #6). El usuario puede sumar series con
-  // los chips, máx 3 a la vez.
-  const [activeMetrics, setActiveMetrics] = useState(['totalMentions']);
-  // Modo del Resumen ejecutivo: signal | emerging | crisis. El backend
-  // devuelve D.BRIEFING como objeto con esas 3 claves.
+  const m = D.CURRENT_METRICS || {};
   const [focus, setFocus] = useState('signal');
   const [slice, setSlice] = useState(null);
   const [metricModal, setMetricModal] = useState(null);
@@ -384,13 +854,8 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   // ── Resumen ejecutivo POR PERIODO ──────────────────────────────────────
   // El bloque leía D.BRIEFING, que para su versión IA sale de
   // `agency_briefings` — una tabla con period_hours=24 fijo que llena un cron.
-  // Eso hacía que el resumen NO reaccionara al filtro de fechas (reportado por
-  // el usuario). Ahora pedimos /api/eco-executive-summary, que se genera y
-  // cachea por (agencia, periodo).
-  //
-  // D.BRIEFING sigue siendo el fallback: su rama rule-based SÍ es
-  // period-scoped (se deriva de TOPICS/winCur de la ventana), así que el
-  // bloque nunca queda vacío mientras el resumen IA genera ni si Bedrock falla.
+  // Ahora pedimos /api/eco-executive-summary, que se genera y cachea por
+  // (agencia, periodo). D.BRIEFING sigue siendo el fallback rule-based.
   const [periodSummary, setPeriodSummary] = useState({ phase: 'loading', modes: null });
   useEffect(() => {
     let cancelled = false;
@@ -409,514 +874,167 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
     return () => { cancelled = true; };
   }, [period, agency]);
 
-  // Resumen ejecutivo activo según `focus`. Si el backend solo devolvió el
-  // shape antiguo (un solo briefing), fallback a él para no romper la UI.
-  const briefingByMode = (D.BRIEFING && typeof D.BRIEFING === 'object' && D.BRIEFING.signal !== undefined)
-    ? D.BRIEFING
-    : null;
-  const fallbackBriefing = briefingByMode
-    ? (briefingByMode[focus] || briefingByMode.signal || null)
-    : D.BRIEFING;
-  // El resumen del periodo gana cuando está listo; si no, el rule-based.
+  // Lo que el Scorecard muestra además de eco-data: el periodo previo, las
+  // últimas 12 semanas contra lo usual y quién habló (/api/scorecard).
+  const [sc, setSc] = useState({ phase: 'loading', data: null });
+  useEffect(() => {
+    let cancelled = false;
+    setSc({ phase: 'loading', data: null });
+    const params = new URLSearchParams(window.ecoGetPeriodParams());
+    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+    if (ag) params.set('agency', ag);
+    ecoFetchAuthed('/api/scorecard?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((d) => { if (!cancelled) setSc({ phase: 'ready', data: d }); })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setSc({ phase: 'error', data: null });
+      });
+    return () => { cancelled = true; };
+  }, [period, agency]);
+
+  const briefingByMode = (D.BRIEFING && typeof D.BRIEFING === 'object' && D.BRIEFING.signal !== undefined) ? D.BRIEFING : null;
+  const fallbackBriefing = briefingByMode ? (briefingByMode[focus] || briefingByMode.signal || null) : D.BRIEFING;
   const periodMode = periodSummary.modes && periodSummary.modes[focus];
   const activeBriefing = periodMode
-    ? {
-        ...(fallbackBriefing || {}),
-        narrativeHtml: periodMode.narrativeHtml,
-        points: periodMode.points || [],
-        dominantSignal: periodMode.dominantSignal,
-        action: periodMode.action,
-        actionTone: periodMode.actionTone,
-        source: 'ai',
-        generatedAtLabel: 'este periodo',
-      }
+    ? { ...(fallbackBriefing || {}), narrativeHtml: periodMode.narrativeHtml, points: periodMode.points || [], dominantSignal: periodMode.dominantSignal, source: 'ai', generatedAtLabel: 'este periodo' }
     : fallbackBriefing;
 
-  // Helper para clicks en KPIs del Scorecard. Usa el period preset (no
-  // periodStart/periodEnd) porque DashboardScreen consume /api/eco-data que
-  // no expone esos campos; el endpoint /api/eco-metric-insight resolverá la
-  // ventana con closedWindowYmdInTZ del period preset.
-  function openKpiInsight(metric, value, accent) {
-    const labels = {
-      crisis: 'Riesgo de crisis',
-      polarization: 'Polarización',
-      nss: 'Net Sentiment Score',
-      bhi: 'Brand Health',
-      volume: 'Volumen',
-    };
-    const filter = metric === 'crisis' ? { sentiment: 'negativo', pertinence: 'alta' }
-      : metric === 'nss' ? { sentiment: 'negativo' }
-      : metric === 'polarization' ? {}
-      : {};
-    openMetricInsightShared(setSlice, {
-      metric, value, accent,
-      label: labels[metric] || metric,
-      periodPreset: period || '7D',
-      agency,
-      subcomponents: [],
-      filter,
-    });
-  }
-
-  // El color de cada serie sale de ECO_METRIC_COLOR (data.js), que es la fuente
-  // única ya declarada para esto: cinco de las seis lo repetían a mano aquí, así
-  // que el mapa "oficial" sólo gobernaba la polarización y cambiar el color de una
-  // métrica exigía acordarse de esta lista.
-  const seriesConfig = [
-    { key: 'nss', label: 'NSS', color: window.ECO_METRIC_COLOR.nss },
-    { key: 'brandHealthIndex', label: 'Brand Health', color: window.ECO_METRIC_COLOR.brandHealthIndex },
-    { key: 'totalMentions', label: 'Menciones', color: window.ECO_METRIC_COLOR.totalMentions },
-    { key: 'crisisRiskScore', label: 'Crisis', color: window.ECO_METRIC_COLOR.crisisRiskScore },
-    { key: 'polarizationIndex', label: 'Polarización', color: window.ECO_METRIC_COLOR.polarizationIndex },
-    { key: 'engagementRate', label: 'Engagement', color: window.ECO_METRIC_COLOR.engagementRate },
-  ];
-
-  function openTimelineDaySlice(d, idx) {
+  function openTimelineDaySlice(d) {
     const total = Math.round((d.totalMentions || d.positivo + d.neutral + d.negativo) || 0);
     const bias = d.negativo > d.positivo ? 'negativo' : d.positivo > d.negativo ? 'positivo' : 'neutral';
     const accent = bias === 'negativo' ? 'var(--neg)' : bias === 'positivo' ? 'var(--pos)' : 'var(--accent)';
     const dayIso = d.fullDate ? d.fullDate.slice(0, 10) : undefined;
-    // Sin histogram: el "Volumen por hora" que se mostraba aquí era una
-    // senoide sintética, no datos (auditoría 2026-08). Y no se puede rellenar
-    // con HOUR_HEATMAP: eso agrega por día-de-semana sobre TODO el período, no
-    // por fecha. Derivarlo de las 20 menciones del modal sería otro invento.
-    // Requiere una serie real por hora en el backend. El datapoint del
-    // TIMELINE cuenta el universo pertinente — igual que el default del modal.
     setSlice({
-      eyebrow: d.date,
-      title: `NSS ${d.nss > 0 ? '+' : ''}${(d.nss ?? 0).toFixed(1)}`,
+      eyebrow: d.date || (dayIso ? scDate(dayIso) : ''),
+      title: d.nss != null ? `NSS ${d.nss > 0 ? '+' : ''}${Number(d.nss).toFixed(1)}` : 'Menciones del día',
       accent, volume: total,
       sentiment: { pos: d.positivo || 0, neu: d.neutral || 0, neg: d.negativo || 0 },
       mentions: [],
       _filter: { day: dayIso },
     });
   }
-
   function openSourceSlice(src) {
-    const key = src.key;
-    // Paleta categórica, no semántica: antes "Noticias" era var(--pos) —verde—
-    // a 300px de barras donde el verde significa "positivo", así que la
-    // categoría se leía como un juicio.
     const colors = window.ECO_SOURCE_COLOR;
-    setSlice({
-      eyebrow: 'Fuente',
-      title: src.label,
-      accent: colors[key] || 'var(--accent)',
-      mentions: [],
-      // TOP_SOURCES cuenta la ventana cerrada de eco-data en el universo
-      // pertinente — el mismo default del modal; solo viaja la ventana.
-      _filter: { ...ecoDataWindow(), source: key },
-    });
+    setSlice({ eyebrow: 'Fuente', title: src.label, accent: colors[src.key] || 'var(--accent)', mentions: [], _filter: { ...ecoDataWindow(), source: src.key } });
   }
-
   function openHeatmapSlice(cell) {
     setSlice({
-      eyebrow: `${cell.dayLabel} · ${String(cell.hour).padStart(2,'0')}:00 – ${String(cell.hour).padStart(2,'0')}:59`,
-      title: 'Franja horaria',
-      accent: 'var(--accent)',
-      mentions: [],
+      eyebrow: `${cell.dayLabel} · ${String(cell.hour).padStart(2, '0')}:00 – ${String(cell.hour).padStart(2, '0')}:59`,
+      title: 'Franja horaria', accent: 'var(--accent)', mentions: [],
       _filter: { ...ecoDataWindow(), dow: cell.day, hour: cell.hour },
     });
   }
-
   function openTopicSlice(t) {
     const palette = window.ECO_CAT;
     const slugIdx = {};
     D.TOPICS.forEach((tp, i) => { slugIdx[tp.slug] = i; });
     const accent = palette[slugIdx[t.slug] % palette.length] || 'var(--accent)';
-    setSlice({
-      eyebrow: 'Tópico',
-      title: t.name,
-      accent,
-      mentions: [],
-      // TOPICS.count es primario (default del modal) sobre la ventana de
-      // eco-data en el universo pertinente (default del endpoint).
-      _filter: { ...ecoDataWindow(), topic: t.slug },
-    });
+    setSlice({ eyebrow: 'Tópico', title: t.name, accent, mentions: [], _filter: { ...ecoDataWindow(), topic: t.slug } });
   }
-
   function openBriefingSlice() {
-    // Hero CTA opens the mention slice for the actual dominant topic reported
-    // by the active briefing mode (falls back to the first topic by volume).
     const briefingTopicName = (activeBriefing && activeBriefing.dominantSignal || '').split(' · ')[0];
-    const topic = (briefingTopicName && D.TOPICS.find(t => t.name === briefingTopicName)) || D.TOPICS[0];
+    const topic = (briefingTopicName && D.TOPICS.find((t) => t.name === briefingTopicName)) || D.TOPICS[0];
     if (topic) openTopicSlice(topic);
   }
-
-  function openMetric(key, label, accent) {
-    let value = null;
-    if (m) {
-      if (key === 'crisis') value = m.crisisRiskScore;
-      else if (key === 'volume') value = m.totalMentions;
-      // BHI: el cálculo interno es 0-1 pero la UI presenta 1-10 (1=crítico,
-      // 10=fuerte). Pre-convertimos el placeholder para que el modal hable
-      // SIEMPRE en la misma escala — antes el headline saltaba de "0.6"
-      // (mientras cargaba el fetch) a "59.5" (después, por una segunda
-      // multiplicación errónea contra el valor ya escalado del API).
-      else if (key === 'bhi') value = m.brandHealthIndex != null
-        ? Number((1 + m.brandHealthIndex * 9).toFixed(1))
-        : null;
-      else if (key === 'polarization') value = m.polarizationIndex;
-      else value = m.nss;
-    }
-    // Display legible inicial (palabra + número) mientras carga el insight AI;
-    // evita el parpadeo del valor crudo "0.59" en el headline del drawer.
+  function openMetric(k) {
+    const meta = SC_MET[k], cur = scCurrent(m);
+    const key = meta.ins;
+    const value = k === 'bhi' ? (cur.bhi == null ? null : Number(cur.bhi.toFixed(1))) : k === 'crisis' ? m.crisisRiskScore : k === 'volume' ? m.totalMentions : k === 'pol' ? m.polarizationIndex : m.nss;
     const dsp = (m && m.display) || {};
-    const valueDisplay = key === 'crisis' ? dsp.crisis
-      : key === 'bhi' ? dsp.brandHealth
-      : key === 'polarization' ? dsp.polarization
-      : key === 'nss' ? dsp.nss
-      : null;
-    setMetricModal({ metricKey: key, value, label, accent, valueDisplay });
+    const valueDisplay = k === 'crisis' ? dsp.crisis : k === 'bhi' ? dsp.brandHealth : k === 'pol' ? dsp.polarization : k === 'nss' ? dsp.nss : null;
+    setMetricModal({ metricKey: key, value, label: meta.label, accent: 'var(--accent)', valueDisplay });
   }
+
+  const timeline = D.TIMELINE || [];
+  const prev = sc.data && sc.data.prev ? sc.data.prev : null;
+  const days = Math.max(1, timeline.length);
+  const win = window.ecoResolvedWindow ? window.ecoResolvedWindow() : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      {/* ── Executive Briefing (3 modos: signal | emerging | crisis) ── */}
-      {/* Proporción 1.6fr de #95; padding en --pad-card para que esta card
-          comparta el borde de contenido con sus hermanas (--sp-5 es un paso crudo
-          de la escala de espaciado, no el token del ritmo de card). */}
-      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1.6fr 1fr', '1fr'), gap: 'var(--sp-6)', alignItems: 'stretch' }}>
-        <div>
-          <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-            {/* El eyebrow ahora muestra la VENTANA del filtro, no la fecha en
-                que un cron generó el briefing: el bloque reacciona al filtro. */}
-            <span>Resumen ejecutivo · {(() => {
-              const w = window.ecoResolvedWindow ? window.ecoResolvedWindow() : null;
-              return w && w.from && w.to ? `${w.from} → ${w.to}` : (period || '7D');
-            })()}</span>
-            {periodSummary.phase === 'loading' && (
-              <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-                <span className="pulse" style={{ width: 6, height: 6, borderRadius: 'var(--r-circle)', background: 'var(--accent)' }} />
-                GENERANDO…
-              </span>
-            )}
-            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'ai' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-fill)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
-                <Icons.Sparkles size={9} /> IA · {activeBriefing.generatedAtLabel || 'reciente'}
-              </span>
-            )}
-            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'rule' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', fontWeight: 700, color: 'var(--text-3)', background: 'var(--canvas-2)', padding: '2px 6px', borderRadius: 'var(--r-sm)', letterSpacing: '0.05em' }}>
-                Resumen automatizado
-              </span>
-            )}
-          </div>
-          {/* Baja un paso en la escala (--fs-title-lg 17px → --fs-body-lg 15px)
-              con line-height de cuerpo y medida acotada: el prompt del resumen
-              por periodo pide 100-160 palabras en vez de ≤75, y a 17px de
-              display un párrafo así se leía como un muro. */}
-          <div style={{ fontFamily: 'var(--ff-display)', fontSize: 'var(--fs-body-lg)', fontWeight: 500, lineHeight: 'var(--lh-body-lg)', letterSpacing: 'var(--letter-display)', marginTop: 'var(--sp-3)', color: 'var(--text)', maxWidth: '68ch' }}>
-            {activeBriefing ? (
-              <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} />
-            ) : (
-              <>Sin suficientes menciones en este período para generar un resumen.</>
-            )}
-          </div>
-          {/* Las dos viñetas que acompañan al párrafo (ago 2026). Cada una cuenta
-              un hecho con su cifra de apoyo — no son KPIs, que ya están arriba.
-              Solo las trae el resumen por periodo; el briefing rule-based no. */}
-          {activeBriefing && Array.isArray(activeBriefing.points) && activeBriefing.points.length > 0 ? (
-            <ul style={{ listStyle: 'none', margin: 'var(--sp-4) 0 0', padding: 0, maxWidth: '68ch' }}>
-              {activeBriefing.points.map((pt, i) => (
-                <li key={i} style={{ position: 'relative', paddingLeft: 'var(--sp-4)', marginTop: i === 0 ? 0 : 'var(--sp-2)', fontSize: 'var(--fs-body)', lineHeight: 'var(--lh-body)', color: 'var(--text-2)' }}>
-                  <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, color: 'var(--accent)', fontWeight: 700 }}>·</span>
-                  <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(pt) }} />
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <div style={{ display: 'flex', gap: 'var(--sp-5)', marginTop: 'var(--sp-4)', fontSize: 'var(--fs-caption)', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Señal dominante</div>
-              <div style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.dominantSignal) || '—'}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Alcance del período</div>
-              <div className="num" style={{ color: 'var(--text)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.reachLabel) || (m?.totalReach ? fmt(m.totalReach) + ' impresiones' : '—')}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', fontWeight: 500 }}>Siguiente paso</div>
-              <div style={{ color: `var(--${activeBriefing && activeBriefing.actionTone === 'neg' ? 'neg' : activeBriefing && activeBriefing.actionTone === 'pos' ? 'pos' : activeBriefing && activeBriefing.actionTone === 'warn' ? 'warn' : 'text'})`, fontWeight: 600, marginTop: 'var(--sp-05)' }}>{(activeBriefing && activeBriefing.action) || 'Explorar tópicos activos →'}</div>
-            </div>
-          </div>
-          <div style={{ marginTop: 'var(--sp-5)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={openBriefingSlice} style={{ fontSize: 'var(--fs-caption)' }}>
-              <Icons.Eye size={13} /> Ver menciones
-            </button>
-            <span aria-hidden="true" style={{ width: 1, height: 16, background: 'var(--hairline)', margin: '0 var(--sp-1)' }} />
-            <button className={`chip ${focus === 'signal' ? 'active' : ''}`} onClick={() => setFocus('signal')}>Señal del día</button>
-            <button className={`chip ${focus === 'emerging' ? 'active' : ''}`} onClick={() => setFocus('emerging')}>Narrativas emergentes</button>
-            <button className={`chip ${focus === 'crisis' ? 'active' : ''}`} onClick={() => setFocus('crisis')}>Vigilancia de crisis</button>
-          </div>
-        </div>
-        <div style={{ borderLeft: '1px solid var(--hairline)', paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-          <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>Pulso en vivo · últimas menciones</div>
-          {(D.PULSE || []).map((e, i) => (
-            <button key={i} onClick={() => e.mention && onMentionClick(e.mention)}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)', background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }}
-              className="row-hover">
-              {/* Sin `.mono`: tokens.css §1 reserva IBM Plex Mono para lo que es
-                  literalmente código/URL/ID, y "hace 3 h" es prosa. La misma marca
-                  temporal se compone en sans en la tabla de "Menciones destacadas"
-                  de más abajo: el mismo dato con dos familias tipográficas. */}
-              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)', marginTop: 'var(--sp-05)', width: 54, flexShrink: 0 }}>{e.time}</span>
-              <span className="dot" style={{ background: `var(--${e.dot})`, marginTop: 'var(--sp-15)', flexShrink: 0 }} />
-              <span style={{ flex: 1, color: 'var(--text)' }}>{e.text}</span>
-              {/* Mismo formateador que la tabla de abajo (fmt). El payload trae `eng`
-                  pre-formateado con su propia regla (K a partir de 1000, sin escalón
-                  M y sin separador de miles), así que la MISMA mención podía leerse
-                  "1500.0K" aquí y "1.5M" doce filas más abajo. Se reformatea desde el
-                  crudo, que viaja en `e.mention`; `e.eng` queda de respaldo. */}
-              <span className="num" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>
-                {e.mention && Number.isFinite(Number(e.mention.engagement))
-                  ? (Number(e.mention.engagement) > 0 ? fmt(Number(e.mention.engagement)) : '—')
-                  : e.eng}
-              </span>
-            </button>
-          ))}
-          {!(D.PULSE && D.PULSE.length > 0) && (
-            <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Sin actividad reciente en el período.</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Hero KPIs: NSS + Crisis prominent. Click → modal con serie temporal e insight AI. ── */}
-      {/* Móvil en UNA columna, no dos. A 390px cada card de dos columnas deja ~133px
-          de content box: ahí no cabe el rótulo (se leía "VOLU/MEN ·/PERÍO/DO") ni la
-          serie (el sparkline de 200px se cortaba dentro del overflow:hidden). A una
-          columna el rótulo entra en un renglón y la gráfica mide lo que mide la card.
-          Cuesta scroll; es el intercambio correcto para cinco cifras que se leen. */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.3fr 1.3fr 1fr 1fr 1fr', '1fr', 'repeat(3, 1fr)'), gap: 'var(--sp-3)' }}>
-        <KpiCard label="Net Sentiment Score" valueWord={m.display.nss.word} valueTone={m.display.nss.tone} value={m.display.nss.value} deltaInfo={m.deltaDisplay.nss} icon="Activity" accent="var(--accent)" highlight trendData={D.TIMELINE.map(t => t.nss)}
-          onClick={() => openMetric('nss', 'Net Sentiment Score', 'var(--accent)')}>
-          <div style={{ display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: -4 }}>
-            <span>7d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss7d != null ? (m.nss7d > 0 ? '+' : '') + m.nss7d : '—'}</strong></span>
-            <span>30d <strong className="num" style={{ color: 'var(--text-2)' }}>{m.nss30d != null ? (m.nss30d > 0 ? '+' : '') + m.nss30d : '—'}</strong></span>
-          </div>
-        </KpiCard>
-        <KpiCard label="Riesgo de crisis" valueWord={m.display.crisis.word} valueTone={m.display.crisis.tone} valueColor={bandColorAt(CRISIS_BANDS, m.crisisRiskScore, 1)} value={m.display.crisis.value} deltaInfo={m.deltaDisplay.crisis} icon="Shield" accent="var(--neg)" highlight
-          onClick={() => openMetric('crisis', 'Riesgo de crisis', 'var(--neg)')}>
-          {/* Crisis V4 (0–1): combinación ponderada (0.5 severidad + 0.3 velocidad
-              + 0.2 relevancia)·confianza, SIN gate. Bandas NORMAL<0.25 /
-              ELEVADO<0.40 / ALERTA<0.60 / CRISIS≥0.60 (mismos cortes que el
-              termómetro de Overview y el bandFor del backend). */}
-          <div style={{ marginTop: -2 }}>
-            <BandScale bands={CRISIS_BANDS} value={m.crisisRiskScore} max={1}
-              valueLabel={m.display.crisis.short} ariaLabel="Riesgo de crisis" />
-          </div>
-        </KpiCard>
-        <KpiCard label="Volumen · período" value={fmt(window.ecoPeriodMentionTotal())} deltaInfo={m.deltaDisplay.totalMentions} metricKey="totalMentions" sub="vs período ant." icon="MessageSquare" accent={window.ECO_METRIC_COLOR.totalMentions} trendData={D.TIMELINE.map(t => t.totalMentions)}
-          onClick={() => openMetric('volume', 'Volumen de menciones', window.ECO_METRIC_COLOR.totalMentions)} />
-        {/* Brand Health en escala 1–10 (display): cálculo interno sigue siendo
-            0–1 (backtest 482d). UI maps display = 1 + valor*9 para que 1 = crítico
-            y 10 = fuerte. Bandas semánticas: 1–4 crítico, 4–6 débil, 6–8 sano, 8–10 fuerte. */}
-        <KpiCard label="Brand Health" valueWord={m.display.brandHealth.word} valueTone={m.display.brandHealth.tone} valueColor={bandColorAt(BHI_BANDS, m.brandHealthIndex, 1)} value={m.display.brandHealth.value} deltaInfo={m.deltaDisplay.brandHealth} icon="Heart" accent="var(--pos)"
-          onClick={() => openMetric('bhi', 'Brand Health Index', 'var(--pos)')}>
-          <BrandHealthMini value={m.brandHealthIndex ?? 0} />
-        </KpiCard>
-        {/* Polarization Index: distingue polarización (50/50 pos vs neg) de apatía (todo neutral) cuando NSS≈0.
-            Solo es útil leído junto con NSS — alta polarización + NSS bajo = crisis emergente. */}
-        <KpiCard label="Polarización" valueWord={m.display.polarization.word} valueTone={m.display.polarization.tone} valueColor={bandColorAt(POLARIZATION_BANDS, m.polarizationIndex, 100)} value={m.display.polarization.value} sub="opinión vs neutral" deltaInfo={m.deltaDisplay.polarization} icon="Polarization" accent="var(--metric-polarization)"
-          onClick={() => openMetric('polarization', 'Polarización', 'var(--metric-polarization)')}>
-          {/* UNA sola gráfica por KPI. Esta era la única card con sparkline Y banda:
-              dos escalas distintas para la misma cifra, y como la fila se alinea al
-              alto de la card más alta, esos ~42px extra son los que dejaban 88/85/84px
-              de vacío en las otras cuatro. Se queda la banda, que es la que dice dónde
-              cae el valor contra sus umbrales; la tendencia vive en "Evolución
-              multi-métrica" y en el modal de la métrica. */}
-
-          <div style={{ marginTop: -2 }}>
-            <BandScale bands={POLARIZATION_BANDS} value={m.polarizationIndex} max={100}
-              valueLabel={m.display.polarization.short} ariaLabel="Índice de polarización" />
-          </div>
-        </KpiCard>
-      </div>
-
-      {/* ── Row 2: Timeline ocupa todo el ancho (issue #5 eliminó pie de sentimiento) ── */}
-      <div className="card">
-        <div className="card-hd">
-          <div>
-            <div className="card-hd-title">Evolución multi-métrica</div>
-            <div className="card-hd-sub">Selecciona hasta 3 series · pasa el cursor para ver valores</div>
-          </div>
-          <div style={{ display: 'flex', gap: 'var(--sp-15)', flexWrap: 'wrap' }}>
-            {seriesConfig.map((s) => {
-              const on = activeMetrics.includes(s.key);
-              return (
-                <button key={s.key} onClick={() => {
-                  if (on) setActiveMetrics(activeMetrics.filter(k => k !== s.key));
-                  else if (activeMetrics.length < 3) setActiveMetrics([...activeMetrics, s.key]);
-                }} className="touch-target" style={{
-                  display: 'flex', alignItems: 'center', gap: 'var(--sp-15)',
-                  padding: '5px 10px', borderRadius: 'var(--r-pill)',
-                  fontSize: 'var(--fs-overline)', fontWeight: 600,
-                  border: `1px solid ${on ? s.color : 'var(--hairline)'}`,
-                  background: on ? s.color : 'transparent',
-                  // El primer plano se DERIVA del relleno (ecoOnFill): --on-accent
-                  // es el par declarado del naranja de marca y aquí se aplicaba a
-                  // los seis rellenos por igual.
-                  color: on ? window.ecoOnFill(s.color) : 'var(--text-2)',
-                }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? 'currentColor' : s.color }} />
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="card-bd">
-          {/* Issue #6: sin selector de timeframe local — el header global lo cubre.
-              responsiveHeight: la altura se deriva del ancho medido del
-              contenedor (petición del usuario: "deben ocupar mejor su
-              contenedor... de acuerdo a que se puede estar proyectando en
-              pantallas más grandes o más chicas"). */}
-          <MultiLineChart data={D.TIMELINE} series={seriesConfig.filter(s => activeMetrics.includes(s.key))} responsiveHeight={[220, 420]} onPointClick={openTimelineDaySlice} />
-        </div>
-      </div>
-
-      {/* ── Row 3: Topics (emerging) + Sources. El heatmap salió de esta fila a
-          su propia fila full-width: es una matriz 24×7 y en 1/3 de ancho las
-          celdas quedaban en el mínimo de objetivo táctil. ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.2fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
+      {/* ── Resumen ejecutivo (3 modos) y pulso ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1.6fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'stretch' }}>
         <div className="card">
           <div className="card-hd">
-            <div><div className="card-hd-title">Tópicos emergentes</div><div className="card-hd-sub">Ordenados por crecimiento</div></div>
-            {/* Una sola primitiva para "ir a la pantalla completa". En esta misma
-                vista convivían un chip ("Ver todo"), un link ("Ver todas (1.3K) →")
-                y un texto en --accent con flecha. El chip es para SELECCIONAR, no
-                para navegar: aquí va la misma primitiva que el header de
-                "Menciones destacadas". La base de `button` en index.html ya quita
-                borde, relleno y padding. */}
-            <button className="link" onClick={() => setActive && setActive('topics')} style={{ fontSize: 'var(--fs-caption)', flexShrink: 0 }}>Ver todo →</button>
+            <div><div className="card-hd-title">Resumen ejecutivo</div><div className="card-hd-sub">{win && win.from && win.to ? `${scDate(win.from)} – ${scDate(win.to)}` : (period || '7D')}</div></div>
+            {periodSummary.phase === 'loading' && <span className="sc-tag">generando…</span>}
+            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'ai' && <span className="sc-tag">IA · {activeBriefing.generatedAtLabel || 'reciente'}</span>}
+            {periodSummary.phase !== 'loading' && activeBriefing && activeBriefing.source === 'rule' && <span className="sc-tag">Resumen automatizado</span>}
           </div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-            {/* `top5` (3er argumento de map) da el máximo de la lista sin hoistear
-                una const: lo necesita la barra para escalar su ancho al conteo. */}
-            {D.TOPICS.slice(0, 5).map((t, _i, top5) => (
-              <div key={t.slug} onClick={() => openTopicSlice(t)} className="row-hover" style={{ padding: '8px 10px', marginInline: -10, borderRadius: 'var(--r-md)', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-15)' }}>
-                  <div style={{ flex: 1, fontSize: 'var(--fs-body-sm)', fontWeight: 500, color: 'var(--text)' }}>{t.name}</div>
-                  <span className="num" style={{ fontSize: 'var(--fs-caption)', fontWeight: 600 }}>{fmt(t.count)}</span>
-                  {/* El crecimiento de un tópico es VOLUMEN. Aquí se pintaba toda
-                      SUBIDA en --neg mientras el KPI de Volumen pinta la BAJADA en
-                      --neg: el mismo dato con colores opuestos en la misma pantalla.
-                      DeltaBadge lo enruta por ECO_METRIC_DIRECTION, donde el volumen
-                      es neutro, y usa el mismo glifo que el resto del producto. */}
-                  <span style={{ minWidth: 40, textAlign: 'right', display: 'inline-block' }}>
-                    <DeltaBadge value={t.delta} metricKey="volume" suffix="%" />
-                  </span>
-                </div>
-                {/* El ANCHO total mide el conteo; los segmentos, la composición.
-                    Antes la barra se normalizaba al 100% en las cinco filas, así que
-                    "Desarrollo económico" (253) y "Turismo y promoción" (133) tenían
-                    barras idénticas — y a 20px de distancia la barra de "Fuentes top"
-                    (misma familia visual, mismo alto, misma clase de track) sí mide
-                    volumen. El lector no tenía forma de saber cuál leía. Ahora la
-                    longitud significa lo mismo en las dos cards. El neutral pasa a
-                    --neu, el token de relleno neutro; --text-3 es un escalón de TEXTO. */}
-                <div className="bar-track" style={{ height: 4 }}>
-                  <div style={{ display: 'flex', height: '100%', width: `${Math.round(((t.count || 0) / Math.max(1, ...top5.map((x) => x.count || 0))) * 100)}%`, borderRadius: 'inherit', overflow: 'hidden' }}>
-                    <div style={{ width: `${t.positivePct}%`, background: 'var(--pos)' }} />
-                    <div style={{ width: `${t.neutralPct}%`, background: 'var(--neu)' }} />
-                    <div style={{ width: `${t.negativePct}%`, background: 'var(--neg)' }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          {/* El "30d" era FALSO: TOP_SOURCES sale del mismo baseWhere que el resto de
-              /api/eco-data, o sea la ventana del selector global — con 7D las seis
-              barras suman exactamente el universo del KPI de volumen, no 30 días. La
-              ventana se lee ahora de la MISMA fuente que los datos (D.PERIOD, vía
-              ecoDataWindow), así que el rótulo ya no puede contradecirlos, y se
-              escribe con el formato que esta pantalla ya usa en el eyebrow del
-              resumen ejecutivo. */}
-          <div className="card-hd"><div><div className="card-hd-title">Fuentes top</div><div className="card-hd-sub">Por volumen · {(() => { const w = ecoDataWindow(); return w && w.from && w.to ? `${w.from} → ${w.to}` : (period || '7D'); })()}</div></div></div>
           <div className="card-bd">
-            <HBarList
-              items={D.TOP_SOURCES.map(s => ({ label: s.source, value: s.count, key: s.key }))}
-              colorFn={(it) => window.ecoSourceColor(it.key)}
-              onItemClick={openSourceSlice}
-            />
+            <div className="sc-modes" role="group" aria-label="Enfoque del resumen">
+              <button className={`chip ${focus === 'signal' ? 'active' : ''}`} aria-pressed={focus === 'signal'} onClick={() => setFocus('signal')}>Señal del día</button>
+              <button className={`chip ${focus === 'emerging' ? 'active' : ''}`} aria-pressed={focus === 'emerging'} onClick={() => setFocus('emerging')}>Narrativas emergentes</button>
+              <button className={`chip ${focus === 'crisis' ? 'active' : ''}`} aria-pressed={focus === 'crisis'} onClick={() => setFocus('crisis')}>Vigilancia de crisis</button>
+            </div>
+            <div className="sc-sum">
+              {activeBriefing ? <span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(activeBriefing.narrativeHtml || '') }} /> : <>Sin suficientes menciones en este periodo para generar un resumen.</>}
+            </div>
+            {activeBriefing && Array.isArray(activeBriefing.points) && activeBriefing.points.length > 0 && (
+              <ul className="sc-points">
+                {activeBriefing.points.slice(0, 2).map((pt, i) => <li key={i}><span dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(pt) }} /></li>)}
+              </ul>
+            )}
+            <div style={{ marginTop: 'var(--sp-4)' }}>
+              <button className="btn btn-primary" onClick={openBriefingSlice} style={{ fontSize: 'var(--fs-caption)' }}><Icons.Eye size={13} /> Ver menciones</button>
+            </div>
           </div>
         </div>
-
+        <div className="card">
+          <div className="card-hd"><div><div className="card-hd-title">Pulso</div><div className="card-hd-sub">últimas menciones</div></div></div>
+          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+            {(D.PULSE || []).map((e, i) => (
+              <button key={i} onClick={() => e.mention && onMentionClick(e.mention)} className="row-hover sc-pulse">
+                <span className="sc-pulse-t">{e.time}</span>
+                <span className="dot" style={{ background: `var(--${e.dot})`, marginTop: 'var(--sp-15)', flexShrink: 0 }} />
+                <span style={{ flex: 1, color: 'var(--text)', minWidth: 0 }}>{e.text}</span>
+                {/* Mismo formateador que la tabla de menciones (fmt), desde el crudo. */}
+                <span className="num sc-p">
+                  {e.mention && Number.isFinite(Number(e.mention.engagement)) ? (Number(e.mention.engagement) > 0 ? fmt(Number(e.mention.engagement)) : '—') : e.eng}
+                </span>
+              </button>
+            ))}
+            {!(D.PULSE && D.PULSE.length > 0) && <div className="sc-empty">Sin actividad reciente en el periodo.</div>}
+          </div>
+        </div>
       </div>
 
-      {/* ── Row 4: Heatmap full-width — las celdas se derivan del ancho del
-          contenedor (ver Heatmap en charts.js). ── */}
-      <HourActivityCard onCellClick={openHeatmapSlice} />
+      {/* ── Los cinco indicadores: el número primero, su tendencia y su escala ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, minmax(0, 1fr))', '1fr', 'repeat(3, minmax(0, 1fr))'), gap: 'var(--sp-3)' }}>
+        {SC_ORDER.map((k) => <ScKpi key={k} k={k} m={m} cur={timeline} prev={prev} days={days} onDetails={() => openMetric(k)} />)}
+      </div>
 
-      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
-      {metricModal && MetricInsightModal && (
-        <MetricInsightModal
-          metricKey={metricModal.metricKey}
-          value={metricModal.value}
-          valueDisplay={metricModal.valueDisplay}
-          label={metricModal.label}
-          accent={metricModal.accent}
-          period={period}
-          agency={localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || ''}
-          onClose={() => setMetricModal(null)}
-        />
-      )}
+      <ScEvolution cur={timeline} prev={prev && prev.timeline} onPointClick={(t) => openTimelineDaySlice(t)} />
 
-      {/* ── Recent mentions table (dense) — issue #9: sin columna pertinencia,
-          engagement=0 muestra "—". El backend ya excluye twitter y baja
-          pertinencia del feed. ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
+        <ScTopics topics={D.TOPICS} onOpen={openTopicSlice} onAll={() => setActive && setActive('topics')} />
+        <ScSources sources={D.TOP_SOURCES} bySource={D.SENTIMENT_BY_SOURCE} onOpen={openSourceSlice} />
+      </div>
+
+      <ScHeat data={D.HOUR_HEATMAP} onCellClick={openHeatmapSlice} />
+
+      {/* ── Menciones destacadas ── */}
       <div className="card">
         <div className="card-hd">
           <div><div className="card-hd-title">Menciones destacadas</div><div className="card-hd-sub">Más recientes · sin twitter ni baja pertinencia</div></div>
-          <a href="#mentions" className="link" style={{ fontSize: 'var(--fs-caption)' }}>Ver todas ({fmt(window.ecoPeriodMentionTotal())}) →</a>
+          <a href="#mentions" className="link" style={{ fontSize: 'var(--fs-caption)' }}>Ver todas ({fmt(window.ecoPeriodMentionTotal())})</a>
         </div>
         <div className="scroll-x">
-          {D.MENTIONS.slice(0, 7).map((mn, idx) => {
+          {(D.MENTIONS || []).slice(0, 7).map((mn, idx) => {
             const sourceIcon = { facebook: 'Facebook', twitter: 'Twitter', news: 'Newspaper', instagram: 'Instagram', youtube: 'Youtube' }[mn.source] || 'Globe';
             const SIcon = Icons[sourceIcon];
-            const sc = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
+            const scl = mn.sentiment === 'positivo' ? 'pill-pos' : mn.sentiment === 'negativo' ? 'pill-neg' : mn.sentiment === 'neutral' ? 'pill-neu' : 'pill-unknown';
             return (
-              <div key={mn.id} onClick={() => onMentionClick(mn)}
-                className="row-hover"
-                style={{
-                  // A 390px las cinco columnas del desktop sólo "caben" porque la
-                  // fila fuerza 560px: el título se queda con 162px medidos (~22
-                  // caracteres de un titular de prensa) y el engagement y la hora se
-                  // van fuera de la pantalla, detrás de un scroll horizontal que en
-                  // la vista principal nadie busca. En móvil la fila se pliega en dos
-                  // renglones (ver el envoltorio de las tres celdas, más abajo) y
-                  // deja de necesitar ancho mínimo. Cuesta alto; es el mismo
-                  // intercambio que ya se aceptó en la rejilla de KPIs.
-                  display: 'grid',
-                  gridTemplateColumns: window.ecoCols('20px 2fr 130px 100px 100px', '20px 1fr'),
-                  minWidth: window.ecoIsMobile() ? 0 : 560, gap: 'var(--sp-3)',
-                  alignItems: 'center', padding: '10px 16px',
-                  borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none',
-                  fontSize: 'var(--fs-caption)', cursor: 'pointer',
-                }}>
+              <div key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover"
+                style={{ display: 'grid', gridTemplateColumns: window.ecoCols('20px 2fr 130px 100px 100px', '20px 1fr'), minWidth: window.ecoIsMobile() ? 0 : 560, gap: 'var(--sp-3)', alignItems: 'center', padding: '10px 16px', borderTop: idx > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 'var(--fs-caption)', cursor: 'pointer' }}>
                 <SIcon size={14} color="var(--text-3)" />
                 <div className="truncate">
                   <div className="truncate" style={{ color: 'var(--text)', fontWeight: 500 }}>{mn.title}</div>
-                  {/* El autor y el dominio truncan igual que el título: sin esto la
-                      línea desbordaba su caja y la recortaba a hueso el overflow del
-                      padre (`text-overflow` no se hereda), así que se leía
-                      "facebook.co" — un dominio que no existe. */}
                   <div className="truncate" style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
                 </div>
-                {/* `display:contents` en desktop: las tres celdas siguen siendo items
-                    DIRECTOS de la rejilla de cinco columnas, así que el desktop no
-                    cambia ni un píxel. En móvil el mismo envoltorio se convierte en
-                    una fila flex bajo el título (columna 2, segundo renglón), que es
-                    lo que permite quitar el minWidth de 560px de la fila. */}
-                <div style={{
-                  display: window.ecoIsMobile() ? 'flex' : 'contents',
-                  gridColumn: window.ecoIsMobile() ? '2' : undefined,
-                  alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', minWidth: 0,
-                }}>
-                  <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
+                <div style={{ display: window.ecoIsMobile() ? 'flex' : 'contents', gridColumn: window.ecoIsMobile() ? '2' : undefined, alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap', minWidth: 0 }}>
+                  <span className={`pill ${scl}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
                   <span className="num" style={{ color: 'var(--text-2)', fontWeight: 600, textAlign: 'right' }}>{mn.engagement > 0 ? fmt(mn.engagement) : '—'}</span>
                   <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
                 </div>
@@ -925,23 +1043,29 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
           })}
         </div>
       </div>
-    </div>
-  );
-}
 
-// --- BrandHealthMini: gauge segmentado. Internamente trabaja con value 0..1
-//     (output del backtest), pero el label de la banda y los hitos se muestran
-//     en escala 1–10 para alinearse con la presentación del KpiCard.
-//     Segmentos (valor interno): Crítico (0-.4), Débil (.4-.6), Sano (.6-.8), Fuerte (.8-1).
-//     Equivalente en escala 1-10: 1-4.6, 4.6-6.4, 6.4-8.2, 8.2-10.
-function BrandHealthMini({ value }) {
-  // Antes: 4 segmentos con flex proporcional + 5 números repartidos con
-  // space-between. Los números marcaban los BORDES pero no decían qué significa
-  // cada tramo, y al subir la escala tipográfica se apretaban.
-  return (
-    <div style={{ marginTop: -2 }}>
-      <BandScale bands={BHI_BANDS} value={value} max={1} height={8}
-        valueLabel={`${(1 + (value || 0) * 9).toFixed(1)} / 10`} ariaLabel="Brand Health" />
+      {/* ── Al final: el mapeo detallado ── */}
+      <ScIndicatorRows m={m} cur={timeline} prev={prev} days={days} />
+      {sc.phase === 'loading' && <div className="card"><div className="card-bd sc-empty">Cargando las últimas semanas y quién habló…</div></div>}
+      {sc.phase === 'error' && <div className="card"><div className="card-bd"><EmptyState reason="error" compact title="No se pudieron cargar las últimas semanas ni quién habló" detail="Recarga la página en unos segundos." /></div></div>}
+      {sc.data && <ScWeeks data={sc.data.weeks} />}
+      {sc.data && sc.data.voices && (
+        <>
+          <ScVoices data={sc.data.voices} />
+          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
+            <ScVoicesDaily data={sc.data.voices} />
+            <ScInteraction data={sc.data.voices} />
+          </div>
+        </>
+      )}
+
+      {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
+      {metricModal && MetricInsightModal && (
+        <MetricInsightModal metricKey={metricModal.metricKey} value={metricModal.value} valueDisplay={metricModal.valueDisplay}
+          label={metricModal.label} accent={metricModal.accent} period={period}
+          agency={localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || ''}
+          onClose={() => setMetricModal(null)} />
+      )}
     </div>
   );
 }
@@ -994,61 +1118,6 @@ function seqQuantileScale(values, steps = 5) {
       return lo >= hi ? `${lo}` : `${lo}–${hi}`;
     },
   };
-}
-
-// --- HourActivityCard: heatmap fed from window.ECO_DATA.HOUR_HEATMAP ---
-function HourActivityCard({ onCellClick }) {
-  const data = React.useMemo(() => {
-    const remote = window.ECO_DATA && window.ECO_DATA.HOUR_HEATMAP;
-    if (Array.isArray(remote) && remote.length === 7 * 24) return remote;
-    // Fallback stub if backend hasn't populated it yet — flat, near-zero.
-    return Array.from({ length: 7 * 24 }, () => 0);
-  }, []);
-  const max = Math.max(1, ...data);
-  const peakIdx = data.indexOf(Math.max(...data));
-  const peakDay = Math.floor(peakIdx / 24);
-  const peakHour = peakIdx % 24;
-  const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-  const total = data.reduce((s, v) => s + v, 0);
-
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Actividad por hora</div>
-          <div className="card-hd-sub">Distribución por día y hora (TZ Puerto Rico) · click una franja</div>
-        </div>
-        {/* F6: la leyenda pintaba sus swatches con rgba(11,95,128,…) — el AZUL del
-            tema `costa` — mientras las celdas iban en el naranja de `mando`.
-            Leyenda y mapa no coincidían. Ahora ambos leen la MISMA escala
-            secuencial --seq-*. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
-          <span>menos</span>
-          <div style={{ display: 'flex', gap: 'var(--sp-05)', alignItems: 'center' }}>
-            {/* El paso 0 va con borde y separado del degradado: representa "sin
-                actividad", no "poca" (ver seqColor). Dentro de la rampa era
-                invisible —1.10:1 contra --canvas— así que el extremo "menos" no
-                tenía ancla y una franja vacía no se distinguía de una con datos. */}
-            <div style={{ width: 10, height: 10, background: SEQ_STEPS[0], border: '1px solid var(--hairline-strong)', borderRadius: 'var(--r-sm)', marginRight: 'var(--sp-1)' }} />
-            {SEQ_STEPS.slice(1).map((t, i) => (
-              <div key={i} style={{ width: 10, height: 10, background: t, borderRadius: 'var(--r-sm)' }} />
-            ))}
-          </div>
-          <span>más</span>
-        </div>
-      </div>
-      <div className="card-bd">
-        <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', marginBottom: 'var(--sp-3)', padding: '6px 10px', background: 'color-mix(in oklab, var(--accent) 6%, var(--canvas))', borderRadius: 'var(--r-sm)', borderLeft: '2px solid var(--accent)' }}>
-          Pico de actividad: <strong>{dayLabels[peakDay]} a las {peakHour}:00</strong>
-        </div>
-        <Heatmap
-          data={data}
-          colorFn={(v) => seqColor(max > 0 ? Math.min(1, v / max) : 0)}
-          onCellClick={onCellClick}
-        />
-      </div>
-    </div>
-  );
 }
 
 // =============== MENTIONS ===============
