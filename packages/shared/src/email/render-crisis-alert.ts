@@ -171,7 +171,7 @@ function renderReadouts(data: CrisisAlertRenderData, accent: string): string {
       valueHtml: `<span style="color:${accent};font-weight:600;">${esc(formatMetric('crisis', m.crisisRiskScore).value || '—')}</span>`,
       hintHtml: m.crisisRiskScore24hAgo == null ? 'sin base 24 h' : `hace 24 h: ${esc(fmtPct(m.crisisRiskScore24hAgo))}`,
     },
-    { label: 'Severidad', valueHtml: esc(fmtPct(m.crisisSeverity)), hintHtml: 'concentración negativa' },
+    { label: 'Severidad', valueHtml: esc(fmtPct(m.crisisSeverity)), hintHtml: 'negativas, solas y frente a lo usual' },
     {
       label: 'Velocidad',
       valueHtml: esc(velocity),

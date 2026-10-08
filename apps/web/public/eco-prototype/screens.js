@@ -78,20 +78,15 @@ const BHI_BANDS = [
   { from: 0.6, to: 0.8, label: 'Sano',    color: 'var(--verdict-1)' },
   { from: 0.8, to: 1,   label: 'Fuerte',  color: 'var(--verdict-0)' },
 ];
-// Polarización llega 0-100. Colores de la rampa de VEREDICTO (tokens.css §6):
-//  · 'Apática' iba en --text-3, un escalón de TEXTO usado como relleno de datos
-//    (para eso existe --neu);
-//  · 'Moderada' iba en --warn, el MISMO ámbar que 'Débil' de Brand Health en la
-//    card de al lado: un estado aceptable y un estado malo con el mismo color a
-//    200px de distancia. Pasa a --verdict-1, el paso "aceptable";
-//  · 'Alta' iba en --metric-polarization, que es el color de ESTA métrica en las
-//    series y en su icono, así que el violeta significaba a la vez "polarización"
-//    y "una de sus bandas".
+// Polarización V5 (oct-2026) llega 0-100 y mide que haya DOS bandos:
+// 2·mín(positivas, negativas)/total. 0 = una sola postura (o todo neutral);
+// 100 = mitad a favor y mitad en contra. Mismos cortes que polarizationBand de
+// @eco/shared/format (10/25/50) y colores de la rampa de VEREDICTO.
 const POLARIZATION_BANDS = [
-  { from: 0,  to: 30,  label: 'Apática',  color: 'var(--neu)' },
-  { from: 30, to: 60,  label: 'Moderada', color: 'var(--verdict-1)' },
-  { from: 60, to: 85,  label: 'Alta',     color: 'var(--verdict-3)' },
-  { from: 85, to: 100, label: 'Extrema',  color: 'var(--verdict-4)' },
+  { from: 0,  to: 10,  label: 'Sin división',  color: 'var(--neu)' },
+  { from: 10, to: 25,  label: 'División leve', color: 'var(--verdict-2)' },
+  { from: 25, to: 50,  label: 'Dividida',      color: 'var(--verdict-3)' },
+  { from: 50, to: 100, label: 'Polarizada',    color: 'var(--verdict-4)' },
 ];
 
 function crisisBand(score) {
@@ -395,21 +390,24 @@ const SC_MET = {
     day: (t) => t.totalMentions, prev: (p) => p.mentions },
   bhi: { label: 'Brand Health', short: 'Brand Health', dir: 'up', unit: '/10', dec: 1, dom: [1, 10], cuts: [4.6, 6.4, 8.2], dd: 'brandHealth', word: 'brandHealth', ins: 'bhi',
     day: (t) => (t.brandHealthIndex == null ? null : 1 + 9 * t.brandHealthIndex), prev: (p) => (p.bhi == null ? null : 1 + 9 * p.bhi) },
-  pol: { label: 'Polarización', short: 'Polarización', dir: 'down', unit: '%', dec: 0, dom: [0, 100], cuts: [30, 60, 85], dd: 'polarization', word: 'polarization', ins: 'polarization',
+  pol: { label: 'Polarización', short: 'Polarización', dir: 'down', unit: '%', dec: 0, dom: [0, 100], cuts: [10, 25, 50], dd: 'polarization', word: 'polarization', ins: 'polarization',
     day: (t) => (t.polarizationIndex == null ? null : Number(t.polarizationIndex)), prev: (p) => p.polarization },
 };
 const SC_ORDER = ['nss', 'crisis', 'volume', 'bhi', 'pol'];
 const scShow = (k, v) => (SC_MET[k].sign ? scSgn(v, SC_MET[k].dec) : scNum(v, SC_MET[k].dec));
 function scCurrent(m) {
+  // Con menos de 20 menciones la API no publica índices (lowSample): solo el volumen.
+  if (m.lowSample) return { nss: null, crisis: null, volume: window.ecoPeriodMentionTotal(), bhi: null, pol: null };
   return {
     nss: m.nss, crisis: m.crisisRiskScore == null ? null : m.crisisRiskScore * 100, volume: window.ecoPeriodMentionTotal(),
     bhi: m.brandHealthIndex == null ? null : 1 + 9 * m.brandHealthIndex, pol: m.polarizationIndex,
   };
 }
+const SC_LOW = 'muestra insuficiente';
 // Cambio contra el periodo previo; el color sale de la dirección del indicador.
 function scChange(m, k) {
   const d = m.deltaDisplay && m.deltaDisplay[SC_MET[k].dd];
-  if (!d || !d.hasBaseline) return { txt: d ? d.value : 'sin base', cls: 'flat' };
+  if (!d || !d.hasBaseline) return { txt: 'sin base', cls: 'flat' };
   const mag = Number(d.magnitude) || 0;
   const cls = SC_MET[k].dir === 'flat' || mag === 0 ? 'flat' : (mag > 0) === (SC_MET[k].dir === 'up') ? 'good' : 'bad';
   return { txt: `${d.arrow || ''} ${d.value}`.trim(), cls };
@@ -473,13 +471,14 @@ const scSpanLabel = (days, prev) => (prev && days <= 92 ? `${days * 2} días` : 
 
 function ScKpi({ k, m, cur, prev, onDetails, days }) {
   const meta = SC_MET[k], v = scCurrent(m)[k], c = scChange(m, k);
-  const word = meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
+  const low = m.lowSample && k !== 'volume';
+  const word = low ? SC_LOW : meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
   const pv = prev ? meta.prev(prev) : null;
   return (
     <div className="card sc-kpi">
       <div className="sc-kpi-k">{meta.label}</div>
       <div className="sc-kpi-vrow">
-        <span className="sc-kpi-v num">{scShow(k, v)}{meta.unit && <small>{meta.unit}</small>}</span>
+        <span className="sc-kpi-v num">{scShow(k, v)}{meta.unit && v != null && <small>{meta.unit}</small>}</span>
         <span className={`sc-dl ${c.cls}`}>{c.txt}</span>
       </div>
       <div className="sc-kpi-w">{word || (pv != null ? `vs ${scNum(pv)} el periodo previo` : 'en el periodo')}</div>
@@ -672,12 +671,13 @@ function ScIndicatorRows({ m, cur, prev, days }) {
       <div className="card-bd scroll-x">
         <div className="sc-krow sc-hd"><span>Indicador</span><span>Este periodo</span><span>Cambio</span><span>{scSpanLabel(days, prev)}{prev ? ' · el previo en gris' : ''}</span><span>Escala</span></div>
         {SC_ORDER.map((k) => {
-          const meta = SC_MET[k], c = scChange(m, k), word = meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
+          const meta = SC_MET[k], c = scChange(m, k), low = m.lowSample && k !== 'volume';
+          const word = low ? SC_LOW : meta.word && m.display && m.display[meta.word] ? m.display[meta.word].word : null;
           const pv = prev ? meta.prev(prev) : null;
           return (
             <div key={k} className="sc-krow">
               <span><span className="sc-krow-nm">{meta.label}</span>{word && <span className="sc-krow-w">{word}</span>}</span>
-              <span className="sc-krow-v num">{scShow(k, curV[k])}{meta.unit && <small>{meta.unit}</small>}</span>
+              <span className="sc-krow-v num">{scShow(k, curV[k])}{meta.unit && curV[k] != null && <small>{meta.unit}</small>}</span>
               <span><span className={`sc-dl ${c.cls}`}>{c.txt}</span><span className="sc-krow-w num">antes {pv == null ? '—' : `${scShow(k, pv)}${meta.unit}`}</span></span>
               <span><ScSpark k={k} cur={cur} prev={prev && prev.timeline} h={30} /></span>
               <span>{meta.dom ? <ScScale k={k} v={curV[k]} /> : <span className="sc-krow-w">sin escala</span>}</span>
@@ -4633,7 +4633,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
   const METRIC_DEFAULTS = {
     crisis:               { comparator: 'gte', threshold: 0.40, label: 'Crisis Score (0–1)',           hint: '≥ 0.40 = banda ALERTA' },
     bhi:                  { comparator: 'lte', threshold: 0.45, label: 'Brand Health Index (0–1)',     hint: '≤ 0.45 = salud baja' },
-    polarization:         { comparator: 'gte', threshold: 60,   label: 'Polarización (0–100)',         hint: '≥ 60 = alta polarización' },
+    polarization:         { comparator: 'gte', threshold: 50,   label: 'Polarización (0–100)',         hint: '≥ 50 = polarizada: dos bandos parejos' },
     engagement_velocity:  { comparator: 'gte', threshold: 2.5,  label: 'Velocidad de engagement (z)',  hint: '≥ 2.5σ sobre baseline' },
     volume_anomaly:       { comparator: 'gte', threshold: 2.5,  label: 'Anomalía de volumen (z)',      hint: '≥ 2.5σ sobre baseline' },
   };

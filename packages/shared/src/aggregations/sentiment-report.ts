@@ -120,8 +120,8 @@ export interface SentimentReportOptions {
    * Incluir menciones con nlp_pertinence = 'baja'. Default FALSE: el universo
    * canónico de CONTEOS del producto es "menciones pertinentes" (decisión D2
    * de la auditoría de consistencia 2026-08 — dashboard, modales y correos
-   * cuentan lo mismo). Las métricas compuestas (metrics.ts: NSS/BHI/crisis)
-   * conservan su universo calibrado por backtest; esto solo gobierna conteos.
+   * cuentan lo mismo). Desde V5 (oct-2026) las métricas compuestas
+   * (metrics.ts: NSS/BHI/crisis) se calculan sobre este mismo universo.
    */
   includeLowPertinence?: boolean;
 }

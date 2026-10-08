@@ -90,13 +90,15 @@ const BAND_TONE: Record<string, MetricTone> = {
   // negativo / crítico
   CRISIS: 'neg', ALERTA: 'neg', NEGATIVO: 'neg', 'CRÍTICO': 'neg', 'MUY NEG': 'neg',
   // advertencia
-  ELEVADO: 'warn', 'DÉBIL': 'warn', MODERADA: 'warn', EXTREMA: 'warn', NEG: 'warn',
+  ELEVADO: 'warn', 'DÉBIL': 'warn', NEG: 'warn', DIVIDIDA: 'warn',
+  // polarización (V5): una conversación partida en dos bandos
+  POLARIZADA: 'neg',
   // positivo / sano
   NORMAL: 'pos', SANO: 'pos', POSITIVO: 'pos', ALTA: 'pos', POS: 'pos',
   // destacado
   FUERTE: 'accent', 'MUY POS': 'accent', ACELERADA: 'accent',
   // neutral
-  NEUTRAL: 'neutral', 'APÁTICA': 'neutral', ESTABLE: 'neutral', DESACELERADA: 'neutral',
+  NEUTRAL: 'neutral', ESTABLE: 'neutral', DESACELERADA: 'neutral', 'SIN DIVISIÓN': 'neutral', 'DIVISIÓN LEVE': 'neutral',
 };
 
 export function bandTone(band: string | null): MetricTone {
@@ -162,12 +164,14 @@ export function bhiBand10(v10: number): string {
   return 'CRÍTICO';
 }
 
-/** Polarization Index (0–100). Variante canónica = la del gauge del dashboard. */
+/** Polarization Index V5 (0–100): 2·mín(positivas, negativas)/total. 0 = una
+ *  sola postura (o todo neutral); 100 = mitad a favor y mitad en contra. */
+export const POLARIZATION_CUTS = [10, 25, 50] as const;
 export function polarizationBand(pct: number): string {
-  if (pct >= 75) return 'EXTREMA';
-  if (pct >= 50) return 'ALTA';
-  if (pct >= 30) return 'MODERADA';
-  return 'APÁTICA';
+  if (pct >= 50) return 'POLARIZADA';
+  if (pct >= 25) return 'DIVIDIDA';
+  if (pct >= 10) return 'DIVISIÓN LEVE';
+  return 'SIN DIVISIÓN';
 }
 
 /** NSS (−100..100). Cinco bandas, alineadas con el gauge y los prompts. */
@@ -195,7 +199,7 @@ export function metricBand(key: BandedMetricKey, raw: number): string {
 
 const CRISIS_WORD: Record<string, string> = { NORMAL: 'Normal', ELEVADO: 'Elevado', ALERTA: 'Alerta', CRISIS: 'Crisis' };
 const BHI_WORD: Record<string, string> = { 'CRÍTICO': 'Crítico', 'DÉBIL': 'Débil', SANO: 'Sano', FUERTE: 'Fuerte' };
-const POL_WORD: Record<string, string> = { 'APÁTICA': 'Apática', MODERADA: 'Moderada', ALTA: 'Alta', EXTREMA: 'Extrema' };
+const POL_WORD: Record<string, string> = { 'SIN DIVISIÓN': 'Sin división', 'DIVISIÓN LEVE': 'División leve', DIVIDIDA: 'Dividida', POLARIZADA: 'Polarizada' };
 const NSS_WORD: Record<string, string> = { 'MUY NEG': 'Muy negativo', NEG: 'Negativo', NEUTRAL: 'Neutral', POS: 'Positivo', 'MUY POS': 'Muy positivo' };
 
 /** Palabra amigable para una banda. Cae al propio token si no se reconoce. */

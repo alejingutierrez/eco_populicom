@@ -16,7 +16,7 @@ export type MetricBand =
   | 'CRISIS' | 'ALERTA' | 'ELEVADO' | 'NORMAL'
   | 'POSITIVO' | 'NEUTRAL' | 'NEGATIVO'
   | 'CRÍTICO' | 'DÉBIL' | 'SANO' | 'FUERTE'
-  | 'APÁTICA' | 'MODERADA' | 'ALTA' | 'EXTREMA'
+  | 'SIN DIVISIÓN' | 'DIVISIÓN LEVE' | 'DIVIDIDA' | 'POLARIZADA'
   | 'BAJO' | 'PROMEDIO' | 'ALTO';
 
 export interface MetricInsightInput {
@@ -106,10 +106,10 @@ export function buildMetricInsightPrompt(input: MetricInsightInput): string {
   // Qué es "bueno" o "malo" para cada métrica — sin fórmula, solo dirección.
   const direction: Record<MetricKey, string> = {
     nss: 'Más positivo (hacia +100) es mejor; más negativo (hacia −100) es peor.',
-    crisis: 'Más bajo (Normal) es mejor; más alto (Alerta/Crisis) es peor.',
+    crisis: 'Más bajo (Normal) es mejor; más alto (Alerta/Crisis) es peor. Combina qué tan negativa es la conversación, cuánto más negativa que lo usual de la agencia y si las negativas se dispararon.',
     volume: 'Sin escala fija de bueno/malo — interpreta vs. su rango histórico P25/P75.',
     bhi: 'Más alto (hacia 10, Fuerte) es mejor; más bajo (hacia 1, Crítico) es peor.',
-    polarization: 'Más alto significa una conversación más dividida (menos neutrales), no necesariamente peor.',
+    polarization: 'Mide si hay DOS bandos: 0 = una sola postura (o todo neutral), 100 = mitad a favor y mitad en contra. Más alto significa una conversación partida, no necesariamente peor. Una conversación muy negativa sin defensores NO está polarizada.',
   };
 
   return `

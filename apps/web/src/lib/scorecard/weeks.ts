@@ -12,7 +12,7 @@
  * 20-abr-2026: ese día cambió la calibración del sentimiento (DDEC pasó de
  * 54% a 6% de positivas) y mezclar semanas de antes compararía dos escalas.
  */
-import { addDaysYmd, calculateMetrics, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
+import { MIN_WINDOW_MENTIONS, addDaysYmd, calculateMetrics, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
 
 /** Primer lunes después del quiebre de serie del 19-abr-2026. */
 export const BASELINE_FROM = '2026-04-20';
@@ -63,9 +63,10 @@ export interface WindowIndices {
   polarization: number | null;
 }
 
-/** Índices de una ventana, idénticos a loadMetricsForWindow. */
+/** Índices de una ventana, idénticos a loadMetricsForWindow (incluido el mínimo de menciones). */
 export function windowIndices(days: DayAggregates[], snaps: SnapshotRow[], start: string, end: string): WindowIndices {
   const agg = sumAggregates(days, start, end);
+  if (agg.totalMentions < MIN_WINDOW_MENTIONS) return { nss: null, crisis: null, bhi: null, polarization: null };
   const windowDays = Math.round((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86_400_000) + 1;
   const m = calculateMetrics(agg, historyBefore(snaps, start), windowDays);
   return { nss: m.nss, crisis: m.crisisRiskScore, bhi: m.brandHealthIndex, polarization: m.polarizationIndex };

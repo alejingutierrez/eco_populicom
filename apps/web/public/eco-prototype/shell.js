@@ -1881,7 +1881,8 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
     if (!band) return 'var(--text-3)';
     const b = String(band).toUpperCase();
     if (['CRISIS', 'ALERTA', 'NEGATIVO', 'CRÍTICO'].includes(b)) return 'var(--neg)';
-    if (['ELEVADO', 'DÉBIL', 'MODERADA', 'EXTREMA'].includes(b)) return 'var(--warn)';
+    if (['POLARIZADA'].includes(b)) return 'var(--neg)';
+    if (['ELEVADO', 'DÉBIL', 'DIVIDIDA'].includes(b)) return 'var(--warn)';
     if (['SANO', 'POSITIVO', 'NORMAL', 'ALTA'].includes(b)) return 'var(--pos)';
     if (['FUERTE'].includes(b)) return 'var(--accent)';
     return 'var(--text-3)';
@@ -1909,8 +1910,9 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
     }
     if (metricKey === 'polarization') {
       return {
-        labels: ['APÁTICA', 'MODERADA', 'ALTA', 'EXTREMA'],
-        gradient: 'linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 30%, var(--warn) 30%, var(--warn) 50%, #8B5CF6 50%, #8B5CF6 75%, var(--neg) 75%, var(--neg) 100%)',
+        // V5: dos bandos. Cortes 10/25/50, los de polarizationBand.
+        labels: ['SIN DIVISIÓN', 'LEVE', 'DIVIDIDA', 'POLARIZADA'],
+        gradient: 'linear-gradient(90deg, var(--neu) 0%, var(--neu) 10%, var(--verdict-2) 10%, var(--verdict-2) 25%, var(--verdict-3) 25%, var(--verdict-3) 50%, var(--verdict-4) 50%, var(--verdict-4) 100%)',
         pct: (v) => Math.max(0, Math.min(v ?? 0, 100)),
       };
     }

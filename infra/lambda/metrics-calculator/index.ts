@@ -57,6 +57,14 @@ interface InvokePayload {
   /** Backfill mode (recalcula snapshots históricos). */
   backfill?: boolean;
   /**
+   * Bordes del backfill (YYYY-MM-DD, inclusivos). Con el timeout de 2 min el
+   * historial completo no cabe en una invocación: se recalcula por tramos, del
+   * más viejo al más nuevo, porque cada día usa los 30 snapshots previos ya
+   * recalculados. Con `agencySlug` se limita a esa agencia.
+   */
+  backfillFrom?: string;
+  backfillTo?: string;
+  /**
    * Fuerza la evaluación de crisis: brinca tanto el threshold como el
    * cooldown. Útil para tests manuales y para regenerar editoriales.
    */
@@ -103,13 +111,17 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       const datesResult = await client.query(
         `SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS d
          FROM mentions
+         WHERE ($1::date IS NULL OR (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $1::date)
+           AND ($2::date IS NULL OR (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $2::date)
          ORDER BY d ASC`,
+        [event.backfillFrom ?? null, event.backfillTo ?? null],
       );
       const dates = datesResult.rows.map((r: any) =>
         typeof r.d === 'string' ? r.d : r.d.toISOString().split('T')[0],
       );
       let computed = 0;
       for (const agency of agencies) {
+        if (event.agencySlug && agency.slug !== event.agencySlug) continue;
         for (const date of dates) {
           await computeForAgency(client, agency.id, date);
           computed++;
@@ -271,6 +283,9 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
     FROM mentions
     WHERE agency_id = $1
       AND is_duplicate = false
+      -- V5 (oct-2026): mismo universo que loadAggregatesForWindow y que los
+      -- conteos del producto (pertinencia NLP ≠ 'baja').
+      AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja')
       AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date`,
     [agencyId, date],
   );
@@ -763,6 +778,7 @@ async function fireCrisisAlert(
          LEFT JOIN mentions m
            ON m.agency_id = $1
           AND m.is_duplicate = false
+          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = dy.day
         GROUP BY dy.day
      )
@@ -789,6 +805,7 @@ async function fireCrisisAlert(
        JOIN topics t ON t.id = mt.topic_id
       WHERE m.agency_id = $1
         AND m.is_duplicate = false
+        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
       GROUP BY t.id, t.name
      HAVING COUNT(*) >= 3
@@ -813,6 +830,7 @@ async function fireCrisisAlert(
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
         AND m.is_duplicate = false
+        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
         AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
         AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
       GROUP BY mu.id, mu.name
@@ -884,6 +902,7 @@ async function fireCrisisAlert(
          LEFT JOIN primary_topic pt ON pt.mention_id = m.id
         WHERE m.agency_id = $1
           AND m.is_duplicate = false
+          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
           AND COALESCE(m.nlp_sentiment, m.bw_sentiment) = 'negativo'
           AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')

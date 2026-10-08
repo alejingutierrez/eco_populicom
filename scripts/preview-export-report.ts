@@ -176,7 +176,7 @@ const metrics: WindowMetrics = {
   nss: -38.4, brandHealthIndex: 0.41, reputationMomentum: -0.12, engagementRate: 2.8,
   amplificationRate: 1.4, engagementVelocity: 0.31, crisisRiskScore: 0.58,
   volumeAnomalyZscore: 1.42, nss7d: -35.1, nss30d: -22.7, polarizationIndex: 64,
-  crisisSeverity: 0.61, crisisVelocity: 0.34, crisisRelevance: 0.72, crisisConfidence: 0.88,
+  crisisSeverity: 0.61, crisisVelocity: 0.34, crisisRelevance: null, crisisConfidence: 0.88, crisisNegShare: 0.42, crisisBaselineNegShare: 0.29,
   totals: { total: report.totals.total, positive: report.totals.positive, neutral: report.totals.neutral, negative: report.totals.negative },
   totalReach: 7_658_000, totalEngagementScore: 151_420, engagementPerMention: 205.4,
 };
@@ -185,7 +185,7 @@ const prevMetrics: WindowMetrics = {
   ...metrics,
   nss: -24.1, brandHealthIndex: 0.52, crisisRiskScore: 0.34, polarizationIndex: 51,
   engagementRate: 3.4, amplificationRate: 1.7, volumeAnomalyZscore: 0.21,
-  crisisSeverity: 0.38, crisisVelocity: 0.19, crisisRelevance: 0.61, crisisConfidence: 0.9,
+  crisisSeverity: 0.38, crisisVelocity: 0.19, crisisRelevance: null, crisisConfidence: 0.9, crisisNegShare: 0.31, crisisBaselineNegShare: 0.3,
   totals: { total: 702, positive: 71, neutral: 340, negative: 291 },
   engagementPerMention: 241.8,
 };
@@ -413,7 +413,7 @@ const emptyCtx: ReportContext = {
     ...metrics,
     nss: null, brandHealthIndex: null, crisisRiskScore: null, polarizationIndex: null,
     engagementRate: null, amplificationRate: null, volumeAnomalyZscore: null,
-    crisisSeverity: null, crisisVelocity: null, crisisRelevance: null, crisisConfidence: null,
+    crisisSeverity: null, crisisVelocity: null, crisisRelevance: null, crisisConfidence: null, crisisNegShare: null, crisisBaselineNegShare: null,
     totals: { total: 0, positive: 0, neutral: 0, negative: 0 },
     totalReach: 0, totalEngagementScore: 0, engagementPerMention: null,
   },

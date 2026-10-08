@@ -205,8 +205,8 @@ export async function GET(request: NextRequest) {
   // Universo pertinente (decisión D2, auditoría 2026-08): TODOS los conteos
   // del dashboard excluyen nlp_pertinence='baja' — misma base que el
   // Overview, los correos y el default de /api/eco-mentions (las modales).
-  // Las métricas compuestas (loadMetricsForWindow) conservan su universo
-  // calibrado; esto gobierna solo conteos visibles.
+  // Desde V5 (oct-2026) las métricas compuestas (loadMetricsForWindow) usan
+  // este mismo universo.
   const baseWhere = and(
     eq(mentions.agencyId, agencyId),
     eq(mentions.isDuplicate, false),
@@ -264,8 +264,8 @@ export async function GET(request: NextRequest) {
     // días AST) — antes venían de daily_metric_snapshots: otra fuente con otro
     // universo, y el Σ del chart podía no cuadrar con el KPI de al lado
     // (auditoría 2026-08, P1-11). Las series de MÉTRICAS (nss, bhi, crisis,
-    // polarización, engagement) siguen saliendo del snapshot del día: son la
-    // capa calibrada.
+    // polarización, engagement) salen del snapshot del día, calculado sobre
+    // el mismo universo (V5).
     const poolForCounts = getPool() as unknown as PgClientLike;
     const snapshots = await db
       .select()
@@ -307,8 +307,7 @@ export async function GET(request: NextRequest) {
       loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
       loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
       // Totales de CONTEO en el universo pertinente — la misma query que el
-      // Overview/correo. Gobiernan todo "N menciones" visible; las métricas
-      // compuestas de winCur/winPrev conservan su universo calibrado.
+      // Overview/correo. Gobiernan todo "N menciones" visible.
       loadSentimentTotals(pool, agencyId, startYmd, endYmd),
       loadSentimentTotals(pool, agencyId, prevStartYmd, prevEndYmd),
     ]);
@@ -360,6 +359,9 @@ export async function GET(request: NextRequest) {
       .where(baseWhere);
 
     const CURRENT_METRICS = {
+      // Menos de MIN_WINDOW_MENTIONS en la ventana: los índices vienen en null
+      // y la SPA muestra «muestra insuficiente».
+      lowSample: winCur.lowSample,
       nss: winCur.nss ?? 0,
       nss7d: winCur.nss7d,
       nss30d: winCur.nss30d,

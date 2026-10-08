@@ -3,10 +3,10 @@
  * cliente de base de datos. Vive aquí (y no en la ruta) para poder correrlo
  * contra prod desde un script sin desplegar.
  *
- * Universos, los mismos del resto del dashboard: los ÍNDICES (NSS, crisis,
- * Brand Health, polarización) salen de `calculateMetrics` sobre las menciones
- * sin duplicados (su universo calibrado, como loadAggregatesForWindow); los
- * CONTEOS (menciones, quién habló) van sobre el universo pertinente.
+ * Un solo universo, el del resto del dashboard (V5, oct-2026): los ÍNDICES
+ * (NSS, crisis, Brand Health, polarización) salen de `calculateMetrics` sobre
+ * las menciones pertinentes sin duplicados, como loadAggregatesForWindow, y
+ * los CONTEOS (menciones, quién habló) cuentan esas mismas menciones.
  */
 import { addDaysYmd, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
 import { BASELINE_FROM, BASELINE_MAX_WEEKS, WEEKS_SHOWN, buildWeeks, type DayAggregates, type SnapshotRow } from './weeks';
@@ -34,6 +34,7 @@ SELECT to_char((published_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS date,
   FROM mentions
  WHERE agency_id = $1
    AND is_duplicate = false
+   AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja')
    AND (published_at AT TIME ZONE '${TZ}')::date >= $2::date
    AND (published_at AT TIME ZONE '${TZ}')::date <= $3::date
  GROUP BY 1`;
