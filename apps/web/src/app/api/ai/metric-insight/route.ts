@@ -173,8 +173,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Métricas actuales y previas en la misma ventana — para deltaVsPrev.
     // Los CONTEOS (volume) salen del universo pertinente (misma query que
-    // Overview/eco-data/correo); las métricas compuestas conservan su
-    // universo calibrado (decisión D2, auditoría 2026-08).
+    // Overview/eco-data/correo); desde V5 (oct-2026) las métricas compuestas
+    // se calculan sobre ese mismo universo.
     const [winCur, winPrev, volCur, volPrev] = await Promise.all([
       loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
       loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),

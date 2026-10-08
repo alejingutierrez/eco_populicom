@@ -16,8 +16,8 @@
  * UNIVERSO: idéntico al de los conteos del producto — `is_duplicate = false` y
  * pertinencia distinta de 'baja' (decisión D2 de la auditoría de consistencia
  * 2026-08). Las métricas compuestas (NSS/BHI/crisis) NO se calculan aquí:
- * salen de `loadMetricsForWindow`, que conserva su universo calibrado por
- * backtest.
+ * salen de `loadMetricsForWindow`, que desde V5 (oct-2026) usa este mismo
+ * universo.
  *
  * FECHAS: `startYmd`/`endYmd` son días calendario inclusivos en TZ Puerto Rico
  * (AST, UTC-4 sin DST), igual que en `buildSentimentReport`. El filtro es

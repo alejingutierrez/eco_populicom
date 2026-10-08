@@ -25,7 +25,6 @@ export interface CrisisBriefingAggregates {
   crisisRiskScore: number | null;
   crisisSeverity: number | null;     // 0-1
   crisisVelocity: number | null;     // 0-1
-  crisisRelevance: number | null;    // 0-1
   /** Volume anomaly z-score: cuántas desviaciones está el volumen del periodo vs. 30d baseline. */
   volumeAnomalyZscore: number | null;
 
@@ -103,9 +102,8 @@ PERIODO: últimas ${agg.periodHours} horas (America/Puerto_Rico — AST, UTC-4).
 
 INDICADORES DE CRISIS:
 - Crisis Risk Score: ${fmt3(agg.crisisRiskScore)} (escala 0–1, banda actual: ${band} — palabra que ve el usuario: "${bandLabel}", ${Math.round(score * 100)}%)
-- Severidad (concentración negativa): ${fmt3(agg.crisisSeverity)}
-- Velocidad (anomalía de volumen vs 30d): ${fmt3(agg.crisisVelocity)}
-- Relevancia (pertinencia alta del flujo): ${fmt3(agg.crisisRelevance)}
+- Severidad (mitad % de negativas, mitad cuánto más negativa que lo usual de la agencia): ${fmt3(agg.crisisSeverity)}
+- Velocidad (pico de negativas vs los 30 días previos): ${fmt3(agg.crisisVelocity)}
 - Volume anomaly z-score: ${fmt3(agg.volumeAnomalyZscore)}
 
 TOTALES DEL PERIODO:

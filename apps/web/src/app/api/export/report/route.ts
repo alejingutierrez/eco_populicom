@@ -89,7 +89,7 @@ function shortName(name: string, slug: string): string {
 
 /**
  * Series diarias de los índices para las sparklines de los mosaicos. Salen de
- * `daily_metric_snapshots` (la capa calibrada), igual que el TIMELINE del
+ * `daily_metric_snapshots` (mismo universo que los conteos desde V5), igual que el TIMELINE del
  * Scorecard; el volumen sale de la serie de conteos del propio reporte para que
  * la sparkline y la gráfica de tendencia no puedan discrepar.
  */

@@ -17,10 +17,10 @@ import { formatMetric, type DisplayMetricKey } from '../format/metrics-display';
 import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
 
 export interface MetricSnapshotSubcomponents {
-  // Para crisis: severity, velocity, relevance, confidence
+  // Para crisis: severity, velocity, confidence, negShare, baselineNegShare
   // Para BHI: nssNormalized, engagementRate, reach, pertinenceRatio
   // Para NSS: positiveCount, neutralCount, negativeCount
-  // Para Polarization: opinionShare, neutralShare (apatía vs polarización)
+  // Para Polarization: positiveShare, negativeShare (dos bandos vs una postura)
   // Para Volume: total, deltaVsPrev%
   [label: string]: number | null;
 }
@@ -138,9 +138,10 @@ function metricInterpretation(m: MetricKey, value: number | null): string {
     return 'crítico (1.0-4.6)';
   }
   if (m === 'polarization') {
-    if (value >= 60) return 'polarización extrema (>60%)';
-    if (value >= 40) return 'polarización moderada (40–60%)';
-    return 'apatía / bajo nivel de opinión';
+    if (value >= 50) return 'polarizada: dos bandos parejos (≥50)';
+    if (value >= 25) return 'dividida (25–50)';
+    if (value >= 10) return 'división leve (10–25)';
+    return 'sin división: predomina una sola postura o la neutralidad (<10)';
   }
   return '';
 }

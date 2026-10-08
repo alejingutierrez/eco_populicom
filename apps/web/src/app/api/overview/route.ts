@@ -179,9 +179,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Volumen y su delta salen del MISMO report que el hero/termómetro/tabla
     // (universo pertinente) — antes venían de loadMetricsForWindow (universo
     // completo) y el payload traía DOS totales distintos (auditoría 2026-08,
-    // P0-16). Las métricas compuestas (NSS/crisis/BHI) siguen saliendo de
-    // loadMetricsForWindow: su universo está calibrado por backtest y no se
-    // toca — son índices, no conteos.
+    // P0-16). Las métricas compuestas (NSS/crisis/BHI) salen de
+    // loadMetricsForWindow, que desde V5 (oct-2026) usa ese mismo universo.
     const totalMentionsDelta = report.prevTotals.total > 0
       ? Number((((report.totals.total - report.prevTotals.total) / report.prevTotals.total) * 100).toFixed(1))
       : (report.totals.total > 0 ? 100 : 0);

@@ -20,7 +20,7 @@ import type {
   SentimentAnalysisOutput, TopicAnalysisOutput, ActorAnalysisOutput,
   GeoAnalysisOutput, RiskAnalysisOutput, SynthesisOutput,
 } from '../prompts/full-report';
-import { formatMetric, formatDelta, type MetricTone } from '../format/metrics-display';
+import { bandTone, formatMetric, formatDelta, type MetricTone } from '../format/metrics-display';
 import { formatPeriodLabel, formatShortDay } from '../format-period';
 import { REPORT_STYLES, REPORT_FONT_LINK } from './print-styles';
 import {
@@ -68,28 +68,16 @@ const METER_BANDS = {
   nss: { min: -100, max: 100, bands: [{ upTo: -20, label: 'Muy neg' }, { upTo: -5, label: 'Neg' }, { upTo: 5, label: 'Neutral' }, { upTo: 20, label: 'Pos' }, { upTo: 100, label: 'Muy pos' }] },
   bhi: { min: 1, max: 10, bands: [{ upTo: 4.6, label: 'Crítico' }, { upTo: 6.4, label: 'Débil' }, { upTo: 8.2, label: 'Sano' }, { upTo: 10, label: 'Fuerte' }] },
   crisis: { min: 0, max: 1, bands: [{ upTo: 0.25, label: 'Normal' }, { upTo: 0.4, label: 'Elevado' }, { upTo: 0.6, label: 'Alerta' }, { upTo: 1, label: 'Crisis' }] },
-  polarization: { min: 0, max: 100, bands: [{ upTo: 30, label: 'Apática' }, { upTo: 50, label: 'Moderada' }, { upTo: 75, label: 'Alta' }, { upTo: 100, label: 'Extrema' }] },
+  polarization: { min: 0, max: 100, bands: [{ upTo: 10, label: 'Sin división' }, { upTo: 25, label: 'Leve' }, { upTo: 50, label: 'Dividida' }, { upTo: 100, label: 'Polarizada' }] },
 } as const;
 
 /**
- * Tono de la banda de POLARIZACIÓN, resuelto aquí y no con el `tone` que trae
- * `formatMetric`.
- *
- * Motivo: el mapa BAND_TONE de metrics-display asigna `'ALTA' → 'pos'` porque
- * "ALTA" también es una banda de PERTINENCIA, donde alta es buena señal. En
- * polarización, "ALTA" es lo contrario, así que un índice de 64/100 se imprimía
- * en verde — el lector concluye lo opuesto al dato. Se corrige localmente para
- * no tocar el tono de las otras métricas del dashboard, que dependen del mismo
- * mapa compartido.
+ * Tono de la banda de POLARIZACIÓN (V5: dos bandos). Desde oct-2026 sale del
+ * mapa compartido BAND_TONE, que ya tiene bandas propias de polarización (la
+ * V1 tomaba «ALTA» de pertinencia, que es verde, y la imprimía en verde).
  */
 function polarizationTone(band: string | null): MetricTone {
-  switch (band) {
-    case 'EXTREMA': return 'neg';
-    case 'ALTA': return 'warn';
-    case 'MODERADA': return 'neutral';
-    case 'APÁTICA': return 'neutral';
-    default: return 'neutral';
-  }
+  return bandTone(band);
 }
 
 /**
@@ -801,10 +789,9 @@ export function renderGeography(ctx: ReportContext, ai: GeoAnalysisOutput | null
 export function renderRisk(ctx: ReportContext, ai: RiskAnalysisOutput | null): string {
   const m = ctx.metrics;
   const comps = [
-    { label: 'Severidad', value: m.crisisSeverity, note: 'Peso de la negatividad del período' },
-    { label: 'Velocidad', value: m.crisisVelocity, note: 'Ritmo de cambio del volumen contra el período previo' },
-    { label: 'Relevancia', value: m.crisisRelevance, note: 'Pertinencia y alcance del material negativo' },
-    { label: 'Confianza', value: m.crisisConfidence, note: 'Cobertura del NLP sobre el material del período' },
+    { label: 'Severidad', value: m.crisisSeverity, note: 'Mitad qué tan negativa es la conversación, mitad cuánto más negativa que lo usual de la agencia' },
+    { label: 'Velocidad', value: m.crisisVelocity, note: 'Pico de menciones negativas contra los 30 días previos' },
+    { label: 'Confianza', value: m.crisisConfidence, note: 'Tamaño de la muestra: con pocas menciones el índice se atenúa' },
   ];
 
   const compTable = `<div class="table-scroll"><table class="rp">
@@ -939,7 +926,7 @@ export function renderAnnex(ctx: ReportContext, meta: {
   <h3 class="block">Universo de conteo</h3>
   <dl>
     <dt>Qué se cuenta</dt><dd>Menciones no duplicadas cuya pertinencia evaluada por el NLP no es <code>baja</code>. Las de pertinencia baja son ruido y se excluyen de todos los conteos, gráficas y tablas de este documento.</dd>
-    <dt>Por qué los índices no cuadran con los conteos</dt><dd>NSS, Brand Health Index, riesgo de crisis y polarización se calculan sobre el universo calibrado por backtest de <code>@eco/shared/metrics</code>, que no es el mismo del termómetro. No son una función aritmética de los conteos que aparecen en las tablas: son índices con su propia normalización.</dd>
+    <dt>Índices</dt><dd>NSS, Brand Health Index, riesgo de crisis y polarización se calculan sobre esas mismas menciones (<code>@eco/shared/metrics</code>, V5). Con menos de 20 menciones en el período no se publican.</dd>
     <dt>Sentimiento</dt><dd>Se usa el del NLP (Claude) y, cuando falta, el de la plataforma de origen. Tres niveles: negativo, neutral, positivo.</dd>
     <dt>Engagement</dt><dd>Suma de likes, comentarios y compartidas reportados por la fuente. El alcance es el <code>reach_estimate</code> de la plataforma, no una medición propia.</dd>
     <dt>Tópicos</dt><dd>Cada mención cuenta UNA vez, bajo su tópico de mayor confianza. La columna "secundarias" cuenta las menciones donde el tópico aparece sin ser el principal, y por eso puede sumar más que el total.</dd>

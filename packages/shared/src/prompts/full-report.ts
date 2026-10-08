@@ -113,7 +113,7 @@ PERÍODO: ${ctx.periodStart} al ${ctx.periodEnd} (${ctx.periodLabel}) — ${wind
 PERÍODO DE COMPARACIÓN: ${ctx.prevPeriodStart} al ${ctx.prevPeriodEnd} (misma duración, inmediatamente anterior).
 ZONA HORARIA: America/Puerto_Rico (AST, UTC-4, sin horario de verano).
 
-UNIVERSO DE CONTEO: menciones no duplicadas cuya pertinencia evaluada por el NLP no es 'baja'. Las de pertinencia baja se excluyen de TODOS los conteos de este reporte. Los índices compuestos (NSS, BHI, Riesgo de crisis, Polarización) usan su propio universo calibrado por backtest, así que sus valores no son una función aritmética de los conteos que ves aquí.
+UNIVERSO DE CONTEO: menciones no duplicadas cuya pertinencia evaluada por el NLP no es 'baja'. Las de pertinencia baja se excluyen de TODOS los conteos de este reporte. Los índices compuestos (NSS, BHI, Riesgo de crisis, Polarización) se calculan sobre esas mismas menciones; con menos de 20 menciones en el período no se publican (n/d).
 
 COBERTURA DEL NLP: ${coverageNote}
 
@@ -128,10 +128,10 @@ TERMÓMETRO DEL PERÍODO:
 ${metricLine('NSS (Net Sentiment Score, -100 a +100)', metrics.nss, prevMetrics.nss)}
 ${metricLine('Brand Health Index (0 a 1)', metrics.brandHealthIndex, prevMetrics.brandHealthIndex)}
 ${metricLine('Riesgo de crisis (0 a 1)', metrics.crisisRiskScore, prevMetrics.crisisRiskScore)}
-${metricLine('Índice de polarización (0 a 100)', metrics.polarizationIndex, prevMetrics.polarizationIndex)}
+${metricLine('Índice de polarización (0 a 100; 0 = una sola postura, 100 = mitad a favor y mitad en contra)', metrics.polarizationIndex, prevMetrics.polarizationIndex)}
 ${metricLine('Tasa de engagement (%)', metrics.engagementRate, prevMetrics.engagementRate, '%')}
 ${metricLine('Tasa de amplificación (%)', metrics.amplificationRate, prevMetrics.amplificationRate, '%')}
-- Componentes del riesgo de crisis: severidad=${metrics.crisisSeverity ?? 'n/d'}, velocidad=${metrics.crisisVelocity ?? 'n/d'}, relevancia=${metrics.crisisRelevance ?? 'n/d'}, confianza=${metrics.crisisConfidence ?? 'n/d'}
+- Componentes del riesgo de crisis: severidad=${metrics.crisisSeverity ?? 'n/d'} (mitad % de negativas, mitad cuánto más negativa que lo usual), velocidad=${metrics.crisisVelocity ?? 'n/d'} (pico de negativas vs los 30 días previos), confianza=${metrics.crisisConfidence ?? 'n/d'}; negativas del período=${metrics.crisisNegShare ?? 'n/d'} vs lo usual=${metrics.crisisBaselineNegShare ?? 'n/d'}
 - Anomalía de volumen (z-score): ${metrics.volumeAnomalyZscore ?? 'n/d'}
 
 VOLUMEN DIARIO:
@@ -560,7 +560,7 @@ export function buildRiskAnalysisPrompt(ctx: ReportContext): string {
 
 TAREA: analiza el RIESGO REPUTACIONAL del período.
 
-El índice de riesgo de crisis vale ${ctx.metrics.crisisRiskScore ?? 'n/d'} y se compone de severidad (${ctx.metrics.crisisSeverity ?? 'n/d'}), velocidad (${ctx.metrics.crisisVelocity ?? 'n/d'}), relevancia (${ctx.metrics.crisisRelevance ?? 'n/d'}) y confianza (${ctx.metrics.crisisConfidence ?? 'n/d'}). No repitas esos números: explica cuál de los componentes carga el índice y qué material concreto lo produce.
+El índice de riesgo de crisis vale ${ctx.metrics.crisisRiskScore ?? 'n/d'} y se compone de severidad (${ctx.metrics.crisisSeverity ?? 'n/d'}: mitad qué tan negativa es la conversación, mitad cuánto más negativa que lo usual de la agencia), velocidad (${ctx.metrics.crisisVelocity ?? 'n/d'}: pico de negativas contra los 30 días previos) y confianza (${ctx.metrics.crisisConfidence ?? 'n/d'}). No repitas esos números: explica cuál de los componentes carga el índice y qué material concreto lo produce.
 
 Distinción que la sección debe hacer: riesgo por INTENSIDAD (pocas menciones con mucho engagement, típico de una nota de prensa que circula) frente a riesgo por EXTENSIÓN (muchas menciones repartidas entre autores y días, típico de un descontento sostenido). Los dos pueden dar el mismo índice y no son la misma situación.
 

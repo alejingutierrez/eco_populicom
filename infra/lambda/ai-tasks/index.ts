@@ -641,7 +641,7 @@ async function loadCrisisAggregates(
   // (la fórmula se calcula 24/7 por eco-metrics-calculator). Si no hay snapshot,
   // todos los valores quedan en null y el prompt cae en banda NORMAL.
   const snapRes = await client.query(
-    `SELECT crisis_risk_score, crisis_severity, crisis_velocity, crisis_relevance,
+    `SELECT crisis_risk_score, crisis_severity, crisis_velocity,
             volume_anomaly_zscore
        FROM daily_metric_snapshots
       WHERE agency_id = $1
@@ -711,7 +711,6 @@ async function loadCrisisAggregates(
     crisisRiskScore: snap.crisis_risk_score != null ? Number(snap.crisis_risk_score) : null,
     crisisSeverity: snap.crisis_severity != null ? Number(snap.crisis_severity) : null,
     crisisVelocity: snap.crisis_velocity != null ? Number(snap.crisis_velocity) : null,
-    crisisRelevance: snap.crisis_relevance != null ? Number(snap.crisis_relevance) : null,
     volumeAnomalyZscore: snap.volume_anomaly_zscore != null ? Number(snap.volume_anomaly_zscore) : null,
     totals: base.totals,
     negativeShare: negShare,
@@ -1131,17 +1130,17 @@ function subcomponentsFor(metric: MetricKey, snapshot: Record<string, number | n
   // métrica. El prompt los usa como contexto SIN explicar la fórmula.
   if (metric === 'crisis') {
     return {
-      'severity (share negativo)': snapshot.crisis_severity ?? null,
-      'velocity (z-score volumen)': snapshot.crisis_velocity ?? null,
-      'relevance (ratio pertinencia)': snapshot.crisis_relevance ?? null,
-      'confidence (log10 menciones)': snapshot.crisis_confidence ?? null,
+      'severidad (mitad % negativo, mitad cuánto más negativo que lo usual)': snapshot.crisis_severity ?? null,
+      'velocidad (pico de negativas vs 30 días)': snapshot.crisis_velocity ?? null,
+      'confianza (tamaño de la muestra)': snapshot.crisis_confidence ?? null,
     };
   }
   if (metric === 'bhi') {
     return {
       'nss normalizado (0-1)': snapshot.nss != null ? (Number(snapshot.nss) + 100) / 200 : null,
       'engagement rate': snapshot.engagement_rate ?? null,
-      'amplification rate': snapshot.amplification_rate ?? null,
+      'alcance (día)': snapshot.total_reach ?? null,
+      'menciones de pertinencia alta (día)': snapshot.high_pertinence_count ?? null,
       'volume (menciones del día)': snapshot.total_mentions ?? null,
     };
   }
@@ -1156,7 +1155,7 @@ function subcomponentsFor(metric: MetricKey, snapshot: Record<string, number | n
   }
   if (metric === 'polarization') {
     return {
-      'polarization index': snapshot.polarization_index ?? null,
+      'polarization index (0 = una sola postura, 100 = mitad a favor y mitad en contra)': snapshot.polarization_index ?? null,
       'positivas (día)': snapshot.positive_count ?? null,
       'negativas (día)': snapshot.negative_count ?? null,
       'neutras (día)': snapshot.neutral_count ?? null,
