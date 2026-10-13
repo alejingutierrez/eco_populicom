@@ -39,6 +39,7 @@ const PROTECTED_PATHS = [
   /^\/api\/ai(\/.*)?$/,
   /^\/api\/narrative(\/.*)?$/,
   /^\/api\/scorecard(\/.*)?$/,
+  /^\/api\/mentions(\/.*)?$/,
   /^\/api\/chat(\/.*)?$/,
   // El reporte exportable devuelve el período completo de una agencia: nunca
   // puede servirse sin sesión.
@@ -169,6 +170,8 @@ export const config = {
     // El Scorecard se consume en su raíz: van las dos formas.
     '/api/scorecard/:path*',
     '/api/scorecard',
+    // Análisis de la página de Menciones (/api/mentions/analysis).
+    '/api/mentions/:path*',
     '/api/chat/:path*',
     '/api/export/:path*',
   ],
