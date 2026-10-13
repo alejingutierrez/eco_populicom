@@ -1332,11 +1332,47 @@ const PR_BOUNDS = [[17.88, -67.30], [18.54, -65.20]];
 // Llave de navegador de CARTO (restringida por dominio). Vacía → contorno propio.
 const prMapTileUrl = (style) => (window.ECO_MAP_KEY ? `https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(window.ECO_MAP_KEY)}` : null);
 
+// Fondo de cualquier mapa de PR (el de Geografía y el minimapa del panel de una
+// mención): tiles de CARTO con llave, claro u oscuro según el modo del
+// dashboard, o sin llave el contorno propio de la isla con los tokens del
+// sistema. La atribución de CARTO y OpenStreetMap viaja con los tiles (sus
+// términos la exigen visible). Devuelve dispose() para soltar el observador.
+function prMapAddBase(map) {
+  const L = window.L;
+  const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  const dark = prMapTileUrl('dark_all') && L.tileLayer(prMapTileUrl('dark_all'), { attribution, maxZoom: 19 });
+  const light = prMapTileUrl('light_all') && L.tileLayer(prMapTileUrl('light_all'), { attribution, maxZoom: 19 });
+  const T0 = (t) => window.ecoTokenValue(t);
+  let island = null;
+  let active = null;
+  if (!dark) {
+    island = L.layerGroup([PR_COAST, ...PR_ISLETS].map((ring) => L.polygon(ring.map(([lo, la]) => [la, lo]), { interactive: false, weight: 1.2 })));
+    island.addTo(map);
+  }
+  function applyMode() {
+    if (island) {
+      island.eachLayer((p) => p.setStyle({ color: T0('var(--hairline-strong)'), fillColor: T0('var(--hairline)'), fillOpacity: 1 }));
+      return;
+    }
+    const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+    const next = mode === 'light' ? light : dark;
+    if (active === next) return;
+    if (active) map.removeLayer(active);
+    next.addTo(map);
+    active = next;
+  }
+  applyMode();
+  // El fondo sigue el interruptor claro/oscuro del dashboard (<html data-mode>).
+  const observer = new MutationObserver(applyMode);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
+  return { dispose: () => observer.disconnect() };
+}
+
 function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick, selected }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const markersLayerRef = React.useRef(null);
-  const tilesRef = React.useRef({ dark: null, light: null, active: null });
+  const tilesRef = React.useRef({});
 
   // Mount Leaflet once, then re-render markers whenever inputs change.
   React.useEffect(() => {
@@ -1358,40 +1394,8 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick, selecte
         zoomControl: true,
         attributionControl: true,
       });
-      // Dos capas de tiles (claro/oscuro) que siguen el modo del dashboard. Sin
-      // llave de CARTO no hay tiles: se dibuja el contorno de la isla con los
-      // tokens del sistema y la atribución desaparece con los tiles.
-      const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-      const dark = prMapTileUrl('dark_all') && L.tileLayer(prMapTileUrl('dark_all'), { attribution, maxZoom: 19 });
-      const light = prMapTileUrl('light_all') && L.tileLayer(prMapTileUrl('light_all'), { attribution, maxZoom: 19 });
-      tilesRef.current = { dark, light, active: null };
-      const T0 = (t) => window.ecoTokenValue(t);
-      let island = null;
-      if (!dark) {
-        island = L.layerGroup([PR_COAST, ...PR_ISLETS].map((ring) => L.polygon(ring.map(([lo, la]) => [la, lo]), { interactive: false, weight: 1.2 })));
-        island.addTo(map);
-      }
-
-      function applyMode() {
-        const mode = document.documentElement.getAttribute('data-mode') || 'dark';
-        if (island) {
-          island.eachLayer((p) => p.setStyle({ color: T0('var(--hairline-strong)'), fillColor: T0('var(--hairline)'), fillOpacity: 1 }));
-          return;
-        }
-        const nextLayer = mode === 'light' ? light : dark;
-        if (tilesRef.current.active === nextLayer) return;
-        if (tilesRef.current.active) map.removeLayer(tilesRef.current.active);
-        nextLayer.addTo(map);
-        tilesRef.current.active = nextLayer;
-      }
-      applyMode();
+      tilesRef.current = prMapAddBase(map);
       map.fitBounds(PR_BOUNDS, { padding: [12, 12] });
-
-      // Watch the <html data-mode> attribute so the map base layer follows
-      // the dashboard's theme toggle automatically.
-      const observer = new MutationObserver(applyMode);
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
-      tilesRef.current.observer = observer;
 
       markersLayerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
@@ -1400,7 +1404,9 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick, selecte
       // asentado (montaje inicial, colapso del sidebar que no dispara resize
       // de window, etc.) los tiles quedan recortados/desplazados. Un
       // ResizeObserver + un invalidateSize inicial lo mantienen correcto.
-      requestAnimationFrame(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
+      // Tras el primer layout se vuelve a encuadrar PR: si el contenedor aún no
+      // tenía su ancho, el fitBounds del montaje calculaba otro zoom.
+      requestAnimationFrame(() => { if (mapRef.current) { mapRef.current.invalidateSize(); mapRef.current.fitBounds(PR_BOUNDS, { padding: [12, 12] }); } });
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
         const ro = new ResizeObserver(() => { if (mapRef.current) mapRef.current.invalidateSize(); });
         ro.observe(containerRef.current);
@@ -1471,7 +1477,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick, selecte
 
   // Cleanup on unmount.
   React.useEffect(() => () => {
-    if (tilesRef.current.observer) tilesRef.current.observer.disconnect();
+    if (tilesRef.current.dispose) tilesRef.current.dispose();
     if (tilesRef.current.resizeObserver) tilesRef.current.resizeObserver.disconnect();
     if (mapRef.current) {
       mapRef.current.remove();
@@ -1528,5 +1534,5 @@ window.ECO_CHARTS = {
   BandScale,
   Sparkline, AreaLineChart, MultiLineChart, StackedAreaChart,
   Donut, HBarList, RadialGauge, Heatmap, PRMap,
-  mapMarkerRadius,
+  mapMarkerRadius, prMapAddBase,
 };
