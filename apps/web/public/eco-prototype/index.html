@@ -24,9 +24,11 @@
 <link rel="stylesheet" href="/eco-prototype/tokens.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <script>
-  // Llave de navegador de los tiles de CARTO (restringida a los dominios de
-  // ECO). Vacía: el mapa de Geografía dibuja su propio contorno de la isla.
-  window.ECO_MAP_KEY = '';
+  // Llave de navegador de los tiles de CARTO, restringida en CARTO a
+  // citizenecho.com y citizensecho.com (Referer): fuera de esos dominios
+  // (localhost, el arnés) CARTO la rechaza, así que ahí va vacía y el mapa de
+  // Geografía dibuja su propio contorno de la isla.
+  window.ECO_MAP_KEY = /(^|\.)citizens?echo\.com$/.test(location.hostname) ? 'cb1_4jqv_1_2a41e5d14f1b0d17176f4017' : '';
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
