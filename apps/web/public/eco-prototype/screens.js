@@ -4292,7 +4292,9 @@ function GeographyScreen({ onMentionClick }) {
   };
   const selMuni = sel ? (munis.find((m) => m.slug === sel) || (() => { const a = an && !an.error && (an.munis || []).find((x) => x.slug === sel); return a ? { slug: a.slug, name: a.name, region: a.region, count: a.n, positivo: a.pos, negativo: a.neg, nss: null } : null; })()) : null;
 
-  // Deep-link desde otras pantallas (eco.map.focus): abre el modal del municipio.
+  // «Ver en mapa» desde el panel de una mención (eco.map.focus): abre el
+  // municipio bajo el mapa, como cualquier otra selección de la página. Si no
+  // tuvo menciones en el periodo, cae al modal filtrado por ese municipio.
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem('eco.map.focus');
@@ -4301,7 +4303,7 @@ function GeographyScreen({ onMentionClick }) {
       localStorage.removeItem('eco.map.focus');
       if (!focus || !focus.slug || (Date.now() - (focus.ts || 0)) > 30_000) return;
       const muni = (D.MUNICIPALITIES || []).find((m) => m.slug === focus.slug || (m.name || '').toLowerCase() === (focus.name || '').toLowerCase());
-      if (muni) openMuniSlice(muni);
+      if (muni) { setSel(muni.slug); requestAnimationFrame(() => { if (mapRef.current) mapRef.current.scrollIntoView({ block: 'start' }); }); }
       else setSlice({ eyebrow: 'Región', title: focus.name || focus.slug, accent: 'var(--accent)', mentions: [], _filter: { ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}), municipality: focus.slug } });
     } catch (_) {}
   }, []);

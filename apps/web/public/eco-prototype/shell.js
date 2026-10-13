@@ -905,15 +905,17 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
 }
 
 /**
- * Mini mapa Leaflet del municipio detectado en una mención. Reemplaza el SVG
- * mock anterior (forma genérica de PR con un pin por región) por el mapa real
- * con tiles CARTO y un círculo en las coordenadas exactas. Color del círculo
- * según el sentimiento. Si Leaflet no cargó (CSP/red), cae a placeholder.
+ * Mini mapa Leaflet del municipio detectado en una mención: un círculo en las
+ * coordenadas exactas, del color del sentimiento. El fondo es el mismo del mapa
+ * de Geografía (prMapAddBase en charts.js): tiles de CARTO con llave, o el
+ * contorno propio de la isla sin ella; antes pedía los tiles viejos sin llave y
+ * salían con «API KEY REQUIRED» pintado. Si Leaflet no cargó, placeholder.
  */
 function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const roRef = React.useRef(null);
+  const baseRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!containerRef.current || typeof window === 'undefined' || !window.L) return;
@@ -928,18 +930,16 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
       const map = L.map(containerRef.current, {
         center, zoom,
         zoomControl: false,
-        attributionControl: false,
+        // Visible: los términos de CARTO exigen la atribución en todo mapa.
+        attributionControl: true,
         scrollWheelZoom: false,
         dragging: false,
         doubleClickZoom: false,
         boxZoom: false,
         touchZoom: false,
       });
-      const mode = document.documentElement.getAttribute('data-mode') || 'dark';
-      const tileUrl = mode === 'light'
-        ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-      L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 14 }).addTo(map);
+      map.attributionControl.setPrefix(false);
+      baseRef.current = window.ECO_CHARTS.prMapAddBase(map);
       mapRef.current = map;
       // El drawer entra con animación slideLeft (~0.26s); Leaflet mide el
       // contenedor al crear el mapa, cuando aún está transformado/sin tamaño,
@@ -978,6 +978,7 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   // puede acumular handlers; remove() libera memoria y listeners.
   React.useEffect(() => () => {
     if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+    if (baseRef.current) { baseRef.current.dispose(); baseRef.current = null; }
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;
@@ -1195,7 +1196,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
                         // open the slice modal for the clicked municipality.
                         try {
                           localStorage.setItem('eco.map.focus', JSON.stringify({
-                            slug: (mention.municipality || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                            slug: (mention.municipality || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
                             name: mention.municipality,
                             ts: Date.now(),
                           }));
