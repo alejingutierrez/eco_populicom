@@ -55,7 +55,30 @@ API = [
     ('/api/eco-geo', 'eco-geo.json'),
     ('/api/eco-executive-summary', 'eco-executive-summary.json'),
     ('/api/scorecard', 'scorecard.json'),
+    ('/api/mentions/analysis', 'mentions-analysis.json'),
+    ('/api/eco-mentions', 'eco-mentions.json'),
 ]
+
+
+def filter_mentions(obj, qs):
+    """El feed de Menciones pagina y filtra en el servidor; aquí, lo mínimo para
+    que la página se pueda recorrer: id, day, sentiment, minEngagement y limit/offset."""
+    ms = list(obj.get('mentions') or [])
+    one = lambda k: (qs.get(k) or [None])[0]
+    if one('id'):
+        ms = [m for m in ms if m.get('id') == one('id')]
+    if one('day'):
+        from datetime import datetime, timedelta
+        def ast(m):
+            iso = m.get('publishedAtIso')
+            return (datetime.fromisoformat(iso.replace('Z', '+00:00')) - timedelta(hours=4)).strftime('%Y-%m-%d') if iso else None
+        ms = [m for m in ms if ast(m) == one('day')]
+    if one('sentiment'):
+        ms = [m for m in ms if m.get('sentiment') == one('sentiment')]
+    if one('minEngagement'):
+        ms = [m for m in ms if (m.get('engagement') or 0) >= int(one('minEngagement'))]
+    off, lim = int(one('offset') or 0), int(one('limit') or 25)
+    return {**obj, 'mentions': ms[off:off + lim], 'total': len(ms)}
 
 
 def fixture_for(path):
@@ -102,7 +125,10 @@ class H(http.server.SimpleHTTPRequestHandler):
                 p = os.path.join(FIX, name)
                 if os.path.exists(p):
                     with open(p, encoding='utf-8') as f:
-                        return self._json(json.load(f))
+                        obj = json.load(f)
+                    if path == '/api/eco-mentions':
+                        obj = filter_mentions(obj, urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
+                    return self._json(obj)
             return self._json({}, 200)
         seg = path.strip('/').split('/')[0]
         if seg in SPA_ROUTES and '.' not in seg:

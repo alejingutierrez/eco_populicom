@@ -149,7 +149,10 @@ function layoutRows(items, width, gapX, gapY) {
 }
 
 // =============================================================================
-function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
+// `limit`: cuántos términos pedir (70 por defecto; Menciones pide menos porque
+// la nube comparte fila con la serie por día).
+function TermsCloud({ filters, period, agency, onToggleTerm, selected, limit }) {
+  const cap = isFinite(limit) && limit > 0 ? Math.floor(limit) : 70;
   const [view, setView] = useState(() => {
     try { return localStorage.getItem('eco.terms.view') || 'cloud'; } catch (_) { return 'cloud'; }
   });
@@ -203,7 +206,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
   useEffect(() => {
     const ctrl = new AbortController();
     setState({ phase: 'loading', data: null, error: null });
-    const p = new URLSearchParams({ mode, limit: isMobile ? '40' : '70' });
+    const p = new URLSearchParams({ mode, limit: String(isMobile ? Math.min(40, cap) : cap) });
     if (agency) p.set('agency', agency);
     if (period) p.set('period', period);
     for (const [k, v] of Object.entries(filters || {})) {
@@ -216,7 +219,7 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected }) {
     return () => ctrl.abort();
   }, [mode, agency, period, filterKey, isMobile]);
 
-  const terms = (state.data && state.data.terms) || [];
+  const terms = useMemo(() => ((state.data && state.data.terms) || []).slice(0, isMobile ? Math.min(40, cap) : cap), [state.data, isMobile, cap]);
   const selSet = useMemo(() => new Set(selected || []), [selected]);
 
   // --- layout memoizado ----------------------------------------------------

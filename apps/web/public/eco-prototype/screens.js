@@ -1211,327 +1211,528 @@ function SortChips({ sortBy, setSortBy, hasQuery }) {
   );
 }
 
+// ============================================================
+// Menciones (oct-2026): la mezcla aprobada.
+//   filtros → franja de métricas → por día | de qué se habla → dos paneles
+//   (la lista con voz y la mención abierta, con «cómo viajó la historia») →
+//   mapa de atención → lenguaje que sube y baja | quién amplifica a quién.
+// El feed sigue viniendo de /api/eco-mentions; los análisis, de
+// /api/mentions/analysis (misma ventana y mismo universo).
+// ============================================================
+// Prefijos mn/Mn/MN_: los scripts del SPA comparten el ámbito global.
+const MN_DIA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const MN_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MN_SRC = { news: 'NOTA', blog: 'BLOG', facebook: 'FB', instagram: 'IG', linkedin: 'IN', twitter: 'X', youtube: 'YT', bluesky: 'BSKY', reddit: 'RDT', tiktok: 'TT', forum: 'FORO', otros: 'WEB' };
+const MN_SRCN = { news: 'Noticias', blog: 'Blog', facebook: 'Facebook', instagram: 'Instagram', linkedin: 'LinkedIn', twitter: 'X', youtube: 'YouTube', bluesky: 'Bluesky', reddit: 'Reddit', tiktok: 'TikTok', forum: 'Foro', otros: 'Web' };
+// Quién publica: la misma clasificación que «Quién habló» del Scorecard. La voz
+// es forma y rótulo (no color): el color en esta página es el tono.
+const MN_VOICE = {
+  agencia: { l: 'La agencia', shape: 'circle', sw: 'var(--text)' },
+  prensa: { l: 'Prensa', shape: 'square', sw: 'var(--text-2)' },
+  gobierno: { l: 'Gobierno y política', shape: 'diamond', sw: 'var(--text-3)' },
+  ciudadania: { l: 'Ciudadanía y otras cuentas', shape: 'triangle', sw: 'var(--hairline-strong)' },
+};
+const MN_VOICES = ['agencia', 'prensa', 'gobierno', 'ciudadania'];
+// Rampa secuencial de la matriz de amplificación (nombres literales: check-tokens no ve los construidos).
+const MN_SEQ = [null, 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
+const mnShortVoice = (k) => MN_VOICE[k].l.replace(' y otras cuentas', '');
+const mnNum = (n) => (n == null || Number.isNaN(Number(n)) ? '—' : Number(n).toLocaleString('es-PR'));
+// Hora de Puerto Rico (UTC-4 todo el año) desde un ISO.
+function mnPr(iso) { const d = new Date(Date.parse(iso) - 4 * 3600e3); return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; }
+function mnWhen(iso) {
+  if (!iso) return '';
+  const p = mnPr(iso);
+  return `${MN_DIA[p.dow]} ${p.d} · ${((p.h + 11) % 12) + 1}:${String(p.mi).padStart(2, '0')} ${p.h < 12 ? 'a. m.' : 'p. m.'}`;
+}
+const mnDayLab = (ymd) => { const d = new Date(Date.parse(ymd + 'T12:00:00Z')); return `${MN_DIA[d.getUTCDay()]} ${d.getUTCDate()}`; };
+const mnDateLab = (ymd) => { const d = new Date(Date.parse(ymd + 'T12:00:00Z')); return `${d.getUTCDate()} ${MN_MES[d.getUTCMonth()]}`; };
+const mnTone = (s) => (s === 'negativo' ? 'var(--neg)' : s === 'positivo' ? 'var(--pos)' : 'var(--text-3)');
+function mnShape(kind, x, y, r, props) {
+  if (kind === 'square') return <rect x={x - r} y={y - r} width={2 * r} height={2 * r} {...props} />;
+  if (kind === 'diamond') return <path d={`M${x},${y - r * 1.25}L${x + r * 1.25},${y}L${x},${y + r * 1.25}L${x - r * 1.25},${y}Z`} {...props} />;
+  if (kind === 'triangle') return <path d={`M${x},${y - r * 1.2}L${x + r * 1.15},${y + r * 0.9}L${x - r * 1.15},${y + r * 0.9}Z`} {...props} />;
+  return <circle cx={x} cy={y} r={r} {...props} />;
+}
+const MnSrc = ({ k }) => <span className="mn-src" title={MN_SRCN[k] || k}>{MN_SRC[k] || 'WEB'}</span>;
+const MnVoice = ({ k }) => (k && MN_VOICE[k] ? <span className="mn-voice"><i style={{ background: MN_VOICE[k].sw }} />{MN_VOICE[k].l}</span> : null);
+// Un MetricDisplay de @eco/shared se lee siempre igual: la palabra va grande; el
+// valor (o la explicación `.short` cuando no hay base de comparación) va debajo;
+// el tono solo cuando dice algo (banda cualitativa o sin valor).
+function mnMetric(d, note) {
+  const x = d || {};
+  const word = x.word || '—';
+  const num = x.value != null && x.value !== word ? x.value : null;
+  return { v: word, s: num ? (note ? `${num} ${note}` : num) : (x.short && x.short !== word ? x.short : ''), tint: x.band || x.value == null ? x.color : undefined };
+}
+const mnPill = (s) => (s === 'positivo' ? 'pill-pos' : s === 'negativo' ? 'pill-neg' : s === 'neutral' ? 'pill-neu' : 'pill-unknown');
+
+// ── Por día: menciones y negativas; clic filtra la lista a ese día ──
+function MnDays({ days, active, onPick }) {
+  if (!days || !days.length) return <div className="card"><div className="card-bd mn-empty">Sin datos por día.</div></div>;
+  const weekly = days.length > 62;
+  let rows = days;
+  if (weekly) { rows = []; days.forEach((d, i) => { if (i % 7 === 0) rows.push({ date: d.date, n: 0, neg: 0 }); const b = rows[rows.length - 1]; b.n += d.n; b.neg += d.neg; }); }
+  const mx = Math.max(1, ...rows.map((d) => d.n));
+  const every = rows.length <= 14 ? 1 : Math.ceil(rows.length / 10);
+  return (
+    <div className="card mn-days-card">
+      <div className="card-hd"><div><div className="card-hd-title">{weekly ? 'Por semana' : 'Por día'}</div><div className="card-hd-sub">rojo = negativas{weekly ? '' : ' · clic para ver ese día'}</div></div></div>
+      <div className="card-bd">
+        <div className="mn-days" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
+          {rows.map((d, i) => (
+            <button key={d.date} className="mn-day" aria-pressed={active === d.date} disabled={weekly}
+              onClick={() => onPick(active === d.date ? null : d.date)} title={`${weekly ? 'Semana del ' : ''}${mnDateLab(d.date)}: ${d.n} menciones, ${d.neg} negativas`}>
+              <span className="mn-day-plot"><span className="mn-day-stack">
+                {rows.length <= 31 && <span className="mn-day-n num">{d.n}</span>}
+                <span className="mn-day-bar" style={{ height: `max(2px, calc((100% - 20px) * ${(d.n / mx).toFixed(4)}))` }}><b style={{ height: `${d.n ? (d.neg / d.n) * 100 : 0}%` }} /></span>
+              </span></span>
+              <span className="mn-day-l">{i % every === 0 ? (rows.length <= 14 ? mnDayLab(d.date) : mnDateLab(d.date)) : ''}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fila de la lista (forma de D): tono, voz e interacciones ──
+function MnRow({ m, selected, onSelect, highlight }) {
+  const inter = (m.likes || 0) + (m.comments || 0) + (m.shares || 0);
+  return (
+    <button className="mn-row" aria-pressed={selected} onClick={() => onSelect(m)}>
+      <MnSrc k={m.source} />
+      <span className="mn-row-body">
+        <span className="mn-row-ti"><HL text={m.title} terms={highlight} /></span>
+        <span className="mn-row-by">{m.author || '—'} · {m.domain} · {mnWhen(m.publishedAtIso) || m.publishedAt}</span>
+        {m.summary && <span className="mn-row-su"><HL text={m.summary} terms={highlight} /></span>}
+        <span className="mn-row-mt">
+          <span className={`pill ${mnPill(m.sentiment)}`}>{m.sentiment}</span>
+          <MnVoice k={m.voice} />
+          <span className="mn-row-in num">{inter ? `${mnNum(inter)} interac.` : 'sin interacción'}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// ── Cómo viajó la historia: cada carril una voz; cada marca, una mención ──
+const MN_LANE_SHORT = { agencia: 'Agencia', prensa: 'Prensa', gobierno: 'Gobierno', ciudadania: 'Ciudadanía' };
+function MnPropagation({ m, analysis, onPick }) {
+  const [ref, cw] = useChartWidth(560);
+  let body = null;
+  if (!analysis) body = null;
+  else if (analysis.window && analysis.window.limited) body = <div className="mn-note">Cómo viajó la historia se calcula en periodos de hasta {analysis.window.maxDays} días.</div>;
+  else {
+    const byId = analysis._byId || {};
+    const story = analysis._storyOf && analysis._storyOf[m.id];
+    const g = story ? story.map((id) => byId[id]).filter(Boolean).sort((a, b) => (a.ts < b.ts ? -1 : 1)) : [];
+    if (g.length < 2) body = <><div className="mn-over">Cómo viajó esta historia</div><div className="mn-note">Esta mención no se repitió en otros canales ni cuentas.</div></>;
+    else {
+      const lanes = MN_VOICES.filter((k) => g.some((x) => x.voice === k));
+      const W = Math.max(300, Math.floor(cw)), narrow = W < 460;
+      const L = narrow ? 88 : 140, R = 16, T = 18, LH = 34, H = T + lanes.length * LH + 24;
+      const t0 = Date.parse(g[0].ts), t1 = Math.max(t0 + 3600e3, Date.parse(g[g.length - 1].ts));
+      const x0 = (ts) => L + 14 + ((Date.parse(ts) - t0) / (t1 - t0)) * (W - L - R - 14);
+      // Menciones casi a la misma hora en el mismo carril se separan para que se vean todas.
+      const xs = {}; const last = {};
+      g.forEach((v) => { let xv = x0(v.ts); if (last[v.voice] != null && xv - last[v.voice] < 14) xv = last[v.voice] + 14; last[v.voice] = xv; xs[v.id] = Math.min(xv, W - R); });
+      const maxI = Math.max(1, ...g.map((v) => v.inter));
+      const total = g.reduce((acc, v) => acc + v.inter, 0);
+      const spanH = (Date.parse(g[g.length - 1].ts) - t0) / 3600e3;
+      const spanLab = spanH < 1 ? 'en menos de una hora' : spanH < 48 ? `en ${Math.round(spanH)} h` : `en ${Math.round(spanH / 24)} días`;
+      // La hora final solo si cabe y dice algo (con todo en la misma hora se encimaba con la inicial).
+      const showEnd = !narrow && spanH >= 1;
+      body = (
+        <>
+          <div className="mn-over">Cómo viajó esta historia · {g.length} menciones {spanLab} · {mnNum(total)} interacciones</div>
+          <svg width={W} height={H} className="mn-svg" role="img" aria-label="Cómo viajó la historia por voces y en el tiempo" style={{ display: 'block' }}>
+            {lanes.map((k, i) => { const y = T + i * LH + LH / 2; return <g key={k}><line x1={L} x2={W - R} y1={y} y2={y} style={{ stroke: 'var(--hairline)' }} /><text x={L - 8} y={y + 4} textAnchor="end" className="mn-sans">{narrow ? MN_LANE_SHORT[k] : mnShortVoice(k)}</text></g>; })}
+            {g.map((v, j) => {
+              const y = T + lanes.indexOf(v.voice) * LH + LH / 2, r = 4 + Math.sqrt(v.inter / maxI) * 9, sel = v.id === m.id;
+              return (
+                <g key={v.id} className="mn-pt" onClick={() => onPick(v.id)} role="button" tabIndex={0} aria-label={`${mnShortVoice(v.voice)} · ${mnWhen(v.ts)}`} onKeyDown={(e) => { if (e.key === 'Enter') onPick(v.id); }}>
+                  <circle cx={xs[v.id]} cy={y} r={r} style={{ fill: mnTone(v.sent), stroke: sel ? 'var(--text)' : 'var(--canvas)' }} fillOpacity="0.85" strokeWidth={sel ? 2.5 : 1.5} />
+                  {j === 0 && <text x={xs[v.id]} y={y - r - 4} textAnchor="middle" className="mn-strong">origen</text>}
+                  <title>{`${MN_SRCN[v.src] || v.src} · ${v.author} · ${mnWhen(v.ts)} · ${v.inter} interacciones`}</title>
+                </g>
+              );
+            })}
+            <text x={L} y={H - 6}>{mnWhen(g[0].ts)}</text>
+            {showEnd && <text x={W - R} y={H - 6} textAnchor="end">{mnWhen(g[g.length - 1].ts)}</text>}
+          </svg>
+          <div className="mn-note">Tamaño = interacciones de cada mención · color = tono · clic en una marca para leerla.</div>
+        </>
+      );
+    }
+  }
+  return <div ref={ref} className="mn-prop">{body}</div>;
+}
+
+// ── La mención abierta (panel derecho) ──
+function MnDetail({ m, analysis, onPick, onOpenDrawer, highlight }) {
+  if (!m) return <div className="card mn-detail"><div className="card-bd mn-empty">Elige una mención de la lista.</div></div>;
+  const kv = [['likes', m.likes], ['comentarios', m.comments], ['compartidos', m.shares], ['alcance', m.reach]];
+  return (
+    <div className="card mn-detail">
+      <div className="card-bd">
+        <div className="mn-detail-meta"><MnSrc k={m.source} /><span>{m.author || '—'} · {m.domain}</span><span>{mnWhen(m.publishedAtIso) || m.publishedAt}</span><span className={`pill ${mnPill(m.sentiment)}`}>{m.sentiment}</span><MnVoice k={m.voice} /></div>
+        <h3 className="mn-detail-ti"><HL text={m.title} terms={highlight} /></h3>
+        {m.summary && <><div className="mn-over">Resumen</div><div className="mn-detail-box">{m.summary}</div></>}
+        {m.snippet && m.snippet !== m.title && <p className="mn-detail-tx"><HL text={m.snippet} terms={highlight} /></p>}
+        <div className="mn-kv">{kv.map(([l, v]) => <div key={l}><b className="num">{v ? mnNum(v) : l === 'alcance' ? '—' : '0'}</b><span>{l}</span></div>)}</div>
+        <div className="mn-detail-meta" style={{ marginTop: 'var(--sp-3)' }}>
+          {m.topicName && <span>Tópico: <b>{m.topicName}</b></span>}
+          {m.municipality && <span>Municipio: <b>{m.municipality}</b></span>}
+          {m.emotions && m.emotions.length > 0 && <span>Emociones: {m.emotions.slice(0, 3).join(', ')}</span>}
+        </div>
+        <div className="mn-detail-act">
+          {m.url && <a className="link" href={m.url} target="_blank" rel="noopener noreferrer">Abrir original</a>}
+          <button className="link" onClick={() => onOpenDrawer(m)}>Menciones parecidas</button>
+        </div>
+        <MnPropagation m={m} analysis={analysis} onPick={onPick} />
+      </div>
+    </div>
+  );
+}
+
+// ── Mapa de atención: cada mención por cuándo salió y cuánta interacción tuvo ──
+function MnAttention({ analysis, selectedId, onPick }) {
+  const [ref, cw] = useChartWidth(1000);
+  const pts = analysis && analysis.points;
+  if (!pts) return null;
+  const W = Math.max(720, Math.floor(cw)), H = 320, L = 48, R = 16, T = 16, B = 32;
+  const a = Date.parse(analysis.window.from + 'T04:00:00Z'), b = Date.parse(analysis.window.to + 'T04:00:00Z') + 864e5;
+  const x = (ts) => L + ((Date.parse(ts) - a) / (b - a)) * (W - L - R);
+  const ZB = H - B - 26;
+  const maxI = Math.max(10, ...pts.map((p) => p.inter)), lmax = Math.log10(maxI + 1);
+  const y = (i) => ZB - 6 - (Math.log10(i + 1) / lmax) * (ZB - 6 - T);
+  const ticks = [1, 10, 100, 1000, 10000].filter((v) => v <= maxI * 1.2);
+  const days = analysis.days || [];
+  const every = days.length <= 14 ? 1 : Math.ceil(days.length / 10);
+  let seed = 7; const jit = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280 - 0.5; };
+  const zeroY = {}; pts.forEach((p) => { if (!p.inter) zeroY[p.id] = ZB + 13 + jit() * 14; });
+  const top = [...pts].filter((p) => p.inter > 0).sort((p, q) => q.inter - p.inter).slice(0, 5);
+  const placed = [];
+  const zero = pts.filter((p) => !p.inter).length;
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Mapa de atención</div><div className="card-hd-sub">cada mención según cuándo salió y cuánta interacción tuvo · {mnNum(zero)} sin interacción · clic para leerla</div></div></div>
+      <div className="card-bd">
+        <div ref={ref} className="scroll-x">
+          <svg width={W} height={H} className="mn-svg" role="img" aria-label="Mapa de atención" style={{ display: 'block' }}>
+            {ticks.map((v) => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} style={{ stroke: 'var(--hairline)' }} /><text x={L - 6} y={y(v) + 4} textAnchor="end">{mnNum(v)}</text></g>)}
+            <rect x={L} y={ZB} width={W - L - R} height={26} style={{ fill: 'var(--canvas-2)' }} />
+            <text x={L - 6} y={ZB + 17} textAnchor="end">0</text>
+            {days.map((d, i) => { const xx = x(d.date + 'T04:00:00Z'); return <g key={d.date}><line x1={xx} x2={xx} y1={T} y2={H - B} style={{ stroke: 'var(--hairline)' }} />{i % every === 0 && <text x={xx + 4} y={H - 10}>{days.length <= 14 ? mnDayLab(d.date) : mnDateLab(d.date)}</text>}</g>; })}
+            {pts.map((p) => {
+              const sel = p.id === selectedId;
+              return (
+                <g key={p.id} className="mn-pt" onClick={() => onPick(p.id)}>
+                  {mnShape(MN_VOICE[p.voice].shape, x(p.ts), p.inter ? y(p.inter) : zeroY[p.id], sel ? 6 : 4.5, { style: { fill: mnTone(p.sent), stroke: sel ? 'var(--text)' : 'var(--canvas)' }, fillOpacity: p.inter ? 0.9 : 0.55, strokeWidth: sel ? 2 : 1 })}
+                  <title>{`${p.title.slice(0, 90)} · ${p.author} · ${mnWhen(p.ts)} · ${p.inter} interacciones`}</title>
+                </g>
+              );
+            })}
+            {top.map((p) => {
+              const xx = x(p.ts), yy = y(p.inter), lab = Array.from(p.title.replace(/\s+/g, ' ')).slice(0, 34).join('') + '…', w = lab.length * 6.6, right = xx + 10 + w < W - R;
+              const x1 = right ? xx + 8 : xx - 8 - w, x2 = x1 + w;
+              let ly = yy - 8; while (ly > T + 10 && placed.some((q) => Math.abs(q.y - ly) < 15 && x1 < q.x2 + 8 && q.x1 < x2 + 8)) ly -= 15; placed.push({ x1, x2, y: ly });
+              return <text key={'l' + p.id} x={right ? xx + 8 : xx - 8} y={ly} textAnchor={right ? 'start' : 'end'} className="mn-sans mn-lab">{lab}</text>;
+            })}
+          </svg>
+        </div>
+        <div className="mn-legend">
+          {MN_VOICES.map((k) => <span key={k}><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true">{mnShape(MN_VOICE[k].shape, 0, 0, 5, { style: { fill: 'var(--text-2)' } })}</svg>{MN_VOICE[k].l}</span>)}
+          <span><span className="dot" style={{ background: 'var(--neg)' }} />negativa</span>
+          <span><span className="dot" style={{ background: 'var(--pos)' }} />positiva</span>
+          <span><span className="dot" style={{ background: 'var(--text-3)' }} />neutral</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Lenguaje que sube y baja ──
+function MnLanguage({ shift, selected, onTerm }) {
+  if (!shift) return null;
+  const mx = Math.max(1, ...shift.up.map((r) => r.delta), ...shift.down.map((r) => -r.delta));
+  const col = (rows, up) => rows.map((r) => (
+    <button key={r.term} className="mn-ls-row" aria-pressed={selected.includes(r.term)} onClick={() => onTerm(r.term)} title={`${r.prev} → ${r.now} menciones`}>
+      <span className="mn-ls-t" style={{ color: r.now && r.neg / r.now > 0.5 ? 'var(--neg)' : undefined }}>{r.term}{r.isNew && <span className="mn-ls-new"> · nueva</span>}</span>
+      <span className="num mn-ls-n">{r.prev} → <b>{r.now}</b></span>
+      <span className="mn-ls-bar"><b style={{ width: `${(Math.abs(r.delta) / mx) * 100}%`, background: up ? 'var(--text-2)' : 'var(--hairline-strong)' }} /></span>
+    </button>
+  ));
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Lenguaje que sube y baja</div><div className="card-hd-sub">menciones que usan cada palabra · {mnNum(shift.nPrev)} en el periodo previo, {mnNum(shift.nNow)} en este</div></div></div>
+      <div className="card-bd">
+        {shift.up.length + shift.down.length === 0 ? <div className="mn-empty">Sin cambios de lenguaje con base suficiente.</div> : (
+          <div className="mn-ls">
+            <div><div className="mn-over">Suben</div>{col(shift.up, true)}</div>
+            <div><div className="mn-over">Bajan</div>{col(shift.down, false)}</div>
+          </div>
+        )}
+        <div className="mn-note">Compara por cada 100 menciones de cada periodo · rojo = la mayoría de esas menciones fueron negativas · clic para filtrar la lista.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Quién amplifica a quién ──
+function MnAmplify({ amplify }) {
+  if (!amplify) return null;
+  const rows = MN_VOICES.filter((o) => amplify.origins[o] > 0);
+  const mx = Math.max(1, ...rows.flatMap((o) => MN_VOICES.map((a) => amplify.cells[o][a].n)));
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Quién amplifica a quién</div><div className="card-hd-sub">filas = quién la publicó primero · columnas = quién la repitió</div></div></div>
+      <div className="card-bd scroll-x">
+        {rows.length === 0 ? <div className="mn-empty">Ninguna historia se repitió en el periodo.</div> : (
+          <table className="mn-amp">
+            <thead><tr><th />{MN_VOICES.map((a) => <th key={a} scope="col">{mnShortVoice(a)}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((o) => (
+                <tr key={o}>
+                  <th scope="row">{mnShortVoice(o)}<span>{amplify.origins[o]} {amplify.origins[o] === 1 ? 'historia' : 'historias'}</span></th>
+                  {MN_VOICES.map((a) => {
+                    const c = amplify.cells[o][a], k = c.n ? Math.min(5, 1 + Math.floor((c.n / mx) * 5)) : 0;
+                    return <td key={a} style={k ? { background: MN_SEQ[k], color: k >= 4 ? 'var(--canvas)' : 'var(--text)' } : undefined} title={`${c.n} repeticiones en ${c.stories} historias · ${c.inter} interacciones`}>{c.n ? <>{mnNum(c.n)}<small>{mnNum(c.inter)} interac.</small></> : ''}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="mn-note">Solo historias que aparecieron más de una vez · cada celda: repeticiones y sus interacciones.</div>
+      </div>
+    </div>
+  );
+}
+
 function MentionsScreen({ onMentionClick }) {
-  // Estado de filtros (server-side). `q` se sincroniza con `queryInput` con
-  // debounce de 300ms para evitar un fetch por cada tecla.
   const [queryInput, setQueryInput] = useState('');
-  const [filters, setFilters] = useState({
-    q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent',
-  });
-  // Términos seleccionados en la nube. Se envían a /api/eco-mentions dentro de
-  // `q` porque el API ya hace AND entre tokens con tope de 8
-  // (eco-mentions/route.ts:226-236) — no se inventa un parámetro nuevo ni un
-  // conmutador AND/OR que el backend no soporta.
+  const [filters, setFilters] = useState({ q: '', sentiment: 'all', source: 'all', topic: '', region: '', sortBy: 'recent' });
+  // Términos de la nube y del lenguaje: van dentro de `q` (el API hace AND entre tokens, tope 8).
   const [terms, setTerms] = useState([]);
   const toggleTerm = React.useCallback((t) => {
-    setTerms((prev) => {
-      if (prev.includes(t)) return prev.filter((x) => x !== t);
-      if (prev.length >= 8) return prev; // el API topa en 8
-      return [...prev, t];
-    });
+    setTerms((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : prev.length >= 8 ? prev : [...prev, t]));
     setPage(1);
   }, []);
+  const [day, setDay] = useState(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState({ mentions: [], total: 0 });
   const [loading, setLoading] = useState(false);
-  const [viralCount, setViralCount] = useState(null); // null = loading
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('eco.viewMode') || 'list');
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [slice, setSlice] = useState(null);
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [viralCount, setViralCount] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [slice, setSlice] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const panelsRef = React.useRef(null);
+  const detailRef = React.useRef(null);
+  const agencyKey = localStorage.getItem('eco.agency') || '';
 
-  React.useEffect(() => { localStorage.setItem('eco.viewMode', viewMode); }, [viewMode]);
-
-  // Debounce del buscador → filters.q
   React.useEffect(() => {
-    const id = setTimeout(() => {
-      setFilters((f) => f.q === queryInput ? f : { ...f, q: queryInput });
-      setPage(1);
-    }, 300);
+    const id = setTimeout(() => { setFilters((f) => (f.q === queryInput ? f : { ...f, q: queryInput })); setPage(1); }, 300);
     return () => clearTimeout(id);
   }, [queryInput]);
+  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy, day]);
 
-  // Cuando cambian los filtros (no la página), reset a página 1.
-  // Cuando cambia la página, no reseteamos filtros.
-  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy]);
+  const baseParams = () => {
+    const p = new URLSearchParams(window.ecoGetPeriodParams());
+    if (agencyKey) p.set('agency', agencyKey);
+    return p;
+  };
 
-  // Fetch del feed con filtros + paginación.
+  // Feed (server-side, paginado).
   React.useEffect(() => {
     const ctrl = new AbortController();
-    setLoading(true);
-    setError(false);
-    const agency = localStorage.getItem('eco.agency') || '';
-    // ecoGetPeriodParams respeta el rango personalizado (eco.from/to); leer
-    // eco.period a mano lo ignoraba y /mentions mostraba 30 días rolantes.
-    const params = new URLSearchParams({
-      ...window.ecoGetPeriodParams(),
-      limit: String(PAGE_SIZE),
-      offset: String((page - 1) * PAGE_SIZE),
-    });
-    if (agency) params.set('agency', agency);
-    // La q efectiva combina el buscador y los términos de la nube: un solo
-    // parámetro, un solo predicado, así la lista y la nube nunca discrepan.
+    setLoading(true); setError(false);
+    const params = baseParams();
+    params.set('limit', String(PAGE_SIZE)); params.set('offset', String((page - 1) * PAGE_SIZE));
     const qEff = [filters.q, ...terms].filter(Boolean).join(' ').trim();
     if (qEff) params.set('q', qEff);
     if (filters.sentiment !== 'all') params.set('sentiment', filters.sentiment);
     if (filters.source !== 'all') params.set('source', filters.source);
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
+    if (day) params.set('day', day);
     const sort = resolveSort(filters.sortBy, !!qEff);
     if (sort !== 'recent') params.set('sortBy', sort);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
-      .catch((e) => {
-        if (e && e.name === 'AbortError') return;
-        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
-        setError(true); // un fallo real ya no se confunde con "sin resultados"
-      })
+      .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } setError(true); })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [filters, terms, page, reloadKey]);
+  }, [filters, terms, day, page, reloadKey]);
 
-  // Conteo de "Virales": una consulta separada con limit=1 (solo nos
-  // interesa `total`). Se recalcula cuando cambia el período/agency, pero
-  // NO cuando cambian filtros de búsqueda — virales es un agregado global.
+  // Análisis del periodo (no depende de los filtros de la lista).
   React.useEffect(() => {
     const ctrl = new AbortController();
-    const agency = localStorage.getItem('eco.agency') || '';
-    // Ventana cerrada explícita (from/to) en vez del `period` rolling: así el
-    // conteo de la card y el total del slice modal (que también manda from/to)
-    // cuentan exactamente lo mismo.
+    setAnalysis(null);
+    ecoFetchAuthed('/api/mentions/analysis?' + baseParams().toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((j) => {
+        const byId = {}; (j.points || []).forEach((p) => { byId[p.id] = p; });
+        const storyOf = {}; (j.stories || []).forEach((g) => g.forEach((id) => { storyOf[id] = g; }));
+        setAnalysis({ ...j, _byId: byId, _storyOf: storyOf });
+      })
+      .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } setAnalysis({ error: true }); });
+    return () => ctrl.abort();
+  }, [agencyKey]);
+
+  // Virales: agregado global del periodo (no reacciona a los filtros).
+  React.useEffect(() => {
+    const ctrl = new AbortController();
     const vw = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
-    const params = new URLSearchParams({
-      ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()),
-      limit: '1', minEngagement: String(VIRAL_THRESHOLD),
-    });
-    if (agency) params.set('agency', agency);
+    const params = new URLSearchParams({ ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()), limit: '1', minEngagement: String(VIRAL_THRESHOLD) });
+    if (agencyKey) params.set('agency', agencyKey);
     setViralCount(null);
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : { total: 0 })
-      .then((j) => setViralCount(Number(j.total || 0)))
-      .catch(() => setViralCount(0));
+      .then((r) => (r.ok ? r.json() : { total: 0 })).then((j) => setViralCount(Number(j.total || 0))).catch(() => setViralCount(0));
     return () => ctrl.abort();
   }, []);
+
+  // La mención abierta: la primera de la lista, salvo que el usuario haya elegido otra.
+  React.useEffect(() => {
+    if (!data.mentions.length) return;
+    if (!selected || (!selected._pinned && !data.mentions.some((m) => m.id === selected.id))) setSelected(data.mentions[0]);
+  }, [data]);
+
+  const selectRow = (m) => {
+    setSelected(m);
+    if (window.ecoIsMobile() && detailRef.current) detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  // Abre una mención por id (desde el mapa o la propagación): si no está en la página, se pide.
+  const pickById = (id) => {
+    const here = data.mentions.find((m) => m.id === id);
+    const done = (m) => { if (!m) return; setSelected({ ...m, _pinned: true }); if (panelsRef.current) panelsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    if (here) return done(here);
+    const params = baseParams(); params.set('id', id); params.set('limit', '1');
+    ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((j) => done((j.mentions || [])[0])).catch(() => {});
+  };
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
-
-  const activeMoreFiltersCount = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
+  const activeMore = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
   const searchTerms = [...(filters.q ? filters.q.trim().split(/\s+/) : []), ...terms].filter((t) => t.length >= 2);
-
-  function openViralSlice() {
-    setSlice({
-      eyebrow: 'Menciones virales',
-      title: 'Engagement ' + VIRAL_THRESHOLD_LABEL,
-      // Sin `accent`: hereda el naranja de drill-down de los demás slice modals.
-      // Mismo motivo que la tarjeta: cruzar el umbral de engagement no tiene signo,
-      // y la franja roja daba el corte por negativo antes de leer una sola mención.
-      _filter: { minEngagement: String(VIRAL_THRESHOLD) },
-    });
-  }
-  const MentionsSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
+  const MSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
+  const cm = D.CURRENT_METRICS || {};
+  const disp = cm.display || {};
+  const metrics = [
+    { k: 'Menciones', v: window.ecoFmtCount(cm.totalMentions), s: 'periodo · cierre de ayer' },
+    { k: 'Alcance', v: fmt(cm.totalReach), s: '' },
+    { k: 'Engagement rate', ...mnMetric(disp.engagementRate) },
+    { k: 'Velocidad', ...mnMetric(disp.velocity, 'vs periodo ant.') },
+  ];
+  const limited = analysis && analysis.window && analysis.window.limited;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      {/* Filter bar */}
+      {/* Filtros */}
       <div className="card" style={{ padding: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
           <Icons.Search size={14} color="var(--text-3)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-          <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} />
+          <input className="input" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder="Buscar en menciones…" style={{ paddingLeft: 34 }} aria-label="Buscar en menciones" />
         </div>
         <div className="toggle-group">
-          {/* Los tres VALORES de sentimiento llevan punto de color; 'Todas' no, porque
-              no es un valor sino la ausencia de filtro. El neutral usa --neu, el mismo
-              token con el que ya se pintan la barra apilada y la leyenda 'Neutral' del
-              resto del producto: era el único valor del grupo sin marca, así que se
-              leía como 'sin color = sin dato' en el chip que sí filtra. */}
           {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral', tone: 'neu' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
             <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
             </button>
           ))}
         </div>
-        <div style={{ width: 1, height: 24, background: 'var(--hairline)' }} />
         <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
         <div style={{ position: 'relative' }}>
-          <button className="btn" onClick={() => setMoreOpen((v) => !v)}>
-            <Icons.Filter size={13} /> Más filtros {activeMoreFiltersCount > 0 && <span style={{ color: 'var(--accent)', fontSize: 'var(--fs-overline)' }}>·{activeMoreFiltersCount}</span>}
-          </button>
+          <button className="btn" onClick={() => setMoreOpen((v) => !v)}><Icons.Filter size={13} /> Más filtros {activeMore > 0 && <span className="num">·{activeMore}</span>}</button>
           {moreOpen && (
-            <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 80, padding: 'var(--sp-3)', minWidth: 260, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.4)' }}>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Tópico</div>
-              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
+            <div className="card mn-more">
+              <div className="mn-over">Tópico</div>
+              <select className="input" value={filters.topic} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value }))}>
                 <option value="">Todos los tópicos</option>
                 {topicsList.map((t) => <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>)}
               </select>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Región</div>
-              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))} style={{ width: '100%', marginBottom: 'var(--sp-3)' }}>
+              <div className="mn-over">Región</div>
+              <select className="input" value={filters.region} onChange={(e) => setFilters((f) => ({ ...f, region: e.target.value }))}>
                 <option value="">Todas las regiones</option>
                 {regions.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
-              <div style={{ fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', marginBottom: 'var(--sp-15)' }}>Ordenar por</div>
+              <div className="mn-over">Ordenar por</div>
               <div className="toggle-group">
                 {SORT_OPTIONS.map((o) => {
                   const disabled = o.needsQuery && !filters.q;
-                  const effective = resolveSort(filters.sortBy, !!filters.q);
                   return (
-                    <button key={o.k} className={`chip ${effective === o.k ? 'active' : ''}`}
-                      onClick={() => { if (!disabled) setFilters((f) => ({ ...f, sortBy: o.k })); }} disabled={disabled}
-                      style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-                      title={disabled ? 'Requiere un término de búsqueda' : undefined}>
-                      {o.l}
-                    </button>
+                    <button key={o.k} className={`chip ${resolveSort(filters.sortBy, !!filters.q) === o.k ? 'active' : ''}`} onClick={() => { if (!disabled) setFilters((f) => ({ ...f, sortBy: o.k })); }} disabled={disabled} title={disabled ? 'Requiere un término de búsqueda' : undefined}>{o.l}</button>
                   );
                 })}
               </div>
-              {activeMoreFiltersCount > 0 && (
-                <button className="chip" style={{ marginTop: 'var(--sp-3)' }} onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>
-                  Limpiar filtros
-                </button>
-              )}
+              {activeMore > 0 && <button className="chip" onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>Limpiar filtros</button>}
             </div>
           )}
         </div>
+        {day && <button className="chip active" onClick={() => setDay(null)} title="Quitar el filtro de día">{mnDayLab(day)} ✕</button>}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
-          {/* El feed es EN VIVO (ventana rolling que incluye hoy) — a
-              diferencia de los agregados, que cierran en ayer. El rótulo lo
-              hace explícito para que los dos totales de esta pantalla no
-              parezcan contradictorios (auditoría 2026-08, P0-10). */}
-          {loading ? 'Cargando…' : `${window.ecoFmtCount(data.total)} menciones · en vivo (incluye hoy)`}
-        </span>
+        <span className="mn-count">{loading ? 'Cargando…' : `${window.ecoFmtCount(data.total)} menciones · en vivo (incluye hoy)`}</span>
       </div>
 
-      {/* Quick metrics — 5 cards. "Velocidad" = cambio % del engagement vs el
-          período anterior, con palabra (Acelerada/Estable/Desacelerada). */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(5, 1fr)', 'repeat(2, 1fr)', 'repeat(3, 1fr)'), gap: 12 }}>
-        {/* Exacto, no '1.3K': es el mismo número que el contador de la barra de
-            filtros y el subtítulo de la lista imprimen a 40px y 200px de aquí. */}
-        <QuickMetric label="Total" value={window.ecoFmtCount(D.CURRENT_METRICS.totalMentions)} sub="período · cierre de ayer" />
-        <QuickMetric label="Alcance" value={fmt(D.CURRENT_METRICS.totalReach)} />
-        <MetricQuick label="Engagement rate" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.engagementRate} />
-        <MetricQuick label="Velocidad" display={D.CURRENT_METRICS.display && D.CURRENT_METRICS.display.velocity} note="vs período ant." />
-        {/* Sin `tone`: la cifra va en --text. 'Viral' es una MAGNITUD sin polaridad
-            —el umbral es minEngagement, sin filtro de sentiment—, así que el rojo
-            afirmaba un juicio que el dato no sostiene, y lo hacía en la tarjeta que
-            menos decide de la fila mientras Total y Alcance van en blanco. La
-            afordancia de click ya la pone el chevron del encabezado. */}
-        <QuickMetric
-          label={`Virales (${VIRAL_THRESHOLD_LABEL})`}
-          value={viralCount == null ? '…' : fmt(viralCount)}
-          onClick={viralCount != null && viralCount > 0 ? openViralSlice : null}
-        />
+      {/* Franja de métricas */}
+      <div className="mn-kstrip">
+        {metrics.map((x) => <div key={x.k}><div className="mn-k">{x.k}</div><div className="mn-v num" style={x.tint ? { color: x.tint } : undefined}>{x.v}</div>{x.s && <div className="mn-s">{x.s}</div>}</div>)}
+        <button onClick={viralCount ? () => setSlice({ eyebrow: 'Menciones virales', title: 'Engagement ' + VIRAL_THRESHOLD_LABEL, _filter: { minEngagement: String(VIRAL_THRESHOLD) } }) : undefined} disabled={!viralCount} title={viralCount ? 'Ver las menciones virales' : undefined}>
+          <div className="mn-k">Virales</div><div className="mn-v num">{viralCount == null ? '…' : fmt(viralCount)}</div><div className="mn-s">{VIRAL_THRESHOLD_LABEL} de engagement</div>
+        </button>
       </div>
 
-      {/* Nube de palabras: va entre el resumen y la lista porque su función es
-          ORIENTAR antes de leer ("¿de qué se habla?") y su click filtra la lista
-          que está justo debajo. */}
-      {window.ECO_TERMS && (
-        <window.ECO_TERMS.TermsCloud
-          filters={{
-            sentiment: filters.sentiment, source: filters.source,
-            topic: filters.topic, q: filters.q,
-          }}
-          period={localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD}
-          agency={localStorage.getItem('eco.agency') || ''}
-          selected={terms}
-          onToggleTerm={toggleTerm}
-        />
-      )}
+      {/* Por día | De qué se habla */}
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1fr) minmax(0, 1.4fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'stretch' }}>
+        {analysis && !analysis.error ? <MnDays days={analysis.days} active={day} onPick={setDay} /> : <div className="card"><div className="card-bd mn-empty">{analysis && analysis.error ? 'No se pudo cargar la serie por día.' : 'Cargando…'}</div></div>}
+        {window.ECO_TERMS && (
+          <window.ECO_TERMS.TermsCloud
+            filters={{ sentiment: filters.sentiment, source: filters.source, topic: filters.topic, q: filters.q }}
+            period={localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD}
+            agency={agencyKey} selected={terms} onToggleTerm={toggleTerm} limit={40} />
+        )}
+      </div>
 
-      {/* Mentions table */}
-      <div className="card">
-        <div className="card-hd">
-          <div>
-            <div className="card-hd-title">Menciones</div>
-            <div className="card-hd-sub">
-              {loading ? 'Cargando…' : error ? 'Error de conexión' : (
-                data.total === 0
-                  ? 'Sin resultados'
-                  : `Página ${page} de ${totalPages} · ${window.ecoFmtCount(data.total)} en total`
-              )}
+      {/* Dos paneles */}
+      <div ref={panelsRef} className="mn-two">
+        <div className="card">
+          <div className="card-hd"><div><div className="card-hd-title">Menciones</div><div className="card-hd-sub">{loading ? 'Cargando…' : error ? 'Error de conexión' : data.total === 0 ? 'Sin resultados' : `Página ${page} de ${totalPages} · ${window.ecoFmtCount(data.total)} en total`}</div></div></div>
+          {!loading && error && <div className="mn-empty" style={{ color: 'var(--neg)' }}>No se pudieron cargar las menciones. <button className="chip" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button></div>}
+          {!loading && !error && data.mentions.length === 0 && <div className="mn-empty">No se encontraron menciones con los filtros actuales.</div>}
+          {!error && data.mentions.length > 0 && (
+            <div className="mn-list">
+              {data.mentions.map((m) => <MnRow key={m.id} m={m} selected={!!selected && selected.id === m.id} onSelect={selectRow} highlight={searchTerms} />)}
             </div>
-          </div>
-          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          )}
+          {!error && data.total > PAGE_SIZE && <div className="mn-pager"><Pagination page={page} totalPages={totalPages} onChange={setPage} /></div>}
         </div>
-        {!loading && error && (
-          <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--neg)', fontSize: 'var(--fs-body-sm)' }}>
-            No se pudieron cargar las menciones.
-            <button className="chip" style={{ marginLeft: 8 }} onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button>
-          </div>
-        )}
-        {!loading && !error && data.mentions.length === 0 && (
-          <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
-            No se encontraron menciones con los filtros actuales.
-          </div>
-        )}
-        {!error && viewMode === 'list' && <MentionsList mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {!error && viewMode === 'cards' && <MentionsCards mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {!error && viewMode === 'table' && <MentionsTable mentions={data.mentions} onMentionClick={onMentionClick} highlight={searchTerms} />}
-        {!error && data.total > PAGE_SIZE && (
-          <div style={{ padding: '14px 16px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'center' }}>
-            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
-          </div>
-        )}
+        <div ref={detailRef} className="mn-detail-wrap">
+          <MnDetail m={selected} analysis={analysis && !analysis.error ? analysis : null} onPick={pickById} onOpenDrawer={onMentionClick} highlight={searchTerms} />
+        </div>
       </div>
-      {slice && MentionsSliceModal && (
-        <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />
+
+      {/* Análisis del periodo */}
+      {analysis && !analysis.error && limited && (
+        <div className="card"><div className="card-bd mn-empty">El mapa de atención, el lenguaje y quién amplifica a quién se calculan en periodos de hasta {analysis.window.maxDays} días. Elige 7D o 30D para verlos.</div></div>
       )}
+      {analysis && !analysis.error && !limited && (
+        <>
+          <MnAttention analysis={analysis} selectedId={selected && selected.id} onPick={pickById} />
+          <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+            <MnLanguage shift={analysis.shift} selected={terms} onTerm={toggleTerm} />
+            <MnAmplify amplify={analysis.amplify} />
+          </div>
+        </>
+      )}
+      {analysis && analysis.error && <div className="card"><div className="card-bd"><EmptyState reason="error" compact title="No se pudieron cargar los análisis del periodo" detail="Recarga la página en unos segundos." /></div></div>}
+
+      {slice && MSliceModal && <MSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>
   );
-}
-
-function QuickMetric({ label, value, sub, tone, valueColor, onClick }) {
-  const color = valueColor || (tone === 'neg' ? 'var(--neg)' : tone === 'warn' ? 'var(--warn)' : 'var(--text)');
-  const baseStyle = {
-    padding: 'var(--sp-4)',
-    cursor: onClick ? 'pointer' : 'default',
-    transition: 'background 0.15s ease',
-  };
-  return (
-    <div
-      className="card"
-      style={baseStyle}
-      onClick={onClick || undefined}
-      onMouseEnter={onClick ? (e) => (e.currentTarget.style.background = 'var(--canvas-2)') : undefined}
-      onMouseLeave={onClick ? (e) => (e.currentTarget.style.background = '') : undefined}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-2)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>
-        {label}
-        {onClick && <Icons.ChevronRight size={10} color="var(--text-3)" style={{ marginLeft: 'auto' }} />}
-      </div>
-      <div className="num" style={{ fontSize: 'var(--fs-num-xl)', fontWeight: 600, color, marginTop: 'var(--sp-2)', fontFamily: 'var(--ff-display)' }}>{value}</div>
-      {sub && <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600, marginTop: 'var(--sp-05)' }}>{sub}</div>}
-    </div>
-  );
-}
-
-// Un MetricDisplay de @eco/shared (word/value/short/band/color) se pinta SIEMPRE
-// por aquí. Antes cada KPI lo desarmaba a su manera: 'Engagement rate' tomaba
-// sólo `.word` y 'Velocidad' concatenaba `.value + ' vs período ant.'` a mano,
-// así que el caso sin período de comparación (value === null) se quedaba sin la
-// explicación que el módulo ya trae en `.short` ('Sin base de comparación') y la
-// card mostraba un 'Sin base' huérfano. El signo y la unidad los pone el
-// formateador; el sitio de llamada sólo aporta la nota de comparación.
-function MetricQuick({ label, display, note, onClick }) {
-  const d = display || {};
-  const word = d.word || '—';
-  // `.value` va al sub sólo si aporta algo: para las métricas de % puro el
-  // formateador devuelve word === value ('3.4%') y repetirlo sería ruido.
-  const num = d.value != null && d.value !== word ? d.value : null;
-  const sub = num ? (note ? `${num} ${note}` : num)
-                  : (d.short && d.short !== word ? d.short : '');
-  // El color del tono sólo cuando dice algo: con banda (juicio cualitativo) o
-  // sin valor (—/sin base, que va atenuado). Las métricas de % puro son tono
-  // 'neutral' → --text-3, y bajar una cifra protagonista a --text-3 la lleva de
-  // 15.3:1 a 5.0:1 sin significar nada.
-  const tint = (d.band || d.value == null) ? d.color : undefined;
-  return <QuickMetric label={label} value={word} sub={sub} valueColor={tint} onClick={onClick} />;
 }
 
 function Pagination({ page, totalPages, onChange }) {

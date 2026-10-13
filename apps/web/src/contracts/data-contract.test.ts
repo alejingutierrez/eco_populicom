@@ -153,6 +153,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // y las voces previas, todo sobre el universo pertinente (V5: un solo
     // universo para índices y conteos, como loadAggregatesForWindow).
     { file: 'apps/web/src/lib/scorecard/payload.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
+    // Menciones (oct-2026): filas del periodo, parejas de la misma historia
+    // (embeddings), conteo de la ventana previa y términos (actual + previa);
+    // un solo predicado BASE compartido, el mismo universo del feed.
+    { file: 'apps/web/src/lib/mentions/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Índices compartidos (V5): el agregado de ventana de @eco/shared/metrics,
     // que usan el dashboard, los correos y los reportes.
     { file: 'packages/shared/src/metrics.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },

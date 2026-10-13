@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import {
+  agencies,
   mentions,
   topics,
   subtopics,
@@ -13,6 +14,7 @@ import { sourceKey, sourceMatchTerms, PERIOD_DAYS } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
+import { classifyVoice } from '@/lib/scorecard/voices';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,6 +123,7 @@ function relativeTime(d: Date): string {
  *   q — full-text search in title/snippet (multi-token AND)
  *   sortBy — recent (default) | engagement | relevance (relevance solo aplica con q)
  *   similar_to — mention id; returns coseno-neighbors (excluye filtros de contenido)
+ *   id — mention id; devuelve solo esa mención (el mapa de atención la abre en el panel)
  *   limit — default 20, max 100
  *   offset — default 0
  */
@@ -174,6 +177,8 @@ export async function GET(request: NextRequest) {
     eq(mentions.agencyId, agencyId),
     eq(mentions.isDuplicate, false),
   ];
+  const idParam = searchParams.get('id');
+  if (idParam && /^[0-9a-f-]{36}$/i.test(idParam)) conditions.push(eq(mentions.id, idParam));
   if (day) {
     // AST es UTC-4 todo el año (sin DST): bordes del día con offset explícito.
     conditions.push(gte(mentions.publishedAt, new Date(day + 'T00:00:00-04:00')));
@@ -428,6 +433,7 @@ export async function GET(request: NextRequest) {
       likes: mentions.likes,
       comments: mentions.comments,
       shares: mentions.shares,
+      reachEstimate: mentions.reachEstimate,
       publishedAt: mentions.publishedAt,
       url: mentions.url,
       mediaUrls: mentions.mediaUrls,
@@ -495,6 +501,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Quién publica cada mención (la agencia, prensa, gobierno y política,
+  // ciudadanía): la misma clasificación que «Quién habló» del Scorecard.
+  const [ag] = await db.select({ slug: agencies.slug, name: agencies.name }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
   const out = rows.map((m) => {
     const tp = topicByMention.get(m.id);
     const mu = muniByMention.get(m.id);
@@ -515,7 +524,10 @@ export async function GET(request: NextRequest) {
       likes: Number(m.likes ?? 0),
       comments: Number(m.comments ?? 0),
       shares: Number(m.shares ?? 0),
+      reach: Number(m.reachEstimate ?? 0),
       publishedAt: relativeTime(new Date(m.publishedAt)),
+      publishedAtIso: new Date(m.publishedAt).toISOString(),
+      voice: classifyVoice({ author: m.author, author_fullname: m.authorFullname, domain: m.domain, page_type: m.pageType }, ag?.slug ?? '', ag?.name ?? null).cat,
       emotions: (m.nlpEmotions ?? []).map((e) => e.toLowerCase()),
       topic: tp?.topic ?? '',
       topicName: tp?.topicName ?? '',
