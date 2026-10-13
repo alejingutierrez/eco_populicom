@@ -161,6 +161,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // emociones de 12 semanas, con el universo y los días de loadAggregatesForWindow;
     // un solo predicado BASE compartido.
     { file: 'apps/web/src/lib/sentiment/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Geografía (oct-2026): conteos por municipio y día (periodo, lo usual y 12
+    // semanas) y la cobertura del periodo, con el universo y los filtros de
+    // /api/eco-geo; un solo predicado compartido (basePredicate).
+    { file: 'apps/web/src/lib/geo/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Índices compartidos (V5): el agregado de ventana de @eco/shared/metrics,
     // que usan el dashboard, los correos y los reportes.
     { file: 'packages/shared/src/metrics.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },

@@ -27,6 +27,7 @@ const PROTECTED_PATHS = [
   /^\/api\/overview(\/.*)?$/,
   /^\/api\/eco-data(\/.*)?$/,
   /^\/api\/eco-geo(\/.*)?$/,
+  /^\/api\/geo(\/.*)?$/,
   /^\/api\/eco-mentions(\/.*)?$/,
   /^\/api\/eco-insights(\/.*)?$/,
   /^\/api\/eco-metric-insight(\/.*)?$/,
@@ -62,7 +63,8 @@ const CSP = [
   "script-src 'self' 'unsafe-inline' https://unpkg.com",
   "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org",
+  // basemaps.cartocdn.com sin subdominio: los tiles con llave (rastertiles/…?key=) de oct-2026.
+  "img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org",
   "connect-src 'self' https://cognito-idp.us-east-1.amazonaws.com",
   // 'self' permite que páginas del mismo origen (p. ej. el prototype del
   // dashboard) embeban /settings/reports en un iframe. Cross-origin sigue
@@ -145,6 +147,8 @@ export const config = {
     '/api/overview/:path*',
     '/api/eco-data/:path*',
     '/api/eco-geo/:path*',
+    // Análisis de la página de Geografía (/api/geo/analysis).
+    '/api/geo/:path*',
     '/api/eco-mentions/:path*',
     '/api/eco-insights/:path*',
     '/api/eco-metric-insight/:path*',

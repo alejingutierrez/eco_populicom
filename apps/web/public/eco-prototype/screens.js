@@ -4042,17 +4042,184 @@ function MapSizeLegend({ max }) {
 }
 
 // =============== GEOGRAPHY ===============
+// ============================================================
+// Geografía (oct-2026): el mapa de siempre, con cuántas menciones dicen dónde y
+// el municipio abierto bajo el mapa; luego quién se movió contra lo usual, los
+// municipios con más menciones por habitante y los más nombrados semana a
+// semana. El mapa sale de /api/eco-geo; lo demás, de /api/geo/analysis (misma
+// ventana y mismos filtros).
+// Prefijos gg/Gg/GG_: los scripts del SPA comparten el ámbito global.
+// ============================================================
+const GG_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const ggDate = (ymd) => { const d = new Date(Date.parse(String(ymd).slice(0, 10) + 'T12:00:00Z')); return `${d.getUTCDate()} ${GG_MES[d.getUTCMonth()]}`; };
+const ggNum = (n) => (n == null ? '—' : Number(n).toLocaleString('es-PR'));
+const ggPer10k = (n, pop) => (pop ? (n / pop) * 1e4 : null);
+// Rampa secuencial (nombres literales: check-tokens no ve los construidos).
+const GG_SEQ = [null, 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
+const GG_STATE = {
+  nuevo: { l: 'nuevo', s: 'nuevo', c: 'var(--text)' },
+  mas: { l: 'más de lo usual', s: 'más', c: 'var(--warn)' },
+  menos: { l: 'menos de lo usual', s: 'menos', c: 'var(--seq-3)' },
+  igual: { l: 'como siempre', s: 'igual', c: 'var(--hairline-strong)' },
+};
+const GG_POP_NOTE = 'Población: estimado del Negociado del Censo de EE. UU. al 1 de julio de 2025.';
+
+// El municipio abierto, bajo el mapa: sus cifras y sus menciones más movidas.
+function GgDetail({ m, an, filterParams, onClose, onOpenAll, onMentionClick }) {
+  const [items, setItems] = useState(null);
+  const a = an && !an.error ? (an.munis || []).find((x) => x.slug === m.slug) : null;
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    setItems(null);
+    const vw = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+    const p = new URLSearchParams({ ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()), municipality: m.slug, limit: '4', sortBy: 'engagement' });
+    const agency = localStorage.getItem('eco.agency'); if (agency) p.set('agency', agency);
+    Object.entries(filterParams).forEach(([k, v]) => p.set(k, String(v)));
+    if (filterParams.topic) p.set('topicMode', 'all');
+    ecoFetchAuthed('/api/eco-mentions?' + p.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((j) => setItems(j.mentions || []))
+      .catch((e) => { if (e && e.name !== 'AbortError') setItems([]); });
+    return () => ctrl.abort();
+  }, [m.slug, JSON.stringify(filterParams)]);
+  const pc = a ? ggPer10k(a.weeks.reduce((s, v) => s + v, 0), a.population) : null;
+  return (
+    <div className="gg-detail">
+      <div className="gg-detail-h">
+        <b>{m.name}</b>
+        <span className="gg-muted">{m.region}{a && a.population ? ` · ${ggNum(a.population)} habitantes` : ''}</span>
+        <button className="gg-x" onClick={onClose} aria-label="Cerrar">×</button>
+      </div>
+      <div className="gg-detail-k">
+        <span><b className="num">{ggNum(m.count)}</b> menciones</span>
+        <span><b className="num" style={{ color: 'var(--pos)' }}>{m.positivo || 0}</b> positivas</span>
+        <span><b className="num" style={{ color: 'var(--neg)' }}>{m.negativo || 0}</b> negativas</span>
+        {a && <span><b className="num">{a.usual.toFixed(1)}</b> lo usual</span>}
+        {a && <span><b className="num">{ggNum(a.weeks.reduce((s, v) => s + v, 0))}</b> en 12 semanas{pc != null ? ` · ${pc.toFixed(1)} por 10 mil` : ''}</span>}
+      </div>
+      {items == null ? <div className="gg-muted gg-pad">Cargando menciones…</div> : items.length === 0 ? <div className="gg-muted gg-pad">Sin menciones con estos filtros.</div> : items.map((t) => (
+        <button key={t.id} className="gg-mi" onClick={() => onMentionClick && onMentionClick(t)}>
+          <span className="gg-mi-h"><span className={`pill ${t.sentiment === 'positivo' ? 'pill-pos' : t.sentiment === 'negativo' ? 'pill-neg' : 'pill-neu'}`}>{t.sentiment}</span><span className="gg-muted">{t.author || t.domain} · {t.publishedAt}</span>{(t.engagement || 0) > 0 && <span className="num gg-muted gg-mi-i">{ggNum(t.engagement)} interac.</span>}</span>
+          <span className="gg-mi-t">{t.title || t.snippet}</span>
+        </button>
+      ))}
+      <button className="link gg-all" onClick={onOpenAll}>Ver las {ggNum(m.count)} menciones de {m.name}</button>
+    </div>
+  );
+}
+
+// Quién se movió: el periodo contra lo usual (12 semanas previas llevadas al largo del periodo).
+function GgMoved({ an, selected, onPick }) {
+  const head = (sub) => <div className="card-hd"><div><div className="card-hd-title">Quién se movió</div><div className="card-hd-sub">{sub}</div></div></div>;
+  if (!an) return <div className="card">{head('Cargando…')}<div className="card-bd gg-empty">Cargando…</div></div>;
+  if (an.error) return <div className="card">{head('')}<div className="card-bd"><EmptyState reason="error" compact title="No se pudo calcular quién se movió" detail="Recarga la página en unos segundos." /></div></div>;
+  const w = an.window;
+  const rows = (an.munis || []).filter((m) => m.n > 0 || m.usual >= 1.5).sort((a, b) => (b.n - b.usual) - (a.n - a.usual) || b.n - a.n).slice(0, 15);
+  const sub = w.days === 7 ? 'esta semana contra su promedio semanal de las 12 semanas previas' : `este periodo contra lo usual: los ${w.baseDays || Math.max(84, w.days)} días previos llevados a ${w.days} días`;
+  return (
+    <div className="card">
+      {head(sub)}
+      <div className="card-bd">
+        {rows.length === 0 ? <div className="gg-empty">Sin menciones con lugar en el periodo ni antes.</div> : (
+          <>
+            <div className="gg-mv hd"><span>Municipio</span><span>lo usual</span><span>{w.days === 7 ? 'esta semana' : 'este periodo'}</span><span /></div>
+            {rows.map((m) => (
+              <button key={m.slug} className="gg-mv" aria-pressed={selected === m.slug} onClick={() => onPick(m.slug)}>
+                <span className="gg-mv-n">{m.name}</span>
+                <span className="num gg-muted">{m.usual.toFixed(1)}</span>
+                <span className="num"><b>{ggNum(m.n)}</b></span>
+                <span className="gg-st" title={GG_STATE[m.state].l}><i style={{ background: GG_STATE[m.state].c }} /><span className="gg-st-l">{GG_STATE[m.state].l}</span><span className="gg-st-s">{GG_STATE[m.state].s}</span></span>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Más por habitante: menciones por cada 10 mil habitantes, del periodo o de 12 semanas.
+function GgPerCapita({ an, selected, onPick }) {
+  const [win, setWin] = useState('w12');
+  const head = (
+    <div className="card-hd">
+      <div><div className="card-hd-title">Más por habitante</div><div className="card-hd-sub">menciones por cada 10 mil habitantes · con al menos {win === 'w12' ? 3 : 2}</div></div>
+      <div className="gg-seg">{[['period', 'Este periodo'], ['w12', '12 semanas']].map(([k, l]) => <button key={k} aria-pressed={win === k} onClick={() => setWin(k)}>{l}</button>)}</div>
+    </div>
+  );
+  if (!an) return <div className="card">{head}<div className="card-bd gg-empty">Cargando…</div></div>;
+  if (an.error) return null;
+  const nOf = (m) => (win === 'w12' ? m.weeks.reduce((s, v) => s + v, 0) : m.n);
+  const rows = (an.munis || []).filter((m) => m.population && nOf(m) >= (win === 'w12' ? 3 : 2))
+    .map((m) => ({ m, n: nOf(m), pc: ggPer10k(nOf(m), m.population) })).sort((a, b) => b.pc - a.pc).slice(0, 10);
+  const mx = Math.max(1e-9, ...rows.map((r) => r.pc));
+  return (
+    <div className="card">
+      {head}
+      <div className="card-bd">
+        {rows.length === 0 ? <div className="gg-empty">Ningún municipio llega al mínimo de menciones.</div> : rows.map((r, i) => (
+          <button key={r.m.slug} className="gg-pc" aria-pressed={selected === r.m.slug} onClick={() => onPick(r.m.slug)} title={`${r.n} menciones · ${ggNum(r.m.population)} habitantes`}>
+            <span className="num gg-muted">{i + 1}</span>
+            <span className="gg-pc-n">{r.m.name}<small className="num">{ggNum(r.n)} menc. · {ggNum(Math.round(r.m.population / 1000))} mil hab.</small></span>
+            <span className="gg-pc-t"><b style={{ width: `${(r.pc / mx) * 100}%` }} /></span>
+            <span className="num gg-pc-v">{r.pc.toFixed(1)}</span>
+          </button>
+        ))}
+        <div className="gg-note">{GG_POP_NOTE}</div>
+      </div>
+    </div>
+  );
+}
+
+// Los 14 más nombrados, semana a semana (12 semanas que terminan el último día del periodo).
+function GgWeeks({ an, selected, onPick, onCell }) {
+  const head = (sub) => <div className="card-hd"><div><div className="card-hd-title">Los 14 municipios más nombrados, semana a semana</div><div className="card-hd-sub">{sub}</div></div></div>;
+  if (!an) return <div className="card">{head('Cargando…')}<div className="card-bd gg-empty">Cargando…</div></div>;
+  if (an.error) return null;
+  const weeks = an.weeks || [];
+  const rows = (an.munis || []).map((m) => ({ m, tot: m.weeks.reduce((s, v) => s + v, 0) })).filter((r) => r.tot > 0).sort((a, b) => b.tot - a.tot).slice(0, 14);
+  if (!rows.length) return <div className="card">{head('')}<div className="card-bd gg-empty">Sin menciones con lugar en las últimas 12 semanas.</div></div>;
+  const mx = Math.max(1, ...rows.flatMap((r) => r.m.weeks));
+  const last = weeks.length - 1;
+  return (
+    <div className="card">
+      {head(`12 semanas hasta el ${ggDate(weeks[last].end)} · clic en una celda para leer esas menciones`)}
+      <div className="card-bd scroll-x">
+        <div className="gg-wk" style={{ gridTemplateColumns: `minmax(120px, 170px) repeat(${weeks.length}, minmax(44px, 1fr)) 52px` }}>
+          <span />
+          {weeks.map((w, i) => <span key={w.start} className={`gg-wk-h num${i === last ? ' cur' : ''}`}>{ggDate(w.start)}</span>)}
+          <span className="gg-wk-h">total</span>
+          {rows.map(({ m, tot }) => (
+            <React.Fragment key={m.slug}>
+              <button className="gg-wk-n" aria-pressed={selected === m.slug} onClick={() => onPick(m.slug)}>{m.name}</button>
+              {m.weeks.map((v, i) => {
+                const k = v ? Math.min(5, 1 + Math.floor((v / mx) * 5)) : 0;
+                return (
+                  <button key={i} className={`gg-wk-c num${i === last ? ' cur' : ''}`} disabled={!v} onClick={() => onCell(m, weeks[i])}
+                    style={k ? { background: GG_SEQ[k], color: k >= 4 ? 'var(--canvas)' : 'var(--text)', borderColor: 'transparent' } : undefined}
+                    title={`${m.name} · ${ggDate(weeks[i].start)} – ${ggDate(weeks[i].end)}: ${v} menciones`}>{v || '·'}</button>
+                );
+              })}
+              <span className="num gg-wk-t">{ggNum(tot)}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GeographyScreen({ onMentionClick }) {
   const [metric, setMetric] = useState('count');
   const [slice, setSlice] = useState(null);
-  // Filtros de contenido: fuente / tópico / subtópico. El mapa se re-consulta a
-  // /api/eco-geo cuando cambian; D.MUNICIPALITIES (boot) es solo el estado inicial.
   const [filters, setFilters] = useState({ source: 'all', topic: '', subtopic: '' });
   const [munis, setMunis] = useState(D.MUNICIPALITIES || []);
   const [loadingGeo, setLoadingGeo] = useState(false);
+  const [an, setAn] = useState(null);
+  const [sel, setSel] = useState(null);
+  const mapRef = React.useRef(null);
 
-  // Filtros activos (sin defaults), para fusionar en cada _filter de drill-in y
-  // en la query de /api/eco-geo. Subtópico va por NOMBRE (contrato eco-mentions).
+  // Filtros de CONTENIDO (fuente/tópico/subtópico): van al mapa, al análisis y
+  // al modal, así los tres cuentan lo mismo.
   const contentFilter = React.useMemo(() => {
     const f = {};
     if (filters.source && filters.source !== 'all') f.source = filters.source;
@@ -4061,92 +4228,71 @@ function GeographyScreen({ onMentionClick }) {
     return f;
   }, [filters]);
   const hasFilters = !!(contentFilter.source || contentFilter.topic || contentFilter.subtopic);
-  // Un vacío CON filtros puestos es accionable (quítalos) y uno sin filtros es un
-  // hecho del período. Las dos cards de abajo se quedaban huecas sin decir cuál de
-  // los dos era, que es la distinción que EmptyState existe para hacer.
   const geoEmptyReason = hasFilters ? 'filtered' : 'empty';
-  // El corte del listado vive en UNA constante para que el rótulo del header y el
-  // `slice` no puedan decir números distintos: el bug era justamente prometer 12
-  // arriba y servir 8 abajo.
-  const TOP_MUNIS = 8;
-
-  // `.input` trae width:100%, así que un minWidth no impide que el select se
-  // estire: los tres filtros salían a 1114px cada uno, apilados, y desktop se
-  // veía igual que móvil. En móvil el ancho completo SÍ es lo correcto (objetivo
-  // de toque), así que el ancho se decide por breakpoint con el mismo helper que
-  // las rejillas. En desktop la fuente repite los 160 de Menciones/Búsqueda —es
-  // el MISMO control— y tópico/subtópico piden 200 porque "Subtópico (elige
-  // tópico)" no cabe en 160.
   const filtersStacked = window.ecoIsMobile();
   const srcWidth = filtersStacked ? '100%' : 160;
   const topicWidth = filtersStacked ? '100%' : 200;
 
-  // Re-consulta la agregación por municipio cuando cambian los filtros.
-  React.useEffect(() => {
-    let cancelled = false;
+  const windowParams = () => {
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
     const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (agency) params.set('agency', agency);
     if (period === 'custom') {
-      const from = localStorage.getItem('eco.from');
-      const to = localStorage.getItem('eco.to');
+      const from = localStorage.getItem('eco.from'), to = localStorage.getItem('eco.to');
       if (from) params.set('from', from);
       if (to) params.set('to', to);
-    } else {
-      params.set('period', period);
-    }
+    } else params.set('period', period);
     for (const [k, v] of Object.entries(contentFilter)) params.set(k, String(v));
+    return params;
+  };
+
+  React.useEffect(() => {
+    let cancelled = false;
     setLoadingGeo(true);
-    fetch('/api/eco-geo?' + params.toString(), { cache: 'no-store' })
+    fetch('/api/eco-geo?' + windowParams().toString(), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { municipalities: null }))
       .then((d) => { if (!cancelled && Array.isArray(d.municipalities)) setMunis(d.municipalities); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoadingGeo(false); });
-    return () => { cancelled = true; };
+    const ctrl = new AbortController();
+    setAn(null);
+    ecoFetchAuthed('/api/geo/analysis?' + windowParams().toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((j) => { if (!cancelled) setAn(j); })
+      .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } if (!cancelled) setAn({ error: true }); });
+    return () => { cancelled = true; ctrl.abort(); };
   }, [contentFilter]);
 
-  // Máximo de volumen del período, para la escala secuencial del mapa.
   const maxMuniCount = React.useMemo(() => munis.reduce((mx, m) => Math.max(mx, m.count || 0), 0), [munis]);
-  // Cortes de color por cuantiles de los municipios del período: con v/max
-  // lineal, 8 de 12 caían en --seq-1 (1.45:1 sobre --canvas, invisible) y tres
-  // pasos de la rampa no se usaban nunca. Ver seqQuantileScale.
   const seqScale = React.useMemo(() => seqQuantileScale(munis.map((m) => m.count || 0)), [munis]);
 
-  function openMuniSlice(m) {
-    // ecoNssColor: la banda neutra del NSS iba en --warn (ámbar), el color de
-    // severidad, así que un municipio en 0.0 se leía como advertencia. El umbral
-    // vive en UN solo sitio (data.js) y ya está en la escala canónica ±20 de #92.
+  function openMuniSlice(m, extra) {
     const accent = window.ecoNssColor(m.nss);
-    // Desglose REAL del payload (eco-geo y eco-data lo traen por municipio).
-    // Antes se fabricaba con splitSentiment y ratios fijos 55/25/20 — el
-    // header del modal mostraba números inventados mientras cargaba
-    // (auditoría 2026-08). Si el dato no viene, mejor no mostrar nada.
-    const senti = (m.positivo != null || m.neutral != null || m.negativo != null)
-      ? { pos: m.positivo || 0, neu: m.neutral || 0, neg: m.negativo || 0 }
-      : undefined;
+    const senti = (m.positivo != null || m.neutral != null || m.negativo != null) ? { pos: m.positivo || 0, neu: m.neutral || 0, neg: m.negativo || 0 } : undefined;
     setSlice({
       eyebrow: `${m.region} · ${m.name}`,
-      title: `NSS ${m.nss > 0 ? '+' : ''}${Math.round(m.nss)}`,
+      title: m.nss != null ? `NSS ${m.nss > 0 ? '+' : ''}${Math.round(m.nss)}` : m.name,
       accent,
-      volume: m.count,
+      ...(m.count != null ? { volume: m.count } : {}),
       ...(senti ? { sentiment: senti } : {}),
       mentions: [],
-      // El mapa cuenta ventana cerrada SIN pertinencia baja (default del
-      // modal ✓) y su filtro de tópico es any-touch → topicMode 'all' para
-      // que el total del modal cuadre con la burbuja.
       _filter: {
         ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
         municipality: m.slug,
         ...contentFilter,
         ...(contentFilter.topic ? { topicMode: 'all' } : {}),
+        ...(extra || {}),
       },
     });
   }
+  // Elegir un municipio (en el mapa o en las listas) lo abre bajo el mapa.
+  const pick = (slug) => {
+    setSel((cur) => (cur === slug ? null : slug));
+    if (mapRef.current && slug !== sel) mapRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const selMuni = sel ? (munis.find((m) => m.slug === sel) || (() => { const a = an && !an.error && (an.munis || []).find((x) => x.slug === sel); return a ? { slug: a.slug, name: a.name, region: a.region, count: a.n, positivo: a.pos, negativo: a.neg, nss: null } : null; })()) : null;
 
-  // If the user came here from a MentionDrawer "Ver en mapa" action, auto-open
-  // the slice modal for the requested municipality. The focus is only honored
-  // if set within the last 30 seconds, so a stale focus never re-triggers.
+  // Deep-link desde otras pantallas (eco.map.focus): abre el modal del municipio.
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem('eco.map.focus');
@@ -4154,33 +4300,22 @@ function GeographyScreen({ onMentionClick }) {
       const focus = JSON.parse(raw);
       localStorage.removeItem('eco.map.focus');
       if (!focus || !focus.slug || (Date.now() - (focus.ts || 0)) > 30_000) return;
-      const muni = (D.MUNICIPALITIES || []).find((m) => m.slug === focus.slug
-        || (m.name || '').toLowerCase() === (focus.name || '').toLowerCase());
+      const muni = (D.MUNICIPALITIES || []).find((m) => m.slug === focus.slug || (m.name || '').toLowerCase() === (focus.name || '').toLowerCase());
       if (muni) openMuniSlice(muni);
-      else {
-        setSlice({
-          eyebrow: 'Región',
-          title: focus.name || focus.slug,
-          accent: 'var(--accent)',
-          mentions: [],
-          _filter: {
-            ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
-            municipality: focus.slug,
-          },
-        });
-      }
+      else setSlice({ eyebrow: 'Región', title: focus.name || focus.slug, accent: 'var(--accent)', mentions: [], _filter: { ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}), municipality: focus.slug } });
     } catch (_) {}
   }, []);
 
+  const cov = an && !an.error ? an.coverage : null;
+  const sub = cov
+    ? `${ggNum(cov.munis)} ${cov.munis === 1 ? 'municipio' : 'municipios'} · ${ggNum(cov.geo)} de ${ggNum(cov.total)} menciones dicen dónde (${cov.total ? Math.round((cov.geo / cov.total) * 100) : 0}%) · clic en un municipio`
+    : munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período · clic en un municipio` : 'Sin menciones georreferenciadas en el período';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      <div className="card">
+      <div className="card" ref={mapRef} style={{ scrollMarginTop: 'var(--sp-4)' }}>
         <div className="card-hd">
-          {/* La invitación a hacer click va DENTRO de la rama con datos: estaba
-              concatenada fuera del ternario, así que en el caso vacío la misma
-              línea decía "Sin menciones georreferenciadas en el período · click un
-              municipio para ver menciones" — negaba y ofrecía a la vez. */}
-          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{munis.length > 0 ? `${munis.length} ${munis.length === 1 ? 'municipio' : 'municipios'} con menciones en el período · click un municipio para ver menciones` : 'Sin menciones georreferenciadas en el período'}</div></div>
+          <div><div className="card-hd-title">Distribución geográfica · Puerto Rico</div><div className="card-hd-sub">{sub}</div></div>
           <div style={{ display: 'flex', gap: 'var(--sp-15)' }}>
             {[{ k: 'count', l: 'Volumen' }, { k: 'nss', l: 'Sentimiento' }].map((o) => (
               <button key={o.k} onClick={() => setMetric(o.k)} className={`chip ${metric === o.k ? 'active' : ''}`}>{o.l}</button>
@@ -4190,204 +4325,53 @@ function GeographyScreen({ onMentionClick }) {
         <div className="card-bd">
           <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
             <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: srcWidth }} />
-            <select className="input" value={filters.topic} style={{ width: topicWidth }}
-              onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value, subtopic: '' }))}>
+            <select className="input" value={filters.topic} style={{ width: topicWidth }} onChange={(e) => setFilters((f) => ({ ...f, topic: e.target.value, subtopic: '' }))}>
               <option value="">Todos los tópicos</option>
               {(D.TOPICS || []).filter((t) => t && t.slug).map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
             </select>
-            <select className="input" value={filters.subtopic} disabled={!filters.topic}
-              style={{ width: topicWidth, opacity: filters.topic ? 1 : 0.5 }}
-              onChange={(e) => setFilters((f) => ({ ...f, subtopic: e.target.value }))}>
+            <select className="input" value={filters.subtopic} disabled={!filters.topic} style={{ width: topicWidth, opacity: filters.topic ? 1 : 0.5 }} onChange={(e) => setFilters((f) => ({ ...f, subtopic: e.target.value }))}>
               <option value="">{filters.topic ? 'Todos los subtópicos' : 'Subtópico (elige tópico)'}</option>
               {filters.topic && (((D.SUBTOPICS || {})[filters.topic]) || []).map((st) => <option key={st.slug || st.name} value={st.name}>{st.name}</option>)}
             </select>
             {hasFilters && <button className="chip" onClick={() => setFilters({ source: 'all', topic: '', subtopic: '' })}>Limpiar</button>}
-            {/* --fs-caption y no --fs-overline: tokens.css §1 reserva los 11px a
-                eyebrows en MAYÚSCULAS y a ticks de eje densos, y esto es una frase
-                en minúsculas dentro de una barra de controles. */}
             {loadingGeo && <span style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>Actualizando…</span>}
           </div>
-          {/* En modo Volumen la MAGNITUD va en la escala secuencial, no en el
-              acento: pintar los municipios con var(--accent) cubría Puerto Rico
-              de burbujas del color de alarma. */}
           <PRMap
             municipalities={munis}
-            // El TAMAÑO es siempre el volumen. Con |NSS| el círculo más grande
-            // del mapa era el municipio con el sentimiento más extremo, que
-            // puede tener 3 menciones: "donde está el problema" señalaba ruido.
-            // Y al alternar de modo la geometría no cambiaba de aspecto pero sí
-            // de significado, sin leyenda que lo dijera. Ahora el toggle cambia
-            // sólo el color; el tamaño es la referencia estable.
             accessor={(m) => m.count}
-            colorFn={(m) => metric === 'nss'
-              ? window.ecoNssColor(m.nss)
-              : seqScale.colorOf(m.count || 0)}
-            onMunicipalityClick={openMuniSlice}
+            colorFn={(m) => (metric === 'nss' ? window.ecoNssColor(m.nss) : seqScale.colorOf(m.count || 0))}
+            onMunicipalityClick={(m) => pick(m.slug)}
+            selected={sel}
           />
-          {/* El tamaño del marcador es el volumen en los DOS modos, así que su
-              leyenda va fuera del condicional: es la referencia estable. */}
+          {munis.length === 0 && <EmptyState compact reason={geoEmptyReason} />}
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', flexWrap: 'wrap', gap: 'var(--sp-5)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)', marginTop: 'var(--sp-4)' }}>
             <MapSizeLegend max={maxMuniCount} />
             {metric === 'nss' ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo (&gt;+2)</span>
+              <>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo (&gt;+2)</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neu)' }} /> Neutral (−2 a +2)</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo (&lt;-2)</span>
+              </>
             ) : (
               <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
                 menos
                 <span style={{ display: 'flex', gap: 'var(--sp-05)' }}>
-                  {/* Los chips son los pasos que el mapa DIBUJA (no los 6 de la
-                      rampa) y cada uno dice su rango de menciones. */}
                   {seqScale.tokens.map((t, i) => <span key={i} title={`${seqScale.rangeOf(i)} menciones`} style={{ width: 10, height: 10, borderRadius: 'var(--r-sm)', background: t }} />)}
                 </span>
                 más · volumen de menciones
               </span>
             )}
-            {metric === 'nss' && <>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neu)' }} /> Neutral (−2 a +2)</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo (&lt;-2)</span>
-            </>}
           </div>
+          {selMuni && <GgDetail m={selMuni} an={an} filterParams={contentFilter} onClose={() => setSel(null)} onOpenAll={() => openMuniSlice(selMuni)} onMentionClick={onMentionClick} />}
         </div>
       </div>
 
-      {/* `start` y no el stretch por defecto: las dos listas no tienen la misma
-          cantidad de contenido (8 filas de municipio contra 6 de región), y con
-          stretch la card corta se estiraba hasta la altura de la larga y dejaba
-          ~170px de fondo vacío bajo la última fila. */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
-        <div className="card">
-          {/* El corte se ROTULA. El header de la card de arriba dice "12 municipios
-              con menciones en el período" y este listado servía 8 sin nota, sin
-              "ver todos" y sin puntos suspensivos: el usuario contaba 8 donde le
-              habían prometido 12. El precedente es el "Top 7 + agrupados" de
-              Tópicos, salvo que aquí el resto no se agrupa —se deja fuera— y eso
-              es lo que hay que decir. Con 8 municipios o menos no hay corte que
-              rotular y el subtítulo se queda como estaba. */}
-          <div className="card-hd"><div><div className="card-hd-title">Top municipios</div><div className="card-hd-sub">{munis.length > TOP_MUNIS ? `Top ${TOP_MUNIS} de ${munis.length} · por volumen de menciones` : 'Por volumen de menciones'}</div></div></div>
-          <div className="card-bd">
-            {/* Con munis=[] HBarList renderiza su contenedor flex sin hijos, así
-                que la card quedaba como un rectángulo con título y nada dentro.
-                Mismo primitivo y mismo `reason` que la card hermana. */}
-            {munis.length === 0 && <EmptyState compact reason={geoEmptyReason} />}
-            <HBarList
-              items={[...munis].sort((a,b)=>b.count-a.count).slice(0, TOP_MUNIS).map(m => ({ label: m.name, value: m.count, nss: m.nss, _muni: m }))}
-              // La misma escala que el mapa. Con --accent (token de marca y de
-              // acción: chip activo, rail, `.link`) el volumen se codificaba de
-              // dos maneras a 40px de distancia, y contra la advertencia de
-              // tokens.css §6.
-              colorFn={(it) => seqScale.colorOf(it.value)}
-              onItemClick={(it) => openMuniSlice(it._muni)}
-            />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Sentimiento por región</div><div className="card-hd-sub">NSS agregado</div></div></div>
-          <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-            {/* Sin municipios no hay regiones: la cadena de .map devolvía lista
-                vacía y la card se quedaba con el título flotando sobre la nada.
-                El mismo `reason` que la card hermana, para que dos cards que
-                miran el mismo dato vacío no cuenten dos historias distintas. */}
-            {munis.length === 0 && <EmptyState compact reason={geoEmptyReason} />}
-            {[...new Set((munis || []).map((m) => m.region).filter(Boolean))]
-              // El orden era el de inserción del API, así que la columna de
-              // cifras alineada a la derecha zigzagueaba y no servía para
-              // comparar (la card hermana sí ordena). Ascendente por NSS: lo más
-              // negativo primero, que es lo que se va a atender.
-              .map((r) => ({ r, rows: munis.filter((m) => m.region === r) }))
-              .filter((g) => g.rows.length > 0)
-              // Ordena por el MISMO número que se imprime: ponderado por volumen.
-              // Con media simple el orden y la cifra mostrada discrepaban, así que
-              // la columna alineada a la derecha volvía a zigzaguear — justo lo
-              // que este orden venía a arreglar.
-              .map(({ r, rows }) => {
-                const tot = rows.reduce((s, m) => s + (m.count || 0), 0);
-                return { r, rows, avg: tot > 0
-                  ? rows.reduce((s, m) => s + m.nss * (m.count || 0), 0) / tot
-                  : 0 };
-              })
-              .sort((a, b) => a.avg - b.avg)
-              .map(({ r }, i) => {
-              const regionMunis = munis.filter(m => m.region === r);
-              if (regionMunis.length === 0) return null;
-              const total = regionMunis.reduce((s,m) => s+m.count, 0);
-              // NSS regional PONDERADO por volumen: antes era media simple de
-              // los NSS municipales y un municipio con 2 menciones pesaba
-              // igual que uno con 4,000 (auditoría 2026-08, P1-12).
-              const avgNss = total > 0
-                ? regionMunis.reduce((s,m) => s + m.nss * m.count, 0) / total
-                : 0;
-              // El DOMINIO es ±30, no ±100. Con el rango teórico del NSS la región
-              // más negativa llenaba ~10% de la pista y las seis se leían "planas
-              // en cero" mientras la cifra al lado decía −21. ±30 es el umbral de
-              // decisión del mapa (±20, escala canónica de #92) más holgura, así
-              // que la barra y el color hablan de la misma escala.
-              const NSS_DOMAIN = 30;
-              const pct = Math.max(-1, Math.min(1, avgNss / NSS_DOMAIN));
-              return (
-                <button key={r}
-                  onClick={() => {
-                    setSlice({
-                      eyebrow: `Región · ${r}`,
-                      title: `Sentimiento en ${r}`,
-                      accent: window.ecoNssColor(avgNss),
-                      mentions: [],
-                      _filter: {
-                        ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
-                        region: r,
-                        ...contentFilter,
-                        ...(contentFilter.topic ? { topicMode: 'all' } : {}),
-                      },
-                    });
-                  }}
-                  className="row-hover"
-                  // El padding en px crudos (10 no está en la escala base-4)
-                  // metía el texto de la fila 12px a la derecha del título de su
-                  // propia card y del listado hermano. Con marginInline negativo
-                  // —el mismo truco de HBarList— el texto cae sobre el eje del
-                  // título y el área de click sigue llegando al borde. Fondo
-                  // transparente: la elevación la da `.row-hover` al pasar, como
-                  // en la card hermana, no un --canvas-2 permanente.
-                  style={{ padding: 'var(--sp-2) var(--sp-3)', marginInline: 'calc(-1 * var(--sp-3))', background: 'transparent', borderRadius: 'var(--r-md)', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-2)' }}>
-                    <div>
-                      {/* 13/12 y no 12/11: dos niveles separados por 1px se
-                          leían como uno. */}
-                      <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 600 }}>{r}</div>
-                      {/* Plural resuelto, como ya lo hace el header de la propia
-                          pantalla: una región con un solo municipio imprimía
-                          "1 municipios". No hay helper de plural en data.js, así
-                          que se replica el ternario del header en vez de inventar
-                          una API global para dos usos. */}
-                      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>{regionMunis.length} {regionMunis.length === 1 ? 'municipio' : 'municipios'} · {fmt(total)} {total === 1 ? 'mención' : 'menciones'}</div>
-                    </div>
-                    {/* La cifra en la escala NUMÉRICA. Con --fs-title-md salía
-                        idéntica en tamaño, familia y peso al título de la card
-                        ("Sentimiento por región"), así que el KPI de la fila no
-                        dominaba ni a su propia etiqueta. */}
-                    <div className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: window.ecoNssColor(avgNss) }}>
-                      {avgNss > 0 ? '+' : ''}{avgNss.toFixed(1)}
-                    </div>
-                  </div>
-                  {/* Misma pista que HBarList: `.bar-track`, 6px sobre
-                      --canvas-2. La de antes era propia, de 4px sobre
-                      --hairline —el token de DIVISORES— así que dos listas
-                      hermanas que abren el mismo modal tenían dos barras
-                      distintas. Las marcas en ±2 son el umbral con el que el
-                      mapa decide el color: la barra dice dónde empieza a
-                      importar. */}
-                  <div className="bar-track" style={{ position: 'relative', height: 6 }}>
-                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--text-3)' }} />
-                    {[-1, 1].map((s) => (
-                      <div key={s} style={{ position: 'absolute', left: `${50 + s * Math.min(1, window.ECO_NSS_NEUTRAL_BAND / NSS_DOMAIN) * 50}%`, top: 0, bottom: 0, width: 1, background: 'var(--hairline-strong)' }} />
-                    ))}
-                    <div style={{ position: 'absolute', left: pct > 0 ? '50%' : `${50 + pct * 50}%`, width: `${Math.abs(pct) * 50}%`, height: '100%', background: window.ecoNssColor(avgNss), borderRadius: 'inherit' }} />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+        <GgMoved an={an} selected={sel} onPick={pick} />
+        <GgPerCapita an={an} selected={sel} onPick={pick} />
       </div>
+
+      <GgWeeks an={an} selected={sel} onPick={pick} onCell={(m, wk) => openMuniSlice({ slug: m.slug, name: m.name, region: m.region, nss: null }, { from: wk.start, to: wk.end })} />
 
       {slice && <MentionsSliceModal slice={slice} onClose={() => setSlice(null)} onMentionClick={onMentionClick} />}
     </div>

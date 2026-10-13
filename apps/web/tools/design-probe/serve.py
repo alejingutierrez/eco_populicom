@@ -56,6 +56,7 @@ API = [
     ('/api/eco-executive-summary', 'eco-executive-summary.json'),
     ('/api/scorecard', 'scorecard.json'),
     ('/api/mentions/analysis', 'mentions-analysis.json'),
+    ('/api/geo/analysis', 'geo-analysis.json'),
     ('/api/sentiment/analysis', 'sentiment-analysis.json'),
     ('/api/eco-mentions', 'eco-mentions.json'),
 ]

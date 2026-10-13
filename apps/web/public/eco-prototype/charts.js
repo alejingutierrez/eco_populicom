@@ -1324,7 +1324,15 @@ function Heatmap({ data, colorFn, gap = 2, hours = 24, days = 7, onCellClick, a1
 // techo en los 420 de antes para no crecer en pantallas anchas.
 const MAP_HEIGHT = 'clamp(240px, 30vw, 420px)';
 
-function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
+// Contorno simplificado de la isla (lon, lat). Se dibuja cuando no hay llave de
+// CARTO: desde oct-2026 sus tiles sin llave traen «API KEY REQUIRED» pintado.
+const PR_COAST = [[-67.14, 18.51], [-67.02, 18.51], [-66.94, 18.49], [-66.85, 18.49], [-66.70, 18.48], [-66.54, 18.49], [-66.39, 18.49], [-66.27, 18.48], [-66.10, 18.47], [-65.93, 18.45], [-65.85, 18.42], [-65.72, 18.39], [-65.62, 18.37], [-65.63, 18.30], [-65.64, 18.24], [-65.72, 18.20], [-65.76, 18.14], [-65.82, 18.04], [-65.88, 18.00], [-66.00, 17.97], [-66.13, 17.95], [-66.28, 17.95], [-66.40, 17.95], [-66.50, 17.98], [-66.62, 17.98], [-66.75, 17.99], [-66.90, 17.96], [-67.10, 17.96], [-67.19, 17.93], [-67.20, 18.04], [-67.18, 18.12], [-67.17, 18.20], [-67.21, 18.28], [-67.27, 18.36], [-67.20, 18.40], [-67.16, 18.44]];
+const PR_ISLETS = [[[-65.58, 18.15], [-65.30, 18.15], [-65.27, 18.10], [-65.58, 18.09]], [[-65.34, 18.33], [-65.24, 18.33], [-65.24, 18.29], [-65.34, 18.29]]];
+const PR_BOUNDS = [[17.88, -67.30], [18.54, -65.20]];
+// Llave de navegador de CARTO (restringida por dominio). Vacía → contorno propio.
+const prMapTileUrl = (style) => (window.ECO_MAP_KEY ? `https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(window.ECO_MAP_KEY)}` : null);
+
+function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick, selected }) {
   const containerRef = React.useRef(null);
   const mapRef = React.useRef(null);
   const markersLayerRef = React.useRef(null);
@@ -1343,25 +1351,33 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         // etiquetas del basemap se encavalgaban con los marcadores.
         minZoom: 7,
         maxZoom: 14,
+        // Paso de 0.25: con el entero, fitBounds dejaba la isla chica en el contenedor.
+        zoomSnap: 0.25,
+        zoomDelta: 0.5,
         scrollWheelZoom: true,
         zoomControl: true,
         attributionControl: true,
       });
-      // Two tile layers — swapped when the Mando/Costa mode toggle changes.
-      const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      });
-      const light = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      });
+      // Dos capas de tiles (claro/oscuro) que siguen el modo del dashboard. Sin
+      // llave de CARTO no hay tiles: se dibuja el contorno de la isla con los
+      // tokens del sistema y la atribución desaparece con los tiles.
+      const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+      const dark = prMapTileUrl('dark_all') && L.tileLayer(prMapTileUrl('dark_all'), { attribution, maxZoom: 19 });
+      const light = prMapTileUrl('light_all') && L.tileLayer(prMapTileUrl('light_all'), { attribution, maxZoom: 19 });
       tilesRef.current = { dark, light, active: null };
+      const T0 = (t) => window.ecoTokenValue(t);
+      let island = null;
+      if (!dark) {
+        island = L.layerGroup([PR_COAST, ...PR_ISLETS].map((ring) => L.polygon(ring.map(([lo, la]) => [la, lo]), { interactive: false, weight: 1.2 })));
+        island.addTo(map);
+      }
 
       function applyMode() {
         const mode = document.documentElement.getAttribute('data-mode') || 'dark';
+        if (island) {
+          island.eachLayer((p) => p.setStyle({ color: T0('var(--hairline-strong)'), fillColor: T0('var(--hairline)'), fillOpacity: 1 }));
+          return;
+        }
         const nextLayer = mode === 'light' ? light : dark;
         if (tilesRef.current.active === nextLayer) return;
         if (tilesRef.current.active) map.removeLayer(tilesRef.current.active);
@@ -1369,6 +1385,7 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
         tilesRef.current.active = nextLayer;
       }
       applyMode();
+      map.fitBounds(PR_BOUNDS, { padding: [12, 12] });
 
       // Watch the <html data-mode> attribute so the map base layer follows
       // the dashboard's theme toggle automatically.
@@ -1414,8 +1431,8 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       const marker = L.circleMarker([m.lat, m.lon], {
         radius: r,
         fillColor: color.startsWith('var(') ? T(color) : color,
-        color: T('var(--canvas)'),
-        weight: 1.5,
+        color: selected === m.slug ? T('var(--text)') : T('var(--canvas)'),
+        weight: selected === m.slug ? 3 : 1.5,
         // El alpha vive en el TOKEN (--seq-* es una rampa de opacidad): un 0.78
         // encima lo multiplicaba por segunda vez, así que el chip de la leyenda
         // y el marcador del mismo dato no coincidían (−18% de luminancia) y el
@@ -1447,12 +1464,10 @@ function PRMap({ municipalities, accessor, colorFn, onMunicipalityClick }) {
       marker.addTo(layer);
     });
 
-    // Fit the map to the markers so the user always sees PR framed.
-    const group = L.featureGroup(layer.getLayers());
-    if (group.getLayers().length > 0) {
-      mapRef.current.fitBounds(group.getBounds(), { padding: [24, 24], maxZoom: 10 });
-    }
-  }, [municipalities, accessor, colorFn, onMunicipalityClick]);
+    // Puerto Rico siempre encuadrado igual (fitBounds de PR_BOUNDS al montar):
+    // encuadrar a los marcadores hacía saltar el mapa con cada filtro y, con
+    // uno solo, lo acercaba a un municipio.
+  }, [municipalities, accessor, colorFn, onMunicipalityClick, selected]);
 
   // Cleanup on unmount.
   React.useEffect(() => () => {
