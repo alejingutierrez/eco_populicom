@@ -157,6 +157,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // (embeddings), conteo de la ventana previa y términos (actual + previa);
     // un solo predicado BASE compartido, el mismo universo del feed.
     { file: 'apps/web/src/lib/mentions/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Sentimiento (oct-2026): quién movió el NSS (por dónde se dijo) y las
+    // emociones de 12 semanas, con el universo y los días de loadAggregatesForWindow;
+    // un solo predicado BASE compartido.
+    { file: 'apps/web/src/lib/sentiment/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Índices compartidos (V5): el agregado de ventana de @eco/shared/metrics,
     // que usan el dashboard, los correos y los reportes.
     { file: 'packages/shared/src/metrics.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },

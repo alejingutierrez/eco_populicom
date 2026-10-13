@@ -1120,6 +1120,67 @@
   .mn-amp td small { display: block; font: var(--fw-regular) var(--fs-caption) var(--ff-sans); color: inherit; }
   @media (max-width: 1100px) { .mn-two { grid-template-columns: 1fr; } .mn-list { max-height: none; } }
   @media (max-width: 700px) { .mn-ls { grid-template-columns: 1fr; } .mn-kv { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mn-amp td { min-width: 54px; height: 54px; } .mn-amp tbody th { white-space: normal; max-width: 92px; } .mn-amp thead th { max-width: 64px; } }
+  /* ============================================== */
+  /* Sentimiento (oct-2026)                          */
+  /* ============================================== */
+  .st-muted { color: var(--text-3); }
+  .st-empty { padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--text-3); font-size: var(--fs-body-sm); }
+  .st-note { font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text-3); margin-top: var(--sp-3); }
+  .st-mix { display: flex; height: 10px; border-radius: var(--r-sm); overflow: hidden; background: var(--canvas-2); }
+  .st-mix b { display: block; height: 100%; }
+  .st-mix-lg { height: 14px; }
+  .st-tone { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .st-tone-l { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
+  .st-tone-b { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: var(--sp-15); padding: var(--sp-05) var(--sp-15); margin-inline: calc(-1 * var(--sp-15)); border-radius: var(--r-md); font-size: var(--fs-body-sm); color: var(--text-2); }
+  .st-tone-b:hover { background: var(--canvas-2); }
+  .st-tone-b:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+  .st-tone-b b { color: var(--text); font-weight: var(--fw-semibold); }
+  /* Quién movió el NSS */
+  .st-wf { display: flex; flex-direction: column; }
+  .st-wf-r { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr) 64px; gap: var(--sp-3); align-items: center; padding: var(--sp-15) 0; border-top: 1px solid var(--hairline); font-size: var(--fs-body-sm); }
+  .st-wf-r:first-child { border-top: 0; }
+  .st-wf-l { display: flex; flex-direction: column; min-width: 0; color: var(--text-2); }
+  .st-wf-r.tot .st-wf-l { font-weight: var(--fw-semibold); color: var(--text); }
+  .st-wf-l small { font-size: var(--fs-caption); color: var(--text-3); }
+  .st-wf-t { position: relative; height: 16px; }
+  .st-wf-t i { position: absolute; top: -5px; bottom: -5px; width: 1px; background: var(--hairline-strong); }
+  .st-wf-t b { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+  .st-wf-v { text-align: right; color: var(--text-2); white-space: nowrap; }
+  .st-wf-r.tot .st-wf-v { color: var(--text); font-weight: var(--fw-semibold); }
+  @media (max-width: 640px) { .st-wf-r { grid-template-columns: minmax(0, 1fr) 56px; } .st-wf-t { grid-column: 1 / -1; grid-row: 2; } }
+  /* Sentimiento por día */
+  .st-days { display: grid; gap: var(--sp-15); height: 196px; }
+  .st-day { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; text-align: center; border-radius: var(--r-sm); }
+  .st-day:disabled { cursor: default; }
+  .st-day:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+  .st-day-p { flex: 1 1 auto; position: relative; }
+  .st-day-s { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: var(--sp-1); }
+  .st-day-n { font: var(--fw-semibold) var(--fs-label)/1 var(--ff-mono); color: var(--text); }
+  .st-day-b { display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .st-day-b b { display: block; min-height: 0; }
+  .st-day:hover:not(:disabled) .st-day-b { opacity: 0.85; }
+  .st-day-l { font: var(--fs-label)/1.2 var(--ff-mono); color: var(--text-3); white-space: nowrap; overflow: hidden; min-height: 16px; }
+  .st-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-3); font-size: var(--fs-caption); color: var(--text-2); }
+  .st-legend span { display: inline-flex; align-items: center; gap: var(--sp-15); }
+  /* Emociones */
+  .st-er { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 24px minmax(90px, 1fr) minmax(0, 1.6fr) 40px; gap: var(--sp-3); align-items: center; width: 100%; padding: var(--sp-15) var(--sp-1); border-top: 1px solid var(--hairline); border-radius: var(--r-sm); font-size: var(--fs-body-sm); }
+  .st-er:first-child { border-top: 0; }
+  .st-er:hover { background: var(--canvas-2); }
+  .st-er:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+  .st-er-n { font-weight: var(--fw-semibold); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-er-t { position: relative; height: 8px; background: var(--canvas-2); border-radius: 2px; overflow: hidden; }
+  .st-er-t b { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; }
+  .st-er-c { text-align: right; color: var(--text-2); font-weight: var(--fw-semibold); }
+  /* Emociones, 12 semanas */
+  .st-ew { display: grid; gap: 3px; align-items: center; min-width: 700px; font-size: var(--fs-body-sm); }
+  .st-ew-h { font-size: var(--fs-label); color: var(--text-3); text-align: center; white-space: nowrap; }
+  .st-ew-h.cur { color: var(--text); font-weight: var(--fw-semibold); }
+  .st-ew-n { font-weight: var(--fw-semibold); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-ew-c { all: unset; box-sizing: border-box; height: 32px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--canvas-2); border: 1px solid var(--hairline); color: var(--text-3); font-size: var(--fs-body-sm); cursor: pointer; }
+  .st-ew-c:disabled { cursor: default; }
+  .st-ew-c:hover:not(:disabled) { box-shadow: inset 0 0 0 2px var(--action); }
+  .st-ew-c:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+  .st-ew-c.cur { box-shadow: inset 0 0 0 2px var(--text); }
 </style>
 </head>
 <body>
@@ -1286,7 +1347,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc90';
+        s.src = base + '/' + f + '?v=prodc91';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

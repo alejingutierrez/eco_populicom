@@ -2225,10 +2225,207 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
 }
 
 // =============== SENTIMENT ===============
+// ============================================================
+// Sentimiento (oct-2026): la estructura de siempre, más clara, con dos piezas
+// nuevas: «Quién movió el NSS» (debajo del NSS, explica su cambio) y
+// «Emociones, 12 semanas» (debajo de las emociones del periodo). Las dos salen
+// de /api/sentiment/analysis con la misma ventana que /api/eco-data.
+// Prefijos st/St/ST_: los scripts del SPA comparten el ámbito global.
+// ============================================================
+const ST_MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const ST_DIA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const stDate = (ymd) => { const d = new Date(Date.parse(String(ymd).slice(0, 10) + 'T12:00:00Z')); return `${d.getUTCDate()} ${ST_MES[d.getUTCMonth()]}`; };
+const stDay = (ymd) => { const d = new Date(Date.parse(String(ymd).slice(0, 10) + 'T12:00:00Z')); return `${ST_DIA[d.getUTCDay()]} ${d.getUTCDate()}`; };
+const stSigned = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1));
+// Neutral en gris claro en toda la página: con ~80% de neutrales, un gris medio
+// tapaba las dos franjas que importan.
+const ST_TONE = { positivo: 'var(--pos)', neutral: 'var(--hairline-strong)', negativo: 'var(--neg)' };
+// Rampa secuencial de la grilla de emociones (nombres literales: check-tokens no ve los construidos).
+const ST_SEQ = [null, 'var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)', 'var(--seq-5)'];
+const ST_WHERE = {
+  agencia: 'Publicaciones de la agencia', comentarios: 'Comentarios en sus canales', prensa: 'Prensa',
+  gobierno: 'Gobierno y política', otras: 'Otras cuentas',
+};
+const StDot = ({ tone }) => <span className="dot" style={{ background: ST_TONE[tone], boxShadow: tone === 'neutral' ? 'inset 0 0 0 1px var(--text-3)' : undefined }} />;
+
+// Una sola barra de tono con conteos (antes, una dona que con 78% de neutrales era un anillo gris).
+function StToneBar({ breakdown, onPick }) {
+  const by = {}; (breakdown || []).forEach((s) => { by[s.name] = s.value || 0; });
+  const n = (by.positivo || 0) + (by.neutral || 0) + (by.negativo || 0);
+  const segs = [['positivo', 'positivas'], ['neutral', 'neutrales'], ['negativo', 'negativas']];
+  return (
+    <div className="st-tone">
+      <div className="st-mix st-mix-lg" role="img" aria-label={segs.map(([k, l]) => `${by[k] || 0} ${l}`).join(', ')}>
+        {segs.map(([k]) => <b key={k} style={{ width: `${n ? ((by[k] || 0) / n) * 100 : 0}%`, background: ST_TONE[k] }} />)}
+      </div>
+      <div className="st-tone-l">
+        {segs.map(([k, l]) => (
+          <button key={k} className="st-tone-b" onClick={() => onPick(k)} title={`Ver las menciones ${l}`}>
+            <StDot tone={k} /><b className="num">{fmt(by[k] || 0)}</b> {l}<span className="num st-muted">{n ? Math.round(((by[k] || 0) / n) * 100) : 0}%</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Quién movió el NSS: de cuánto estaba en el periodo previo a cuánto está ahora,
+// fila por fila según dónde se dijo. Los aportes suman el cambio.
+function StShift({ an, periodKey }) {
+  const week = periodKey === '7D';
+  const head = (sub) => <div className="card-hd"><div><div className="card-hd-title">Quién movió el NSS</div><div className="card-hd-sub">{sub}</div></div></div>;
+  if (!an) return <div className="card">{head('Cargando…')}<div className="card-bd st-empty">Cargando…</div></div>;
+  if (an.error) return <div className="card">{head('')}<div className="card-bd"><EmptyState reason="error" compact title="No se pudo calcular quién movió el NSS" detail="Recarga la página en unos segundos." /></div></div>;
+  const s = an.shift, w = an.window;
+  const sub = `${stDate(w.prevStartYmd)} – ${stDate(w.prevEndYmd)} contra ${stDate(w.startYmd)} – ${stDate(w.endYmd)} · por dónde se dijo`;
+  if (an.lowSample || s.cur.nss == null || s.prev.nss == null) {
+    return <div className="card">{head(sub)}<div className="card-bd st-empty">Con menos de 20 menciones en alguno de los dos periodos el NSS no se publica, así que no hay cambio que repartir.</div></div>;
+  }
+  const groups = [...s.groups].sort((a, b) => a.delta - b.delta);
+  let run = s.prev.nss;
+  const rows = [{ k: 'prev', label: week ? 'Semana previa' : 'Periodo previo', from: 0, to: s.prev.nss, total: true }];
+  groups.forEach((g) => { rows.push({ k: g.key, label: ST_WHERE[g.key], from: run, to: run + g.delta, g }); run += g.delta; });
+  rows.push({ k: 'cur', label: week ? 'Esta semana' : 'Este periodo', from: 0, to: s.cur.nss, total: true, strong: true });
+  const all = rows.flatMap((r) => [r.from, r.to]);
+  const lo = Math.min(0, ...all) - 1, hi = Math.max(0, ...all) + 1, x = (v) => ((v - lo) / (hi - lo)) * 100;
+  const ag = s.groups.find((g) => g.key === 'agencia');
+  const agNeutral = ag && !ag.cur.pos && !ag.cur.neg && !ag.prev.pos && !ag.prev.neg && ag.cur.n !== ag.prev.n;
+  return (
+    <div className="card">
+      {head(sub)}
+      <div className="card-bd">
+        <div className="st-wf">
+          {rows.map((r) => {
+            const v = r.total ? r.to : r.g.delta;
+            const col = r.total ? (r.strong ? 'var(--text)' : 'var(--text-3)') : v < 0 ? 'var(--neg)' : v > 0 ? 'var(--pos)' : 'var(--hairline-strong)';
+            return (
+              <div key={r.k} className={`st-wf-r${r.total ? ' tot' : ''}`} title={r.g ? `${r.g.cur.n} menciones (+${r.g.cur.pos} −${r.g.cur.neg}); periodo previo ${r.g.prev.n} (+${r.g.prev.pos} −${r.g.prev.neg})` : undefined}>
+                <span className="st-wf-l">{r.label}{r.g && <small className="num">{fmt(r.g.cur.n)} · +{r.g.cur.pos} −{r.g.cur.neg}</small>}</span>
+                <span className="st-wf-t"><i style={{ left: `${x(0)}%` }} /><b style={{ left: `${Math.min(x(r.from), x(r.to))}%`, width: `${Math.max(0.5, Math.abs(x(r.to) - x(r.from)))}%`, background: col }} /></span>
+                <span className="st-wf-v num">{r.total || v !== 0 ? stSigned(v) : '0.0'}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="st-note">Cada fila es lo que ese grupo sumó o restó: sus positivas menos sus negativas, sobre todas las menciones del periodo.{agNeutral ? ` Las publicaciones de la agencia salen neutrales: no suman ni restan, pero cuentan en el total (${fmt(ag.prev.n)} → ${fmt(ag.cur.n)}).` : ''}</div>
+      </div>
+    </div>
+  );
+}
+
+// Sentimiento por día: columnas con conteos, negativas abajo para compararlas entre días.
+function StDays({ timeline, onPick }) {
+  const src = (timeline || []).map((d) => ({ ...d, ymd: (d.fullDate || '').slice(0, 10), n: (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0) }));
+  const weekly = src.length > 45;
+  let rows = src;
+  if (weekly) { rows = []; src.forEach((d, i) => { if (i % 7 === 0) rows.push({ ymd: d.ymd, positivo: 0, neutral: 0, negativo: 0, n: 0 }); const b = rows[rows.length - 1]; b.positivo += d.positivo || 0; b.neutral += d.neutral || 0; b.negativo += d.negativo || 0; b.n += d.n; }); }
+  const mx = Math.max(1, ...rows.map((d) => d.n));
+  const every = rows.length <= 14 ? 1 : Math.ceil(rows.length / 10);
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">{weekly ? 'Sentimiento por semana' : 'Sentimiento por día'}</div><div className="card-hd-sub">conteos · negativas abajo{weekly ? '' : ' · clic en un día para ver sus menciones'}</div></div></div>
+      <div className="card-bd">
+        {rows.length === 0 ? <div className="st-empty">Sin menciones en el periodo.</div> : (
+          <div className="st-days" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
+            {rows.map((d, i) => (
+              <button key={d.ymd || i} className="st-day" disabled={weekly} onClick={() => onPick(d)}
+                title={`${weekly ? 'Semana del ' : ''}${stDate(d.ymd)}: ${d.n} menciones · ${d.positivo} positivas · ${d.negativo} negativas`}>
+                <span className="st-day-p"><span className="st-day-s">
+                  {rows.length <= 31 && <span className="st-day-n num">{d.n}</span>}
+                  <span className="st-day-b" style={{ height: `max(2px, calc((100% - 20px) * ${(d.n / mx).toFixed(4)}))` }}>
+                    <b style={{ flex: d.negativo || 0, background: ST_TONE.negativo }} /><b style={{ flex: d.neutral || 0, background: ST_TONE.neutral }} /><b style={{ flex: d.positivo || 0, background: ST_TONE.positivo }} />
+                  </span>
+                </span></span>
+                <span className="st-day-l">{i % every === 0 ? (rows.length <= 14 ? stDay(d.ymd) : stDate(d.ymd)) : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="st-legend"><span><StDot tone="positivo" />positivas</span><span><StDot tone="neutral" />neutrales</span><span><StDot tone="negativo" />negativas</span></div>
+      </div>
+    </div>
+  );
+}
+
+// Emociones del periodo: el ranking, con el color del tono de las menciones que las traen.
+function StEmotions({ emotions, an, onPick }) {
+  const list = [...(emotions || [])].filter((e) => e.count > 0).sort((a, b) => b.count - a.count);
+  const tone = {}; ((an && an.emotionTone) || []).forEach((t) => { tone[t.emotion] = t; });
+  const mx = Math.max(1, ...list.map((e) => e.count));
+  const colorOf = (e) => { const t = tone[e]; if (!t || !t.n) return 'var(--text-3)'; return t.neg >= t.n / 2 ? ST_TONE.negativo : t.pos >= t.n / 2 ? ST_TONE.positivo : 'var(--text-3)'; };
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Emociones detectadas</div><div className="card-hd-sub">{an && !an.error ? `${fmt(an.withEmotion)} de ${fmt(an.total)} menciones traen emoción` : 'emociones del periodo'}</div></div></div>
+      <div className="card-bd">
+        {list.length === 0 ? <div className="st-empty">Sin emociones clasificadas en el periodo.</div> : list.map((e, i) => (
+          <button key={e.emotion} className="st-er" onClick={() => onPick(e)} title={tone[e.emotion] ? `${tone[e.emotion].pos} positivas · ${tone[e.emotion].neg} negativas` : undefined}>
+            <span className="num st-muted">{String(i + 1).padStart(2, '0')}</span>
+            <span className="st-er-n">{e.emotion}</span>
+            <span className="st-er-t"><b style={{ width: `${(e.count / mx) * 100}%`, background: colorOf(e.emotion) }} /></span>
+            <span className="num st-er-c">{fmt(e.count)}</span>
+          </button>
+        ))}
+        {list.length > 0 && <div className="st-note">Color: el tono que domina en las menciones con esa emoción.</div>}
+      </div>
+    </div>
+  );
+}
+
+// Emociones, 12 semanas: menciones con cada emoción por semana; clic abre esas menciones.
+function StEmoWeeks({ an, onPick }) {
+  const head = (sub) => <div className="card-hd"><div><div className="card-hd-title">Emociones, 12 semanas</div><div className="card-hd-sub">{sub}</div></div></div>;
+  if (!an) return <div className="card">{head('Cargando…')}<div className="card-bd st-empty">Cargando…</div></div>;
+  if (an.error) return null;
+  const { weeks, rows } = an.emotionWeeks;
+  if (!rows.length) return <div className="card">{head('')}<div className="card-bd st-empty">Sin emociones clasificadas en las últimas 12 semanas.</div></div>;
+  const mx = Math.max(1, ...rows.flatMap((r) => r.counts));
+  const last = weeks.length - 1;
+  return (
+    <div className="card">
+      {head(`menciones con cada emoción por semana, hasta el ${stDate(weeks[last].end)} · clic para leerlas`)}
+      <div className="card-bd scroll-x">
+        <div className="st-ew" style={{ gridTemplateColumns: `minmax(110px, 160px) repeat(${weeks.length}, minmax(44px, 1fr))` }}>
+          <span />
+          {weeks.map((w, i) => <span key={w.start} className={`st-ew-h num${i === last ? ' cur' : ''}`}>{stDate(w.start)}</span>)}
+          {rows.map((r) => (
+            <React.Fragment key={r.emotion}>
+              <span className="st-ew-n">{r.emotion}</span>
+              {r.counts.map((v, i) => {
+                const k = v ? Math.min(5, 1 + Math.floor((v / mx) * 5)) : 0;
+                return (
+                  <button key={i} className={`st-ew-c num${i === last ? ' cur' : ''}`} disabled={!v} onClick={() => onPick(r.emotion, weeks[i])}
+                    style={k ? { background: ST_SEQ[k], color: k >= 4 ? 'var(--canvas)' : 'var(--text)', borderColor: 'transparent' } : undefined}
+                    title={`${r.emotion} · ${stDate(weeks[i].start)} – ${stDate(weeks[i].end)}: ${v} menciones`}>{v || '·'}</button>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SentimentScreen({ onMentionClick, period, agency }) {
   const [slice, setSlice] = useState(null);
   const [groupBy, setGroupBy] = useState('source');
   const m = D.CURRENT_METRICS;
+  // Quién movió el NSS y las emociones de 12 semanas: misma ventana que eco-data
+  // (from/to de D.PERIOD), así la cascada empieza y termina en el NSS de arriba.
+  const [an, setAn] = useState(null);
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    const win = ecoDataWindow();
+    const params = new URLSearchParams(win.from && win.to ? { from: win.from, to: win.to } : window.ecoGetPeriodParams());
+    if (agency) params.set('agency', agency);
+    ecoFetchAuthed('/api/sentiment/analysis?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+      .then((j) => setAn(j))
+      .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } setAn({ error: true }); });
+    return () => ctrl.abort();
+  }, [agency]);
+  function openEmotionWeekSlice(emotion, wk) {
+    setSlice({ eyebrow: `Emoción · ${stDate(wk.start)} – ${stDate(wk.end)}`, title: emotion, accent: emotionColor(emotion), mentions: [], _filter: { from: wk.start, to: wk.end, emotion } });
+  }
 
   // Mapa de dimensiones del breakdown "Sentimiento por X". Las 4 fuentes de
   // datos vienen del API /api/eco-data — ver eco-data/route.ts.
@@ -2360,8 +2557,8 @@ function SentimentScreen({ onMentionClick, period, agency }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       {/* Narrative hero */}
-      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('1fr auto', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
-        <div>
+      <div className="card" style={{ padding: 'var(--pad-card)', display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1.3fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-6)', alignItems: 'center' }}>
+        <div style={{ minWidth: 0 }}>
           <div className="section-eyebrow">NSS (Net Sentiment Score)</div>
           <button onClick={openNssInsight}
             className="row-hover"
@@ -2410,63 +2607,19 @@ function SentimentScreen({ onMentionClick, period, agency }) {
             );
           })()}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
-          <div>
-            <Donut data={D.SENTIMENT_BREAKDOWN} size={110} thickness={14} colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
-            {D.SENTIMENT_BREAKDOWN.map((s) => {
-              // El % debe normalizarse sobre la suma del propio breakdown (no
-              // sobre m.totalMentions): SENTIMENT_BREAKDOWN y totalMentions son
-              // campos independientes y divergen, lo que hacía que pos+neu+neg
-              // sumara ≠100% (p. ej. 112%).
-              const sbTotal = D.SENTIMENT_BREAKDOWN.reduce((acc, x) => acc + (x.value || 0), 0) || 1;
-              const pct = Math.round((s.value / sbTotal) * 100);
-              const c = s.name === 'positivo' ? 'var(--pos)' : s.name === 'negativo' ? 'var(--neg)' : 'var(--text-3)';
-              return (
-                <button key={s.name} onClick={() => openSentimentSlice(s.name)}
-                  className="row-hover"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', background: 'transparent',
-                    border: 'none', padding: '4px 6px', marginInline: -6, borderRadius: 'var(--r-md)',
-                    cursor: 'pointer', textAlign: 'left', minWidth: 160,
-                  }}>
-                  <span className="dot" style={{ background: c }} />
-                  <span style={{ color: 'var(--text-2)' }}>{s.label}</span>
-                  <span className="num" style={{ fontWeight: 600, marginLeft: 'auto' }}>{pct}%</span>
-                  <Icons.ArrowRight size={11} color="var(--text-3)" />
-                </button>
-              );
-            })}
-          </div>
+        <div style={{ minWidth: 0 }}>
+          <StToneBar breakdown={D.SENTIMENT_BREAKDOWN} onPick={openSentimentSlice} />
         </div>
       </div>
 
-      {/* Charts */}
-      {/* alignItems:'start': con el stretch por defecto la tarjeta del chart se
-          estiraba hasta el alto de EmotionsCard y quedaban 216px de canvas
-          vacío dentro de ella (el 41% de su cuerpo), porque el chart tiene alto
-          fijo y su hermana crece con las filas. El alto del chart sube a 340 en
-          la línea del StackedAreaChart. */}
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.5fr 1fr', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
-        <div className="card">
-          <div className="card-hd">
-            <div><div className="card-hd-title">Sentimiento en el tiempo</div><div className="card-hd-sub">Volumen apilado · click un día para ver menciones</div></div>
-          </div>
-          <div className="card-bd">
-            <StackedAreaChart data={D.TIMELINE} keys={['positivo', 'neutral', 'negativo']}
-              labels={{ positivo: 'Positivo', neutral: 'Neutral', negativo: 'Negativo' }}
-              colors={['var(--pos)', 'var(--neu)', 'var(--neg)']} height={260} onPointClick={openTimelineDaySlice} />
-            <div style={{ display: 'flex', gap: 'var(--sp-4)', justifyContent: 'center', marginTop: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--pos)' }} /> Positivo</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--text-3)' }} /> Neutral</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}><span className="dot" style={{ background: 'var(--neg)' }} /> Negativo</span>
-            </div>
-          </div>
-        </div>
+      <StShift an={an} periodKey={(D.PERIOD && D.PERIOD.key) || period} />
 
-        <EmotionsCard emotions={D.EMOTIONS} onEmotionClick={openEmotionSlice} />
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1.5fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
+        <StDays timeline={D.TIMELINE} onPick={(d) => openTimelineDaySlice({ ...d, date: stDate(d.ymd), fullDate: d.ymd + 'T00:00:00.000Z' })} />
+        <StEmotions emotions={D.EMOTIONS} an={an} onPick={openEmotionSlice} />
       </div>
+
+      <StEmoWeeks an={an} onPick={openEmotionWeekSlice} />
 
       <div className="card">
         <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-3)' }}>
@@ -2528,7 +2681,7 @@ function SentimentScreen({ onMentionClick, period, agency }) {
                 {/* 24px de alto: mínimo de objetivo de WCAG 2.2 AA. Antes eran 12px. */}
                 <div style={{ display: 'flex', height: 24, borderRadius: 'var(--r-sm)', overflow: 'hidden', background: 'var(--canvas-2)' }}>
                   <div style={{ width: `${pos}%`, background: 'var(--pos)' }} />
-                  <div style={{ width: `${neu}%`, background: 'var(--text-3)' }} />
+                  <div style={{ width: `${neu}%`, background: 'var(--hairline-strong)' }} />
                   <div style={{ width: `${neg}%`, background: 'var(--neg)' }} />
                 </div>
                 {/* Pie en ORDEN DE LECTURA, no repartido por la fila. Con
@@ -2570,172 +2723,6 @@ function emotionColor(emotion) {
   // --emo-*. Antes esta función tenía 7 hex escritos a mano y un gris de
   // fallback (#7B8794) que no pertenecía a ninguna paleta del sistema.
   return window.ecoEmotionColor(emotion);
-}
-
-function EmotionsCard({ emotions, onEmotionClick }) {
-  const sorted = [...(emotions || [])].sort((a, b) => b.count - a.count);
-  const total = sorted.reduce((s, e) => s + e.count, 0);
-  const top = sorted[0];
-
-  if (!top) {
-    return (
-      <div className="card">
-        <div className="card-hd">
-          <div>
-            <div className="card-hd-title">Emociones detectadas</div>
-            <div className="card-hd-sub">Perfil del período</div>
-          </div>
-          <Icons.Heart size={14} color="var(--text-3)" />
-        </div>
-        <div className="card-bd">
-          <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-caption)', padding: '20px 0' }}>
-            Sin emociones clasificadas en el periodo.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const topColor = emotionColor(top.emotion);
-
-  return (
-    <div className="card">
-      <div className="card-hd">
-        <div>
-          <div className="card-hd-title">Emociones detectadas</div>
-          <div className="card-hd-sub">Perfil del período · {fmt(total)} menciones clasificadas</div>
-        </div>
-        <Icons.Heart size={14} color="var(--text-3)" />
-      </div>
-      <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-        {/* Emoción dominante (hero) */}
-        <button onClick={() => onEmotionClick(top)}
-          className="row-hover"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 'var(--sp-4)',
-            padding: '12px 14px', borderRadius: 'var(--r-lg)',
-            // Cromo NEUTRO a propósito. Antes el fondo y el borde se mezclaban
-            // con el color de la emoción dominante, así que con "Sorpresa"
-            // (--emo-sorpresa era --warn) el card salía ámbar y era
-            // indistinguible de una tarjeta de advertencia — el mismo --warn de
-            // la banda "ELEVADO" del riesgo de crisis. El dato es un conteo: no
-            // tiene severidad que el cromo pueda codificar. El color de la
-            // emoción sigue presente donde sí identifica (halo + disco).
-            background: 'var(--canvas-2)',
-            border: '1px solid var(--hairline)',
-            cursor: 'pointer', textAlign: 'left', width: '100%',
-          }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: '50%',
-            background: `color-mix(in oklab, ${topColor} 18%, transparent)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <div style={{ width: 22, height: 22, borderRadius: '50%', background: topColor }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {/* .section-eyebrow es la receta de eyebrow del producto (42 usos).
-                Esta línea tenía la tercera receta inline (11px/700/0.08em) y
-                además la pintaba con el color del dato, que convertía un rótulo
-                en un indicador de estado. */}
-            <div className="section-eyebrow" style={{ marginBottom: 0 }}>Emoción dominante</div>
-            <div style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, fontFamily: 'var(--ff-display)', color: 'var(--text)', marginTop: 'var(--sp-05)' }}>{top.emotion}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            {/* --fs-num-lg, no --fs-display-lg: es un conteo, no un título.
-                Además --fs-display-lg es clamp(20px,2vw,24px), así que en móvil
-                este número bajaba a 20px mientras las cifras de las filas de
-                abajo (--fs-caption, fijo) no se movían y la jerarquía del card
-                se aplanaba justo donde hay menos sitio. */}
-            <div className="num" style={{ fontSize: 'var(--fs-num-lg)', fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{fmt(top.count)}</div>
-            <div className="num" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 'var(--sp-1)' }}>{Math.round((top.count / total) * 100)}% del total</div>
-          </div>
-          <Icons.ArrowRight size={14} color="var(--text-3)" />
-        </button>
-
-        {/* Ranking de emociones — todas pintadas por nombre (no por e.color del
-            backend que podía ser 'neu' sin var CSS).
-
-            La barra se normaliza al MÁXIMO DE LA SERIE, no al 100%. Con 7
-            categorías que suman 100% el techo real ronda el 30%, así que en una
-            pista 0–100% el 70% quedaba vacío por construcción: la barra más
-            larga medía 47px de 161 y "Esperanza" (20.9%) y "Tristeza" (16.6%)
-            se separaban 7px. El gráfico decía "todas las emociones son bajas"
-            en vez de compararlas, que es para lo que existe la tarjeta. El
-            share absoluto no se pierde: va impreso en cada fila.
-
-            El piso artificial del 2% se va con la normalización: falseaba el
-            extremo bajo (3.0% y 0.5% dibujaban barras casi iguales) y ya no
-            hace falta porque el mínimo pasa a ser count/maxCount de la serie. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-05)' }}>
-          {sorted.map((e, i) => {
-            const pct = total > 0 ? (e.count / total) * 100 : 0;
-            const maxCount = sorted[0].count || 1;
-            const color = emotionColor(e.emotion);
-            const widthPct = e.count > 0 ? (e.count / maxCount) * 100 : 0;
-            return (
-              <button key={e.emotion} onClick={() => onEmotionClick(e)}
-                className="row-hover"
-                style={{
-                  // En móvil las columnas de TEXTO son proporcionales y el cromo
-                  // fijo baja de 266px a 114px. Con la rejilla de desktop
-                  // (22+120+64+12 fijos + 4 gaps de 12) la barra se quedaba con
-                  // ~66px de los 161 de desktop —el 59% menos— mientras la
-                  // etiqueta y las cifras no cedían un píxel. La barra es el
-                  // único elemento cuantitativo de la fila: debe ser la que más
-                  // crece, no la que más se comprime.
-                  display: 'grid',
-                  gridTemplateColumns: window.ecoCols('22px 120px 1fr 64px 12px', '20px minmax(0, 1.1fr) minmax(0, 2fr) 52px 10px'),
-                  // Dos filas explícitas: la 1 es el renglón que el ojo recorre
-                  // (rango · emoción · barra · conteo) y la 2 sólo cuelga el
-                  // share bajo su propio conteo. Con una sola fila, la celda de
-                  // dos líneas era la más alta y centraba a las demás contra
-                  // ella: el conteo salía ~8px por encima de la línea base de su
-                  // etiqueta y el % ~7px por debajo, y la barra flotaba en el
-                  // hueco entre los dos. La etiqueta y su cifra son el par que
-                  // se compara en las 7 filas: tienen que compartir línea.
-                  gridTemplateRows: 'auto auto',
-                  // gap se abre en dos: el de columna es el de antes, el de fila
-                  // reproduce el marginTop que llevaba el % dentro del envoltorio.
-                  columnGap: window.ecoCols('var(--sp-3)', 'var(--sp-2)'),
-                  rowGap: 'var(--sp-05)', alignItems: 'center',
-                  padding: '8px 10px', marginInline: -10, borderRadius: 'var(--r-md)',
-                  background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
-                  fontSize: 'var(--fs-caption)',
-                }}>
-                <span className="mono" style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', fontWeight: 600 }}>{String(i + 1).padStart(2, '0')}</span>
-                <span style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.emotion}</span>
-                <div style={{ height: 8, borderRadius: 'var(--r-sm)', background: 'var(--canvas-2)', overflow: 'hidden', position: 'relative' }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${widthPct}%`,
-                    background: color,
-                    borderRadius: 'inherit',
-                    transition: 'width 0.3s var(--ease)',
-                  }} />
-                </div>
-                {/* Conteo y share son hijos DIRECTOS de la rejilla, no un span
-                    envoltorio: ese envoltorio de dos líneas era la celda que
-                    fijaba el alto de la fila y contra la que se centraba todo lo
-                    demás. lineHeight:1.1 se va con él — la altura de la línea la
-                    fija ahora la fila 1. */}
-                <span className="num" style={{ gridColumn: '4', gridRow: '1', textAlign: 'right', color: 'var(--text-2)', fontWeight: 600, fontSize: 'var(--fs-caption)' }}>{fmt(e.count)}</span>
-                {/* La flecha va en la fila 1, no centrada en el bloque: es el
-                    renglón que se recorre; centrada volvería a flotar entre las
-                    dos líneas. */}
-                <Icons.ArrowRight size={11} color="var(--text-3)" style={{ gridColumn: '5', gridRow: '1' }} />
-                {/* El share cuelga bajo SU columna: sigue impreso en cada fila
-                    (la barra se normaliza al máximo de la serie, no al 100%, así
-                    que este % es el único sitio donde se lee el share absoluto)
-                    pero ya no empuja la línea de la etiqueta. */}
-                <span className="num" style={{ gridColumn: '4', gridRow: '2', textAlign: 'right', color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{pct.toFixed(1)}%</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // =============== TOPICS ===============

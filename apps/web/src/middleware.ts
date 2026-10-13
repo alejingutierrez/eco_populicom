@@ -40,6 +40,7 @@ const PROTECTED_PATHS = [
   /^\/api\/narrative(\/.*)?$/,
   /^\/api\/scorecard(\/.*)?$/,
   /^\/api\/mentions(\/.*)?$/,
+  /^\/api\/sentiment(\/.*)?$/,
   /^\/api\/chat(\/.*)?$/,
   // El reporte exportable devuelve el período completo de una agencia: nunca
   // puede servirse sin sesión.
@@ -172,6 +173,8 @@ export const config = {
     '/api/scorecard',
     // Análisis de la página de Menciones (/api/mentions/analysis).
     '/api/mentions/:path*',
+    // Análisis de la página de Sentimiento (/api/sentiment/analysis).
+    '/api/sentiment/:path*',
     '/api/chat/:path*',
     '/api/export/:path*',
   ],
