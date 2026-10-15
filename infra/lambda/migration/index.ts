@@ -5,7 +5,7 @@
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
-import { TOPICS_BY_AGENCY, scrapeImageForMention } from '@eco/shared';
+import { MUNICIPALITIES, TOPICS_BY_AGENCY, scrapeImageForMention } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
 const bedrock = new BedrockRuntimeClient({});
@@ -1279,19 +1279,16 @@ async function runSeed(client: any): Promise<void> {
     console.log(`  -> ${ddecprTopics.length} DDECPR topics seeded`);
   }
 
-  // Seed municipalities (all 78)
-  const municipalities = [
-    ['san-juan','San Juan','Metro',18.4655,-66.1057,318441],['bayamon','Bayamón','Metro',18.3985,-66.1553,170110],['carolina','Carolina','Metro',18.3811,-65.9574,146984],['guaynabo','Guaynabo','Metro',18.3566,-66.1108,89780],['trujillo-alto','Trujillo Alto','Metro',18.3547,-66.0074,67740],['catano','Cataño','Metro',18.4414,-66.1181,24888],['toa-baja','Toa Baja','Metro',18.4442,-66.2546,75204],['toa-alta','Toa Alta','Metro',18.3882,-66.2484,68025],['arecibo','Arecibo','Norte',18.4725,-66.7157,87242],['manati','Manatí','Norte',18.4319,-66.4835,38692],['vega-baja','Vega Baja','Norte',18.4443,-66.3907,54414],['vega-alta','Vega Alta','Norte',18.4123,-66.3312,37910],['dorado','Dorado','Norte',18.4589,-66.2678,37688],['barceloneta','Barceloneta','Norte',18.4512,-66.5385,22322],['camuy','Camuy','Norte',18.4839,-66.8449,30466],['hatillo','Hatillo','Norte',18.4866,-66.7883,37945],['quebradillas','Quebradillas','Norte',18.4729,-66.9386,23423],['isabela','Isabela','Norte',18.5000,-67.0244,42420],['loiza','Loíza','Norte',18.4313,-65.8783,24553],['rio-grande','Río Grande','Norte',18.3802,-65.8314,48025],['luquillo','Luquillo','Norte',18.3726,-65.7165,18547],['caguas','Caguas','Este',18.2388,-66.0486,127244],['humacao','Humacao','Este',18.1497,-65.8198,50896],['fajardo','Fajardo','Este',18.3258,-65.6525,32240],['juncos','Juncos','Este',18.2276,-65.9211,37165],['las-piedras','Las Piedras','Este',18.1831,-65.8666,36110],['gurabo','Gurabo','Este',18.2542,-65.9730,45369],['san-lorenzo','San Lorenzo','Este',18.1895,-65.9607,37873],['naguabo','Naguabo','Este',18.2115,-65.7347,25718],['yabucoa','Yabucoa','Este',18.0507,-65.8792,32282],['ceiba','Ceiba','Este',18.2632,-65.6487,11853],['culebra','Culebra','Este',18.3103,-65.3028,1714],['vieques','Vieques','Este',18.1263,-65.4401,8249],['aguas-buenas','Aguas Buenas','Este',18.2570,-66.1021,25314],['cidra','Cidra','Este',18.1759,-66.1612,38307],['cayey','Cayey','Este',18.1119,-66.1660,44015],['maunabo','Maunabo','Este',18.0072,-65.8992,10679],['patillas','Patillas','Este',18.0038,-65.9966,16468],['mayaguez','Mayagüez','Oeste',18.2013,-67.1397,71083],['aguadilla','Aguadilla','Oeste',18.4274,-67.1541,54166],['cabo-rojo','Cabo Rojo','Oeste',18.0866,-67.1457,46024],['san-german','San Germán','Oeste',18.0831,-67.0359,30227],['anasco','Añasco','Oeste',18.2828,-67.1395,26322],['rincon','Rincón','Oeste',18.3402,-67.2499,14293],['aguada','Aguada','Oeste',18.3793,-67.1876,37516],['moca','Moca','Oeste',18.3949,-67.1131,36019],['san-sebastian','San Sebastián','Oeste',18.3367,-66.9904,36249],['las-marias','Las Marías','Oeste',18.2518,-66.9910,8606],['hormigueros','Hormigueros','Oeste',18.1395,-67.1270,15806],['lajas','Lajas','Oeste',18.0498,-67.0591,23315],['sabana-grande','Sabana Grande','Oeste',18.0786,-66.9608,22284],['maricao','Maricao','Oeste',18.1808,-66.9800,5318],['ponce','Ponce','Sur',18.0111,-66.6141,132502],['guayama','Guayama','Sur',17.9843,-66.1117,37685],['juana-diaz','Juana Díaz','Sur',18.0535,-66.5065,44790],['salinas','Salinas','Sur',18.0021,-66.2576,27518],['santa-isabel','Santa Isabel','Sur',17.9661,-66.4049,21384],['coamo','Coamo','Sur',18.0799,-66.3580,38336],['guanica','Guánica','Sur',17.9715,-66.9074,15228],['yauco','Yauco','Sur',18.0352,-66.8499,35025],['guayanilla','Guayanilla','Sur',18.0193,-66.7917,17623],['penuelas','Peñuelas','Sur',18.0563,-66.7260,19267],['arroyo','Arroyo','Sur',17.9665,-66.0613,17111],['villalba','Villalba','Sur',18.1277,-66.4924,22093],['utuado','Utuado','Central',18.2655,-66.7008,28186],['lares','Lares','Central',18.2957,-66.8780,25647],['adjuntas','Adjuntas','Central',18.1627,-66.7224,17024],['jayuya','Jayuya','Central',18.2183,-66.5916,14536],['ciales','Ciales','Central',18.3368,-66.4689,16374],['morovis','Morovis','Central',18.3253,-66.4075,29612],['orocovis','Orocovis','Central',18.2269,-66.3912,20791],['barranquitas','Barranquitas','Central',18.1863,-66.3063,27725],['aibonito','Aibonito','Central',18.1400,-66.2661,23457],['comerio','Comerío','Central',18.2189,-66.2256,18648],['naranjito','Naranjito','Central',18.3009,-66.2450,27914],['corozal','Corozal','Central',18.3417,-66.3168,33478],['florida','Florida','Central',18.3626,-66.5717,11254],
-  ];
-
-  for (const [slug, name, region, lat, lon, pop] of municipalities) {
+  // Seed municipalities (all 78): el catálogo vive en @eco/shared, igual que
+  // en packages/database/src/seed. Aquí había una copia a mano sin Canóvanas.
+  for (const m of MUNICIPALITIES) {
     await client.query(`
       INSERT INTO municipalities (name, slug, region, latitude, longitude, population)
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (slug) DO NOTHING
-    `, [name, slug, region, lat, lon, pop]);
+    `, [m.name, m.slug, m.region, m.latitude, m.longitude, m.population]);
   }
-  console.log(`  -> ${municipalities.length} municipalities seeded`);
+  console.log(`  -> ${MUNICIPALITIES.length} municipalities seeded`);
 
   // Seed topics and subtopics
   const topicsData: Array<[string, string, string, number, Array<[string, string, string, number]>]> = [
