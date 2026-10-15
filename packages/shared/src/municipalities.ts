@@ -1,10 +1,16 @@
 // ============================================================
 // ECO Platform — Municipalities of Puerto Rico
 // ============================================================
-// Población: estimado del Negociado del Censo de EE. UU. al 1 de julio de 2025
-// (Vintage 2025, tabla PRM-EST2025-POP; los 78 municipios suman 3,184,835).
-// Falta Canóvanas (41,302 en 2025): no está en este catálogo ni en la base.
+// Los 78 municipios. Población: estimado del Negociado del Censo de EE. UU. al
+// 1 de julio de 2025 (Vintage 2025, tabla PRM-EST2025-POP; suman 3,184,835).
 // La base de datos (`municipalities.population`) lleva las mismas cifras.
+// Coordenadas: el centro del pueblo (no el centroide del municipio).
+//
+// Región: Metro es el núcleo de San Juan (8 municipios), no el área
+// metropolitana del Censo; los que lo rodean van con su costa (Dorado y Loíza
+// en Norte). Canóvanas va en Norte: su pueblo está en el llano del norte, junto
+// a Río Grande, y fue barrio de Loíza hasta 1970. Todos los pueblos de Norte
+// quedan a 18.37° N o más y todos los de Este a 18.33° o menos.
 
 export interface MunicipalityDef {
   slug: string;
@@ -37,6 +43,7 @@ export const MUNICIPALITIES: MunicipalityDef[] = [
   { slug: 'quebradillas', name: 'Quebradillas', region: 'Norte', latitude: 18.4729, longitude: -66.9386, population: 23189 },
   { slug: 'isabela', name: 'Isabela', region: 'Norte', latitude: 18.5000, longitude: -67.0244, population: 42938 },
   { slug: 'loiza', name: 'Loíza', region: 'Norte', latitude: 18.4313, longitude: -65.8783, population: 21542 },
+  { slug: 'canovanas', name: 'Canóvanas', region: 'Norte', latitude: 18.3792, longitude: -65.9010, population: 41302 },
   { slug: 'rio-grande', name: 'Río Grande', region: 'Norte', latitude: 18.3802, longitude: -65.8314, population: 44799 },
   { slug: 'luquillo', name: 'Luquillo', region: 'Norte', latitude: 18.3726, longitude: -65.7165, population: 17190 },
   // Este
