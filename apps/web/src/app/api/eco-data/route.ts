@@ -20,6 +20,7 @@ import {
   loadSentimentTotals,
   loadDailySentimentSeries,
   decodeHtmlEntities,
+  isArchivedAgency,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -223,6 +224,7 @@ export async function GET(request: NextRequest) {
         name: agencies.name,
         slug: agencies.slug,
         brandwatchProjectId: agencies.brandwatchProjectId,
+        brandwatchQueryIds: agencies.brandwatchQueryIds,
       })
       .from(agencies)
       .where(eq(agencies.isActive, true));
@@ -239,16 +241,18 @@ export async function GET(request: NextRequest) {
 
     // `archived` = la agencia dejó de recolectar, pero su histórico se sigue
     // consultando. No hay columna propia para esto: el `exec-write` del lambda
-    // de migración solo acepta UPDATE/INSERT/DELETE, así que se deriva de la
-    // única señal que ya existe Y que además frena el ETL por sí sola —
-    // eco-ingestion selecciona con `WHERE brandwatch_project_id IS NOT NULL`,
-    // de modo que vaciar ese campo la saca del pipeline sin sacarla del
-    // dashboard. El front pinta el aviso de que no se actualiza.
+    // de migración solo acepta UPDATE/INSERT/DELETE, así que se deriva de las
+    // señales que ya existen Y que además frenan el ETL por sí solas —
+    // eco-ingestion selecciona con `WHERE brandwatch_project_id IS NOT NULL`
+    // y eco-processor mapea por `brandwatch_query_ids`. Archivada = sin
+    // ninguna de las dos; una agencia importada de Bunker (DF) no tiene
+    // proyecto pero sí su query negativo, y se actualiza con cada exporte.
+    // El front pinta el aviso de que no se actualiza.
     const AGENCIES_FULL = visibleAgencies.map((a) => ({
       key: a.slug,
       name: (a.slug || '').toUpperCase().slice(0, 6),
       long: a.name,
-      archived: a.brandwatchProjectId == null,
+      archived: isArchivedAgency(a),
     }));
 
     // Sentinel "TODAS" para la vista ejecutiva multi-agencia — solo staff

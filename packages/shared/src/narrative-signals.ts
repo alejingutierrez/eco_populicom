@@ -133,11 +133,11 @@ export const VOICE_LABELS: Record<string, string> = {
 
 /** Cómo se nombra a la propia agencia cuando ella inició una narrativa. */
 export const AGENCY_SHORT_LABEL: Record<string, string> = {
-  ddecpr: 'DDEC', aaa: 'AAA', gobernadora: 'Gobernadora', sgpr: 'SGPR',
+  ddecpr: 'DDEC', aaa: 'AAA', gobernadora: 'Gobernadora', sgpr: 'SGPR', df: 'DF',
 };
 /** El mismo nombre con su artículo, para la prosa («no la inició el DDEC»). */
 export const AGENCY_ARTICLE_LABEL: Record<string, string> = {
-  ddecpr: 'el DDEC', aaa: 'la AAA', gobernadora: 'la Gobernadora', sgpr: 'la SGPR',
+  ddecpr: 'el DDEC', aaa: 'la AAA', gobernadora: 'la Gobernadora', sgpr: 'la SGPR', df: 'el DF',
 };
 
 /** Cuentas propias por agencia (además de la que coincide con su nombre). */
@@ -146,6 +146,7 @@ export const AGENCY_OWN_VOICES: Record<string, string[]> = {
   aaa: ['aaapr', 'acueductospr', 'autoridaddeacueductosyalcantarillados'],
   gobernadora: ['jenniffergonzalezcolon', 'jgo', 'fortalezapr', 'lafortalezadepr', 'gobiernodepuertorico'],
   sgpr: ['secretariadelagobernacion', 'secretariadelagobernacionpr'],
+  df: ['somosfamiliapr', 'departamentodelafamiliapr', 'familiapr'],
 };
 
 /** Voces institucionales de política (para el origen «Política»). */

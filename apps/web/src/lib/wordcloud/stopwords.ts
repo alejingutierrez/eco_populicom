@@ -55,6 +55,8 @@ export const STOP_ENTITIES = [
   'jenniffer', 'jennifer', 'gonzález', 'gonzalez', 'colón', 'colon', 'jgo',
   // SGPR
   'sgpr', 'domenech',
+  // DF (Familia: «familia» es palabra común, va solo en su panel)
+  'df',
 ];
 
 /**
@@ -113,6 +115,7 @@ export const STOP_BY_AGENCY: Record<string, string[]> = {
   aaa: ['aaa', 'acueductos', 'alcantarillados', 'agua'],
   gobernadora: ['jenniffer', 'gonzález', 'colón', 'gobernadora', 'gobernador'],
   sgpr: ['sgpr', 'gobernación', 'secretario', 'domenech'],
+  df: ['familia', 'df', 'suzanne', 'roig', 'fuertes'],
 };
 
 export function stopSurfacesFor(agencySlug: string | null | undefined): string[] {

@@ -5,7 +5,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, type ArticleTextResult } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -484,6 +484,16 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   console.log(`[${agency.slug}] Mention ${resourceId} processed: sentiment=${nlp.sentiment}, pertinence=${nlp.pertinence}, topics=${nlp.topics.length}`);
 }
 
+/** Reglas de routing históricas del prompt (escritas para DDEC); las usan las
+ *  agencias sin entrada en TOPIC_ROUTING_RULES. */
+const LEGACY_ROUTING_RULES = `- Si el post anuncia el NÚMERO DE EMPLEOS como hecho central → topic = empleo-fuerza-laboral. Si habla de la DECISIÓN/SECTOR corporativo → topic = inversion-extranjera.
+- Misión comercial España: si centra en "empresas PR exportando" → comercio-exterior; si centra en "atraer capital ES a PR" → inversion-extranjera.
+- Hotel boutique con créditos Ley 60: si la conversación es "caso de éxito turístico" → turismo-economia; si es "controversia Ley 60" → incentivos-economicos.
+- Compañía Turismo separación: legislacion-economica (NO turismo-economia).
+- OGPe / PC 1183 / inspecciones bomberos: si discute "permisos como sistema" → permisos-reforma; si discute "DDEC como agencia receptora/cedente de funciones" → legislacion-economica.
+- Críticas dirigidas a la PERSONA del Secretario (credibilidad, gestión, viajes): topic = gestion-secretario con sentiment=negativo; reserva criticas-controversias para críticas al PROYECTO o al MODELO económico, no a la persona.
+- FITUR: turismo-economia.fitur-y-promocion-internacional (NO comercio-exterior).`;
+
 async function analyzeWithClaude(
   mention: BrandwatchMention,
   agency: AgencyInfo,
@@ -521,8 +531,15 @@ async function analyzeWithClaude(
     ? fullText.slice(0, NLP_TEXT_LIMIT) + (fullText.length > NLP_TEXT_LIMIT ? '\n[…texto recortado]' : '')
     : (mention.snippet ?? '(sin texto)');
 
+  // Contexto y reglas de routing propios de la agencia (topics.ts). Sin
+  // entrada, el prompt es el de siempre: el bloque de routing histórico
+  // (escrito para DDEC) se conserva tal cual para no mover la clasificación
+  // de las agencias que ya lo usan.
+  const agencyContext = AGENCY_NLP_CONTEXT[agency.slug] ? `\n\nCONTEXTO DE LA AGENCIA:\n${AGENCY_NLP_CONTEXT[agency.slug]}` : '';
+  const routingRules = TOPIC_ROUTING_RULES[agency.slug] ?? LEGACY_ROUTING_RULES;
+
   const prompt = `Eres un analista de social listening especializado en Puerto Rico.
-Analiza esta mención sobre ${agency.name}.
+Analiza esta mención sobre ${agency.name}.${agencyContext}
 
 MENCIÓN:
 Título: ${mention.title ?? '(sin título)'}
@@ -555,13 +572,7 @@ REGLAS DE TOPICS/SUBTOPICS:
 - Máximo 3 tópicos por mención. confidence: 0.0 a 1.0.
 
 REGLAS DE ROUTING CROSS-TOPIC (cuando la mención toca varios temas, elige UNO primario):
-- Si el post anuncia el NÚMERO DE EMPLEOS como hecho central → topic = empleo-fuerza-laboral. Si habla de la DECISIÓN/SECTOR corporativo → topic = inversion-extranjera.
-- Misión comercial España: si centra en "empresas PR exportando" → comercio-exterior; si centra en "atraer capital ES a PR" → inversion-extranjera.
-- Hotel boutique con créditos Ley 60: si la conversación es "caso de éxito turístico" → turismo-economia; si es "controversia Ley 60" → incentivos-economicos.
-- Compañía Turismo separación: legislacion-economica (NO turismo-economia).
-- OGPe / PC 1183 / inspecciones bomberos: si discute "permisos como sistema" → permisos-reforma; si discute "DDEC como agencia receptora/cedente de funciones" → legislacion-economica.
-- Críticas dirigidas a la PERSONA del Secretario (credibilidad, gestión, viajes): topic = gestion-secretario con sentiment=negativo; reserva criticas-controversias para críticas al PROYECTO o al MODELO económico, no a la persona.
-- FITUR: turismo-economia.fitur-y-promocion-internacional (NO comercio-exterior).
+${routingRules}
 
 MUNICIPALITIES:
 - Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).

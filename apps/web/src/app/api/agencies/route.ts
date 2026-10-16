@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { agencies } from '@eco/database';
 import { eq } from 'drizzle-orm';
+import { isArchivedAgency } from '@eco/shared';
 import { resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
@@ -26,9 +27,10 @@ export async function GET() {
   const visible = (await filterAgenciesForCaller(
     allowedSlugs ? result.filter((a) => allowedSlugs.includes(a.slug)) : result,
   ))
-    // Ver la nota en /api/eco-data: sin proyecto de Brandwatch la agencia sigue
-    // visible para consultar el histórico, pero ya no entra al pipeline.
-    .map((a) => ({ ...a, archived: a.brandwatchProjectId == null }));
+    // Ver la nota en /api/eco-data: sin ninguna fuente (ni proyecto de
+    // Brandwatch ni query importado) la agencia sigue visible para consultar
+    // el histórico, pero ya no entra al pipeline.
+    .map((a) => ({ ...a, archived: isArchivedAgency(a) }));
 
   return NextResponse.json(visible, {
     headers: { 'Cache-Control': 'private, no-store' },
