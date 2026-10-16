@@ -230,6 +230,46 @@ usa el self-heal pattern descrito arriba.
 
 ---
 
+## Agencias que NO entran por Brandwatch (importación de Bunker, oct 2026)
+
+**DF — Departamento de la Familia** (`slug='df'`, id `ee0a3e3c-…`) recibe sus
+menciones como exportes xlsx de Bunker que el usuario descarga y comparte.
+No hay ingesta automática: el dashboard y los correos se actualizan cuando
+se importa un exporte nuevo.
+
+- **Cómo la reconoce el pipeline**: `brandwatch_project_id = NULL` (así
+  eco-ingestion no la consulta en la API de Brandwatch) y
+  `brandwatch_query_ids = [-1001]` (eco-processor mapea ese queryId a la
+  agencia). Los queryId NEGATIVOS son fuentes importadas
+  (`isImportQueryId`); archivada = sin proyecto NI query (`isArchivedAgency`,
+  SGPR tiene `[]`).
+- **Importar un exporte nuevo** (idempotente: el resourceId sale de la URL y
+  lo que ya está en `mentions` se salta; un exporte que se solapa con el
+  anterior solo encola lo nuevo):
+
+```bash
+set -a && source /Users/alegut/MyApps/eco_populicom/.env && set +a
+node_modules/.bin/tsx scripts/import-bunker-xlsx.ts --file <exporte.xlsx> --agency df --dry-run
+node_modules/.bin/tsx scripts/import-bunker-xlsx.ts --file <exporte.xlsx> --agency df --per-minute 90
+```
+
+  Después: backfill de snapshots de los días importados
+  (`eco-metrics-calculator` con `{"backfill":true,"agencySlug":"df","backfillFrom":…,"backfillTo":…}`,
+  en tramos de ~15 días por el timeout de 120 s). Narrativas, briefings y el
+  cuerpo de los artículos los recogen sus crons.
+- **Formato de Bunker** (ver `@eco/shared/bunker-import.ts`): DATE+TIME en
+  UTC−3; URL_PHOTO es una miniatura del imgproxy de Bunker con la URL
+  original tras `/plain/` (se usa la original); en Instagram la foto es
+  siempre el logo y se descarta.
+- **Taxonomía** en `DF_TOPICS` + contexto de pertinencia en
+  `AGENCY_NLP_CONTEXT.df` + reglas en `TOPIC_ROUTING_RULES.df`. Si cambias un
+  slug, cambia también la tabla `topics` (migración 0010).
+- **Acceso y correos**: el staff de Populicom la ve por `all_agencies`; las
+  usuarias del DDEC NO tienen DF (decisión del 16-oct-2026). `report_configs`
+  de df con `updated_by` NOT NULL (si no, el reseed horario la apaga).
+
+---
+
 ## Correos por tipo (jul 2026)
 
 Seis correos (siete plantillas: la alerta tiene variante regla y métrica),

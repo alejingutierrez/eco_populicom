@@ -504,11 +504,162 @@ export const SGPR_TOPICS: TopicDef[] = [
   }
 ];
 
+// ============================================================
+// DF — Departamento de la Familia (oct-2026)
+// Primera agencia que NO entra por Brandwatch: sus menciones llegan como
+// exportes de Bunker (xlsx) y se cargan con `scripts/import-bunker-xlsx.ts`
+// (ver bunker-import.ts). Taxonomía derivada de las 3,766 menciones del
+// primer exporte (15-jul → 16-oct-2026), organizada por las administraciones
+// reales del Departamento: ADSEF (PAN, TANF), ADFAN (menores y adultos
+// mayores), ACUDEN (Head Start y cuido) y ASUME. Es por ROL, no por persona:
+// `gestion-secretaria` sigue valiendo si cambia la titular, y
+// `controversia-adsef` guarda el caso del contrato de $38.5 millones que
+// dominó septiembre y octubre.
+// ============================================================
+
+export const DF_TOPICS: TopicDef[] = [
+  {
+    slug: 'controversia-adsef',
+    name: 'Controversia ADSEF y Contratos',
+    description: 'Contrato de $38.5 millones (Star Academy / NOLA Education), destitución de la administradora de ADSEF, investigaciones y otros contratos cuestionados',
+    displayOrder: 1,
+    subtopics: [
+      { slug: 'contrato-star-academy', name: 'Contrato Star Academy / NOLA', description: 'Propuesta de $38.5 millones con fondos TANF, evaluación de LAP Consulting, Coccoloba y las demás proponentes', displayOrder: 1 },
+      { slug: 'destitucion-blanca-medina', name: 'Destitución en ADSEF', description: 'Despido de la administradora de ADSEF (Blanca Medina), sus alegaciones de presión y la respuesta del Departamento', displayOrder: 2 },
+      { slug: 'investigacion-senado', name: 'Investigación del Senado', description: 'Vistas públicas, citaciones, requerimientos de documentos y comisiones legislativas sobre el caso', displayOrder: 3 },
+      { slug: 'justicia-fbi-oig', name: 'Justicia, FBI e Inspectora General', description: 'Referidos y pesquisas del Departamento de Justicia, FBI, Oficina del Inspector General, Contralor y Ética', displayOrder: 4 },
+      { slug: 'viajes-otros-contratos', name: 'Viajes y Otros Contratos', description: 'Viajes oficiales de la secretaria (España, Luisiana), contrato con Samu Foundation, alquileres y otros gastos cuestionados', displayOrder: 5 },
+    ],
+  },
+  {
+    slug: 'gestion-secretaria',
+    name: 'Gestión de la Secretaria',
+    description: 'Liderazgo, credibilidad y continuidad de quien dirige el Departamento: respaldo de la Gobernadora, llamados a renuncia y su agenda pública',
+    displayOrder: 2,
+    subtopics: [
+      { slug: 'respaldo-confianza', name: 'Respaldo y Confianza', description: 'La Gobernadora, el gabinete u otras voces respaldan o retiran su confianza a la secretaria', displayOrder: 1 },
+      { slug: 'llamados-renuncia', name: 'Llamados a Renuncia', description: 'Legisladores, partidos o ciudadanos piden su renuncia o destitución; ella responde que no renunciará', displayOrder: 2 },
+      { slug: 'imagen-credibilidad', name: 'Imagen y Credibilidad', description: 'Contradicciones, acusaciones de mentir, momentos virales (lágrimas, pañuelo, escolta) y críticas a su persona', displayOrder: 3 },
+      { slug: 'agenda-entrevistas', name: 'Agenda y Entrevistas', description: 'Entrevistas en medios, comparecencias, reuniones y actividades públicas de la secretaria', displayOrder: 4 },
+    ],
+  },
+  {
+    slug: 'adultos-mayores-cuido',
+    name: 'Adultos Mayores y Hogares de Cuido',
+    description: 'Licenciamiento, fiscalización, maltrato y pagos en hogares de cuidado prolongado; protección de personas de edad avanzada y con discapacidad',
+    displayOrder: 3,
+    subtopics: [
+      { slug: 'licenciamiento-cierres', name: 'Licenciamiento y Cierres', description: 'Inspecciones, licencias, hogares clandestinos y cierres de hogares de cuidado prolongado', displayOrder: 1 },
+      { slug: 'maltrato-adultos-mayores', name: 'Maltrato y Negligencia', description: 'Casos de maltrato, abuso, negligencia o explotación financiera de adultos mayores, Ley 121 y cargos criminales', displayOrder: 2 },
+      { slug: 'pagos-hogares', name: 'Pagos y Deuda a Hogares', description: 'Atrasos y deuda con los hogares de cuido, pagos por participantes fallecidos, ÍntegraPR y reclamos de los dueños', displayOrder: 3 },
+      { slug: 'discapacidad-intelectual', name: 'Personas con Discapacidad', description: 'Hogares y servicios para adultos con discapacidad intelectual, remociones y reubicación de participantes', displayOrder: 4 },
+    ],
+  },
+  {
+    slug: 'proteccion-menores',
+    name: 'Protección de Menores',
+    description: 'ADFAN: maltrato infantil, custodia, hogares de menores, menores evadidos o desaparecidos, adopción y prevención',
+    displayOrder: 4,
+    subtopics: [
+      { slug: 'maltrato-infantil', name: 'Maltrato y Negligencia Infantil', description: 'Casos de maltrato, abuso sexual o negligencia contra menores en los que interviene o se cuestiona a Familia', displayOrder: 1 },
+      { slug: 'custodia-hogares-menores', name: 'Custodia y Hogares de Menores', description: 'Menores bajo custodia del Estado, hogares de grupo, menores evadidos o desaparecidos y remociones', displayOrder: 2 },
+      { slug: 'adopcion-hogares-sustitutos', name: 'Adopción y Hogares Sustitutos', description: 'Adopciones, hogares de crianza (foster), jóvenes que salen del sistema', displayOrder: 3 },
+      { slug: 'prevencion-campanas', name: 'Prevención y Campañas', description: 'Campañas contra el maltrato, línea de ayuda, capacitaciones y coordinación interagencial para proteger a la niñez', displayOrder: 4 },
+    ],
+  },
+  {
+    slug: 'asistencia-social',
+    name: 'Asistencia Nutricional y Económica',
+    description: 'ADSEF y ASUME: PAN y Tarjeta de la Familia, transición a SNAP, TANF y otras ayudas, pensiones alimentarias, pobreza y sinhogarismo',
+    displayOrder: 5,
+    subtopics: [
+      { slug: 'pan-tarjeta-familia', name: 'PAN / Tarjeta de la Familia', description: 'Beneficios del PAN, solicitudes y renovaciones, compras en línea, casos pendientes, fraude o uso indebido', displayOrder: 1 },
+      { slug: 'transicion-snap', name: 'Transición a SNAP', description: 'Paso del PAN a SNAP, Farm Bill, gestiones en el Congreso y fondos federales de nutrición', displayOrder: 2 },
+      { slug: 'tanf-ayudas', name: 'TANF y Otras Ayudas', description: 'TANF, subsidios de energía (LIHEAP), ayudas económicas de emergencia y su uso', displayOrder: 3 },
+      { slug: 'asume-pension-alimentaria', name: 'ASUME / Pensión Alimentaria', description: 'Pensiones alimentarias, cobro y servicios de ASUME', displayOrder: 4 },
+      { slug: 'pobreza-sinhogarismo', name: 'Pobreza y Sinhogarismo', description: 'Programas y datos sobre pobreza, personas sin hogar y jóvenes en riesgo', displayOrder: 5 },
+    ],
+  },
+  {
+    slug: 'cuido-ninez-acuden',
+    name: 'Cuidado y Desarrollo de la Niñez',
+    description: 'ACUDEN: Head Start y Early Head Start, centros de cuido infantil y servicios a la niñez temprana',
+    displayOrder: 6,
+    subtopics: [
+      { slug: 'head-start-fondos', name: 'Head Start y Fondos Federales', description: 'Programas Head Start / Early Head Start y el riesgo o la asignación de sus fondos federales', displayOrder: 1 },
+      { slug: 'centros-cuido-infantil', name: 'Centros de Cuido Infantil', description: 'Licencias, inspecciones, incidentes y capacitación en centros de cuido para infantes y niños', displayOrder: 2 },
+      { slug: 'servicios-familias-ninez', name: 'Servicios a Familias', description: 'Ferias, Centros 2 Generaciones, programas educativos y orientación a padres', displayOrder: 3 },
+    ],
+  },
+  {
+    slug: 'operacion-presupuesto',
+    name: 'Operación, Personal y Presupuesto',
+    description: 'Presupuesto y fondos, personal y trabajo social, contratos de servicios, sistemas y pagos a proveedores del Departamento',
+    displayOrder: 7,
+    subtopics: [
+      { slug: 'presupuesto-fondos', name: 'Presupuesto y Fondos', description: 'Presupuesto, Junta de Supervisión Fiscal, asignaciones y fondos federales de la agencia', displayOrder: 1 },
+      { slug: 'personal-trabajo-social', name: 'Personal y Trabajo Social', description: 'Trabajadores sociales, vacantes, amas de llaves, nombramientos, salarios y condiciones de los empleados', displayOrder: 2 },
+      { slug: 'sistemas-pagos-proveedores', name: 'Sistemas y Pagos a Proveedores', description: 'ÍntegraPR, atrasos a proveedores y profesionales contratados, tecnología y procesos administrativos', displayOrder: 3 },
+    ],
+  },
+  {
+    slug: 'legislacion-politica-publica',
+    name: 'Legislación y Política Pública',
+    description: 'Proyectos de ley, resoluciones, vistas y política pública sobre familia, niñez, adultos mayores y bienestar social (fuera del caso ADSEF)',
+    displayOrder: 8,
+    subtopics: [
+      { slug: 'proyectos-medidas', name: 'Proyectos y Medidas', description: 'Proyectos de ley, resoluciones y leyes firmadas o vetadas que afectan los servicios de Familia', displayOrder: 1 },
+      { slug: 'vistas-servicios', name: 'Vistas y Fiscalización de Servicios', description: 'Vistas e investigaciones legislativas sobre servicios (hogares, menores, PAN) que no son el caso ADSEF', displayOrder: 2 },
+    ],
+  },
+  {
+    slug: 'iniciativas-comunicacion',
+    name: 'Iniciativas y Comunicación Institucional',
+    description: 'Comunicación oficial del Departamento: campañas, orientación, eventos comunitarios, alianzas y respuesta a emergencias',
+    displayOrder: 9,
+    subtopics: [
+      { slug: 'orientacion-servicios', name: 'Orientación sobre Servicios', description: 'Podcast «Desayunando en Familia», guías, requisitos y explicaciones de programas y trámites', displayOrder: 1 },
+      { slug: 'eventos-comunitarios', name: 'Eventos e Impactos Comunitarios', description: 'Ferias, impactos comunitarios, actividades deportivas o culturales y reconocimientos', displayOrder: 2 },
+      { slug: 'alianzas-interagenciales', name: 'Alianzas Interagenciales', description: 'Acuerdos, cumbres y coordinación con otras agencias, municipios, el gobierno federal y organizaciones', displayOrder: 3 },
+      { slug: 'respuesta-emergencias', name: 'Respuesta a Emergencias', description: 'Protocolos y servicios ante emergencias: racionamiento de agua, huracanes, incendios y desastres', displayOrder: 4 },
+    ],
+  },
+];
+
 export const TOPICS_BY_AGENCY: Record<string, TopicDef[]> = {
   aaa: AAA_TOPICS,
   ddecpr: DDECPR_TOPICS,
   gobernadora: GOBERNADORA_TOPICS,
   sgpr: SGPR_TOPICS,
+  df: DF_TOPICS,
+};
+
+/**
+ * Contexto que el NLP necesita para juzgar la PERTINENCIA de una agencia cuyo
+ * nombre no basta. «Familia» es palabra común (y el query de Bunker la busca
+ * suelta), y casi toda la cobertura llega nombrando una administración
+ * adscrita (ADSEF, ADFAN, ACUDEN) o a la secretaria, no al Departamento.
+ * Agencias sin entrada: el prompt queda igual que antes.
+ */
+export const AGENCY_NLP_CONTEXT: Record<string, string> = {
+  df: `El Departamento de la Familia de Puerto Rico (DF) agrupa la Administración de Desarrollo Socioeconómico de la Familia (ADSEF: PAN / Tarjeta de la Familia, TANF), la Administración de Familias y Niños (ADFAN: protección de menores y de adultos mayores), la Administración para el Cuidado y Desarrollo Integral de la Niñez (ACUDEN: Head Start y cuido) y la Administración para el Sustento de Menores (ASUME), además del licenciamiento de hogares de cuido. Su secretaria es Suzanne Roig Fuertes.
+- Una mención sobre cualquiera de esas administraciones, sus programas o sobre la secretaria TRATA sobre el Departamento de la Familia.
+- La palabra «familia» en sentido común (una familia afectada, «en familia», familiares de una víctima) NO es una mención del Departamento: si no hay otra referencia a la agencia, la pertinencia es "baja".`,
+};
+
+/**
+ * Reglas de routing cross-topic por agencia (cuando una mención toca varios
+ * tópicos, cuál es el primario). Las agencias sin entrada conservan el bloque
+ * histórico del processor (escrito para DDEC), para no mover su clasificación.
+ */
+export const TOPIC_ROUTING_RULES: Record<string, string> = {
+  df: `- Hechos del caso del contrato de ADSEF (propuestas, evaluación, destitución de la administradora, citaciones, referidos, FBI) → controversia-adsef. Críticas o defensas dirigidas a la PERSONA de la secretaria (credibilidad, «mintió», renuncia, respaldo de la Gobernadora, lágrimas) → gestion-secretaria. Si la mención tiene ambas cosas, controversia-adsef primario y gestion-secretaria secundario.
+- La investigación del Senado SOBRE ESE CASO → controversia-adsef.investigacion-senado. Vistas o proyectos sobre servicios (hogares, menores, PAN) → legislacion-politica-publica.
+- Pagos atrasados o deuda con hogares de cuidado prolongado → adultos-mayores-cuido.pagos-hogares (NO operacion-presupuesto). Atrasos a otros proveedores o profesionales → operacion-presupuesto.sistemas-pagos-proveedores.
+- ADSEF como escenario del escándalo → controversia-adsef; los PROGRAMAS de ADSEF (PAN, TANF, SNAP) como servicio → asistencia-social.
+- Casos policiales o judiciales de maltrato infantil en los que Familia interviene → proteccion-menores.maltrato-infantil; si la víctima es un adulto mayor → adultos-mayores-cuido.maltrato-adultos-mayores.
+- Fondos de Head Start → cuido-ninez-acuden.head-start-fondos aunque lo discuta la Legislatura o La Fortaleza.
+- Publicaciones de la propia agencia: elige el tópico de su CONTENIDO (una campaña contra el maltrato → proteccion-menores.prevencion-campanas); iniciativas-comunicacion solo cuando el contenido es la actividad o la orientación en sí.`,
 };
 
 /** Backwards compat: defaults to AAA topics */

@@ -70,6 +70,7 @@ export function nameTokens(name: string): Set<string> {
 /** Palabras de nombre que no distinguen una historia de otra (se comparan tras el stem). */
 export const GENERIC_NAME = new Set(`renuncia renuncias ley leyes firma firman veta vetos medidas secretario secretaria
   nombramiento nombramientos gobernadora gobernador gobierno gonzalez colon jenniffer puerto rico ddec pridco aaa
+  familia
   publicaciones crisis fondos empleados investiga investigacion sistema empresas nuevo nueva anuncia promueve millones
   inicia agencias senado camara exige pide plan programa evento servicio recuperacion restablecimiento averia nivel
   niveles`.split(/\s+/).filter(Boolean).map((t) => stem(foldText(t))));
@@ -79,7 +80,7 @@ export const GENERIC_KW = new Set([
   'estado de emergencia', 'renuncia', 'fondos federales', 'desarrollo economico', 'desarrollo económico y comercio',
   'departamento de desarrollo economico y comercio', 'la fortaleza', 'gobernadora', 'gobernadora de puerto rico',
   'gobernadora puerto rico', 'gobierno de puerto rico', 'puerto rico', 'ddec', 'pridco', 'compania de fomento industrial',
-  'aaa', 'autoridad de acueductos y alcantarillados', 'pnp', 'ppd', 'jenniffer gonzalez colon', 'jenniffer gonzalez',
+  'aaa', 'autoridad de acueductos y alcantarillados', 'departamento de la familia', 'familia', 'pnp', 'ppd', 'jenniffer gonzalez colon', 'jenniffer gonzalez',
   'jenniffer gonzález-colón', 'jennifer gonzalez colon', 'senado de puerto rico', 'camara de representantes',
   'legislatura', 'ley', 'firma', 'crisis', 'corrupcion', 'economia', 'inversion', 'empleos', 'secretario',
   'nombramiento', 'agua', 'sequia', 'interrupciones programadas', 'servicio agua potable', 'niveles de agua',
