@@ -677,6 +677,28 @@ MUNICIPALITIES:
   return validateNlpResult(parsed, agency.slug);
 }
 
+/**
+ * El tool-use de Bedrock no garantiza el TIPO de cada campo: a veces llega un
+ * array como texto ("san-juan" o '["san-juan"]') y `.filter` revienta la
+ * mención entera (pasó en la primera carga de DF, oct-2026). Se normaliza a
+ * array; lo que no sea interpretable queda vacío.
+ */
+function asArray<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return v as T[];
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return [];
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed as T[];
+      } catch { /* cae al split */ }
+    }
+    return s.split(',').map((x) => x.trim()).filter(Boolean) as unknown as T[];
+  }
+  return [];
+}
+
 function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
   const validSentiments: Sentiment[] = ['negativo', 'neutral', 'positivo'];
   const validEmotions: Emotion[] = [
@@ -687,16 +709,16 @@ function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
 
   return {
     sentiment: validSentiments.includes(raw.sentiment) ? raw.sentiment : 'neutral',
-    emotions: (raw.emotions ?? []).filter((e) => validEmotions.includes(e)).slice(0, 3),
+    emotions: asArray<Emotion>(raw.emotions).filter((e) => validEmotions.includes(e)).slice(0, 3),
     pertinence: validPertinence.includes(raw.pertinence) ? raw.pertinence : 'media',
-    topics: (raw.topics ?? [])
-      .filter((t) => validTopics.includes(t.topic_slug))
+    topics: asArray<NlpAnalysis['topics'][number]>(raw.topics)
+      .filter((t) => t && typeof t === 'object' && validTopics.includes(t.topic_slug))
       .slice(0, 3)
       .map((t) => ({
         ...t,
         confidence: Math.max(0, Math.min(1, t.confidence ?? 0.5)),
       })),
-    municipalities: (raw.municipalities ?? []).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
+    municipalities: asArray<string>(raw.municipalities).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
     summary: (raw.summary ?? '').slice(0, 500),
   };
 }
