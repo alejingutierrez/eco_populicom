@@ -20,6 +20,7 @@ import {
   clearAccessCache,
   agencyVisibleTo,
   filterAgenciesForCaller,
+  RESTRICTED_AGENCIES,
 } from './agency';
 
 jest.mock('next/headers', () => ({ headers: jest.fn() }));
@@ -190,11 +191,18 @@ describe('resolveAgencyId — no users row yet (domain fallback)', () => {
 describe('agencias restringidas', () => {
   const RESTRICTED = 'zzz-restringida';
 
+  // El mapa real vive vacío en producción y su contenido cambia con cada alta;
+  // los tests inyectan un caso sintético para fijar la SEMÁNTICA, no la lista.
   beforeEach(() => {
+    RESTRICTED_AGENCIES['medalla'] = ['agutierrez@populicom.com'];
     mockAgenciesRows = [
       ...mockAgenciesRows,
       { id: RESTRICTED, slug: 'medalla', isActive: true, name: 'Medalla' },
     ];
+  });
+
+  afterEach(() => {
+    delete RESTRICTED_AGENCIES['medalla'];
   });
 
   test('agencyVisibleTo: solo el correo de la lista', () => {
