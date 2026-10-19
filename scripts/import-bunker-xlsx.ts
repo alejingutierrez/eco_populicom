@@ -31,13 +31,22 @@
  *   --limit <n>         encola como mucho n (para probar con pocas)
  *   --no-archive        no sube el xlsx original a S3 (por defecto se guarda en
  *                       s3://<RAW_BUCKET>/bunker/<agencia>/<fecha>/ para auditoría)
+ *   --no-refresh        no espera al processor ni recalcula métricas al final
+ *
+ * Al terminar de encolar (salvo --no-refresh) espera a que la cola
+ * eco-ingestion se vacíe, recalcula los snapshots diarios desde el día más
+ * viejo importado hasta hoy (en tramos de 15 días, del más viejo al más
+ * nuevo) y en el último tramo pide a eco-metrics-calculator que evalúe las
+ * reglas de crisis de los últimos 3 días: el barrido de cada 5 minutos solo
+ * mira HOY, así que sin esto un día en crisis que llega en un exporte tardío
+ * nunca alertaría.
  */
 import { basename } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { SQSClient, SendMessageBatchCommand, GetQueueUrlCommand } from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageBatchCommand, GetQueueUrlCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { bunkerRowToMention, isImportQueryId, type BrandwatchMention } from '@eco/shared';
+import { addDaysYmd, bunkerRowToMention, isImportQueryId, ymdInTimeZone, type BrandwatchMention } from '@eco/shared';
 import { readXlsxRows } from './lib/xlsx-lite';
 
 const RAW_BUCKET = process.env.RAW_BUCKET ?? 'eco-raw-863956448838';
@@ -174,6 +183,41 @@ async function main(): Promise<void> {
   }
   console.log(`[${slug}] listo: ${sent} encoladas, ${failed} fallidas`);
   if (failed) process.exitCode = 1;
+  if (flag('no-refresh') || sent === 0) return;
+
+  // 6) Esperar al processor: la cola compartida vacía dos lecturas seguidas.
+  console.log(`[${slug}] esperando a que eco-processor termine…`);
+  const t0 = Date.now();
+  let empty = 0;
+  while (empty < 2 && Date.now() - t0 < 30 * 60_000) {
+    await sleep(20_000);
+    const { Attributes: q } = await sqs.send(new GetQueueAttributesCommand({
+      QueueUrl, AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
+    }));
+    const depth = Number(q?.ApproximateNumberOfMessages ?? 0) + Number(q?.ApproximateNumberOfMessagesNotVisible ?? 0);
+    empty = depth === 0 ? empty + 1 : 0;
+    if (depth) console.log(`  en cola: ${depth}`);
+  }
+  if (empty < 2) console.warn('  la cola no se vació en 30 min; recalculo igual con lo que haya');
+
+  // 7) Snapshots de los días tocados + evaluación de crisis en el último tramo.
+  const TZ = 'America/Puerto_Rico';
+  const today = ymdInTimeZone(new Date(), TZ);
+  const from = ymdInTimeZone(new Date(pending[0].date), TZ);
+  for (let start = from; start <= today; start = addDaysYmd(start, 15)) {
+    const end = addDaysYmd(start, 14) < today ? addDaysYmd(start, 14) : today;
+    const last = end === today;
+    const res = await lambda.send(new InvokeCommand({
+      FunctionName: 'eco-metrics-calculator',
+      Payload: Buffer.from(JSON.stringify({
+        backfill: true, agencySlug: slug, backfillFrom: start, backfillTo: end,
+        ...(last ? { evaluateCrisis: true } : {}),
+      })),
+    }));
+    const out = JSON.parse(Buffer.from(res.Payload!).toString('utf8'));
+    if (res.FunctionError) throw new Error(`metrics-calculator ${start}→${end}: ${out.errorMessage ?? 'error'}`);
+    console.log(`  métricas ${start} → ${end}: ${out.body}`);
+  }
 }
 
 main().catch((err) => {

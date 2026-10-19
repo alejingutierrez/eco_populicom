@@ -30,6 +30,7 @@
  */
 
 import type { PgClientLike } from './aggregations/sentiment-report';
+import { loadAgencyCoverage } from './coverage';
 
 // ============================================================
 // Tipos
@@ -389,12 +390,18 @@ export async function loadAggregatesForWindow(
  * Devuelve los últimos 30 snapshots diarios ESTRICTAMENTE PREVIOS a
  * `startYmd`. Usado como historia para BHI/Crisis/EngagementVelocity sobre
  * una ventana del usuario.
+ *
+ * Solo desde el inicio de la cobertura continua de la agencia (coverage.ts):
+ * los snapshots anteriores existen pero en 0, porque todavía no se
+ * recolectaba, y como historia hacían que cualquier día con negativas
+ * pareciera una crisis.
  */
 export async function loadHistoryBeforeWindow(
   client: PgClientLike,
   agencyId: string,
   startYmd: string,
 ): Promise<HistoricalSnapshot[]> {
+  const { startYmd: coverageStart } = await loadAgencyCoverage(client, agencyId);
   const result = await client.query<{
     date: string | Date;
     total_mentions: number | string;
@@ -408,9 +415,10 @@ export async function loadHistoryBeforeWindow(
             total_engagement_score, engagement_rate
        FROM daily_metric_snapshots
       WHERE agency_id = $1 AND date < $2::date
+        AND ($3::date IS NULL OR date >= $3::date)
       ORDER BY date DESC
       LIMIT 30`,
-    [agencyId, startYmd],
+    [agencyId, startYmd, coverageStart],
   );
 
   return result.rows.map((r) => ({
