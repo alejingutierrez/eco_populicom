@@ -25,6 +25,7 @@ import {
   formatMetric,
   isArticlePageType,
   isGenericImageUrl,
+  loadAgencyCoverage,
   renderCrisisAlertHtml,
   renderSimpleAlertHtml,
   validateImageUrl,
@@ -84,6 +85,17 @@ interface InvokePayload {
    * (a diferencia de forceCrisis, no arranca cooldown). Requiere agencySlug.
    */
   previewCrisis?: boolean;
+  /**
+   * Con `backfill` + `agencySlug`: tras recalcular, evalúa las reglas de
+   * crisis y de métrica en los días recalculados de los últimos
+   * `alertLookbackDays` (default 3), del más reciente al más viejo. Lo usa
+   * scripts/import-bunker-xlsx.ts al cerrar una importación: en una agencia
+   * que entra por exportes, un día en crisis puede llegar después de que el
+   * barrido de cada 5 minutos ya dejó de mirarlo (solo evalúa HOY). No repite
+   * un día que ya tuvo alerta enviada (alert_history.details.trigger_day).
+   */
+  evaluateCrisis?: boolean;
+  alertLookbackDays?: number;
 }
 
 export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: number; body: string }> => {
@@ -128,7 +140,38 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
         }
       }
       console.log(`[metrics-calculator] backfilled ${computed} snapshots across ${dates.length} days`);
-      return { statusCode: 200, body: `Backfilled ${computed} snapshots` };
+
+      let alertsFired = 0;
+      const agency = event.evaluateCrisis && event.agencySlug
+        ? agencies.find((a) => a.slug === event.agencySlug)
+        : undefined;
+      if (agency) {
+        const today = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
+        const lookback = Math.max(1, Math.min(14, event.alertLookbackDays ?? 3));
+        const oldest = addDaysYmd(today, -(lookback - 1));
+        const candidates = dates.filter((d: string) => d >= oldest && d <= today).sort().reverse();
+        for (const day of candidates) {
+          if (await alertAlreadySentForDay(client, agency.id, day)) {
+            console.log(`[crisis] ${agency.slug} ${day} ya tuvo alerta enviada — no se repite`);
+            continue;
+          }
+          try {
+            alertsFired += await evaluateCrisisAlerts(client, agency, day, false, event.recipientsOverride);
+          } catch (err) {
+            console.error(`[crisis] ${agency.slug} ${day} evaluation failed:`, err);
+          }
+          try {
+            alertsFired += await evaluateMetricThresholdAlerts(client, agency, day, false, event.recipientsOverride);
+          } catch (err) {
+            console.error(`[metric-alert] ${agency.slug} ${day} evaluation failed:`, err);
+          }
+          // El cooldown de la regla frena las siguientes; la alerta que sale
+          // es la del día más reciente que cruzó el umbral.
+          if (alertsFired > 0) break;
+        }
+        console.log(`[metrics-calculator] import evaluation ${agency.slug}: ${candidates.join(', ') || '(sin días)'} → ${alertsFired} alertas`);
+      }
+      return { statusCode: 200, body: `Backfilled ${computed} snapshots${agency ? `, ${alertsFired} alertas` : ''}` };
     }
 
     // Preview de crisis: render con datos reales, sin SES ni alert_history.
@@ -308,14 +351,19 @@ async function getDailyAggregates(client: any, agencyId: string, date: string): 
 }
 
 async function getHistoricalSnapshots(client: any, agencyId: string, today: string): Promise<HistoricalSnapshot[]> {
+  // Solo desde el inicio de la cobertura continua (coverage.ts): los snapshots
+  // anteriores están en 0 porque todavía no se recolectaba, y como historia
+  // inflaban el riesgo de crisis de los primeros 30 días (DF, 29–31 jul).
+  const { startYmd: coverageStart } = await loadAgencyCoverage(client, agencyId);
   const result = await client.query(
     `SELECT date, total_mentions, negative_count, nss, total_reach,
             total_engagement_score, engagement_rate
      FROM daily_metric_snapshots
      WHERE agency_id = $1 AND date < $2
+       AND ($3::date IS NULL OR date >= $3::date)
      ORDER BY date DESC
      LIMIT 30`,
-    [agencyId, today],
+    [agencyId, today, coverageStart],
   );
   return result.rows.map((r: any) => ({
     date: r.date,
@@ -508,6 +556,18 @@ interface SnapshotRow {
   engagement_velocity: number | null;
   total_mentions: number;
   negative_count: number;
+}
+
+/** ¿Ya salió una alerta (enviada) de esta agencia por este día? */
+async function alertAlreadySentForDay(client: any, agencyId: string, day: string): Promise<boolean> {
+  const r = await client.query(
+    `SELECT 1 FROM alert_history
+      WHERE agency_id = $1 AND notification_sent = true
+        AND details->>'trigger_day' = $2
+      LIMIT 1`,
+    [agencyId, day],
+  );
+  return r.rows.length > 0;
 }
 
 async function getTodaySnapshot(client: any, agencyId: string, today: string): Promise<SnapshotRow | null> {

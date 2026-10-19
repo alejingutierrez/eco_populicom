@@ -3,6 +3,7 @@ export * from './topics';
 export * from './municipalities';
 export * from './sources';
 export * from './bunker-import';
+export * from './coverage';
 export * from './dates';
 export * from './format-period';
 export * from './aggregations';

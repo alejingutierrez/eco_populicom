@@ -41,6 +41,9 @@ import {
   buildSentimentReport,
   buildSubject,
   closedWindowYmdInTZ,
+  loadAgencyCoverage,
+  reportWindowNow,
+  type AgencyCoverage,
   ymdInTimeZone,
   hourInTimeZone,
   dowInTimeZone,
@@ -207,8 +210,23 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
         triggeredBy: null,
       };
 
-      if (dailyDue) runs.push(await runForAgency(client, inputs, 'daily'));
-      if (weeklyDue) runs.push(await runForAgency(client, inputs, 'weekly'));
+      // Agencia que entra por exportes (DF): el reporte sale solo si llegó un
+      // exporte desde el último envío de ese tipo. Sin exporte nuevo, la
+      // ventana sería la misma o tendría días sin cargar (que contaban como
+      // 0: el Diario del 18-oct de DF reportó 271 menciones de 382).
+      const coverage = await loadAgencyCoverage(client as PgClientLike, cfg.agency_id);
+      for (const [due, type, key] of [
+        [dailyDue, 'daily', cfg.template_key],
+        [weeklyDue, 'weekly', WEEKLY_TEMPLATE_KEY],
+      ] as Array<[boolean, ReportType, string]>) {
+        if (!due) continue;
+        if (coverage.importFed && !(await hasImportSinceLastSend(client, cfg.agency_id, key, coverage))) {
+          console.log(`[weekly-report] skip ${cfg.slug} (${type}) · sin exporte nuevo desde el último envío (último exporte ${coverage.lastIngestedAt?.toISOString() ?? '—'})`);
+          runs.push({ ok: true, agency: cfg.slug, reportType: type, status: 'skipped' });
+          continue;
+        }
+        runs.push(await runForAgency(client, inputs, type));
+      }
     }
 
     // Nombramientos pendientes: NO dependen de la hora ni de report_configs
@@ -448,8 +466,11 @@ async function buildDailyReportEmail(
   // Periodo: últimos 7 días CERRADOS (terminando AYER) en America/Puerto_Rico.
   // El correo se envía 6 AM PR; ayer ya es un día completo. No incluimos hoy
   // parcial — eso sesgaría el termómetro y el delta vs. los 7 días previos.
+  // En una agencia importada la ventana termina en el último día que cubre
+  // entero el último exporte (coverage.ts), nunca en días sin cargar.
   const nowUtc = new Date();
-  const window = closedWindowYmdInTZ(7, nowUtc, REPORT_TIMEZONE);
+  const coverage = await loadAgencyCoverage(client as PgClientLike, agency.id);
+  const window = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
   const { startYmd: startDate, endYmd: endDate, prevStartYmd: prevStartDate, prevEndYmd: prevEndDate } = window;
 
   // 1) Agregados base (totales, daily series, tabla de tópicos) — fuente de
@@ -483,7 +504,7 @@ async function buildDailyReportEmail(
     agencyShortName: agencyShortName(agency.slug),
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
     periodLabel: formatPeriodLabel(startDate, endDate),
-    updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
+    updatedAtLabel: updatedLabelFor(coverage, nowUtc),
     totals: sentimentReport.totals,
     deltaVsPrev: sentimentReport.deltaVsPrev,
     // Deltas de sentimiento formateados con formatDelta (% vs período previo)
@@ -631,8 +652,10 @@ async function buildWeeklySummaryEmail(
   agency: { id: string; slug: string; name: string },
 ): Promise<BuiltEmail> {
   // Semana cerrada: 7 días terminando AYER. Enviado el viernes ⇒ vie–jue.
+  // Agencia importada: termina en el último día que cubre el exporte.
   const nowUtc = new Date();
-  const window = closedWindowYmdInTZ(7, nowUtc, REPORT_TIMEZONE);
+  const coverage = await loadAgencyCoverage(client as PgClientLike, agency.id);
+  const window = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
   // Ventana previa-previa: solo para satisfacer la firma de buildSentimentReport
   // al calcular la semana anterior (su deltaVsPrev no se usa aquí).
@@ -739,7 +762,7 @@ async function buildWeeklySummaryEmail(
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
     weekLabel,
     prevWeekLabel,
-    updatedAtLabel: formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE),
+    updatedAtLabel: updatedLabelFor(coverage, nowUtc),
     totals,
     prevTotals,
     totalDelta: formatDelta(totals.total, prevTotals.total, { kind: 'percent', decimals: 0 }),
@@ -1831,6 +1854,30 @@ async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<
   } catch (err) {
     console.error('[weekly-report] failed to write send log:', err);
   }
+}
+
+/** ¿Entró un exporte después del último envío exitoso de este tipo de reporte? */
+async function hasImportSinceLastSend(
+  client: any,
+  agencyId: string,
+  templateKey: string,
+  coverage: AgencyCoverage,
+): Promise<boolean> {
+  if (!coverage.lastIngestedAt) return false;
+  const r = await client.query(
+    `SELECT MAX(sent_at) AS last_sent FROM report_send_log
+      WHERE agency_id = $1 AND template_key = $2 AND status = 'sent'`,
+    [agencyId, templateKey],
+  );
+  const lastSent = r.rows[0]?.last_sent ? new Date(r.rows[0].last_sent) : null;
+  return !lastSent || coverage.lastIngestedAt > lastSent;
+}
+
+/** «actualizado …» del encabezado: para una agencia importada, el corte del exporte. */
+function updatedLabelFor(coverage: AgencyCoverage, nowUtc: Date): string {
+  return coverage.importFed && coverage.lastPublishedAt
+    ? `${formatUpdatedAtLabel(coverage.lastPublishedAt, REPORT_TIMEZONE)} (último exporte)`
+    : formatUpdatedAtLabel(nowUtc, REPORT_TIMEZONE);
 }
 
 function agencyShortName(slug: string): string {

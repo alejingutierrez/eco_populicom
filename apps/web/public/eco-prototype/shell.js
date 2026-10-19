@@ -463,7 +463,11 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, agency, agencies, set
         <div style={{ padding: 'var(--sp-3) var(--sp-4)', borderTop: '1px solid var(--rail-border)', fontSize: 'var(--fs-caption)', color: 'var(--rail-fg-muted)', lineHeight: 1.4 }}>
           {agency && agency.archived
             ? 'Recolección detenida · agencia archivada'
-            : <>Última recolección <span className="mono" style={{ color: 'var(--rail-fg)' }}>{(ingest && ingest.lastIngestLabel) || '—'}</span></>}
+            : ingest && ingest.importFed
+              /* Agencia que entra por exportes (DF): no hay recolección en
+                 vivo, hay un último exporte y un corte de datos. */
+              ? <>Último exporte <span className="mono" style={{ color: 'var(--rail-fg)' }}>{ingest.lastIngestLabel || '—'}</span><br />Datos hasta <span className="mono" style={{ color: 'var(--rail-fg)' }}>{ingest.dataThroughLabel || '—'}</span></>
+              : <>Última recolección <span className="mono" style={{ color: 'var(--rail-fg)' }}>{(ingest && ingest.lastIngestLabel) || '—'}</span></>}
         </div>
       )}
 
@@ -594,6 +598,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
   const win = ecoResolvedWindow();
   const rangeLabel = win ? ecoFmtRange(win.from, win.to) : '';
   const current = (agencies || []).find((x) => x.key === agency);
+  const headIngest = (window.ECO_DATA && window.ECO_DATA.INGESTION_STATUS) || null;
   const inQuick = !isCustom && PERIOD_QUICK.includes(period);
   const moreLabel = isCustom
     ? 'Personalizado'
@@ -663,6 +668,13 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
           {current && current.archived && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--text)' }}>
               <Icons.Info size={12} color="var(--neg)" />Agencia archivada · solo histórico
+            </span>
+          )}
+          {/* Agencia por exportes cuyo último exporte no cubre ayer: los días
+              posteriores al corte salen vacíos sin estarlo. */}
+          {current && !current.archived && headIngest && headIngest.importFed && headIngest.dataBehind && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--text)' }}>
+              <Icons.Info size={12} color="var(--neg)" />Datos del último exporte hasta {headIngest.dataThroughLabel} · los días siguientes aún no se cargan
             </span>
           )}
         </div>

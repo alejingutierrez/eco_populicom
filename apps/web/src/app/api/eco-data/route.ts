@@ -21,6 +21,9 @@ import {
   loadDailySentimentSeries,
   decodeHtmlEntities,
   isArchivedAgency,
+  loadAgencyCoverage,
+  formatUpdatedAtLabel,
+  ymdInTimeZone,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
@@ -1185,9 +1188,20 @@ export async function GET(request: NextRequest) {
       .where(eq(mentions.agencyId, agencyId));
 
     const lastIngest = latestIngest?.ts ? new Date(latestIngest.ts) : null;
+    // Agencia que entra por exportes (DF): «recolección» es el último exporte,
+    // y los datos llegan hasta su corte. Si ese corte no cubre ayer completo,
+    // la ventana «al cierre de ayer» incluye días que todavía no se cargaron
+    // (salen en 0 sin estar vacíos): el header lo avisa con `dataBehind`.
+    const coverage = await loadAgencyCoverage(poolForCounts, agencyId);
+    const yesterdayAst = addDaysYmd(ymdInTimeZone(new Date(), 'America/Puerto_Rico'), -1);
     const INGESTION_STATUS = lastIngest ? {
       lastIngestAt: lastIngest.toISOString(),
       lastIngestLabel: relativeTime(lastIngest),
+      importFed: coverage.importFed,
+      dataThroughAt: coverage.importFed && coverage.lastPublishedAt ? coverage.lastPublishedAt.toISOString() : null,
+      dataThroughLabel: coverage.importFed && coverage.lastPublishedAt
+        ? formatUpdatedAtLabel(coverage.lastPublishedAt, 'America/Puerto_Rico') : null,
+      dataBehind: coverage.importFed && coverage.lastCompleteYmd != null && coverage.lastCompleteYmd < yesterdayAst,
     } : null;
 
     // ---- ALERTS ----

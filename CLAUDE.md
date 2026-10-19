@@ -253,10 +253,19 @@ node_modules/.bin/tsx scripts/import-bunker-xlsx.ts --file <exporte.xlsx> --agen
 node_modules/.bin/tsx scripts/import-bunker-xlsx.ts --file <exporte.xlsx> --agency df --per-minute 90
 ```
 
-  Después: backfill de snapshots de los días importados
-  (`eco-metrics-calculator` con `{"backfill":true,"agencySlug":"df","backfillFrom":…,"backfillTo":…}`,
-  en tramos de ~15 días por el timeout de 120 s). Narrativas, briefings y el
-  cuerpo de los artículos los recogen sus crons.
+  El script, al terminar, espera a que el processor vacíe la cola, recalcula
+  los snapshots de los días importados (tramos de 15 días) y pide
+  `evaluateCrisis` en el último tramo: las reglas de crisis se evalúan en los
+  últimos 3 días importados (el barrido de 5 min solo mira HOY) sin repetir un
+  `trigger_day` ya alertado. Narrativas, briefings y cuerpo de artículos los
+  recogen sus crons.
+- **Cobertura** (`@eco/shared/coverage.ts`): la historia de las métricas
+  arranca en el inicio de la cobertura continua (primer día con menciones en
+  4 de 7; DF = 28-jul), no en los snapshots en 0 de antes de recolectar. En
+  una agencia importada, Diario y Semanal terminan en el último día que el
+  último exporte cubre entero y solo salen si entró un exporte desde el último
+  envío de ese tipo; el dashboard muestra «Datos hasta …» y avisa cuando la
+  ventana incluye días sin cargar.
 - **Formato de Bunker** (ver `@eco/shared/bunker-import.ts`): DATE+TIME en
   UTC−3; URL_PHOTO es una miniatura del imgproxy de Bunker con la URL
   original tras `/plain/` (se usa la original); en Instagram la foto es
