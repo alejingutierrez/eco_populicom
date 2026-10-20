@@ -75,9 +75,13 @@
     if (changed) dl.push({ eco_ctx: null }, { eco_ctx: Object.assign({}, ctx) });
   }
 
-  // Identidad. Se cachea en sessionStorage para que los eventos que salen antes
-  // de que /api/auth/me responda (page_view inicial, recargas por cambio de
-  // agencia o período) ya lleven user_id.
+  // Identidad. Se cachea en localStorage para que los eventos que salen antes
+  // de que /api/auth/me responda (el page_view inicial de cada visita, las
+  // recargas por cambio de agencia o período) ya lleven user_id. Con
+  // sessionStorage cada pestaña nueva arrancaba sin él (visto en prod).
+  // Solo guarda el `sub` opaco y el rol; se borra al cerrar sesión
+  // (ecoSignOut hace localStorage.clear()) y en cada login nuevo
+  // (lib/analytics → clearUser), así no se cruza de un usuario a otro.
   function pushUser(u) {
     dl.push({ eco_user: null }, { eco_user: u });
   }
@@ -91,15 +95,15 @@
       all_agencies: session.allAgencies === true ? true : session.allAgencies === false ? false : undefined,
       is_internal: /@populicom\.com$/.test(email),
     });
-    try { sessionStorage.setItem(USER_KEY, JSON.stringify(u)); } catch (_) {}
+    try { localStorage.setItem(USER_KEY, JSON.stringify(u)); } catch (_) {}
     pushUser(u);
   }
   function clearUser() {
-    try { sessionStorage.removeItem(USER_KEY); } catch (_) {}
+    try { localStorage.removeItem(USER_KEY); } catch (_) {}
     dl.push({ eco_user: null });
   }
   try {
-    var cached = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
+    var cached = JSON.parse(localStorage.getItem(USER_KEY) || 'null');
     if (cached && cached.id) pushUser(cached);
   } catch (_) {}
 
