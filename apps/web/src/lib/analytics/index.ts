@@ -8,6 +8,7 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 
 interface EcoAnalytics {
   pageView: (extra?: Params) => void;
+  clearUser: () => void;
   embedded: boolean;
 }
 
@@ -38,6 +39,9 @@ export function trackPageView(): void {
  */
 export function trackAfterLogin(name: string, params?: Params): void {
   if (typeof window === 'undefined') return;
+  // Login nuevo: la identidad cacheada puede ser de OTRO usuario en este
+  // navegador. La SPA la vuelve a fijar cuando /api/auth/me responda.
+  window.ecoAnalytics?.clearUser();
   try {
     const key = 'eco.analytics.pending';
     const list = JSON.parse(sessionStorage.getItem(key) || '[]');

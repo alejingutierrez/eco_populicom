@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: MODE_SCRIPT }} />
         {/* Analítica (GTM → GA4): ver public/eco-analytics.js. Síncrono a
             propósito: es pequeño y debe existir antes del primer evento. */}
-        <script src="/eco-analytics.js?v=prodc95" />
+        <script src="/eco-analytics.js?v=prodc96" />
         {/* Las MISMAS familias que la SPA («Instrumento»): Plex Sans para el
             texto, Plex Mono para toda cifra. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
