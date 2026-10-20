@@ -168,6 +168,12 @@ const SYSTEM_NAV = [
 // --- RBAC gating: lee window.ECO_SESSION (lo puebla app.js desde /api/auth/me)
 // con { role, capabilities, allowedPages }. Mientras la sesión no carga NO se
 // oculta nada (evita parpadeo). 'overview' siempre visible como landing seguro.
+// Analítica: ver public/eco-analytics.js. No-op si el script no cargó.
+function ecoTrackShell(name, params, opts) {
+  if (window.ecoTrack) return window.ecoTrack(name, params, opts);
+  if (opts && opts.callback) opts.callback();
+}
+
 function ecoSession() { return (typeof window !== 'undefined' && window.ECO_SESSION) || null; }
 function ecoHasCap(cap) {
   const s = ecoSession();
@@ -618,7 +624,9 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
       localStorage.setItem('eco.to', draftTo);
       localStorage.setItem('eco.period', 'custom');
     } catch (_) {}
-    window.location.reload();
+    const days = Math.round((Date.parse(draftTo) - Date.parse(draftFrom)) / 864e5) + 1;
+    ecoTrackShell('period_change', { from_period: period, to_period: 'custom', range_days: days },
+      { callback: () => window.location.reload() });
   }
 
   // URL del reporte exportable con los filtros VIGENTES (agencia, período y, si
@@ -752,6 +760,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
             por `export`; el corte que manda está en /api/export/report. */}
         {ecoHasCap('export') && (
           <a className="btn" href={exportHref} target="_blank" rel="noopener"
+            onClick={() => ecoTrackShell('report_export', { export_format: 'pdf', to_period: period })}
             aria-label="Exportar reporte en PDF"
             title={`Exportar reporte analítico en PDF · ${isCustom && lsFrom && lsTo ? `${lsFrom} → ${lsTo}` : period}`}
             style={{ textDecoration: 'none' }}>
@@ -1262,7 +1271,16 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             <button className="btn btn-primary"
               style={{ flex: 1, justifyContent: 'center' }}
               disabled={!mention.url}
-              onClick={() => mention.url && window.open(mention.url, '_blank', 'noopener,noreferrer')}>
+              onClick={() => {
+                if (!mention.url) return;
+                let host = mention.domain;
+                try { host = new URL(mention.url).hostname; } catch (_) {}
+                ecoTrackShell('mention_outbound_click', {
+                  link_domain: host,
+                  mention_source: mention.source || mention.platform || mention.pageType,
+                });
+                window.open(mention.url, '_blank', 'noopener,noreferrer');
+              }}>
               <Icons.ExternalLink size={13} /> Ver original
             </button>
           </div>
@@ -1424,6 +1442,21 @@ function EmptyState({ reason = 'empty', title, detail, action, actionLabel, comp
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+
+  // Un drill-down = un evento, con QUÉ se filtró (claves del _filter), no los valores.
+  const sliceKey = slice ? (slice.title || slice.eyebrow || '') : '';
+  React.useEffect(() => {
+    if (!slice) return;
+    const f = slice._filter || {};
+    ecoTrackShell('drilldown_open', {
+      drilldown_title: slice.eyebrow || slice.title,
+      drilldown_filters: Object.keys(f).filter((k) => f[k] != null && f[k] !== '' && k !== 'from' && k !== 'to').sort().join(','),
+      topic: f.topic,
+      municipality: f.municipality,
+      mention_sentiment: f.sentiment,
+      mention_source: f.source,
+    });
+  }, [sliceKey]);
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   React.useEffect(() => {
@@ -1798,7 +1831,10 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                           notifyEmails: [],
                         }),
                       });
-                      if (res.ok) (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
+                      if (res.ok) {
+                        ecoTrackShell('alert_rule_create', { alert_type: type, origin: 'drilldown' });
+                        (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
+                      }
                       else (window.ecoToast || (() => {}))('err', 'No se pudo crear la alerta (' + res.status + ')');
                     } catch (_) { (window.ecoToast || (() => {}))('err', 'Error creando la alerta'); }
                   }}>
@@ -1831,6 +1867,8 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
   const { Sparkline, MultiLineChart } = window.ECO_CHARTS;
   const [data, setData] = React.useState(null);
   const [error, setError] = React.useState(null);
+
+  React.useEffect(() => { ecoTrackShell('metric_insight_open', { metric: metricKey }); }, [metricKey]);
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   React.useEffect(() => {

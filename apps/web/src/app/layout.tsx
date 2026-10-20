@@ -1,6 +1,7 @@
 'use client';
 
 import { Providers } from '@/components/providers/Providers';
+import { PageViewTracker } from '@/components/analytics/PageViewTracker';
 import './globals.css';
 
 // Modo ANTES del primer pintado, con la MISMA clave que la SPA (`eco.mode.v2`,
@@ -19,6 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           content="Plataforma de monitoreo de medios y redes del Gobierno de Puerto Rico"
         />
         <script dangerouslySetInnerHTML={{ __html: MODE_SCRIPT }} />
+        {/* Analítica (GTM → GA4): ver public/eco-analytics.js. Síncrono a
+            propósito: es pequeño y debe existir antes del primer evento. */}
+        <script src="/eco-analytics.js?v=prodc95" />
         {/* Las MISMAS familias que la SPA («Instrumento»): Plex Sans para el
             texto, Plex Mono para toda cifra. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -29,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <PageViewTracker />
         <Providers>{children}</Providers>
       </body>
     </html>

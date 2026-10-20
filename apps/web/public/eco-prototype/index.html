@@ -2,6 +2,9 @@
 <html lang="es" data-theme="mando" data-mode="light">
 <head>
 <meta charset="UTF-8" />
+<!-- Analítica (GTM → GA4). Antes que todo lo demás para que el page_view
+     inicial y cualquier error de arranque se midan. Ver public/eco-analytics.js. -->
+<script src="/eco-analytics.js?v=prodc95"></script>
 <script>
   // Modo ANTES del primer pintado (sin destello). Claro por defecto
   // («Instrumento», sep-2026). Se lee `eco.mode.v2` y NO `eco.mode`: la app
@@ -1413,7 +1416,10 @@
     }, 20 * 60 * 1000);
     const boot = document.getElementById('eco-boot');
     if (boot) boot.remove();
-    if (apiFailed) showApiBanner('error', apiError);
+    if (apiFailed) {
+      showApiBanner('error', apiError);
+      if (window.ecoTrack) window.ecoTrack('api_error', { error_type: 'boot', error_message: apiError });
+    }
     // Load the pre-compiled prototype bundle. Each file is plain JS (no
     // Babel-in-browser cost). Sequential to preserve global dependency order
     // (data -> icons -> charts -> shell -> screens -> app).
@@ -1422,7 +1428,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc94';
+        s.src = base + '/' + f + '?v=prodc95';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

@@ -153,6 +153,7 @@
       if (e) e.stopPropagation();
       fetch('/api/chat/conversations/' + id + '?' + agencyQS(), { method: 'DELETE', credentials: 'same-origin' })
         .then(() => {
+          if (window.ecoTrack) window.ecoTrack('chat_conversation_delete');
           setConvos((cs) => cs.filter((c) => c.id !== id));
           if (id === activeId) newChat();
         })
@@ -165,6 +166,13 @@
       setInput('');
       if (taRef.current) taRef.current.style.height = 'auto';
       const viewContext = buildViewContext(props);
+      // Solo la forma del mensaje (largo, si fue sugerencia): el texto puede
+      // traer nombres y no debe salir hacia GA4.
+      if (window.ecoTrack) window.ecoTrack('chat_message_send', {
+        prompt_type: text != null ? 'suggestion' : 'typed',
+        message_length: q.length,
+        is_new_conversation: !activeId,
+      });
       // Burbuja del usuario + burbuja del asistente en progreso.
       setMessages((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '', streaming: true }]);
       setStreaming(true);
@@ -209,6 +217,7 @@
                 return copy;
               });
             } else if (evt.type === 'error') {
+              if (window.ecoTrack) window.ecoTrack('chat_error', { error_message: evt.message || 'stream_error' });
               setMessages((ms) => {
                 const copy = ms.slice();
                 const last = copy[copy.length - 1];
@@ -220,6 +229,7 @@
         }
       } catch (err) {
         const msg = err && err.name === 'AbortError' ? null : (err && err.message) || 'Error de red.';
+        if (msg && window.ecoTrack) window.ecoTrack('chat_error', { error_message: msg });
         if (msg) {
           setMessages((ms) => {
             const copy = ms.slice();

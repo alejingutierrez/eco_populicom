@@ -56,16 +56,28 @@ function isProtected(pathname: string): boolean {
 //   - Leaflet core + tiles from unpkg and CARTO basemaps
 //   - Google Fonts (css + gstatic)
 //   - React + ReactDOM from unpkg
+//   - Google Tag Manager / GA4 (ver GA más abajo)
 //   - Inline <style> in the prototype index.html (acceptable: the file is
 //     server-rendered, not user-content, so no XSS vector through it)
+// Google Tag Manager + GA4 (public/eco-analytics.js): gtm.js/gtag.js salen de
+// googletagmanager.com y los hits van a *.google-analytics.com /
+// *.analytics.google.com (región incluida, p. ej. region1.google-analytics.com).
+// tagmanager.google.com + gstatic son del modo Vista previa de GTM.
+const GA = {
+  script: 'https://www.googletagmanager.com https://tagmanager.google.com',
+  style: 'https://www.googletagmanager.com https://tagmanager.google.com',
+  img: 'https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://ssl.gstatic.com https://www.gstatic.com',
+  connect: 'https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com',
+};
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://unpkg.com",
-  "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
+  `script-src 'self' 'unsafe-inline' https://unpkg.com ${GA.script}`,
+  `style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com ${GA.style}`,
   "font-src 'self' https://fonts.gstatic.com data:",
   // basemaps.cartocdn.com sin subdominio: los tiles con llave (rastertiles/…?key=) de oct-2026.
-  "img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org",
-  "connect-src 'self' https://cognito-idp.us-east-1.amazonaws.com",
+  `img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org ${GA.img}`,
+  `connect-src 'self' https://cognito-idp.us-east-1.amazonaws.com ${GA.connect}`,
   // 'self' permite que páginas del mismo origen (p. ej. el prototype del
   // dashboard) embeban /settings/reports en un iframe. Cross-origin sigue
   // bloqueado, así que no abre vector de clickjacking.

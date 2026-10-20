@@ -5,6 +5,19 @@ const { Sidebar, Header, CommandPalette, MentionDrawer } = window.ECO_SHELL;
 // and the shell branch inline layouts on this since @media can't reach them.
 const useBreakpoint = window.ecoUseBreakpoint || (() => 'desktop');
 const ChatDrawer = (window.ECO_CHAT && window.ECO_CHAT.ChatDrawer) || (() => null);
+// Analítica (public/eco-analytics.js, cargado en index.html antes que este
+// bundle). No-op si el script no cargó (bloqueador, arnés). NO se llama
+// `ecoTrack`: Babel convierte los const de nivel superior en `var`, que en un
+// script clásico pisa `window.ecoTrack` y lo vuelve recursivo.
+const ecoTrackApp = (name, params, opts) => {
+  if (window.ecoTrack) return window.ecoTrack(name, params, opts);
+  if (opts && opts.callback) opts.callback();
+};
+// Cómo se llegó a la pantalla que se va a mostrar. Quien navega lo marca justo
+// antes de setActive; el page_view lo consume. Sin marca = navegación desde
+// dentro de una pantalla (un enlace, un "ver todos").
+let ecoNavMethod = 'landing';
+function markNav(method) { ecoNavMethod = method; }
 const { OverviewScreen, DashboardScreen, MentionsScreen, SearchScreen, SentimentScreen, TopicsScreen, GeographyScreen, AlertsScreen, SettingsScreen, NarrativeScreen, TablaScreen, SalaScreen, RadarScreen } = window.ECO_SCREENS;
 
 // Toast system — replaces browser alert()/confirm() for ephemeral messages.
@@ -128,6 +141,7 @@ class EcoErrorBoundary extends React.Component {
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) {
     console.error('[ECO] render crash', error, info?.componentStack);
+    ecoTrackApp('app_error', { error_type: 'render', error_message: (error && error.message) || String(error) });
   }
   render() {
     if (this.state.error) {
@@ -265,7 +279,7 @@ function App() {
   useEffect(() => {
     const handler = () => {
       const fromPath = screenFromPath(location.pathname);
-      if (fromPath) setActiveRaw(fromPath);
+      if (fromPath) { markNav('back_forward'); setActiveRaw(fromPath); }
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
@@ -306,7 +320,18 @@ function App() {
     let cancelled = false;
     fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { user: null }))
-      .then((d) => { if (!cancelled && d && d.user) { window.ECO_SESSION = d.user; setSession(d.user); } })
+      .then((d) => {
+        if (cancelled || !d || !d.user) return;
+        window.ECO_SESSION = d.user; setSession(d.user);
+        if (window.ecoAnalytics) window.ecoAnalytics.setUser(d.user);
+        // login / sign_up los deja /sign-in en sessionStorage: se emiten aquí,
+        // ya con user_id, en vez de perderse en la navegación hacia la SPA.
+        try {
+          const pending = JSON.parse(sessionStorage.getItem('eco.analytics.pending') || '[]');
+          sessionStorage.removeItem('eco.analytics.pending');
+          pending.forEach((e) => e && e.event && ecoTrackApp(e.event, e.params));
+        } catch (_) {}
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -314,6 +339,7 @@ function App() {
   // páginas o capacidad insuficiente), redirige a overview.
   useEffect(() => {
     if (session && typeof window.ecoCanSeePage === 'function' && !window.ecoCanSeePage(active)) {
+      markNav('redirect');
       setActive('overview');
     }
   }, [session, active, setActive]);
@@ -327,18 +353,26 @@ function App() {
   //    volver a overview (evita quedar atascado en una vista multi-agencia).
   useEffect(() => {
     if (agency === ALL_AGENCIES_KEY) {
-      if (!isExecScreen(active)) setActive(DEFAULT_EXEC_SCREEN);
+      if (!isExecScreen(active)) { markNav('redirect'); setActive(DEFAULT_EXEC_SCREEN); }
     } else if (isExecScreen(active)) {
+      markNav('redirect');
       setActive('overview');
     }
   }, [agency, active, setActive]);
 
   useEffect(() => { localStorage.setItem('eco.active', active); }, [active]);
-  useEffect(() => { localStorage.setItem('eco.mode.v2', mode); }, [mode]);
+  const firstMode = React.useRef(true);
+  useEffect(() => {
+    localStorage.setItem('eco.mode.v2', mode);
+    if (firstMode.current) { firstMode.current = false; return; }
+    ecoTrackApp('theme_change', { mode });
+  }, [mode]);
   useEffect(() => { localStorage.setItem('eco.collapsed', String(collapsed)); }, [collapsed]);
 
   // Sign-out helper exposed globally so the sidebar user menu can call it.
   window.ecoSignOut = useCallback(async () => {
+    await new Promise((resolve) => ecoTrackApp('logout', null, { callback: resolve }));
+    if (window.ecoAnalytics) window.ecoAnalytics.clearUser();
     try {
       await fetch('/api/auth/session', { method: 'DELETE', credentials: 'same-origin' });
     } catch (_) {}
@@ -353,13 +387,17 @@ function App() {
     const prev = localStorage.getItem('eco.period');
     localStorage.setItem('eco.period', period);
     if (firstRun.current) return;
-    if (prev !== period) window.location.reload();
+    if (prev !== period) {
+      ecoTrackApp('period_change', { from_period: prev, to_period: period }, { callback: () => window.location.reload() });
+    }
   }, [period]);
   useEffect(() => {
     const prev = localStorage.getItem('eco.agency');
     localStorage.setItem('eco.agency', agency);
     if (firstRun.current) { firstRun.current = false; return; }
-    if (prev !== agency) window.location.reload();
+    if (prev !== agency) {
+      ecoTrackApp('agency_change', { from_agency: prev, to_agency: agency }, { callback: () => window.location.reload() });
+    }
   }, [agency]);
 
   useEffect(() => {
@@ -375,20 +413,50 @@ function App() {
   useEffect(() => {
     const handler = (e) => {
       const metaKey = e.metaKey || e.ctrlKey;
-      if (metaKey && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmdOpen(true); return; }
-      if (metaKey && e.key === 'Enter') { e.preventDefault(); setChatOpen((v) => !v); return; }
+      if (metaKey && e.key.toLowerCase() === 'k') { e.preventDefault(); openCommand('keyboard'); return; }
+      if (metaKey && e.key === 'Enter') {
+        e.preventDefault();
+        setChatOpen((v) => { if (!v) ecoTrackApp('chat_open', { trigger: 'keyboard' }); return !v; });
+        return;
+      }
       if (e.key === 'Escape') { setCmdOpen(false); setDrawerMention(null); setChatOpen(false); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (!metaKey && !e.altKey) {
         const map = { o: 'overview', d: 'dashboard', m: 'mentions', s: 'sentiment', t: 'topics', g: 'geography', a: 'alerts', n: 'narrative' };
         const k = e.key.toLowerCase();
-        if (map[k]) { setActive(map[k]); return; }
+        if (map[k]) { markNav('keyboard'); setActive(map[k]); return; }
         if (e.key === '[' || e.key === ']') { setCollapsed(!collapsed); return; }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [collapsed]);
+
+  // Contexto que viaja en todo evento + page_view virtual por pantalla.
+  useEffect(() => {
+    if (window.ecoAnalytics) window.ecoAnalytics.setContext({ agency_slug: agency, period, screen_name: active });
+  }, [agency, period, active]);
+  useEffect(() => {
+    const label = (SCREEN_META[active] || {}).label || active;
+    document.title = label + ' · ECO';
+    ecoTrackApp('page_view', {
+      page_location: location.origin + location.pathname,
+      page_path: location.pathname,
+      page_title: document.title,
+      nav_method: ecoNavMethod || 'in_page',
+    });
+    ecoNavMethod = null;
+  }, [active]);
+  useEffect(() => {
+    if (!drawerMention) return;
+    ecoTrackApp('mention_open', {
+      mention_source: drawerMention.source || drawerMention.platform || drawerMention.pageType,
+      mention_sentiment: drawerMention.sentiment,
+      mention_domain: drawerMention.domain,
+    });
+  }, [drawerMention && drawerMention.id]);
+  const openCommand = (trigger) => { ecoTrackApp('command_palette_open', { trigger }); setCmdOpen(true); };
+  const openChat = (trigger) => { ecoTrackApp('chat_open', { trigger }); setChatOpen(true); };
 
   const screenMeta = SCREEN_META[active];
   const ScreenComponent = {
@@ -410,7 +478,7 @@ function App() {
   return (
     <div className="eco-app" data-collapsed={effectiveCollapsed} data-menu-open={menuOpen} data-density={density} data-chat-open={chatOpen}>
       <Sidebar
-        active={active} onNav={(k) => { setActive(k); setMenuOpen(false); }}
+        active={active} onNav={(k) => { markNav('sidebar'); setActive(k); setMenuOpen(false); }}
         collapsed={effectiveCollapsed} setCollapsed={setCollapsed}
         agency={((window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES).find(a => a.key === agency)}
         agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
@@ -424,9 +492,9 @@ function App() {
           period={period} setPeriod={setPeriod}
           agency={agency}
           agencies={(window.ECO_DATA && window.ECO_DATA.AGENCIES_FULL) || AGENCIES}
-          onOpenCommand={() => setCmdOpen(true)}
+          onOpenCommand={() => openCommand('button')}
           onOpenMenu={() => setMenuOpen(true)}
-          onOpenChat={() => setChatOpen(true)}
+          onOpenChat={() => openChat('button')}
           // Narrativas (oct-2026) usa ventanas FIJAS por bloque —serie de 30
           // días, tablero 7 contra 7, mapa de 26 semanas, propagación de toda
           // la vida— que terminan ayer. Un selector que solo moviera una parte
@@ -450,18 +518,21 @@ function App() {
 
       {cmdOpen && <CommandPalette
         onClose={() => setCmdOpen(false)}
-        onNav={(k) => { setActive(k); setCmdOpen(false); }}
+        onNav={(k) => { markNav('command_palette'); setActive(k); setCmdOpen(false); }}
         onSetPeriod={(p) => { setPeriod(p); }}
         onSetMode={(m) => { setMode(m); }}
         onMentionClick={(m) => { setDrawerMention(m); setCmdOpen(false); }}
-        onOpenMentionsWithFilter={(f) => { setMentionsFilter(f); setActive('mentions'); }}
-        onSearchAll={(query) => { setSearchQuery(query); setActive('search'); setCmdOpen(false); }}
+        onOpenMentionsWithFilter={(f) => { markNav('command_palette'); setMentionsFilter(f); setActive('mentions'); }}
+        onSearchAll={(query) => {
+          ecoTrackApp('search', { search_term: query, search_source: 'command_palette' });
+          markNav('command_palette'); setSearchQuery(query); setActive('search'); setCmdOpen(false);
+        }}
       />}
       {drawerMention && (
         <MentionDrawer
           mention={drawerMention}
           onClose={() => setDrawerMention(null)}
-          onNavigate={(screen) => { setDrawerMention(null); setActive(screen); }}
+          onNavigate={(screen) => { markNav('mention_drawer'); setDrawerMention(null); setActive(screen); }}
           onMentionClick={(m) => setDrawerMention(m)}
         />
       )}

@@ -24,6 +24,9 @@ async function ecoFetchAuthed(url, opts) {
 
 // Redirige al login preservando el destino. Se usa cuando ni el refresh token
 // permite renovar la sesión.
+// Analítica: ver public/eco-analytics.js. No-op si el script no cargó.
+function ecoTrackScreen(name, params) { if (window.ecoTrack) window.ecoTrack(name, params); }
+
 function ecoBounceToSignIn() {
   location.href = '/sign-in?next=' + encodeURIComponent(location.pathname + location.search);
 }
@@ -2052,7 +2055,18 @@ function SearchScreen({ onMentionClick, agency, searchQuery, setSearchQuery, set
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), sentiment: j.sentiment || { pos: 0, neu: 0, neg: 0 } }))
+      .then((j) => {
+        setData({ mentions: j.mentions || [], total: Number(j.total || 0), sentiment: j.sentiment || { pos: 0, neu: 0, neg: 0 } });
+        // Un `search` por búsqueda asentada (término + filtros), no por página.
+        if (page === 1) {
+          ecoTrackScreen('search', {
+            search_term: q && q.length >= 2 ? q : undefined,
+            search_source: 'search_page',
+            results_count: Number(j.total || 0),
+            search_filters: ['sentiment', 'source', 'topic', 'region'].filter((k) => filters[k] && filters[k] !== 'all').join(','),
+          });
+        }
+      })
       .catch((e) => {
         if (e && e.name === 'AbortError') return;
         if (e && e.code === 401) { ecoBounceToSignIn(); return; }
@@ -3318,6 +3332,7 @@ function TopicsScreen({ onMentionClick }) {
   const openTopic = React.useCallback((slug) => {
     if (!slug) return;
     setPeek(null);
+    ecoTrackScreen('topic_open', { topic: slug });
     history.pushState({ eco: 'topics', topic: slug, fromList: true }, '', '/topics/' + encodeURIComponent(slug));
     setSelectedRaw(slug);
   }, []);
@@ -4287,6 +4302,7 @@ function GeographyScreen({ onMentionClick }) {
   }
   // Elegir un municipio (en el mapa o en las listas) lo abre bajo el mapa.
   const pick = (slug) => {
+    if (slug && slug !== sel) ecoTrackScreen('municipality_select', { municipality: slug });
     setSel((cur) => (cur === slug ? null : slug));
     if (mapRef.current && slug !== sel) mapRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -4682,6 +4698,7 @@ function AlertsScreen({ onMentionClick }) {
         body: JSON.stringify({ isActive: next }),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
+      ecoTrackScreen('alert_rule_toggle', { is_active: next });
       fireToast('ok', next ? 'Regla activada.' : 'Regla desactivada.');
     } catch (e) {
       setRuleActive((s) => ({ ...s, [id]: !next }));
@@ -4848,7 +4865,10 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
           notifyEmails: emails,
         }),
       });
-      if (res.ok) { onSaved && onSaved(); }
+      if (res.ok) {
+        ecoTrackScreen('alert_rule_create', { alert_type: 'metric_threshold', origin: 'editor', metric });
+        onSaved && onSaved();
+      }
       else {
         const body = await res.json().catch(() => ({}));
         onError && onError(body.error || `HTTP ${res.status}`);
@@ -5314,8 +5334,9 @@ function UsersAdmin() {
   };
 
   const saveUser = async (u) => {
+    const isEdit = !!(u.id && users.find((x) => x.id === u.id));
     try {
-      if (u.id && users.find((x) => x.id === u.id)) {
+      if (isEdit) {
         // Edit: PATCH
         await fetch('/api/users/' + encodeURIComponent(u.id), {
           method: 'PATCH',
@@ -5346,6 +5367,7 @@ function UsersAdmin() {
           }),
         });
       }
+      ecoTrackScreen(isEdit ? 'user_update' : 'user_invite', { assigned_role: roleToApi(u.role), assigned_all_agencies: !!u.allAgencies });
       setDrawer(null);
       refresh();
       (window.ecoToast || (() => {}))('ok', 'Usuario guardado');
@@ -5364,6 +5386,7 @@ function UsersAdmin() {
         method: 'DELETE',
         credentials: 'same-origin',
       });
+      ecoTrackScreen('user_suspend');
       setDrawer(null);
       refresh();
       (window.ecoToast || (() => {}))('ok', 'Usuario suspendido');
@@ -7487,6 +7510,7 @@ function NarrativeScreen({ agency }) {
   const colors = React.useMemo(() => (data ? nxColors(data) : null), [data]);
   const onSelect = React.useCallback((id, jump) => {
     if (!data || !data.byId[id]) return;
+    ecoTrackScreen('narrative_select', { narrative_name: data.byId[id].name });
     setSelected(id);
     // Si la propagación de esta narrativa falló, elegirla otra vez la reintenta.
     setProps((p) => { if (!p[id] || !p[id].error) return p; const q = { ...p }; delete q[id]; return q; });
