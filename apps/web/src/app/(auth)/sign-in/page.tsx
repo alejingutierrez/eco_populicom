@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { track, trackAfterLogin } from '@/lib/analytics';
 import { Form, Input, Button, Alert } from 'antd';
 import type { CognitoUser } from 'amazon-cognito-identity-js';
 import {
@@ -203,11 +204,14 @@ function SignInPageInner() {
         // Cuenta nueva (invitación): debe crear su contraseña antes de entrar.
         setPendingUser(result.user);
         setActivatingEmail(values.email);
+        track('activation_start');
         goTo('newPassword');
         return;
       }
+      trackAfterLogin('login', { method: 'password' });
       await establishSession(result.tokens);
     } catch (err: any) {
+      track('login_error', { error_message: err?.message || 'unknown' });
       setError(err.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
@@ -223,8 +227,12 @@ function SignInPageInner() {
     setLoading(true);
     try {
       const tokens = await completeNewPassword(pendingUser, values.password);
+      // Activación de una invitación = alta de la cuenta (evento recomendado de GA4).
+      trackAfterLogin('sign_up', { method: 'invitation' });
+      trackAfterLogin('login', { method: 'invitation' });
       await establishSession(tokens);
     } catch (err: any) {
+      track('activation_error', { error_message: err?.message || 'unknown' });
       setError(err.message || 'No se pudo crear la contraseña');
     } finally {
       setLoading(false);
@@ -236,6 +244,7 @@ function SignInPageInner() {
     setLoading(true);
     try {
       await forgotPassword(values.email);
+      track('password_reset_request');
       setForgotEmail(values.email);
       setNotice(`Te enviamos un código a ${values.email}. Revísalo e ingrésalo abajo.`);
       setMode('forgotConfirm');
@@ -251,6 +260,7 @@ function SignInPageInner() {
     setLoading(true);
     try {
       await confirmForgotPassword(forgotEmail, values.code.trim(), values.password);
+      track('password_reset_complete');
       setNotice('Contraseña actualizada. Ya puedes iniciar sesión.');
       setMode('signin');
     } catch (err: any) {

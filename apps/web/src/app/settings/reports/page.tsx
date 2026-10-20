@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { track } from '@/lib/analytics';
 import {
   App,
   Alert,
@@ -172,6 +173,7 @@ export default function ReportsSettingsPage() {
         throw new Error(detail);
       }
       setConfig(data.config);
+      track('report_settings_save', { target_agency: selectedAgencySlug, recipients_count: values.recipients?.length ?? 0 });
       message.success('Configuración guardada');
     } catch (err: any) {
       message.error(`No se pudo guardar: ${err?.message ?? err}`);
@@ -195,6 +197,7 @@ export default function ReportsSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'error');
       const r = data.result;
+      track('report_test_send', { report_type: reportType, result_status: r?.status ?? 'unknown' });
       if (r?.status === 'sent') {
         message.success(`Enviado (messageId: ${r.messageId?.slice(0, 16)}…)`);
       } else if (r?.status === 'no_data') {

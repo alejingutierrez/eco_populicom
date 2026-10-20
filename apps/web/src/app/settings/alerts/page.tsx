@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { track } from '@/lib/analytics';
 import {
   App,
   Alert,
@@ -103,6 +104,7 @@ export default function AlertsCrisisSettingsPage() {
         throw new Error(detail);
       }
       setConfig(data.config);
+      track('crisis_settings_save', { target_agency: selectedAgencySlug });
       message.success('Configuración guardada — la próxima evaluación (cada 10 min) usa estos valores');
     } catch (err: any) {
       message.error(`No se pudo guardar: ${err?.message ?? err}`);
