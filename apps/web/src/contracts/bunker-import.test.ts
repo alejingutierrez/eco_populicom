@@ -224,9 +224,26 @@ describe('dedup por publicación (mentionPlatformKey)', () => {
       .not.toBe(mentionPlatformKey('https://www.facebook.com/122218382822254516/posts/122285948408254516'));
   });
 
-  test('en web la clave es la URL sin protocolo, www, query ni barra final', () => {
+  test('en web la clave es la URL sin protocolo, www, rastreo ni barra final', () => {
     expect(mentionPlatformKey('https://www.metro.pr/noticias/2026/10/16/familia/?utm_source=x'))
       .toBe(mentionPlatformKey('http://metro.pr/noticias/2026/10/16/familia'));
+    expect(mentionPlatformKey('https://noticel.com/ultima-hora/20260721/familia-investigara/?scrolltocomments=true'))
+      .toBe(mentionPlatformKey('https://www.noticel.com/ultima-hora/20260721/familia-investigara/'));
+  });
+
+  // Brandwatch (DF, 22-oct-2026): los comentarios llegan con la URL del post
+  // más un parámetro, y en web hay sitios que identifican la nota por query.
+  test('un comentario no es el post, y dos notas del mismo sitio por ?id= no chocan', () => {
+    const video = 'https://www.youtube.com/watch?v=Yj6nGpycZfc';
+    const c1 = 'https://www.youtube.com/watch?v=Yj6nGpycZfc&lc=Ugxd7o0x9k0jh7cha5R4AaABAg';
+    const c2 = 'https://www.youtube.com/watch?v=Yj6nGpycZfc&lc=UgwYLwHEtOR70_u3yeZ4AaABAg';
+    expect(mentionPlatformKey(video)).toBe('yt:Yj6nGpycZfc');
+    expect(mentionPlatformKey(c1)).toBe('ytc:Ugxd7o0x9k0jh7cha5R4AaABAg');
+    expect(mentionPlatformKey(c1)).not.toBe(mentionPlatformKey(c2));
+    expect(mentionPlatformKey('https://www.facebook.com/122168750966807763#channels_comment_1082429514220907'))
+      .toBe('fbc:1082429514220907');
+    expect(mentionPlatformKey('http://www.tnledger.com/editorial/Article.aspx?id=209002'))
+      .not.toBe(mentionPlatformKey('http://www.tnledger.com/editorial/Article.aspx?id=209003'));
   });
 });
 

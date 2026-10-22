@@ -230,19 +230,49 @@ usa el self-heal pattern descrito arriba.
 
 ---
 
-## Agencias que NO entran por Brandwatch (importación de Bunker, oct 2026)
+## Agencias con exportes importados (Bunker) y DF por Brandwatch (oct 2026)
 
-**DF — Departamento de la Familia** (`slug='df'`, id `ee0a3e3c-…`) recibe sus
-menciones como exportes xlsx de Bunker que el usuario descarga y comparte.
-No hay ingesta automática: el dashboard y los correos se actualizan cuando
-se importa un exporte nuevo.
+**DF — Departamento de la Familia** (`slug='df'`, id `ee0a3e3c-…`) nació el
+16-oct-2026 alimentada SOLO por exportes xlsx de Bunker. **Desde el
+22-oct-2026 entra por Brandwatch** (proyecto `1998412396` «DF - Departamento
+de la Familia», query monitor `2004156405`, histórico desde 1-oct-2025, sin
+muestreo, idiomas es/en, excluye 19 países hispanos) con
+`brandwatch_query_ids = [-1001, 2004156405]`: el `-1001` se conserva para
+poder seguir importando exportes como complemento (X, TikTok y YouTube, que
+Brandwatch casi no trae). El boolean y su diseño (anclas, contexto de las
+siglas ambiguas: «acuden» es verbo, «asume» también) viven en
+`brandwatch-archive/df-2004156405.json` y `scripts/df-boolean-emulator.py`
+(genera el boolean y lo emula sobre un corpus para medir recall antes de
+editar la query).
 
-- **Cómo la reconoce el pipeline**: `brandwatch_project_id = NULL` (así
-  eco-ingestion no la consulta en la API de Brandwatch) y
-  `brandwatch_query_ids = [-1001]` (eco-processor mapea ese queryId a la
-  agencia). Los queryId NEGATIVOS son fuentes importadas
-  (`isImportQueryId`); archivada = sin proyecto NI query (`isArchivedAgency`,
-  SGPR tiene `[]`).
+- **Cómo la reconoce el pipeline**: los queryId NEGATIVOS son fuentes
+  importadas (`isImportQueryId`). eco-ingestion se los salta (no existen en
+  la API) y eco-processor los mapea a la agencia. Una agencia sin proyecto y
+  solo con queryIds negativos es «importada» (`coverage.importFed`: reportes
+  cortados al último exporte, «Datos hasta…»); con proyecto, la ingesta es
+  continua aunque además importe. Archivada = sin proyecto NI query
+  (`isArchivedAgency`, SGPR y AAA tienen `[]`).
+- **Qué trae Brandwatch vs Bunker** (16-jul → 21-oct-2026, 4,394 vs 6,150
+  publicaciones; 2,569 en ambas): BW cubre ~80% de lo «alta» de Bunker en
+  Facebook, noticias e Instagram y suma bluesky/reddit/blogs; NO trae X (llega
+  como cascarón sin texto/URL/fecha, ~120/día, el processor lo descarta),
+  TikTok ni casi YouTube (sí los comentarios). Para tener esas redes hay que
+  seguir importando exportes de Bunker como complemento.
+- **Backfill de una query sin gastar cuota**: `scripts/enqueue-bw-backfill.mjs`
+  encola en SQS menciones ya descargadas de `/data/mentions` (pageSize 5000,
+  por semanas) y deja las páginas crudas en S3. El `eco-ingestion` pagina de a
+  100: un histórico grande cuesta cientos de llamadas contra 30/10 min.
+  Tras editar el boolean, NO descargues hasta `percentComplete = 100`: durante
+  el re-indexado faltan días enteros (pasó con el pico de la crisis de DF).
+- **Sin duplicados entre fuentes**: en una agencia con las dos fuentes
+  (`mixedSources` en eco-processor), una mención cuya publicación
+  (`mentionPlatformKey`, ±3 días) ya está en la base se descarta ANTES del
+  NLP (log `Drop-same-publication`). Segunda red solo para Facebook y solo
+  contra la otra fuente: misma página y mismo segundo (±2 s), porque Bunker
+  entrega los reels como `/reel/<id>` y Brandwatch como `/posts/<otro id>`.
+  Los comentarios (`&lc=` en YouTube, `#channels_comment_` en Facebook) son
+  publicaciones propias. El plan de importación hace el cruce por clave en la
+  otra dirección.
 - **Importar un exporte nuevo — vía normal: Configuración → Importar
   menciones** (solo admin, capacidad `import_mentions`). Se sube el xlsx, la
   pantalla muestra la vista previa (nuevas / ya cargadas / repetidas en el
@@ -293,6 +323,24 @@ node_modules/.bin/tsx scripts/import-bunker-xlsx.ts --file <exporte.xlsx> --agen
 - **Acceso y correos**: el staff de Populicom la ve por `all_agencies`; las
   usuarias del DDEC NO tienen DF (decisión del 16-oct-2026). `report_configs`
   de df con `updated_by` NOT NULL (si no, el reseed horario la apaga).
+
+---
+
+## AAA en pausa (22-oct-2026)
+
+AAA se pausó para liberar el cupo de Brandwatch (la cuenta tiene **5 queries
+monitor**, y estaban las 5: AAA, Banco Popular, DDECPR, Gobernadora, Medalla).
+La query «Directas AAA» (`2003911540`, proyecto `1998403803`, que sigue
+existiendo vacío) se BORRÓ; su definición está en
+`brandwatch-archive/aaa-directas-2003911540-2026-10-22.json`. En la base:
+`agencies.aaa` sin proyecto y con `brandwatch_query_ids = []` (archivada: el
+dashboard conserva su histórico y avisa que no se actualiza), `report_configs`
+y `alert_rules` de aaa con `is_active = false`. Para reactivarla: recrear la
+query desde el archivo (POST con `startDate` dentro de la ventana de 24 meses;
+Brandwatch recupera el histórico), volver a poner proyecto + query id en
+`agencies`, reactivar reporte y regla, y backfill del hueco con
+`{backfillStartDate, backfillEndDate, backfillQueryIds}`. Necesita un cupo
+libre: hay que pausar otra o pedirle más a Brandwatch.
 
 ---
 

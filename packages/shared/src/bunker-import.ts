@@ -336,13 +336,22 @@ export function bunkerRowToMention(row: BunkerRow, ctx: BunkerMappingContext): B
  * clave, aunque su resourceId (hash de la URL) sea distinto. En web la clave
  * es la URL sin protocolo, www, query ni barra final.
  *
+ * Un COMENTARIO es su propia publicación aunque su URL sea la del post con
+ * un parámetro (`&lc=` en YouTube, `#channels_comment_` en Facebook):
+ * Brandwatch los entrega así y antes colapsaban con el post. En web se
+ * conserva la query (hay sitios que identifican la nota con `?id=`) salvo
+ * los parámetros de rastreo o de vista.
+ *
  * No sustituye al resourceId (que sigue siendo la llave del dedup del
  * processor): es la segunda red que usa el plan de importación contra lo que
- * ya está en la base.
+ * ya está en la base, y eco-processor en las agencias con dos fuentes.
  */
 export function mentionPlatformKey(url: string): string {
   const u = (url ?? '').trim();
   const patterns: [RegExp, string][] = [
+    [/youtube\.com\/.*[?&]lc=([\w-]{10,})/i, 'ytc'],
+    [/facebook\.com\/.*#channels_comment_(\d{6,})/i, 'fbc'],
+    [/[?&]comment_id=(\d{6,})/i, 'fbc'],
     [/(?:twitter|x)\.com\/[^/]+\/status(?:es)?\/(\d+)/i, 'x'],
     [/facebook\.com\/.*?\/(?:posts|videos)\/(?:[^/]*\/)?(\d{6,})/i, 'fb'],
     [/facebook\.com\/(?:reel|watch\/?\?v=)\/?(\d{6,})/i, 'fb'],
@@ -356,7 +365,25 @@ export function mentionPlatformKey(url: string): string {
     const m = u.match(re);
     if (m) return `${net}:${m[1]}`;
   }
-  return `url:${normalizeMentionUrl(u).replace(/^https?:\/\/(www\.)?/i, '').split('?')[0].replace(/\/+$/, '').toLowerCase()}`;
+  return `url:${webKey(u)}`;
+}
+
+/** Parámetros que no cambian QUÉ nota es (rastreo, vista, comentarios). */
+const VIEW_PARAMS = /^(utm_.*|fbclid|gclid|igsh|si|s|ref|ref_src|amp|noamp|output|outputtype|scrolltocomments|mc_cid|mc_eid|cmpid|_ga)$/i;
+
+function webKey(raw: string): string {
+  const n = normalizeMentionUrl(raw);
+  try {
+    const x = new URL(n);
+    const params = Array.from(x.searchParams.entries())
+      .filter(([k]) => !VIEW_PARAMS.test(k))
+      .sort(([a], [b]) => a.localeCompare(b));
+    const path = x.pathname.replace(/\/+$/, '');
+    const query = params.length ? `?${params.map(([k, v]) => `${k}=${v}`).join('&')}` : '';
+    return `${x.hostname.replace(/^www\./i, '')}${path}${query}`.toLowerCase();
+  } catch {
+    return n.replace(/^https?:\/\/(www\.)?/i, '').split('?')[0].replace(/\/+$/, '').toLowerCase();
+  }
 }
 
 /** Columnas sin las que un archivo no es un exporte de Bunker utilizable. */

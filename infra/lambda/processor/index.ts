@@ -5,7 +5,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'crypto';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, type ArticleTextResult } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, mentionPlatformKey, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 
 const bedrock = new BedrockRuntimeClient({});
@@ -75,7 +75,17 @@ function isThrottlingError(err: unknown): boolean {
 
 let dbUrl: string | null = null;
 
-interface AgencyInfo { id: string; slug: string; name: string; }
+interface AgencyInfo {
+  id: string;
+  slug: string;
+  name: string;
+  /**
+   * La agencia recibe menciones por Brandwatch Y por exportes importados
+   * (queryId negativo): la misma publicación puede llegar por las dos vías
+   * con resourceIds distintos. Ver findSamePublication.
+   */
+  mixedSources: boolean;
+}
 let agencyMap: Map<number, AgencyInfo> | null = null;
 
 async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
@@ -88,8 +98,10 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
     );
     const map = new Map<number, AgencyInfo>();
     for (const row of result.rows) {
-      for (const qid of row.brandwatch_query_ids as number[]) {
-        map.set(qid, { id: row.id, slug: row.slug, name: row.name });
+      const qids = (row.brandwatch_query_ids as number[]).map(Number);
+      const mixedSources = qids.some((q) => q < 0) && qids.some((q) => q > 0);
+      for (const qid of qids) {
+        map.set(qid, { id: row.id, slug: row.slug, name: row.name, mixedSources });
       }
     }
     return map;
@@ -199,6 +211,51 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   }
 };
 
+/**
+ * Id de una mención de la agencia que ya es ESTA publicación (misma clave de
+ * `mentionPlatformKey`: id del post en X/FB/IG/YT/TikTok, o URL sin protocolo
+ * ni query en web), publicada ±3 días alrededor. Es el mismo cruce que hace el
+ * plan de importación de exportes contra la base, en la dirección contraria.
+ */
+async function findSamePublication(pgClient: any, agencyId: string, mention: BrandwatchMention): Promise<string | null> {
+  const key = mentionPlatformKey(mention.url ?? '');
+  // En web la clave puede llevar query normalizada (orden, sin rastreo): el
+  // filtro SQL busca host+ruta y la comparación exacta la hace la clave.
+  const needle = key.slice(key.indexOf(':') + 1).split('?')[0].toLowerCase();
+  if (needle.length < 5) return null;
+  const at = new Date(mention.date ?? '');
+  const when = Number.isNaN(at.getTime()) ? new Date() : at;
+  const { rows } = await pgClient.query(
+    `SELECT id, url FROM mentions
+      WHERE agency_id = $1 AND url IS NOT NULL
+        AND published_at BETWEEN $2::timestamptz - interval '3 days' AND $2::timestamptz + interval '3 days'
+        AND strpos(lower(url), $3) > 0
+      LIMIT 20`,
+    [agencyId, when.toISOString(), needle],
+  );
+  const hit = rows.find((r: { url: string }) => mentionPlatformKey(r.url) === key);
+  if (hit) return hit.id;
+
+  // Reels de Facebook: Bunker los entrega como /reel/<id> y Brandwatch como
+  // /<página>/posts/<otro id>. Misma publicación, claves distintas (188 en el
+  // cruce de DF jul–oct 2026). Segunda red: misma página, mismo segundo (±2 s),
+  // y SOLO contra la otra fuente — dentro de Brandwatch hay cientos de pares
+  // legítimos de la misma página al mismo segundo.
+  if (/facebook/i.test(mention.pageType ?? '') && mention.author && !Number.isNaN(at.getTime())) {
+    const otherSource = Number(mention.queryId) < 0 ? 'bw_query_id > 0' : 'bw_query_id < 0';
+    const { rows: same } = await pgClient.query(
+      `SELECT id FROM mentions
+        WHERE agency_id = $1 AND page_type ILIKE 'facebook%' AND ${otherSource}
+          AND lower(author) = lower($2)
+          AND published_at BETWEEN $3::timestamptz - interval '2 seconds' AND $3::timestamptz + interval '2 seconds'
+        LIMIT 1`,
+      [agencyId, mention.author, at.toISOString()],
+    );
+    if (same.length) return same[0].id;
+  }
+  return null;
+}
+
 /** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
 function vc(s: string | null | undefined, max = 255): string | null | undefined {
   if (s == null) return s;
@@ -249,6 +306,19 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   if (isEmpty) {
     console.log(`[${agency.slug}] Drop-empty-shell: ${resourceId} (page_type=${mention.pageType ?? '?'}, no title/snippet/url)`);
     return;
+  }
+
+  // Misma publicación por la otra fuente (antes del NLP, que es lo caro): en
+  // una agencia con Brandwatch + exportes, un post de Facebook o una nota que
+  // ya entró por el exporte de Bunker llega otra vez por Brandwatch con otro
+  // resourceId. No es una republicación (eso lo marca is_duplicate): es el
+  // mismo registro, así que no se inserta.
+  if (agency.mixedSources && mention.url) {
+    const sameId = await findSamePublication(pgClient, agency.id, mention);
+    if (sameId) {
+      console.log(`[${agency.slug}] Drop-same-publication: ${resourceId} = ${sameId} (${mentionPlatformKey(mention.url)})`);
+      return;
+    }
   }
 
   // Cuerpo completo del artículo ANTES del NLP. Brandwatch entrega `snippet`
@@ -764,7 +834,7 @@ async function reprocessNlpErrors(
   let failed = 0;
 
   const processRow = async (row: any): Promise<void> => {
-    const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name };
+    const agency: AgencyInfo = { id: row.agency_id, slug: row.agency_slug, name: row.agency_name, mixedSources: false };
     const mention: BrandwatchMention = {
       resourceId: row.bw_resource_id,
       guid: row.bw_guid,
