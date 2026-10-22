@@ -5133,6 +5133,7 @@ function SettingsScreen() {
   const allSections = [
     { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users', cap: 'manage_users', render: () => <UsersAdmin /> },
     { k: 'plantillas', l: 'Plantillas de correo', icon: 'Mail', cap: 'manage_templates', render: () => <TemplatesAdmin /> },
+    { k: 'importar', l: 'Importar menciones', icon: 'Upload', cap: 'import_mentions', render: () => <ImportsAdmin /> },
   ];
   const sections = allSections.filter((s) => has(s.cap));
   const [section, setSection] = useState(sections[0] ? sections[0].k : null);
@@ -5215,6 +5216,283 @@ function TemplatesAdmin() {
           <iframe title="Vista previa del correo" srcDoc={html}
             style={{ width: '100%', height: 640, border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', background: '#fff' /* el correo ES un documento blanco: no es un token que falte */ }} />
         )}
+      </div>
+    </div>
+  );
+}
+
+// --- Importación de exportes de menciones (Configuración → Importar menciones) ---
+// Para agencias que no entran por Brandwatch (DF, oct-2026). El archivo se sube
+// a /api/admin/imports, que pide una VISTA PREVIA a eco-mention-import: nada se
+// encola hasta que el usuario confirma. Después el lambda corre el ETL completo
+// (encolar → clasificar con IA → recalcular métricas y crisis) y esta pantalla
+// sigue el avance consultando /api/admin/imports/:id.
+const IMPORT_STATUS = {
+  preview:    { label: 'Vista previa',          tone: 'neu' },
+  enqueuing:  { label: 'Encolando',             tone: 'info' },
+  processing: { label: 'Clasificando',          tone: 'info' },
+  metrics:    { label: 'Recalculando métricas', tone: 'info' },
+  done:       { label: 'Completada',            tone: 'neu' },
+  failed:     { label: 'Falló',                 tone: 'neu' },
+  discarded:  { label: 'Descartada',            tone: 'neu' },
+};
+const IMPORT_RUNNING = ['enqueuing', 'processing', 'metrics'];
+const IMPORT_TYPE_LABEL = {
+  news: 'Web', facebook_public: 'Facebook', instagram_public: 'Instagram', twitter: 'X',
+  youtube: 'YouTube', tiktok: 'TikTok',
+};
+const importFmtNum = (n) => Number(n || 0).toLocaleString('es-PR');
+// '2026-10-19' → '19 oct' (los días del resumen ya vienen en hora de PR).
+const importFmtDay = (ymd) => {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('es-PR', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '');
+};
+const importApi = (url, opts) => fetch(url, { credentials: 'same-origin', ...opts })
+  .then((r) => r.json().catch(() => ({})).then((j) => (r.ok ? j : Promise.reject(new Error(j.error || ('HTTP ' + r.status))))));
+
+function ImportStat({ label, value, sub, strong }) {
+  return (
+    <div style={{ flex: '1 1 130px', border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', padding: 'var(--sp-3) var(--sp-4)', minWidth: 0 }}>
+      <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div className="num" style={{ fontSize: strong ? 'var(--fs-h2, 24px)' : 'var(--fs-h3, 20px)', fontWeight: strong ? 700 : 600, color: 'var(--text)', marginTop: 2 }}>{importFmtNum(value)}</div>
+      {sub && <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function ImportPreview({ imp, busy, onStart, onDiscard }) {
+  const s = imp.summary || {};
+  const days = Object.entries(s.byDay || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  const maxDay = Math.max(1, ...days.map(([, n]) => n));
+  const types = Object.entries(s.byType || {}).sort((a, b) => b[1] - a[1]);
+  const minutes = Math.max(1, Math.ceil((s.toImport || 0) / 90));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+      <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+        <b style={{ color: 'var(--text)' }}>{imp.fileName}</b>
+        {s.keyword && <> · palabra clave del exporte «{s.keyword}»</>}
+        {' · '}{importFmtNum(s.rows)} filas
+      </div>
+      <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+        <ImportStat label="Nuevas" value={s.toImport} strong sub={s.toImport ? 'se importarán' : 'nada nuevo que importar'} />
+        <ImportStat label="Ya cargadas" value={s.alreadyInDb}
+          sub={s.alreadyInDbOtherUrl ? `${importFmtNum(s.alreadyInDbOtherUrl)} con otra URL` : 'se saltan'} />
+        <ImportStat label="Repetidas en el archivo" value={s.dupInFile} sub="misma URL o publicación" />
+        <ImportStat label="Sin URL o fecha" value={s.invalid} sub="no se pueden importar" />
+      </div>
+      {days.length > 0 && (
+        <div>
+          <div style={{ fontSize: 'var(--fs-caption)', fontWeight: 600, marginBottom: 'var(--sp-2)' }}>Nuevas por día (hora de PR)</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {days.map(([d, n]) => (
+              <div key={d} style={{ display: 'grid', gridTemplateColumns: '64px 1fr 48px', gap: 'var(--sp-3)', alignItems: 'center', fontSize: 'var(--fs-caption)' }}>
+                <span className="mono" style={{ color: 'var(--text-3)' }}>{importFmtDay(d)}</span>
+                <span style={{ height: 8, borderRadius: 4, background: 'var(--hairline)' }}>
+                  <span style={{ display: 'block', height: 8, borderRadius: 4, width: `${(n / maxDay) * 100}%`, background: 'var(--text-2)' }} />
+                </span>
+                <span className="num" style={{ textAlign: 'right' }}>{importFmtNum(n)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginTop: 'var(--sp-3)' }}>
+            {types.map(([t, n]) => <span key={t} className="pill pill-neu">{IMPORT_TYPE_LABEL[t] || t} · {importFmtNum(n)}</span>)}
+          </div>
+        </div>
+      )}
+      <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
+        {s.toImport
+          ? `Al confirmar se encolan a 90 por minuto (~${minutes} min), la IA las clasifica (sentimiento, pertinencia, tópicos, municipios) y al final se recalculan las métricas y se evalúan las reglas de crisis de los días importados. Las republicaciones con el mismo texto quedan marcadas como duplicadas, como en la ingesta de Brandwatch.`
+          : 'Todo lo de este archivo ya está en la base. Descarta la vista previa.'}
+      </div>
+      <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        {s.toImport > 0 && <button className="btn btn-primary" disabled={busy} onClick={onStart}>{busy ? 'Iniciando…' : `Importar ${importFmtNum(s.toImport)} menciones`}</button>}
+        <button className="btn" disabled={busy} onClick={onDiscard}>Descartar</button>
+      </div>
+    </div>
+  );
+}
+
+function ImportProgress({ imp, busy, onResume }) {
+  const d = imp.detail || {};
+  const total = imp.total || 0;
+  const stalled = IMPORT_RUNNING.includes(imp.status) && Date.now() - Date.parse(imp.updatedAt) > 5 * 60_000;
+  const order = ['enqueuing', 'processing', 'metrics', 'done'];
+  const at = order.indexOf(imp.status);
+  const steps = [
+    { k: 'enqueuing', l: 'Encolar', v: `${importFmtNum(imp.enqueued)} / ${importFmtNum(total)}`, pct: total ? imp.enqueued / total : 1 },
+    { k: 'processing', l: 'Clasificar con IA', v: `${importFmtNum(imp.processed)} / ${importFmtNum(total)}`, pct: total ? imp.processed / total : 1 },
+    { k: 'metrics', l: 'Métricas y crisis', v: Array.isArray(d.metricsChunks) ? `${d.metricsChunks.length} tramo${d.metricsChunks.length === 1 ? '' : 's'}` : '—', pct: null },
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+      <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+        <b style={{ color: 'var(--text)' }}>{imp.fileName}</b> · {importFmtNum(total)} menciones nuevas
+        {imp.dateFrom && <> · {window.ecoFmtDateTime(imp.dateFrom)} → {window.ecoFmtDateTime(imp.dateTo)}</>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(3, 1fr)', '1fr'), gap: 'var(--sp-3)' }}>
+        {steps.map((st, i) => {
+          const state = imp.status === 'failed' ? (i < Math.max(0, at) ? 'done' : 'idle') : at > i || imp.status === 'done' ? 'done' : at === i ? 'active' : 'idle';
+          const pct = state === 'done' ? 1 : state === 'active' && st.pct != null ? Math.min(1, st.pct) : 0;
+          return (
+            <div key={st.k} style={{ border: '1px solid var(--hairline)', borderRadius: 'var(--r-lg)', padding: 'var(--sp-3) var(--sp-4)', opacity: state === 'idle' ? 0.6 : 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-2)', fontSize: 'var(--fs-caption)' }}>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{i + 1}. {st.l}</span>
+                <span className="num" style={{ color: 'var(--text-3)' }}>{state === 'done' ? '✓' : st.v}</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: 'var(--hairline)', marginTop: 'var(--sp-2)' }}>
+                <div style={{ height: 6, borderRadius: 3, width: `${pct * 100}%`, background: 'var(--text-2)', transition: 'width .4s' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {imp.status === 'done' && (
+        <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text)' }}>
+          Listo: {importFmtNum(imp.processed)} menciones en la base
+          {d.duplicates ? ` · ${importFmtNum(d.duplicates)} marcadas como republicación (mismo texto)` : ''}
+          {imp.processed < total ? ` · ${importFmtNum(total - imp.processed)} las descartó el processor` : ''}.
+          {' '}El dashboard ya muestra los días importados; narrativas y briefings se actualizan en su próxima corrida.
+        </div>
+      )}
+      {d.processingTimedOut && <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>El processor tardó más de 45 min; las métricas se recalcularon con lo que había.</div>}
+      {imp.status === 'failed' && <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)' }}>La importación falló: {imp.error}</div>}
+      {stalled && (
+        <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' }}>
+          Sin avance desde {window.ecoFmtDateTime(imp.updatedAt)}.
+          <button className="btn" disabled={busy} onClick={onResume}>Reanudar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImportsAdmin() {
+  const [agencies, setAgencies] = useState(null);
+  const [agency, setAgency] = useState('');
+  const [history, setHistory] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const fileRef = React.useRef(null);
+
+  const loadList = React.useCallback((slug) => importApi(`/api/admin/imports${slug ? `?agencySlug=${encodeURIComponent(slug)}` : ''}`)
+    .then((j) => {
+      setAgencies(j.agencies || []);
+      setHistory(j.imports || []);
+      return j;
+    }), []);
+
+  React.useEffect(() => {
+    loadList().then((j) => {
+      const list = j.agencies || [];
+      const active = (localStorage.getItem('eco.agency') || '');
+      const pick = list.find((a) => a.slug === active) || list[0];
+      if (pick) setAgency(pick.slug);
+      // Retoma lo que esté en curso o pendiente de confirmar.
+      const open = (j.imports || []).find((i) => i.status === 'preview' || IMPORT_RUNNING.includes(i.status));
+      if (open) { setCurrent(open); setAgency(open.agencySlug); }
+    }).catch((e) => setErr(e.message));
+  }, [loadList]);
+
+  // Sondeo mientras corre.
+  const running = current && IMPORT_RUNNING.includes(current.status);
+  React.useEffect(() => {
+    if (!running) return undefined;
+    const t = setInterval(() => {
+      importApi(`/api/admin/imports/${current.id}`)
+        .then((j) => {
+          setCurrent(j.import);
+          if (!IMPORT_RUNNING.includes(j.import.status)) loadList(agency).catch(() => {});
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [running, current && current.id, agency, loadList]);
+
+  const upload = () => {
+    if (!file || !agency) return;
+    setBusy(true); setErr(null);
+    const fd = new FormData();
+    fd.append('agencySlug', agency);
+    fd.append('file', file);
+    importApi('/api/admin/imports', { method: 'POST', body: fd })
+      .then((j) => { setCurrent(j.import); setFile(null); if (fileRef.current) fileRef.current.value = ''; })
+      .catch((e) => setErr(e.message))
+      .finally(() => setBusy(false));
+  };
+  const act = (action) => {
+    if (!current) return;
+    setBusy(true); setErr(null);
+    importApi(`/api/admin/imports/${current.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) })
+      .then((j) => {
+        setCurrent(action === 'discard' ? null : j.import);
+        loadList(agency).catch(() => {});
+      })
+      .catch((e) => setErr(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  const agencyName = (slug) => ((agencies || []).find((a) => a.slug === slug) || {}).name || slug;
+  const canUpload = !current || !(current.status === 'preview' || IMPORT_RUNNING.includes(current.status));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
+      <div className="card">
+        <div className="card-hd"><div>
+          <div className="card-hd-title">Importar menciones</div>
+          <div className="card-hd-sub">Exportes .xlsx de Bunker para agencias que no entran por Brandwatch. Lo que ya está en la base se salta.</div>
+        </div></div>
+        <div className="card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+          {agencies && agencies.length === 0 && (
+            <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>Ninguna agencia que puedas ver recibe importaciones.</div>
+          )}
+          {canUpload && agencies && agencies.length > 0 && (
+            <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+              <select className="input" value={agency} onChange={(e) => { setAgency(e.target.value); loadList(e.target.value).catch(() => {}); }} aria-label="Agencia" style={{ flex: '0 1 260px' }}>
+                {agencies.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
+              </select>
+              <input ref={fileRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                aria-label="Exporte de Bunker (.xlsx)" onChange={(e) => setFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                style={{ flex: '1 1 220px', fontSize: 'var(--fs-body-sm)', minWidth: 0 }} />
+              <button className="btn btn-primary" disabled={!file || !agency || busy} onClick={upload}>{busy ? 'Revisando…' : 'Revisar archivo'}</button>
+            </div>
+          )}
+          {err && <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)' }}>{err}</div>}
+          {current && current.status === 'preview' && (
+            <ImportPreview imp={current} busy={busy} onStart={() => act('start')} onDiscard={() => act('discard')} />
+          )}
+          {current && current.status !== 'preview' && current.status !== 'discarded' && (
+            <ImportProgress imp={current} busy={busy} onResume={() => act('resume')} />
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-hd"><div>
+          <div className="card-hd-title">Historial</div>
+          <div className="card-hd-sub">{agency ? agencyName(agency) : ''} · últimas 20</div>
+        </div></div>
+        <div className="card-bd" style={{ padding: 0, overflowX: 'auto' }}>
+          {history.length === 0 && <div style={{ padding: 'var(--sp-4)', fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>Todavía no hay importaciones desde esta pantalla.</div>}
+          {history.map((row, i) => {
+            // La importación abierta arriba se sondea cada 5 s; el historial solo
+            // se recarga al terminar, así que su fila toma el estado de `current`.
+            const h = current && current.id === row.id ? current : row;
+            const st = IMPORT_STATUS[h.status] || { label: h.status, tone: 'neu' };
+            return (
+              <div key={h.id} style={{ display: 'grid', gridTemplateColumns: window.ecoCols('180px 1fr 170px 80px', '1fr auto'), minWidth: 0, gap: 'var(--sp-3)', padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 'var(--fs-caption)', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setCurrent(h)}>
+                <span className="mono" style={{ color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{window.ecoFmtDateTime(h.createdAt)}</span>
+                <span style={{ color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.fileName}>
+                  {h.fileName}{h.uploadedBy ? <span style={{ color: 'var(--text-3)' }}> · {h.uploadedBy.split('@')[0]}</span> : null}
+                </span>
+                <span className={`pill pill-${st.tone}`} style={{ justifySelf: 'start' }}>{st.label}</span>
+                <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{importFmtNum(h.status === 'preview' ? (h.summary || {}).toImport : h.total)}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

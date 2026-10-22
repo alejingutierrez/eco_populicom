@@ -191,7 +191,7 @@ function ecoCanSeePage(key) {
   if (key === 'alerts' && s.canSeeAlerts === false) return false;
   if (key !== 'overview' && Array.isArray(s.allowedPages) && s.allowedPages.length > 0 && !s.allowedPages.includes(key)) return false;
   if (key === 'settings') {
-    return ecoHasCap('manage_users') || ecoHasCap('manage_templates') || ecoHasCap('manage_alert_rules');
+    return ecoHasCap('manage_users') || ecoHasCap('manage_templates') || ecoHasCap('manage_alert_rules') || ecoHasCap('import_mentions');
   }
   return true;
 }

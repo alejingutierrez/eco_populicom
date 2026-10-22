@@ -46,8 +46,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { SQSClient, SendMessageBatchCommand, GetQueueUrlCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { addDaysYmd, bunkerRowToMention, isImportQueryId, ymdInTimeZone, type BrandwatchMention } from '@eco/shared';
-import { readXlsxRows } from './lib/xlsx-lite';
+import { addDaysYmd, isImportQueryId, mapBunkerRows, mentionPlatformKey, ymdInTimeZone } from '@eco/shared';
+import { readXlsxRows } from '@eco/shared/src/xlsx-lite';
 
 const RAW_BUCKET = process.env.RAW_BUCKET ?? 'eco-raw-863956448838';
 const QUEUE_NAME = process.env.INGESTION_QUEUE_NAME ?? 'eco-ingestion';
@@ -102,23 +102,13 @@ async function main(): Promise<void> {
   }
   const queryId = importIds[0];
 
-  // 2) Leer y mapear.
-  const rows = readXlsxRows(file);
-  const byId = new Map<string, BrandwatchMention>();
-  let invalid = 0;
-  let dupInFile = 0;
-  let outOfRange = 0;
-  for (const row of rows) {
-    const m = bunkerRowToMention(row, { queryId });
-    if (!m) { invalid++; continue; }
-    const day = m.date.slice(0, 10);
-    if ((since && day < since) || (until && day > until)) { outOfRange++; continue; }
-    if (byId.has(m.resourceId)) { dupInFile++; continue; }
-    byId.set(m.resourceId, m);
-  }
-  const mapped = Array.from(byId.values()).sort((a, b) => a.date.localeCompare(b.date));
+  // 2) Leer y mapear (únicas por URL y por publicación dentro del archivo).
+  const parsed = mapBunkerRows(readXlsxRows(readFileSync(file)), { queryId, since, until });
+  if (parsed.missingColumns.length) throw new Error(`No parece un exporte de Bunker: faltan ${parsed.missingColumns.join(', ')}`);
+  const mapped = parsed.mentions;
 
-  // 3) Saltar las que ya están en la DB (de cualquier agencia: bw_resource_id es único global).
+  // 3) Saltar las que ya están en la DB: por resourceId (único global) y por
+  //    publicación (la misma con otra URL) en la ventana del archivo ± 3 días.
   const existing = new Set<string>();
   const ids = mapped.map((m) => m.resourceId);
   for (let i = 0; i < ids.length; i += 400) {
@@ -128,16 +118,30 @@ async function main(): Promise<void> {
     );
     for (const r of found) existing.add(r.bw_resource_id);
   }
-  const pending = mapped.filter((m) => !existing.has(m.resourceId)).slice(0, limit);
+  const known = new Set<string>();
+  if (mapped.length) {
+    const urls = await query<{ url: string }>(
+      `SELECT url FROM mentions WHERE agency_id = ${sqlStr(agency.id)} AND url IS NOT NULL
+         AND published_at BETWEEN ${sqlStr(mapped[0].date)}::timestamptz - interval '3 days'
+                              AND ${sqlStr(mapped[mapped.length - 1].date)}::timestamptz + interval '3 days'`,
+    );
+    for (const u of urls) known.add(mentionPlatformKey(u.url));
+  }
+  let otherUrl = 0;
+  const pending = mapped.filter((m) => {
+    if (existing.has(m.resourceId)) return false;
+    if (known.has(mentionPlatformKey(m.url ?? ''))) { otherUrl++; return false; }
+    return true;
+  }).slice(0, limit);
 
   const byType: Record<string, number> = {};
   for (const m of pending) byType[m.pageType] = (byType[m.pageType] ?? 0) + 1;
   console.log(`[${slug}] ${agency.name} · queryId ${queryId}`);
-  console.log(`  filas en el xlsx:      ${rows.length}`);
-  console.log(`  sin URL o fecha:       ${invalid}`);
-  console.log(`  fuera de rango:        ${outOfRange}`);
-  console.log(`  repetidas en el xlsx:  ${dupInFile}`);
-  console.log(`  ya en la DB:           ${existing.size}`);
+  console.log(`  filas en el xlsx:      ${parsed.rows}`);
+  console.log(`  sin URL o fecha:       ${parsed.invalid}`);
+  console.log(`  fuera de rango:        ${parsed.outOfRange}`);
+  console.log(`  repetidas en el xlsx:  ${parsed.dupInFile}`);
+  console.log(`  ya en la DB:           ${existing.size + otherUrl}${otherUrl ? ` (${otherUrl} con otra URL)` : ''}`);
   console.log(`  por encolar:           ${pending.length}  ${JSON.stringify(byType)}`);
   if (pending.length) console.log(`  rango:                 ${pending[0].date} → ${pending[pending.length - 1].date}`);
 

@@ -46,6 +46,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly narrativeEdgesFunction: NodejsFunction;
   public readonly narrativeDriftFunction: NodejsFunction;
   public readonly articleFetchFunction: NodejsFunction;
+  public readonly mentionImportFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -367,6 +368,51 @@ export class WorkersStack extends cdk.Stack {
     });
     reprocessUnclassifiedRule.addTarget(new targets.LambdaFunction(this.processorFunction, {
       event: events.RuleTargetInput.fromObject({ action: 'reprocess-unclassified', limit: 300 }),
+    }));
+
+    // ---- eco-mention-import Lambda ----
+    // ETL de los exportes que se suben desde Configuración → Importar menciones
+    // (agencias sin Brandwatch, como DF). Lo invoca el web: `preview` y `start`
+    // síncronos; el resto del proceso (encolar a 90/min, esperar al processor,
+    // métricas + crisis) se re-invoca a sí mismo en asíncrono con un arriendo
+    // por importación en `mention_import_jobs`, así que no lleva reservedConcurrency
+    // (una vista previa no puede quedar esperando detrás de una carga).
+    // Desplegado a mano la primera vez (22-oct-2026), igual que eco-article-fetch.
+    this.mentionImportFunction = new NodejsFunction(this, 'MentionImportFunction', {
+      functionName: 'eco-mention-import',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/mention-import/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(15),
+      retryAttempts: 0,
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        RAW_BUCKET: props.rawBucket.bucketName,
+        INGESTION_QUEUE_NAME: props.ingestionQueue.queueName,
+        METRICS_FUNCTION_NAME: 'eco-metrics-calculator',
+        PER_MINUTE: '90',
+      },
+      logGroup: importLogGroup('MentionImportLogGroup', 'eco-mention-import'),
+      bundling: bundlingOptions,
+    });
+    this.mentionImportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+    props.rawBucket.grantReadWrite(this.mentionImportFunction, 'bunker/*');
+    props.ingestionQueue.grantSendMessages(this.mentionImportFunction);
+    this.mentionImportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['sqs:GetQueueAttributes', 'sqs:GetQueueUrl'],
+      resources: [props.ingestionQueue.queueArn],
+    }));
+    this.metricsCalculatorFunction.grantInvoke(this.mentionImportFunction);
+    this.mentionImportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:eco-mention-import`],
     }));
 
     // ---- eco-weekly-report Lambda ----

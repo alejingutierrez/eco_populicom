@@ -243,9 +243,26 @@ se importa un exporte nuevo.
   agencia). Los queryId NEGATIVOS son fuentes importadas
   (`isImportQueryId`); archivada = sin proyecto NI query (`isArchivedAgency`,
   SGPR tiene `[]`).
-- **Importar un exporte nuevo** (idempotente: el resourceId sale de la URL y
-  lo que ya está en `mentions` se salta; un exporte que se solapa con el
-  anterior solo encola lo nuevo):
+- **Importar un exporte nuevo — vía normal: Configuración → Importar
+  menciones** (solo admin, capacidad `import_mentions`). Se sube el xlsx, la
+  pantalla muestra la vista previa (nuevas / ya cargadas / repetidas en el
+  archivo, por día y por red) y al confirmar el lambda `eco-mention-import`
+  hace el ETL completo con avance visible: encolar a 90/min → esperar al
+  processor → snapshots + `evaluateCrisis`. Estado en la tabla
+  `mention_import_jobs` (NO `mention_imports`: esa es un resto de mayo-2026
+  con otro esquema, sin uso). El lambda vive fuera de CDK de momento (creado a
+  mano el 22-oct-2026 con rol propio `eco-mention-import-role`; declarado en
+  workers-stack.ts); el web necesita la inline `EcoWebMentionImport` del task
+  role (S3 `bunker/*` + invoke). Redeploy: esbuild con
+  `--alias:@eco/shared=<worktree>/packages/shared` (directorio, para que
+  resuelva `@eco/shared/src/xlsx-lite`) + `update-function-code`.
+- **Dedup** (idempotente): por resourceId (hash de la URL normalizada, único
+  global) y por publicación (`mentionPlatformKey`: id del post en X/FB/IG/YT/
+  TikTok, así la misma publicación con otra URL tampoco entra), contra la base
+  en la ventana del archivo ± 3 días y dentro del mismo archivo. Las
+  republicaciones con el mismo texto (FB+IG del mismo medio) SÍ entran: son
+  publicaciones distintas y el processor las marca `is_duplicate`.
+- **Por terminal** (mismo plan, mismo dedup):
 
 ```bash
 set -a && source /Users/alegut/MyApps/eco_populicom/.env && set +a

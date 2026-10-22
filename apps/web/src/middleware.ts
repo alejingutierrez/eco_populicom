@@ -46,6 +46,10 @@ const PROTECTED_PATHS = [
   // El reporte exportable devuelve el período completo de una agencia: nunca
   // puede servirse sin sesión.
   /^\/api\/export(\/.*)?$/,
+  // Importación de exportes (Configuración → Importar menciones). Solo esta
+  // ruta de /api/admin: /api/admin/diagnostics se autentica con el secreto
+  // del cron, no con sesión.
+  /^\/api\/admin\/imports(\/.*)?$/,
 ];
 
 function isProtected(pathname: string): boolean {
@@ -193,5 +197,7 @@ export const config = {
     '/api/sentiment/:path*',
     '/api/chat/:path*',
     '/api/export/:path*',
+    '/api/admin/imports',
+    '/api/admin/imports/:path*',
   ],
 };

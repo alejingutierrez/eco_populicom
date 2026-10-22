@@ -327,3 +327,94 @@ export function bunkerRowToMention(row: BunkerRow, ctx: BunkerMappingContext): B
     matchPositions: [],
   };
 }
+
+/**
+ * Identidad de la PUBLICACIÓN, no de la URL: el id que la red le da al post
+ * (status de X, post/reel/video de Facebook, código de Instagram, video de
+ * YouTube o TikTok). Dos URL distintas de lo mismo —twitter.com vs x.com,
+ * youtu.be vs watch?v=, un post de Facebook con o sin slug— dan la misma
+ * clave, aunque su resourceId (hash de la URL) sea distinto. En web la clave
+ * es la URL sin protocolo, www, query ni barra final.
+ *
+ * No sustituye al resourceId (que sigue siendo la llave del dedup del
+ * processor): es la segunda red que usa el plan de importación contra lo que
+ * ya está en la base.
+ */
+export function mentionPlatformKey(url: string): string {
+  const u = (url ?? '').trim();
+  const patterns: [RegExp, string][] = [
+    [/(?:twitter|x)\.com\/[^/]+\/status(?:es)?\/(\d+)/i, 'x'],
+    [/facebook\.com\/.*?\/(?:posts|videos)\/(?:[^/]*\/)?(\d{6,})/i, 'fb'],
+    [/facebook\.com\/(?:reel|watch\/?\?v=)\/?(\d{6,})/i, 'fb'],
+    [/[?&]story_fbid=(\d{6,})/i, 'fb'],
+    [/[?&]fbid=(\d{6,})/i, 'fb'],
+    [/instagram\.com\/(?:[^/]+\/)?(?:p|reel|reels|tv)\/([\w-]{5,})/i, 'ig'],
+    [/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/i, 'yt'],
+    [/tiktok\.com\/@[^/]+\/(?:video|photo)\/(\d+)/i, 'tt'],
+  ];
+  for (const [re, net] of patterns) {
+    const m = u.match(re);
+    if (m) return `${net}:${m[1]}`;
+  }
+  return `url:${normalizeMentionUrl(u).replace(/^https?:\/\/(www\.)?/i, '').split('?')[0].replace(/\/+$/, '').toLowerCase()}`;
+}
+
+/** Columnas sin las que un archivo no es un exporte de Bunker utilizable. */
+export const BUNKER_REQUIRED_COLUMNS = ['URL', 'DATE', 'TIME', 'SOURCE_TYPE'] as const;
+
+export interface BunkerMappedFile {
+  /** Menciones únicas del archivo, de la más vieja a la más nueva. */
+  mentions: BrandwatchMention[];
+  rows: number;
+  /** Filas sin URL o sin fecha utilizable. */
+  invalid: number;
+  /** Filas cuya URL (o publicación) ya apareció antes en el mismo archivo. */
+  dupInFile: number;
+  outOfRange: number;
+  /** Columnas obligatorias que faltan (vacío = formato reconocido). */
+  missingColumns: string[];
+  /** Valor más repetido de KEYWORD_NAME (para avisar si el archivo es de otra agencia). */
+  keyword: string | null;
+}
+
+/**
+ * Lee las filas de un exporte de Bunker y devuelve las menciones únicas
+ * (por URL normalizada y por publicación) más el recuento de lo que se
+ * descartó y por qué. Es puro: el cruce contra la base lo hace quien llama
+ * (el script y eco-mention-import), con `mentionPlatformKey` y el resourceId.
+ */
+export function mapBunkerRows(
+  rows: BunkerRow[],
+  ctx: BunkerMappingContext & { since?: string; until?: string },
+): BunkerMappedFile {
+  const header = new Set(rows.length ? Object.keys(rows[0]) : []);
+  const missingColumns = BUNKER_REQUIRED_COLUMNS.filter((c) => !header.has(c));
+  const byId = new Map<string, BrandwatchMention>();
+  const seenKeys = new Set<string>();
+  const keywords = new Map<string, number>();
+  let invalid = 0;
+  let dupInFile = 0;
+  let outOfRange = 0;
+  for (const row of rows) {
+    const kw = str(row.KEYWORD_NAME);
+    if (kw) keywords.set(kw, (keywords.get(kw) ?? 0) + 1);
+    const m = bunkerRowToMention(row, ctx);
+    if (!m) { invalid++; continue; }
+    const day = m.date.slice(0, 10);
+    if ((ctx.since && day < ctx.since) || (ctx.until && day > ctx.until)) { outOfRange++; continue; }
+    const key = mentionPlatformKey(m.url ?? '');
+    if (byId.has(m.resourceId) || seenKeys.has(key)) { dupInFile++; continue; }
+    byId.set(m.resourceId, m);
+    seenKeys.add(key);
+  }
+  const keyword = Array.from(keywords.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  return {
+    mentions: Array.from(byId.values()).sort((a, b) => a.date.localeCompare(b.date) || a.resourceId.localeCompare(b.resourceId)),
+    rows: rows.length,
+    invalid,
+    dupInFile,
+    outOfRange,
+    missingColumns,
+    keyword,
+  };
+}

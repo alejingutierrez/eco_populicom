@@ -7,8 +7,12 @@
  * texto (t="str"), booleanos y números. NO interpreta estilos: una fecha
  * guardada como número de serie llega como número (Bunker exporta DATE y TIME
  * como texto).
+ *
+ * Vive en @eco/shared pero NO se exporta desde el index (usa node:zlib y el
+ * index también lo consume código de navegador): se importa como
+ * `@eco/shared/src/xlsx-lite`. Lo usan scripts/import-bunker-xlsx.ts y el
+ * lambda eco-mention-import.
  */
-import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 
 function readZipEntries(buf: Buffer): Map<string, Buffer> {
@@ -83,8 +87,8 @@ function firstSheetPath(entries: Map<string, Buffer>): string {
 }
 
 /** Filas de la primera hoja como objetos {columna: valor}; la fila 1 son los encabezados. */
-export function readXlsxRows(file: string): Record<string, string | number | boolean | null>[] {
-  const entries = readZipEntries(readFileSync(file));
+export function readXlsxRows(buf: Buffer): Record<string, string | number | boolean | null>[] {
+  const entries = readZipEntries(buf);
   const shared: string[] = [];
   const ss = entries.get('xl/sharedStrings.xml')?.toString('utf8');
   if (ss) for (const m of ss.matchAll(/<si>([\s\S]*?)<\/si>/g)) shared.push(textOf(m[1]));
