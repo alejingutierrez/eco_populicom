@@ -132,8 +132,14 @@ export class ComputeStack extends cdk.Stack {
       resources: [
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-weekly-report`,
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-ai-tasks`,
+        // Configuración → Importar menciones (/api/admin/imports).
+        `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-mention-import`,
       ],
     }));
+    // /api/admin/imports deja el xlsx subido en s3://<raw>/bunker/ antes de
+    // pedir la vista previa. Aplicado también a mano como inline policy del task
+    // role (EcoWebMentionImport), por la misma razón que EcoWebSendEmail.
+    props.rawBucket.grantPut(taskDef.taskRole, 'bunker/*');
 
     // Permite a /api/users crear cuentas reales en Cognito (AdminCreateUser) +
     // asignar el grupo del rol (AdminAddUserToGroup) al invitar usuarios, y leer

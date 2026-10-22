@@ -9,7 +9,7 @@
  */
 import {
   bunkerRowToMention, bunkerResourceId, bunkerDateToIso, bunkerOriginalImageUrl,
-  normalizeMentionUrl, isImportQueryId, isArchivedAgency,
+  normalizeMentionUrl, isImportQueryId, isArchivedAgency, mentionPlatformKey, mapBunkerRows,
   TOPICS_BY_AGENCY, TOPIC_SLUGS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES,
 } from '@eco/shared';
 
@@ -195,5 +195,71 @@ describe('taxonomía DF', () => {
       expect(AGENCY_NLP_CONTEXT[slug]).toBeUndefined();
       expect(TOPIC_ROUTING_RULES[slug]).toBeUndefined();
     }
+  });
+});
+
+// Configuración → Importar menciones (oct-2026). El segundo exporte de DF
+// (22-oct, 904 filas) se solapaba con el anterior en 379: la red principal es
+// el resourceId; esta es la segunda, para la misma publicación con otra URL.
+describe('dedup por publicación (mentionPlatformKey)', () => {
+  test('la misma publicación con distinta URL da la misma clave', () => {
+    expect(mentionPlatformKey('https://twitter.com/VoceroPR/status/2112212551370965208'))
+      .toBe(mentionPlatformKey('https://x.com/VoceroPR/status/2112212551370965208?s=20'));
+    expect(mentionPlatformKey('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3'))
+      .toBe(mentionPlatformKey('https://youtu.be/dQw4w9WgXcQ'));
+    expect(mentionPlatformKey('https://www.instagram.com/p/DerbMY9MFeF/'))
+      .toBe(mentionPlatformKey('https://instagram.com/indiario/p/DerbMY9MFeF?igsh=abc'));
+    expect(mentionPlatformKey('https://www.facebook.com/reel/2618282435283973/'))
+      .toBe('fb:2618282435283973');
+    expect(mentionPlatformKey('https://www.facebook.com/568721841974507/posts/1517531570426858'))
+      .toBe('fb:1517531570426858');
+    expect(mentionPlatformKey('https://www.tiktok.com/@elnuevodiapr/video/7698451198801677581'))
+      .toBe('tt:7698451198801677581');
+  });
+
+  test('publicaciones distintas de la misma cuenta no chocan (las republicaciones cruzadas FB/IG son menciones aparte)', () => {
+    expect(mentionPlatformKey('https://www.facebook.com/568721841974507/posts/1518691200310895'))
+      .not.toBe(mentionPlatformKey('https://www.facebook.com/568721841974507/posts/1519251223588226'));
+    expect(mentionPlatformKey('https://www.instagram.com/p/DerbMY9MFeF/'))
+      .not.toBe(mentionPlatformKey('https://www.facebook.com/122218382822254516/posts/122285948408254516'));
+  });
+
+  test('en web la clave es la URL sin protocolo, www, query ni barra final', () => {
+    expect(mentionPlatformKey('https://www.metro.pr/noticias/2026/10/16/familia/?utm_source=x'))
+      .toBe(mentionPlatformKey('http://metro.pr/noticias/2026/10/16/familia'));
+  });
+});
+
+describe('mapBunkerRows', () => {
+  const ctx = { queryId: -1001 };
+
+  test('cuenta inválidas y repetidas, y ordena de la más vieja a la más nueva', () => {
+    const later = { ...FB_ROW, TIME: '20:00:00', URL: 'https://www.facebook.com/604543901709790/posts/999999999' };
+    const r = mapBunkerRows([later, FB_ROW, { ...FB_ROW }, { ...FB_ROW, URL: '' }], ctx);
+    expect(r.rows).toBe(4);
+    expect(r.invalid).toBe(1);
+    expect(r.dupInFile).toBe(1);
+    expect(r.mentions.map((m) => m.url)).toEqual([FB_ROW.URL, later.URL]);
+    expect(r.keyword).toBe('Dpto de la Familia');
+    expect(r.missingColumns).toEqual([]);
+  });
+
+  test('la misma publicación con otra URL dentro del archivo cuenta como repetida', () => {
+    const tw = { ...FB_ROW, SOURCE_TYPE: 'twitter', URL: 'https://twitter.com/VoceroPR/status/2112212551370965208' };
+    const r = mapBunkerRows([tw, { ...tw, URL: 'https://x.com/VoceroPR/status/2112212551370965208' }], ctx);
+    expect(r.mentions).toHaveLength(1);
+    expect(r.dupInFile).toBe(1);
+  });
+
+  test('un archivo que no es de Bunker se reconoce por las columnas que faltan', () => {
+    const r = mapBunkerRows([{ Fecha: '2026-10-16', Enlace: 'https://x.com/a/status/1' }], ctx);
+    expect(r.missingColumns).toEqual(['URL', 'DATE', 'TIME', 'SOURCE_TYPE']);
+    expect(r.mentions).toHaveLength(0);
+  });
+
+  test('since/until filtran por día (UTC) y lo cuentan aparte', () => {
+    const r = mapBunkerRows([FB_ROW], { ...ctx, since: '2026-10-17' });
+    expect(r.outOfRange).toBe(1);
+    expect(r.mentions).toHaveLength(0);
   });
 });
