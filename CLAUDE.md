@@ -236,12 +236,14 @@ usa el self-heal pattern descrito arriba.
 16-oct-2026 alimentada SOLO por exportes xlsx de Bunker. **Desde el
 22-oct-2026 entra por Brandwatch** (proyecto `1998412396` «DF - Departamento
 de la Familia», query monitor `2004156405`, histórico desde 1-oct-2025, sin
-muestreo, excluye 19 países hispanos) con
+muestreo, idiomas es/en, excluye 19 países hispanos) con
 `brandwatch_query_ids = [-1001, 2004156405]`: el `-1001` se conserva para
 poder seguir importando exportes como complemento (X, TikTok y YouTube, que
 Brandwatch casi no trae). El boolean y su diseño (anclas, contexto de las
 siglas ambiguas: «acuden» es verbo, «asume» también) viven en
-`brandwatch-archive/df-2004156405.json`.
+`brandwatch-archive/df-2004156405.json` y `scripts/df-boolean-emulator.py`
+(genera el boolean y lo emula sobre un corpus para medir recall antes de
+editar la query).
 
 - **Cómo la reconoce el pipeline**: los queryId NEGATIVOS son fuentes
   importadas (`isImportQueryId`). eco-ingestion se los salta (no existen en

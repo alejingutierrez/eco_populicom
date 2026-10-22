@@ -9,6 +9,12 @@
 #
 # La emulación es aproximada (NEAR por distancia en palabras ±3, sin
 # stemming): sirve para comparar versiones, no para predecir el volumen de BW.
+#
+# v2 (22-oct, tras ver lo que BW traía y Bunker no): idiomas es/en (cortó
+# «secretária de Família» de Brasil y Mont-roig), ACUDEN sin «Familia» de
+# contexto («familias acuden» en páginas de México), «Programa de Asistencia
+# Nutricional» exige PAN o contexto PR (en EE. UU. es SNAP), y «Secretaria de
+# Familia» sin «la» exige contexto PR (Colombia/México).
 import re,unicodedata
 def norm(s): return unicodedata.normalize('NFKD',s or '').encode('ascii','ignore').decode().lower()
 def P(*xs): return ('OR',list(xs))
@@ -19,7 +25,7 @@ T1 = [  # identidad inequívoca, matchean solos
  '"Suzanne Roig"','"Susan Roig"','"Roig Fuertes"','"Blanca Medina Díaz"','"Departamento de Familia"','"Depto Familia"','"Dpto Familia"','#ACUDEN','"acuden.pr.gov"','"adsef.pr.gov"','ADSEF','ADFAN',
  '"Administración de Desarrollo Socioeconómico"','"Administración de Familias y Niños"',
  '"Administración para el Cuidado y Desarrollo Integral de la Niñez"','"Administración para el Sustento de Menores"',
- '"Tarjeta de la Familia"','"Programa de Asistencia Nutricional"',
+ '"Tarjeta de la Familia"',
  '"Puerto Rico Department of the Family"','"Puerto Rico Department of Family"','"Puerto Rico Family Department"',
  'FICPRO','"Federación de Instituciones de Cuido Prolongado"','"cuido prolongado"',
  '@SomosFamiliaPR','SomosFamiliaPR','#DepartamentoDeLaFamilia','#SuzanneRoig','"familia.pr.gov"','@adseffamilia',
@@ -27,7 +33,8 @@ T1 = [  # identidad inequívoca, matchean solos
 ]
 PR = P('"Puerto Rico"','boricua*','puertorrique*','ADSEF','"Departamento de la Familia"','Familia')
 T2 = [ # siglas/nombres ambiguos con contexto
- NEAR('ACUDEN', P('"Head Start"','cuido','niñez','Familia','subsidio*','administrador*','"centros de cuido"','"centros de cuidado"','"cuidado infantil"','"Vega Ojeda"','"niñez temprana"','Roig'),8),
+ NEAR('ACUDEN', P('"Head Start"','niñez','"centros de cuido"','"centros de cuidado"','"cuidado infantil"','"Vega Ojeda"','"niñez temprana"','Roig','"Dos Generaciones"','"Puerto Rico Crece"','"Departamento de la Familia"','administradora','ADSEF','ADFAN','ASUME'),8),
+ NEAR('"Programa de Asistencia Nutricional"', P('PAN','"Puerto Rico"','ADSEF','"Departamento de la Familia"','"Tarjeta de la Familia"','boricua*'),15),
  NEAR('Roig', P('secretaria','Familia','ADSEF','TANF','"Rivera Schatz"','ASSMCA','Coccoloba','NOLA','"Star Academy"','"LAP Consulting"'),8),
  NEAR('"LAP Consulting"', P('Familia','Roig','ASSMCA','Senado','TANF','contrato*'),15),
  NEAR('"cuidado prolongado"', P('hogar','hogares','Familia','licencia*','clandestino*'),6),
@@ -43,10 +50,10 @@ T2 = [ # siglas/nombres ambiguos con contexto
  NEAR('"Department of the Family"', P('"Puerto Rico"'),8),
  NEAR('"beneficiarios del PAN"', P('Familia','"Puerto Rico"','ADSEF','pago*','tarjeta'),20),
  # "Familia" como nombre corto de la agencia (custodia de Familia, Secretaria de Familia…)
- '"custodia de Familia"','"Secretaria de Familia"','"Secretario de Familia"','"titular de Familia"',
+ '"custodia de Familia"',
+ NEAR(P('"Secretaria de Familia"','"Secretario de Familia"','"titular de Familia"'), P('Roig','"Puerto Rico"','boricua*','ADSEF','ADFAN','ASUME','ACUDEN','"Rivera Schatz"','Senado','Gobernadora','"Jenniffer González"','NOLA','TANF'),20),
  NEAR('Familia', P('"hogar de cuido"','"hogares de cuido"','"hogar de crianza"','"hogares de crianza"','"maltrato de menores"','"maltrato institucional"','"Línea de Orientación"','"trabajadora social"','"trabajadoras sociales"','"trabajadores sociales"'),6),
 ]
-NOTS = ['"Instituto de la Familia"']  # placeholder
 def bw(x):
   if isinstance(x,str): return x
   if x[0]=='OR': return '('+' OR '.join(bw(y) for y in x[1])+')'
