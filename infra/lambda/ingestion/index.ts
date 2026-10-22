@@ -87,114 +87,130 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
         projectId: agency.brandwatch_project_id,
       });
 
-      for (const queryId of agency.brandwatch_query_ids) {
+      for (const rawQueryId of agency.brandwatch_query_ids) {
+        const queryId = Number(rawQueryId);
+        // Una agencia puede mezclar fuentes: DF recibe Brandwatch y además
+        // exportes importados (queryId negativo, ver isImportQueryId en
+        // @eco/shared). Esos no existen en la API de Brandwatch.
+        if (!Number.isFinite(queryId) || queryId < 0) continue;
         // Skip queries not in the backfill whitelist (if one was provided).
         if (isBackfill && evt.backfillQueryIds && !evt.backfillQueryIds.includes(queryId)) {
           continue;
         }
 
-        // Determine time window from cursor (normal mode) or from the event
-        // (backfill mode — cursor is left alone so the regular cron keeps
-        // advancing from wherever it was).
-        let startDate: string;
-        const cursor = isBackfill ? null : await readCursor(client, queryId);
+        // Un query que falla (5xx de Brandwatch, query borrado, cuota) no debe
+        // tumbar la corrida: sin esto, los queries que vienen después en el
+        // loop se quedan sin sondear (incidente de jul-2026, SGPR/Gobernadora
+        // tres días sin ingesta). El cursor del que falló no avanza, así que
+        // la próxima corrida lo reintenta.
+        try {
+          // Determine time window from cursor (normal mode) or from the event
+          // (backfill mode — cursor is left alone so the regular cron keeps
+          // advancing from wherever it was).
+          let startDate: string;
+          const cursor = isBackfill ? null : await readCursor(client, queryId);
 
-        if (isBackfill) {
-          startDate = evt.backfillStartDate!;
-        } else if (cursor) {
-          const cursorDate = new Date(cursor.last_mention_date);
-          cursorDate.setMinutes(cursorDate.getMinutes() - 1);
-          startDate = cursorDate.toISOString();
-        } else {
-          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          startDate = yesterday.toISOString();
-        }
+          if (isBackfill) {
+            startDate = evt.backfillStartDate!;
+          } else if (cursor) {
+            const cursorDate = new Date(cursor.last_mention_date);
+            cursorDate.setMinutes(cursorDate.getMinutes() - 1);
+            startDate = cursorDate.toISOString();
+          } else {
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            startDate = yesterday.toISOString();
+          }
 
-        console.log(`[${agency.slug}] Query ${queryId}: fetching ${startDate} → ${endDate}`);
+          console.log(`[${agency.slug}] Query ${queryId}: fetching ${startDate} → ${endDate}`);
 
-        let totalMentions = 0;
-        let pageIndex = 0;
-        let lastMentionDate = startDate;
-        let sendFailures = 0; // entries que SQS rechazó tras reintentos
+          let totalMentions = 0;
+          let pageIndex = 0;
+          let lastMentionDate = startDate;
+          let sendFailures = 0; // entries que SQS rechazó tras reintentos
 
-        for await (const mentions of bw.fetchMentionPages({
-          queryId,
-          startDate,
-          endDate,
-          pageSize: 100,
-          orderBy: 'date',
-          orderDirection: 'asc',
-        })) {
-          // Store raw JSON in S3 under agency-scoped path
-          const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
-          await s3.send(
-            new PutObjectCommand({
-              Bucket: RAW_BUCKET,
-              Key: s3Key,
-              Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
-              ContentType: 'application/json',
-            }),
-          );
+          for await (const mentions of bw.fetchMentionPages({
+            queryId,
+            startDate,
+            endDate,
+            pageSize: 100,
+            orderBy: 'date',
+            orderDirection: 'asc',
+          })) {
+            // Store raw JSON in S3 under agency-scoped path
+            const s3Key = `brandwatch/${agency.slug}/${queryId}/${datePrefix}/page-${pageIndex}.json`;
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: RAW_BUCKET,
+                Key: s3Key,
+                Body: JSON.stringify({ results: mentions, fetchedAt: now.toISOString() }),
+                ContentType: 'application/json',
+              }),
+            );
 
-          // Send each mention to SQS (batches of 10 max). SendMessageBatch es
-          // de éxito PARCIAL: las entries en `Failed` nunca llegan al processor
-          // y, como el cursor avanzaría igual, se perderían para siempre.
-          // Reintentamos las fallidas; las que persistan se contabilizan para
-          // NO avanzar el cursor de esta query (la próxima corrida re-escanea;
-          // el UNIQUE bw_resource_id deduplica las que sí entraron).
-          const batches = chunk(mentions, 10);
-          for (const batch of batches) {
-            let entries = batch.map((mention, idx) => ({
-              Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
-              MessageBody: JSON.stringify(mention),
-            }));
-            for (let attempt = 0; attempt < 3 && entries.length > 0; attempt++) {
-              const res = await sqs.send(
-                new SendMessageBatchCommand({ QueueUrl: INGESTION_QUEUE_URL, Entries: entries }),
-              );
-              const failedIds = new Set((res.Failed || []).map((f) => f.Id));
-              entries = entries.filter((e) => failedIds.has(e.Id));
-              if (entries.length > 0) await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+            // Send each mention to SQS (batches of 10 max). SendMessageBatch es
+            // de éxito PARCIAL: las entries en `Failed` nunca llegan al processor
+            // y, como el cursor avanzaría igual, se perderían para siempre.
+            // Reintentamos las fallidas; las que persistan se contabilizan para
+            // NO avanzar el cursor de esta query (la próxima corrida re-escanea;
+            // el UNIQUE bw_resource_id deduplica las que sí entraron).
+            const batches = chunk(mentions, 10);
+            for (const batch of batches) {
+              let entries = batch.map((mention, idx) => ({
+                Id: `msg-${pageIndex}-${idx}-${mention.resourceId}`.slice(0, 80),
+                MessageBody: JSON.stringify(mention),
+              }));
+              for (let attempt = 0; attempt < 3 && entries.length > 0; attempt++) {
+                const res = await sqs.send(
+                  new SendMessageBatchCommand({ QueueUrl: INGESTION_QUEUE_URL, Entries: entries }),
+                );
+                const failedIds = new Set((res.Failed || []).map((f) => f.Id));
+                entries = entries.filter((e) => failedIds.has(e.Id));
+                if (entries.length > 0) await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+              }
+              if (entries.length > 0) {
+                sendFailures += entries.length;
+                console.error(`[${agency.slug}] Query ${queryId}: ${entries.length} mentions no se pudieron encolar tras reintentos`);
+              }
             }
-            if (entries.length > 0) {
-              sendFailures += entries.length;
-              console.error(`[${agency.slug}] Query ${queryId}: ${entries.length} mentions no se pudieron encolar tras reintentos`);
+
+            // Track last mention date for cursor update
+            const lastMention = mentions[mentions.length - 1];
+            if (lastMention?.date) {
+              lastMentionDate = lastMention.date;
+            }
+
+            totalMentions += mentions.length;
+            pageIndex++;
+            console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
+
+            // Page-cap (solo modo normal): tope de requests por corrida para que un
+            // backlog tras una caída no consuma toda la cuota de Brandwatch en una
+            // sola invocación (el "death spiral"). El cursor avanza al último
+            // mention encolado, así que la próxima corrida continúa donde quedó.
+            if (!isBackfill && pageIndex >= MAX_PAGES_PER_RUN) {
+              console.warn(`[${agency.slug}] Query ${queryId}: cap de ${MAX_PAGES_PER_RUN} páginas/corrida alcanzado; continúa en la próxima corrida`);
+              break;
             }
           }
 
-          // Track last mention date for cursor update
-          const lastMention = mentions[mentions.length - 1];
-          if (lastMention?.date) {
-            lastMentionDate = lastMention.date;
+          // Update cursor only in normal mode — backfill re-scans a past window
+          // and must not push the cursor backwards or count duplicates. Si hubo
+          // fallos de encolado, NO avanzamos el cursor: la ventana se re-escanea
+          // la próxima corrida para recuperar las menciones que no se encolaron.
+          if (!isBackfill && totalMentions > 0 && sendFailures === 0) {
+            await updateCursor(client, queryId, lastMentionDate, totalMentions);
+          } else if (sendFailures > 0) {
+            console.error(`[${agency.slug}] Query ${queryId}: cursor NO avanzado por ${sendFailures} fallos de encolado`);
           }
 
-          totalMentions += mentions.length;
-          pageIndex++;
-          console.log(`[${agency.slug}] Query ${queryId}: page ${pageIndex} — ${mentions.length} mentions (total: ${totalMentions})`);
-
-          // Page-cap (solo modo normal): tope de requests por corrida para que un
-          // backlog tras una caída no consuma toda la cuota de Brandwatch en una
-          // sola invocación (el "death spiral"). El cursor avanza al último
-          // mention encolado, así que la próxima corrida continúa donde quedó.
-          if (!isBackfill && pageIndex >= MAX_PAGES_PER_RUN) {
-            console.warn(`[${agency.slug}] Query ${queryId}: cap de ${MAX_PAGES_PER_RUN} páginas/corrida alcanzado; continúa en la próxima corrida`);
-            break;
-          }
+          const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}`;
+          console.log(summary);
+          agencySummaries.push(summary);
+        } catch (err) {
+          const summary = `[${agency.slug}] Query ${queryId}: FAILED (continúa el resto): ${(err as Error)?.message ?? err}`;
+          console.error(summary);
+          agencySummaries.push(summary);
         }
-
-        // Update cursor only in normal mode — backfill re-scans a past window
-        // and must not push the cursor backwards or count duplicates. Si hubo
-        // fallos de encolado, NO avanzamos el cursor: la ventana se re-escanea
-        // la próxima corrida para recuperar las menciones que no se encolaron.
-        if (!isBackfill && totalMentions > 0 && sendFailures === 0) {
-          await updateCursor(client, queryId, lastMentionDate, totalMentions);
-        } else if (sendFailures > 0) {
-          console.error(`[${agency.slug}] Query ${queryId}: cursor NO avanzado por ${sendFailures} fallos de encolado`);
-        }
-
-        const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}`;
-        console.log(summary);
-        agencySummaries.push(summary);
       }
     }
   } finally {
