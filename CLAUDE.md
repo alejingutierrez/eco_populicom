@@ -252,11 +252,27 @@ editar la query).
   cortados al último exporte, «Datos hasta…»); con proyecto, la ingesta es
   continua aunque además importe. Archivada = sin proyecto NI query
   (`isArchivedAgency`, SGPR y AAA tienen `[]`).
+- **Qué trae Brandwatch vs Bunker** (16-jul → 21-oct-2026, 4,394 vs 6,150
+  publicaciones; 2,569 en ambas): BW cubre ~80% de lo «alta» de Bunker en
+  Facebook, noticias e Instagram y suma bluesky/reddit/blogs; NO trae X (llega
+  como cascarón sin texto/URL/fecha, ~120/día, el processor lo descarta),
+  TikTok ni casi YouTube (sí los comentarios). Para tener esas redes hay que
+  seguir importando exportes de Bunker como complemento.
+- **Backfill de una query sin gastar cuota**: `scripts/enqueue-bw-backfill.mjs`
+  encola en SQS menciones ya descargadas de `/data/mentions` (pageSize 5000,
+  por semanas) y deja las páginas crudas en S3. El `eco-ingestion` pagina de a
+  100: un histórico grande cuesta cientos de llamadas contra 30/10 min.
+  Tras editar el boolean, NO descargues hasta `percentComplete = 100`: durante
+  el re-indexado faltan días enteros (pasó con el pico de la crisis de DF).
 - **Sin duplicados entre fuentes**: en una agencia con las dos fuentes
   (`mixedSources` en eco-processor), una mención cuya publicación
   (`mentionPlatformKey`, ±3 días) ya está en la base se descarta ANTES del
-  NLP (log `Drop-same-publication`). El plan de importación hace el mismo
-  cruce en la otra dirección.
+  NLP (log `Drop-same-publication`). Segunda red solo para Facebook y solo
+  contra la otra fuente: misma página y mismo segundo (±2 s), porque Bunker
+  entrega los reels como `/reel/<id>` y Brandwatch como `/posts/<otro id>`.
+  Los comentarios (`&lc=` en YouTube, `#channels_comment_` en Facebook) son
+  publicaciones propias. El plan de importación hace el cruce por clave en la
+  otra dirección.
 - **Importar un exporte nuevo — vía normal: Configuración → Importar
   menciones** (solo admin, capacidad `import_mentions`). Se sube el xlsx, la
   pantalla muestra la vista previa (nuevas / ya cargadas / repetidas en el
