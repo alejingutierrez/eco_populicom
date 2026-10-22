@@ -234,7 +234,26 @@ async function findSamePublication(pgClient: any, agencyId: string, mention: Bra
     [agencyId, when.toISOString(), needle],
   );
   const hit = rows.find((r: { url: string }) => mentionPlatformKey(r.url) === key);
-  return hit ? hit.id : null;
+  if (hit) return hit.id;
+
+  // Reels de Facebook: Bunker los entrega como /reel/<id> y Brandwatch como
+  // /<página>/posts/<otro id>. Misma publicación, claves distintas (188 en el
+  // cruce de DF jul–oct 2026). Segunda red: misma página, mismo segundo (±2 s),
+  // y SOLO contra la otra fuente — dentro de Brandwatch hay cientos de pares
+  // legítimos de la misma página al mismo segundo.
+  if (/facebook/i.test(mention.pageType ?? '') && mention.author && !Number.isNaN(at.getTime())) {
+    const otherSource = Number(mention.queryId) < 0 ? 'bw_query_id > 0' : 'bw_query_id < 0';
+    const { rows: same } = await pgClient.query(
+      `SELECT id FROM mentions
+        WHERE agency_id = $1 AND page_type ILIKE 'facebook%' AND ${otherSource}
+          AND lower(author) = lower($2)
+          AND published_at BETWEEN $3::timestamptz - interval '2 seconds' AND $3::timestamptz + interval '2 seconds'
+        LIMIT 1`,
+      [agencyId, mention.author, at.toISOString()],
+    );
+    if (same.length) return same[0].id;
+  }
+  return null;
 }
 
 /** Trunca a los límites varchar(N) del schema; null/undefined pasan intactos. */
