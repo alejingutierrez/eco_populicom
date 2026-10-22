@@ -219,7 +219,9 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
  */
 async function findSamePublication(pgClient: any, agencyId: string, mention: BrandwatchMention): Promise<string | null> {
   const key = mentionPlatformKey(mention.url ?? '');
-  const needle = key.slice(key.indexOf(':') + 1).toLowerCase();
+  // En web la clave puede llevar query normalizada (orden, sin rastreo): el
+  // filtro SQL busca host+ruta y la comparación exacta la hace la clave.
+  const needle = key.slice(key.indexOf(':') + 1).split('?')[0].toLowerCase();
   if (needle.length < 5) return null;
   const at = new Date(mention.date ?? '');
   const when = Number.isNaN(at.getTime()) ? new Date() : at;

@@ -15,6 +15,9 @@
 # contexto («familias acuden» en páginas de México), «Programa de Asistencia
 # Nutricional» exige PAN o contexto PR (en EE. UU. es SNAP), y «Secretaria de
 # Familia» sin «la» exige contexto PR (Colombia/México).
+# v3: Star Academy solo con contexto PR (la empresa de EE. UU. distribuye
+# comunicados por PR Newswire) y en telemundopr.com el ancla debe estar en el
+# título (su página indexa titulares de otras notas).
 import re,unicodedata
 def norm(s): return unicodedata.normalize('NFKD',s or '').encode('ascii','ignore').decode().lower()
 def P(*xs): return ('OR',list(xs))
@@ -42,7 +45,7 @@ T2 = [ # siglas/nombres ambiguos con contexto
  NEAR('ASUME', P('"pensión alimentaria"','"pensiones alimentarias"','"sustento de menores"','administrador*','"child support"'),6),
  NEAR('TANF', P('"Puerto Rico"','ADSEF','Familia','boricua*','Roig'),12),
  NEAR('"Head Start"', P('"Puerto Rico"','ACUDEN','boricua*'),12),
- NEAR('"Star Academy"', P('Familia','ADSEF','Senado','"Puerto Rico"','"Rivera Schatz"','Roig','NOLA','contrato*','TANF','millones','audiencia'),15),
+ NEAR('"Star Academy"', P('Familia','ADSEF','"Puerto Rico"','"Rivera Schatz"','Roig','NOLA','Coccoloba','TANF','boricua*'),15),
  NEAR('"NOLA Education"', P('Familia','ADSEF','Senado','"Puerto Rico"','"Rivera Schatz"','Roig','contrato*','"Star Academy"'),20),
  NEAR('Coccoloba', P('Familia','ADSEF','Senado','"Rivera Schatz"','Roig','contrato*','NOLA','propuesta*'),15),
  NEAR('"Blanca Medina"', P('ADSEF','Familia','administradora','destitu*','Roig','Senado','contrato*','denuncia*','testific*','"Star Academy"','TANF','Gobernadora'),15),
@@ -54,13 +57,24 @@ T2 = [ # siglas/nombres ambiguos con contexto
  NEAR(P('"Secretaria de Familia"','"Secretario de Familia"','"titular de Familia"'), P('Roig','"Puerto Rico"','boricua*','ADSEF','ADFAN','ASUME','ACUDEN','"Rivera Schatz"','Senado','Gobernadora','"Jenniffer González"','NOLA','TANF'),20),
  NEAR('Familia', P('"hogar de cuido"','"hogares de cuido"','"hogar de crianza"','"hogares de crianza"','"maltrato de menores"','"maltrato institucional"','"Línea de Orientación"','"trabajadora social"','"trabajadoras sociales"','"trabajadores sociales"'),6),
 ]
+NOTS = ['"Instituto de la Familia"']  # placeholder
+# Sitios cuya página trae titulares de OTRAS notas (bloque «Otras noticias»
+# indexado por Brandwatch): ahí se exige el ancla en el título. Medido el
+# 22-oct-2026 en telemundopr.com: corta ~80% de lo que traía y conserva el
+# 92% de lo que Bunker tenía como «alta» en ese sitio.
+TITLE_ONLY_SITES = ['telemundopr.com']
+TITLE_ANCHORS = ['Familia','Roig','ADSEF','ADFAN','ACUDEN','ASUME','cuido','"cuidado prolongado"','"Asistencia Nutricional"','PAN','FICPRO',
+ '"Head Start"','TANF','NOLA','Coccoloba','"Star Academy"','"Blanca Medina"','"LAP Consulting"','menor','menores','custodia','maltrato',
+ 'hogar','hogares','"adultos mayores"','envejecientes','"pensión alimentaria"','"amas de llaves"']
 def bw(x):
   if isinstance(x,str): return x
   if x[0]=='OR': return '('+' OR '.join(bw(y) for y in x[1])+')'
   if x[0]=='NEAR': return f'({bw(x[1])} NEAR/{x[3]} {bw(x[2])})'
 def booleanQuery():
   parts=[bw(t) for t in T1]+[bw(t) for t in T2]
-  return '(\n'+' OR\n'.join(parts)+'\n)'
+  main='(\n'+' OR\n'.join(parts)+'\n)'
+  sites=' OR '.join('site:'+x for x in TITLE_ONLY_SITES)
+  return f"{main}\nAND NOT (({sites}) AND NOT title:({' OR '.join(TITLE_ANCHORS)}))"
 # ---- emulación ----
 def term_rx(t):
   t=norm(t)
@@ -92,7 +106,10 @@ def prep(raw):
   t=norm(raw); t=re.sub(r'(?<=[a-z])\.(?=\s)',' ',t)
   offs=[m.start() for m in re.finditer(r'\S+',t)]
   return (t,offs)
-def match(raw):
+def match(raw, domain=None, title=None):
+  if domain and any(domain.endswith(x) for x in TITLE_ONLY_SITES) and title is not None:
+    tt0=prep(title)
+    if not any(positions(a,tt0) for a in TITLE_ANCHORS): return []
   tt=prep(raw); hits=[]
   for t in T1+T2:
     if positions(t,tt): hits.append(bw(t) if not isinstance(t,str) else t)
