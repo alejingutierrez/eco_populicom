@@ -10,7 +10,6 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { getDb } from '@eco/database';
 import { sql } from 'drizzle-orm';
 import { isImportQueryId } from '@eco/shared';
-import { requireCapability } from '@/lib/auth/require-admin';
 import { filterAgenciesForCaller, resolveAllowedAgencySlugs } from '@/lib/agency';
 
 const lambda = new LambdaClient({});
@@ -38,19 +37,16 @@ export async function listImportableAgencies(): Promise<ImportableAgency[]> {
 }
 
 /**
- * Gate de las rutas: capacidad `import_mentions` (solo admin) y, si se pasa
- * agencia, que sea una importable que el llamante ve.
+ * Segunda mitad del gate (la primera, `requireCapability('import_mentions')`,
+ * va en cada ruta a la vista: el tripwire de data-contract.test.ts la busca en
+ * el archivo). La agencia debe aceptar importaciones y ser visible para el
+ * llamante. Devuelve la respuesta 403 o null si pasa.
  */
-export async function gateImports(agencySlug?: string | null) {
-  const auth = await requireCapability('import_mentions');
-  if (!auth.ok) return auth;
-  if (agencySlug) {
-    const agencies = await listImportableAgencies();
-    if (!agencies.some((a) => a.slug === agencySlug)) {
-      return { ok: false as const, response: NextResponse.json({ error: 'Esa agencia no recibe importaciones o no la puedes ver.' }, { status: 403 }) };
-    }
-  }
-  return auth;
+export async function forbidAgency(agencySlug: string | null): Promise<NextResponse | null> {
+  if (!agencySlug) return null;
+  const agencies = await listImportableAgencies();
+  if (agencies.some((a) => a.slug === agencySlug)) return null;
+  return NextResponse.json({ error: 'Esa agencia no recibe importaciones o no la puedes ver.' }, { status: 403 });
 }
 
 /** La tabla la crea el lambda en su primer arranque: antes de eso, no hay historial. */

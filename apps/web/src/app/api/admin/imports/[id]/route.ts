@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { gateImports, getImportRow, importToJson, invokeImport } from '@/lib/imports';
+import { requireCapability } from '@/lib/auth/require-admin';
+import { forbidAgency, getImportRow, importToJson, invokeImport } from '@/lib/imports';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -10,9 +11,11 @@ type Ctx = { params: Promise<{ id: string }> };
 /** GET /api/admin/imports/:id — estado y avance (la pantalla lo consulta cada pocos segundos). */
 export async function GET(_request: NextRequest, { params }: Ctx) {
   const { id } = await params;
-  const row = await getImportRow(id);
-  const gate = await gateImports(row ? String(row.agency_slug) : null);
+  const gate = await requireCapability('import_mentions');
   if (!gate.ok) return gate.response;
+  const row = await getImportRow(id);
+  const denied = await forbidAgency(row ? String(row.agency_slug) : null);
+  if (denied) return denied;
   if (!row) return NextResponse.json({ error: 'No existe esa importación' }, { status: 404 });
   return NextResponse.json({ import: importToJson(row) });
 }
@@ -25,9 +28,11 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
  */
 export async function POST(request: NextRequest, { params }: Ctx) {
   const { id } = await params;
-  const row = await getImportRow(id);
-  const gate = await gateImports(row ? String(row.agency_slug) : null);
+  const gate = await requireCapability('import_mentions');
   if (!gate.ok) return gate.response;
+  const row = await getImportRow(id);
+  const denied = await forbidAgency(row ? String(row.agency_slug) : null);
+  if (denied) return denied;
   if (!row) return NextResponse.json({ error: 'No existe esa importación' }, { status: 404 });
   const body = (await request.json().catch(() => ({}))) as { action?: string };
   const action = body.action;

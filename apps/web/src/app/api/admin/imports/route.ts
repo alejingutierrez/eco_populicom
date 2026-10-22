@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getDb } from '@eco/database';
 import { sql } from 'drizzle-orm';
+import { requireCapability } from '@/lib/auth/require-admin';
 import {
-  RAW_BUCKET, gateImports, importToJson, invokeImport, listImportableAgencies, tableExists,
+  RAW_BUCKET, forbidAgency, importToJson, invokeImport, listImportableAgencies, tableExists,
 } from '@/lib/imports';
 import { log } from '@/lib/log';
 
@@ -20,7 +21,7 @@ const MAX_BYTES = 20 * 1024 * 1024;
  * agencia pedida (o de todas las importables si no se pide ninguna).
  */
 export async function GET(request: NextRequest) {
-  const gate = await gateImports();
+  const gate = await requireCapability('import_mentions');
   if (!gate.ok) return gate.response;
   const agencies = await listImportableAgencies();
   const slug = request.nextUrl.searchParams.get('agencySlug');
@@ -53,8 +54,10 @@ export async function POST(request: NextRequest) {
   }
   const agencySlug = String(form.get('agencySlug') ?? '');
   const file = form.get('file');
-  const gate = await gateImports(agencySlug || null);
+  const gate = await requireCapability('import_mentions');
   if (!gate.ok) return gate.response;
+  const denied = await forbidAgency(agencySlug || null);
+  if (denied) return denied;
   if (!agencySlug) return NextResponse.json({ error: 'Falta la agencia' }, { status: 400 });
   if (!(file instanceof File)) return NextResponse.json({ error: 'Falta el archivo' }, { status: 400 });
   if (!/\.xlsx$/i.test(file.name)) return NextResponse.json({ error: 'El archivo debe ser un .xlsx (exporte de Bunker)' }, { status: 400 });
