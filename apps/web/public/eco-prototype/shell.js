@@ -121,6 +121,20 @@ function ecoResolvedWindow() {
 }
 window.ecoResolvedWindow = ecoResolvedWindow;
 
+/**
+ * La ventana que de verdad se cargó (D.PERIOD de /api/eco-data), con la del
+ * reloj como respaldo. ecoResolvedWindow calcula «ayer» en cada render: con la
+ * pestaña abierta tras la medianoche de PR, el header ya decía 16–22 mientras
+ * las cards seguían en 15–21 (QA oct-2026). Lo que DESCRIBE o FILTRA lo que se
+ * ve (header, drill-downs, cachés) usa ésta.
+ */
+function ecoLoadedWindow() {
+  const P = window.ECO_DATA && window.ECO_DATA.PERIOD;
+  if (P && P.startYmd && P.endYmd) return { from: P.startYmd, to: P.endYmd };
+  return ecoResolvedWindow();
+}
+window.ecoLoadedWindow = ecoLoadedWindow;
+
 // Badges are derived from real data at render time (window.ECO_DATA).
 // `group` corta este orden en los tramos del rail (Lectura / Detalle /
 // Seguimiento) SIN reordenarlo. Sin badges (sep-2026): el de Menciones era el
@@ -600,8 +614,10 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
   const lsTo = (typeof localStorage !== 'undefined') ? (localStorage.getItem('eco.to') || '') : '';
   const [draftFrom, setDraftFrom] = React.useState(lsFrom);
   const [draftTo, setDraftTo] = React.useState(lsTo);
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const win = ecoResolvedWindow();
+  // Tope del calendario = AYER en PR, el último día cerrado (con el día UTC,
+  // de 8 PM a medianoche se podía elegir mañana y hoy salía parcial).
+  const maxIso = ecoYesterdayAst();
+  const win = ecoLoadedWindow();
   const rangeLabel = win ? ecoFmtRange(win.from, win.to) : '';
   const current = (agencies || []).find((x) => x.key === agency);
   const headIngest = (window.ECO_DATA && window.ECO_DATA.INGESTION_STATUS) || null;
@@ -721,11 +737,11 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
                   <div className="mono" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' }}>Rango personalizado</div>
                   <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                     <span style={{ minWidth: 44 }}>Desde</span>
-                    <input type="date" value={draftFrom} max={todayIso} onChange={(e) => setDraftFrom(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
+                    <input type="date" value={draftFrom} max={maxIso} onChange={(e) => setDraftFrom(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
                   </label>
                   <label style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                     <span style={{ minWidth: 44 }}>Hasta</span>
-                    <input type="date" value={draftTo} max={todayIso} onChange={(e) => setDraftTo(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
+                    <input type="date" value={draftTo} max={maxIso} onChange={(e) => setDraftTo(e.target.value)} className="input" style={{ fontSize: 'var(--fs-caption)' }} />
                   </label>
                   {draftFrom && draftTo && draftFrom > draftTo && (
                     <div style={{ fontSize: 'var(--fs-caption)', color: 'var(--neg)' }}>La fecha «Desde» debe ser anterior o igual a «Hasta».</div>
@@ -1054,7 +1070,8 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
     // ya no se muestra; el related drawer ahora opera sobre cosine similarity).
     // getPeriodParams (mio): respeta la ventana del usuario, así el drawer no
     // mezcla menciones fuera del rango filtrado.
-    const params = new URLSearchParams({ similar_to: mention.id, limit: '6', ...getPeriodParams() });
+    const lw = ecoLoadedWindow() || {};
+    const params = new URLSearchParams({ similar_to: mention.id, limit: '6', ...getPeriodParams(), ...(lw.from && lw.to ? { from: lw.from, to: lw.to } : {}) });
     if (agency) params.set('agency', agency);
     fetch('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin' })
       .then((r) => r.ok ? r.json() : { mentions: [] })
@@ -1505,7 +1522,7 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
     // Con `day` presente el endpoint acota a ese día y los bordes from/to
     // sobran, pero enviarlos es inocuo.
     if (!filter.from || !filter.to) {
-      const w = ecoResolvedWindow();
+      const w = ecoLoadedWindow();
       if (w) { filter.from = w.from; filter.to = w.to; }
     }
     fetch('/api/eco-mentions?' + new URLSearchParams(Object.fromEntries(
@@ -1888,8 +1905,12 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
     // period='custom' devolvía 400 y, peor, cambiar el rango manteniendo
     // 'custom' servía el insight stale del rango anterior (auditoría
     // 2026-08, P0-7).
+    // La ventana va SIEMPRE en la clave: sessionStorage sobrevive al reload y,
+    // con solo el preset (`7D`), al día siguiente servía el insight de la
+    // ventana de ayer junto a la card ya recalculada (QA oct-2026).
+    const lw = ecoLoadedWindow();
     const w = (period === 'custom' && window.ecoResolvedWindow) ? window.ecoResolvedWindow() : null;
-    const winSuffix = w && w.from && w.to ? `.${w.from}.${w.to}` : '';
+    const winSuffix = w && w.from && w.to ? `.${w.from}.${w.to}` : (lw && lw.to ? `.${lw.from}.${lw.to}` : '');
     const cacheKey = `eco.metricInsight.v3.${agency}.${metricKey}.${period}${winSuffix}`;
     try {
       const cached = sessionStorage.getItem(cacheKey);

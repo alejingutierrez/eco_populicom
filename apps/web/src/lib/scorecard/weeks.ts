@@ -111,18 +111,22 @@ export function weekRow(days: DayAggregates[], snaps: SnapshotRow[], counts: Dai
 /**
  * Las últimas `WEEKS_SHOWN` semanas que terminan en `endYmd` (la más reciente
  * al final) y lo usual de cada indicador, sobre las semanas ANTERIORES a la
- * actual que empiezan en o después de `BASELINE_FROM`.
+ * actual que empiezan en o después de `BASELINE_FROM` y del inicio de la
+ * cobertura continua de la agencia (`coverageStartYmd`, ver loadAgencyCoverage):
+ * DF no existía antes del 28-jul y sus semanas en 0 desde el 20-abr metían
+ * «lo usual» de menciones en p25 = 0 (QA 23-oct-2026).
  */
-export function buildWeeks(args: { days: DayAggregates[]; snaps: SnapshotRow[]; counts: DailyCount[]; endYmd: string }) {
-  const { days, snaps, counts, endYmd } = args;
+export function buildWeeks(args: { days: DayAggregates[]; snaps: SnapshotRow[]; counts: DailyCount[]; endYmd: string; coverageStartYmd?: string | null }) {
+  const { days, snaps, counts, endYmd, coverageStartYmd } = args;
+  const baselineFrom = coverageStartYmd && coverageStartYmd > BASELINE_FROM ? coverageStartYmd : BASELINE_FROM;
   const ends: string[] = [];
   for (let k = 0; k < BASELINE_MAX_WEEKS + 1; k++) {
     const end = addDaysYmd(endYmd, -7 * k);
-    if (k >= WEEKS_SHOWN && addDaysYmd(end, -6) < BASELINE_FROM) break;
+    if (k >= WEEKS_SHOWN && addDaysYmd(end, -6) < baselineFrom) break;
     ends.push(end);
   }
   const rows = ends.map((e) => weekRow(days, snaps, counts, e)).reverse(); // del más viejo al más reciente
-  const past = rows.slice(0, -1).filter((w) => w.start >= BASELINE_FROM);
+  const past = rows.slice(0, -1).filter((w) => w.start >= baselineFrom);
   const usual = {} as Record<UsualKey, UsualRange | null>;
   for (const k of ['n', 'nss', 'crisis', 'bhi', 'polarization'] as UsualKey[]) {
     const vals = past.map((w) => w[k]).filter((v): v is number => v != null).sort((a, b) => a - b);
@@ -130,5 +134,5 @@ export function buildWeeks(args: { days: DayAggregates[]; snaps: SnapshotRow[]; 
       ? { p25: r1(percentile(vals, 0.25))!, p75: r1(percentile(vals, 0.75))!, median: r1(percentile(vals, 0.5))!, weeks: vals.length }
       : null;
   }
-  return { weeks: rows.slice(-WEEKS_SHOWN), usual, baselineFrom: BASELINE_FROM };
+  return { weeks: rows.slice(-WEEKS_SHOWN), usual, baselineFrom };
 }

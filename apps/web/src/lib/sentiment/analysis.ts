@@ -66,6 +66,26 @@ export function buildNssShift(rows: Array<{ where: WhereKey; cur: boolean; n: nu
     return { key, cur: g.cur, prev: g.prev, now: r1(now), before: r1(before), delta: r1(now - before) };
   });
   const c = nssOf(cur), p = nssOf(prev);
+  // Redondear cada aporte por separado podía dejar la cascada a 0.1 del NSS de
+  // arriba (DF 1D: aportes +15.2 para un cambio de −73.5 → −58.2 = +15.3; QA
+  // oct-2026). El residuo se reparte en pasos de 0.1 entre los aportes que más
+  // perdieron al redondear, para que sumen exactamente r1(c) − r1(p).
+  if (c != null && p != null && groups.length) {
+    const raw = groups.map((g) => {
+      const now = cur.n ? ((by[g.key].cur.pos - by[g.key].cur.neg) / cur.n) * 100 : 0;
+      const before = prev.n ? ((by[g.key].prev.pos - by[g.key].prev.neg) / prev.n) * 100 : 0;
+      return now - before;
+    });
+    let steps = Math.round((r1(r1(c) - r1(p)) - groups.reduce((a, g) => a + g.delta, 0)) * 10);
+    const order = groups.map((_, i) => i).sort((a, b) => steps > 0
+      ? (raw[b] - groups[b].delta) - (raw[a] - groups[a].delta)
+      : (raw[a] - groups[a].delta) - (raw[b] - groups[b].delta));
+    for (let k = 0; steps !== 0 && k < order.length * 2; k++) {
+      const g = groups[order[k % order.length]];
+      g.delta = r1(g.delta + (steps > 0 ? 0.1 : -0.1));
+      steps += steps > 0 ? -1 : 1;
+    }
+  }
   return { cur: { ...cur, nss: c == null ? null : r1(c) }, prev: { ...prev, nss: p == null ? null : r1(p) }, groups };
 }
 

@@ -52,6 +52,18 @@ describe('semanas del Scorecard', () => {
     expect(r.baselineFrom).toBe(BASELINE_FROM);
   });
 
+  test('lo usual arranca en el inicio de la cobertura si es posterior al quiebre de serie', () => {
+    // QA 23-oct-2026: DF existe desde el 28-jul; sus semanas en 0 desde el 20-abr entraban a lo usual.
+    const r = buildWeeks({ days, snaps, counts, endYmd: END, coverageStartYmd: '2026-07-28' });
+    let weeks = 0;
+    for (let k = 1; addDaysYmd(addDaysYmd(END, -7 * k), -6) >= '2026-07-28'; k++) weeks++;
+    expect(r.usual.n?.weeks).toBe(weeks);
+    expect(r.baselineFrom).toBe('2026-07-28');
+    expect(r.weeks).toHaveLength(WEEKS_SHOWN);
+    // Una cobertura anterior al quiebre no lo adelanta.
+    expect(buildWeeks({ days, snaps, counts, endYmd: END, coverageStartYmd: '2026-01-01' }).baselineFrom).toBe(BASELINE_FROM);
+  });
+
   test('percentil con interpolación', () => {
     expect(percentile([1, 2, 3, 4], 0.25)).toBeCloseTo(1.75);
     expect(percentile([1, 2, 3, 4], 0.5)).toBeCloseTo(2.5);

@@ -160,10 +160,11 @@ export async function GET(request: NextRequest) {
   // similar_to: rama dedicada — devuelve coseno-vecinos de la mención fuente
   // dentro de la misma agencia, ignorando filtros de contenido. Si la mención
   // fuente no tiene embedding (aún por backfill), fallback a la lógica
-  // existente filtrando por mismo topic.
+  // existente filtrando por mismo topic. Con from/to se acota a esa ventana
+  // (el drawer lo promete: shell.js MentionDrawer, «respeta la ventana»).
   const similarTo = searchParams.get('similar_to');
   if (similarTo && /^[0-9a-f-]{36}$/i.test(similarTo)) {
-    return await handleSimilarTo(similarTo, agencyId, limit);
+    return await handleSimilarTo(similarTo, agencyId, limit, customRange);
   }
 
   // `day=YYYY-MM-DD` acota a ese día calendario AST y REEMPLAZA la ventana
@@ -284,18 +285,16 @@ export async function GET(request: NextRequest) {
   if (region && region.length > 60) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid region' }, { status: 400 });
   if (subtopicName && subtopicName.length > 120) return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 }, error: 'invalid subtopic' }, { status: 400 });
 
-  // If filtering by topic/subtopic/municipality/region, we need subqueries.
-  let filteredMentionIds: string[] | null = null;
-
-  async function intersect(ids: string[]) {
-    if (filteredMentionIds === null) {
-      filteredMentionIds = ids;
-    } else {
-      const set = new Set(ids);
-      filteredMentionIds = filteredMentionIds.filter((x) => set.has(x));
-    }
-  }
-
+  // Filtros de tópico/subtópico/municipio/región como EXISTS correlacionado
+  // (PK mention_id,… de las tablas puente). Antes se cargaban TODOS los ids que
+  // tocaban el tópico/municipio —de cualquier agencia y fecha— y se mandaban de
+  // vuelta en un IN(...) de 21k–24k parámetros (QA 2026-10-23, M14).
+  //
+  // El slug del tópico y el nombre del subtópico se escopan a la agencia: NO son
+  // únicos globalmente (`uq_topic_agency_slug`). `criticas-controversias` existe
+  // en ddecpr y en gobernadora, y el `(SELECT id FROM topics WHERE slug=…)` de
+  // topicMode=primary devolvía 2 filas → 500 → el modal decía «0 menciones»
+  // (QA 2026-10-23, M1; ídem el subtópico «Pugna Fortaleza vs Senado»).
   if (topicSlug) {
     // topicMode=primary: solo menciones cuyo TOP-CONFIDENCE topic = topicSlug.
     // Hace que el conteo del modal coincida con el "count" mostrado en el
@@ -305,69 +304,45 @@ export async function GET(request: NextRequest) {
     // la cobertura de un tópico aunque sea secundario.
     const topicMode = searchParams.get('topicMode') === 'primary' ? 'primary' : 'all';
     if (topicMode === 'primary') {
-      const tRowsRaw = await db.execute(sql`
-        SELECT m.id::text AS id
-          FROM mentions m
-         WHERE m.id IN (
-           SELECT mention_id FROM (
-             SELECT mention_id,
-                    topic_id,
-                    ROW_NUMBER() OVER (
-                      PARTITION BY mention_id
-                      ORDER BY confidence DESC NULLS LAST, topic_id ASC
-                    ) AS rn
-               FROM mention_topics
-           ) ranked
-           WHERE ranked.rn = 1
-             AND ranked.topic_id = (SELECT id FROM topics WHERE slug = ${topicSlug})
-         )
-      `);
-      // Drizzle's db.execute devuelve QueryResult con .rows (pg driver) o el
-      // array directamente. Normalizamos antes de leer .id.
-      const raw = tRowsRaw as unknown as Array<{ id: string }> | { rows?: Array<{ id: string }> };
-      const rows = Array.isArray(raw) ? raw : (raw.rows ?? []);
-      await intersect(rows.map((r) => r.id));
+      // Mismo desempate que antes (confidence DESC NULLS LAST, topic_id ASC).
+      conditions.push(sql`(
+        SELECT mt.topic_id FROM mention_topics mt
+         WHERE mt.mention_id = ${mentions.id}
+         ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC
+         LIMIT 1
+      ) = (SELECT t.id FROM topics t WHERE t.slug = ${topicSlug} AND t.agency_id = ${agencyId}::uuid)` as any);
     } else {
-      const tRows = await db
-        .select({ id: mentionTopics.mentionId })
-        .from(mentionTopics)
-        .innerJoin(topics, eq(topics.id, mentionTopics.topicId))
-        .where(eq(topics.slug, topicSlug));
-      await intersect(tRows.map((r) => r.id));
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM mention_topics mt
+          JOIN topics t ON t.id = mt.topic_id
+         WHERE mt.mention_id = ${mentions.id}
+           AND t.slug = ${topicSlug} AND t.agency_id = ${agencyId}::uuid
+      )` as any);
     }
   }
 
   if (subtopicName) {
-    const stRows = await db
-      .select({ id: mentionTopics.mentionId })
-      .from(mentionTopics)
-      .innerJoin(subtopics, eq(subtopics.id, mentionTopics.subtopicId))
-      .where(eq(subtopics.name, subtopicName));
-    await intersect(stRows.map((r) => r.id));
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM mention_topics mt
+        JOIN subtopics s ON s.id = mt.subtopic_id
+        JOIN topics t ON t.id = s.topic_id
+       WHERE mt.mention_id = ${mentions.id}
+         AND s.name = ${subtopicName} AND t.agency_id = ${agencyId}::uuid
+    )` as any);
   }
 
   if (municipalitySlug) {
-    const mRows = await db
-      .select({ id: mentionMunicipalities.mentionId })
-      .from(mentionMunicipalities)
-      .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
-      .where(eq(municipalities.slug, municipalitySlug));
-    await intersect(mRows.map((r) => r.id));
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM mention_municipalities mm
+        JOIN municipalities mu ON mu.id = mm.municipality_id
+       WHERE mm.mention_id = ${mentions.id} AND mu.slug = ${municipalitySlug}
+    )` as any);
   } else if (region) {
-    const mRows = await db
-      .select({ id: mentionMunicipalities.mentionId })
-      .from(mentionMunicipalities)
-      .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
-      .where(eq(municipalities.region, region));
-    await intersect(mRows.map((r) => r.id));
-  }
-
-  if (filteredMentionIds !== null) {
-    const ids = filteredMentionIds as string[];
-    if (ids.length === 0) {
-      return NextResponse.json({ mentions: [], total: 0, sentiment: { pos: 0, neu: 0, neg: 0 } });
-    }
-    conditions.push(inArray(mentions.id, ids));
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM mention_municipalities mm
+        JOIN municipalities mu ON mu.id = mm.municipality_id
+       WHERE mm.mention_id = ${mentions.id} AND mu.region = ${region}
+    )` as any);
   }
 
   const whereClause = and(...conditions);
@@ -558,9 +533,21 @@ export async function GET(request: NextRequest) {
  * agencia. Si la mención fuente no tiene embedding (backfill pendiente),
  * fallback al comportamiento previo: menciones del mismo topic principal.
  */
-async function handleSimilarTo(sourceId: string, agencyId: string, limit: number) {
+async function handleSimilarTo(
+  sourceId: string,
+  agencyId: string,
+  limit: number,
+  range: { sinceUtc: Date; untilExclusiveUtc: Date } | null,
+) {
   const db = getDb();
   const k = Math.min(20, Math.max(1, limit));
+  // Mismo universo que el feed (sin pertinencia baja) y, con from/to, la misma
+  // ventana. Antes el drawer de «relacionadas» de una mención de 7D en DF
+  // devolvía vecinos de hace 2–3 semanas (QA 2026-10-23, M11). Medido: el
+  // planner sigue usando agency/published_at y devuelve los k vecinos completos.
+  const nbrScope = sql`(n.nlp_pertinence IS NULL OR n.nlp_pertinence <> 'baja')${
+    range ? sql` AND n.published_at >= ${range.sinceUtc.toISOString()}::timestamptz AND n.published_at < ${range.untilExclusiveUtc.toISOString()}::timestamptz` : sql``
+  }`;
 
   // 1) ¿La mención fuente tiene embedding? Si no, fallback inmediato.
   // Cast explícito a uuid: Drizzle parametriza strings como text por defecto y
@@ -601,6 +588,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
          AND n.is_duplicate = false
          AND n.id <> s.id
          AND n.embedding IS NOT NULL
+         AND ${nbrScope}
        ORDER BY n.embedding <=> s.embedding
        LIMIT ${k}
     `);
@@ -628,6 +616,7 @@ async function handleSimilarTo(sourceId: string, agencyId: string, limit: number
        WHERE n.agency_id = ${agencyId}::uuid
          AND n.is_duplicate = false
          AND n.id <> ${sourceId}::uuid
+         AND ${nbrScope}
        ORDER BY n.published_at DESC
        LIMIT ${k}
     `);

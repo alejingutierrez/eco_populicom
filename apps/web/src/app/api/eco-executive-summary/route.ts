@@ -19,6 +19,12 @@
  * El SPA sigue teniendo el briefing rule-based de /api/eco-data como fallback
  * (ése sí es period-scoped, porque se deriva de TOPICS/winCur de la ventana),
  * así que el bloque nunca queda vacío mientras esto genera o si Bedrock falla.
+ *
+ * FRESCURA. El caché no tenía TTL: una vez generado se servía para siempre
+ * aunque después llegaran datos (QA 23-oct, DF 15→21 oct: generado con 722
+ * menciones, hoy 1,037). Ahora un hit se regenera (síncrono, como un miss) si
+ * llegaron menciones a la ventana después de generarlo (lib/ai-cache-
+ * freshness); si la regeneración falla se sirve el viejo con stale:true.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, agencies } from '@eco/database';
@@ -43,6 +49,7 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { requireAuth } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
+import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger } from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -129,6 +136,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Agency not found' }, { status: 404 });
   }
 
+  // Fila vieja que se está regenerando: respaldo si la regeneración falla.
+  let staleRow: { payload: ExecutiveSummaryOutput; generatedAt: Date } | null = null;
+  const regenKey = `exec-summary:${agencyId}:${startYmd}:${endYmd}`;
+  const serveStale = (): NextResponse | null => {
+    if (!staleRow) return null;
+    const res = NextResponse.json({
+      status: 'ready' as const,
+      periodStart: startYmd,
+      periodEnd: endYmd,
+      modes: toModes(staleRow.payload),
+      generatedAt: staleRow.generatedAt.toISOString(),
+      stale: true,
+    });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  };
+
   try {
     await ensureExecutiveSummaryCacheSchema(pool);
 
@@ -144,17 +168,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         LIMIT 1`,
       [agencyId, startYmd, endYmd],
     );
-    if (cached.rows[0]) {
-      const generatedAt = new Date(cached.rows[0].generated_at as unknown as string);
-      const res = NextResponse.json({
-        status: 'ready' as const,
-        periodStart: startYmd,
-        periodEnd: endYmd,
-        modes: toModes(cached.rows[0].payload),
-        generatedAt: generatedAt.toISOString(),
-      });
-      res.headers.set('Cache-Control', 'no-store');
-      return res;
+    const hit = cached.rows[0];
+    if (hit) {
+      const generatedAt = new Date(hit.generated_at as unknown as string);
+      const outdated = isAiCacheOutdated(
+        await loadWindowFreshness(pool as unknown as PgClientLike, { agencyId, startYmd, endYmd, generatedAt }),
+      );
+      if (!outdated) {
+        const res = NextResponse.json({
+          status: 'ready' as const,
+          periodStart: startYmd,
+          periodEnd: endYmd,
+          modes: toModes(hit.payload),
+          generatedAt: generatedAt.toISOString(),
+        });
+        res.headers.set('Cache-Control', 'no-store');
+        return res;
+      }
+      // Vieja: se regenera abajo como un miss. Si otra petición ya la está
+      // regenerando (< 3 min), servir la vieja en vez de lanzar una segunda
+      // generación Opus en paralelo.
+      staleRow = { payload: hit.payload, generatedAt };
+      if (!claimAiTrigger(regenKey)) return serveStale()!;
     }
 
     // ---- Cache miss: construir contexto y generar ----------------------
@@ -167,6 +202,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Sin señal suficiente no vale gastar LLM: el SPA se queda con el
     // briefing rule-based de /api/eco-data.
     if (report.totals.total < 10) {
+      const fallback = serveStale();
+      if (fallback) return fallback;
       const res = NextResponse.json({
         status: 'empty' as const,
         periodStart: startYmd,
@@ -248,6 +285,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (!output?.signal_narrative?.trim()) {
       log.warn('eco-executive-summary', 'model returned empty signal narrative', { startYmd, endYmd });
+      const fallback = serveStale();
+      if (fallback) return fallback;
       return NextResponse.json(
         { error: 'Model returned empty summary', periodStart: startYmd, periodEnd: endYmd },
         { status: 502 },
@@ -276,6 +315,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return res;
   } catch (err) {
     log.error('eco-executive-summary', 'handler failed', { msg: (err as Error).message, startYmd, endYmd });
+    const fallback = serveStale();
+    if (fallback) return fallback;
     return NextResponse.json(
       { error: 'eco-executive-summary error', message: (err as Error).message },
       { status: 500 },

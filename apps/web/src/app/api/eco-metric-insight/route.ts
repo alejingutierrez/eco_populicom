@@ -3,14 +3,18 @@
  * sintética (crisis/polarization/nss/bhi/volume) para una agencia + periodo.
  *
  * Mismo patrón cache-or-202 que /api/eco-insights, pero keyed además por
- * `metric`. Histórico (period_end < ayer) inmutable; rolling refresca cada 1h.
+ * `metric`. Rolling refresca cada 1h; cualquier ventana (también la histórica)
+ * se recalcula si llegaron menciones después de generarla (lib/ai-cache-
+ * freshness; QA 23-oct: DF crisis 11→17 oct generado con 273 de 609). Los
+ * disparos se deduplican por clave (3 min): el modal consulta cada 3 s.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, metricInsightsCache } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS } from '@eco/shared';
+import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
+import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger } from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
@@ -40,6 +44,17 @@ function getLambdaClient(): LambdaClient {
 }
 
 async function triggerLambdaAsync(agencySlug: string, metric: string, periodStart: string, periodEnd: string): Promise<void> {
+  const key = `metric-insight:${agencySlug}:${metric}:${periodStart}:${periodEnd}`;
+  if (!claimAiTrigger(key)) return;
+  try {
+    await sendInvoke(agencySlug, metric, periodStart, periodEnd);
+  } catch (e) {
+    releaseAiTrigger(key);
+    throw e;
+  }
+}
+
+async function sendInvoke(agencySlug: string, metric: string, periodStart: string, periodEnd: string): Promise<void> {
   await getLambdaClient().send(new InvokeCommand({
     FunctionName: AI_TASKS_FUNCTION_NAME,
     InvocationType: 'Event',
@@ -125,6 +140,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const STALE_MS = 60 * 60 * 1000;
 
     if (row) {
+      const rollingStale = !isHistorical && ageMs > STALE_MS;
+      const outdated = !rollingStale && generatedAt != null
+        && isAiCacheOutdated(
+          await loadWindowFreshness(pool as unknown as PgClientLike, { agencyId, startYmd, endYmd, generatedAt }),
+        );
       const ready = {
         status: 'ready' as const,
         metric,
@@ -132,9 +152,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         periodEnd: endYmd,
         insight: row.insightText,
         generatedAt: row.generatedAt,
-        stale: !isHistorical && ageMs > STALE_MS,
+        stale: rollingStale || outdated,
+        outdated,
       };
-      if (!isHistorical && ageMs > STALE_MS) {
+      if (rollingStale || outdated) {
         triggerLambdaAsync(agencySlug, metric, startYmd, endYmd).catch((e) => {
           log.warn('eco-metric-insight', 'background recalc failed to invoke', { err: (e as Error).message });
         });

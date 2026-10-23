@@ -31,7 +31,10 @@ describe('buildNssShift', () => {
     expect(s.cur).toMatchObject({ n: 129, pos: 9, neg: 20, nss: -8.5 });
     expect(s.prev).toMatchObject({ n: 104, pos: 7, neg: 4, nss: 2.9 });
     const byKey = Object.fromEntries(s.groups.map((g) => [g.key, g.delta]));
-    expect(byKey).toEqual({ agencia: 0, comentarios: -4.8, prensa: -5.2, gobierno: 0.8, otras: -2.1 });
+    // Redondeados por separado sumaban −11.3 para un cambio mostrado de −11.4:
+    // el residuo va al aporte que más perdió al redondear (prensa, −5.24).
+    expect(byKey).toEqual({ agencia: 0, comentarios: -4.8, prensa: -5.3, gobierno: 0.8, otras: -2.1 });
+    expect(Math.round(s.groups.reduce((a, g) => a + g.delta, 0) * 10) / 10).toBe(-11.4);
     const sum = s.groups.reduce((a, g) => a + (g.now - g.before), 0);
     expect(Math.abs(sum - (-8.53 - 2.88))).toBeLessThan(0.15);
   });
