@@ -50,6 +50,8 @@ const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
 const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://citizenecho.com';
 
 const REPORT_TIMEZONE = 'America/Puerto_Rico';
+/** Días que recalcula el backfill programado (sin bordes): 30 de historia + margen. */
+const SCHEDULED_BACKFILL_DAYS = 45;
 
 let dbUrl: string | null = null;
 let schemaEnsured = false;
@@ -115,18 +117,28 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
     }
 
     const agenciesResult = await client.query(
-      "SELECT id, slug, name FROM agencies WHERE is_active = true",
+      "SELECT id, slug, name FROM agencies WHERE is_active = true ORDER BY slug",
     );
     const agencies = agenciesResult.rows as Array<{ id: string; slug: string; name: string }>;
 
     if (isBackfill) {
+      // El cron diario llega sin bordes. Recorrer todo el historial (desde
+      // ene-2025) × todas las agencias ya no cabe en los 120 s: el 23-oct-2026
+      // murió tres veces por timeout y la última agencia del bucle (DF) quedó
+      // con sus snapshots de may→oct sin recalcular (el 22-oct contaba 128
+      // menciones de 182). Sin bordes se recalculan los últimos
+      // SCHEDULED_BACKFILL_DAYS — cubre los 30 previos que usa cada día como
+      // historia; el historial completo se rehace a mano por tramos.
+      const backfillFrom = event.backfillFrom ?? (event.backfillTo
+        ? null
+        : addDaysYmd(ymdInTimeZone(new Date(), REPORT_TIMEZONE), -SCHEDULED_BACKFILL_DAYS));
       const datesResult = await client.query(
         `SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS d
          FROM mentions
          WHERE ($1::date IS NULL OR (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $1::date)
            AND ($2::date IS NULL OR (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $2::date)
          ORDER BY d ASC`,
-        [event.backfillFrom ?? null, event.backfillTo ?? null],
+        [backfillFrom, event.backfillTo ?? null],
       );
       const dates = datesResult.rows.map((r: any) =>
         typeof r.d === 'string' ? r.d : r.d.toISOString().split('T')[0],
@@ -191,13 +203,19 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       return { statusCode: 200, body: JSON.stringify({ preview: true, html }) };
     }
 
-    // Modo normal: compute hoy y evalúa crisis.
+    // Modo normal: compute hoy y evalúa crisis. AYER también se recalcula
+    // (solo el snapshot): Brandwatch entrega menciones de ayer hasta ~7 h
+    // después de medianoche y ayer es el último día de TODAS las ventanas
+    // cerradas del dashboard; sin esto quedaba con el conteo de las 23:59
+    // hasta el backfill de las 5 AM (o para siempre si el backfill fallaba).
     const today = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
+    const yesterday = addDaysYmd(today, -1);
     let computed = 0;
     let alertsFired = 0;
 
     for (const agency of agencies) {
       if (event.agencySlug && agency.slug !== event.agencySlug) continue;
+      await computeForAgency(client, agency.id, yesterday);
       await computeForAgency(client, agency.id, today);
       computed++;
 

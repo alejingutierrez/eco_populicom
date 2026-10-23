@@ -181,13 +181,22 @@ describe('buildOverview', () => {
   test('serie: 6 vivas por menciones del mes + 2 terminadas recientes con al menos 3', () => {
     const rows: RawMentionRow[] = [];
     const metas: NarrMeta[] = [];
-    for (let i = 0; i < 8; i++) { rows.push(...burst(`v${i}`, '2026-09-20', 10 - i)); metas.push(meta(`v${i}`, i % 2 ? 'active' : 'declining')); }
+    for (let i = 0; i < 8; i++) { rows.push(...burst(`v${i}`, '2026-09-25', 10 - i)); metas.push(meta(`v${i}`, i % 2 ? 'active' : 'declining')); }
     rows.push(...burst('d1', '2026-09-10', 5), ...burst('d2', '2026-09-12', 3), ...burst('d3', '2026-09-15', 2), ...burst('d4', '2026-09-05', 9));
     metas.push(meta('d1', 'dormant'), meta('d2', 'dormant'), meta('d3', 'dormant'), meta('d4', 'dormant'));
     const p = buildOverview(input(rows, metas));
     expect(p.series).toEqual(['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'd2', 'd1']);
     expect(p.board.active).toEqual(['v1', 'v3', 'v5', 'v7']);
     expect(p.board.declining).toEqual(['v0', 'v2', 'v4', 'v6']);
+  });
+
+  test('tablero: naciendo/activa sin menciones en la semana de referencia pasa a «Apagándose»', () => {
+    // QA 23-oct-2026: backfills de DF dejaron «emerging» con la última mención en septiembre.
+    const rows = [...burst('e1', '2026-09-26', 3), ...burst('e2', '2026-09-10', 4), ...burst('a1', '2026-09-15', 2)];
+    const metas = [meta('e1', 'emerging'), meta('e2', 'emerging'), meta('a1', 'peaking')];
+    const p = buildOverview(input(rows, metas));
+    expect(p.board).toEqual({ emerging: ['e1'], active: [], declining: ['e2', 'a1'] });
+    expect(p.narratives.find((n) => n.id === 'e2')!.status).toBe('declining');
   });
 
   test('alerta: naciendo, no la inició la agencia, con negativas y 8+ menciones en 7 días', () => {

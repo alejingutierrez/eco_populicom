@@ -8,7 +8,7 @@
  * las menciones pertinentes sin duplicados, como loadAggregatesForWindow, y
  * los CONTEOS (menciones, quién habló) cuentan esas mismas menciones.
  */
-import { addDaysYmd, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
+import { addDaysYmd, loadAgencyCoverage, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
 import { BASELINE_FROM, BASELINE_MAX_WEEKS, WEEKS_SHOWN, buildWeeks, type DayAggregates, type SnapshotRow } from './weeks';
 import { buildVoices, type VoiceRow } from './voices';
 
@@ -83,7 +83,7 @@ export async function computeScorecard(pool: PgClientLike, agencyId: string, sta
   const snapFrom = addDaysYmd(countsFrom, -45);
   const priorFrom = addDaysYmd(startYmd, -35), priorTo = addDaysYmd(startYmd, -1);
 
-  const [agencyRes, aggRes, snapRes, counts, prevMetrics, voicesRes, priorRes] = await Promise.all([
+  const [agencyRes, aggRes, snapRes, counts, prevMetrics, voicesRes, priorRes, coverage] = await Promise.all([
     pool.query<{ slug: string; name: string | null }>('SELECT slug, name FROM agencies WHERE id = $1', [agencyId]),
     pool.query<Record<string, string | number>>(DAILY_AGG_SQL, [agencyId, aggFrom, endYmd]),
     pool.query<Record<string, string | number | null>>(SNAP_SQL, [agencyId, snapFrom, endYmd]),
@@ -91,6 +91,7 @@ export async function computeScorecard(pool: PgClientLike, agencyId: string, sta
     loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
     pool.query<VoiceRow>(VOICES_SQL, [agencyId, prevStartYmd, endYmd]),
     pool.query<VoiceRow>(PRIOR_VOICES_SQL, [agencyId, priorFrom, priorTo]),
+    loadAgencyCoverage(pool, agencyId),
   ]);
   const n = (v: unknown) => (v == null ? 0 : Number(v));
   const nn = (v: unknown) => (v == null ? null : Number(v));
@@ -105,7 +106,7 @@ export async function computeScorecard(pool: PgClientLike, agencyId: string, sta
     totalReach: n(r.total_reach), totalEngagementScore: n(r.total_engagement_score), engagementRate: nn(r.engagement_rate),
     brandHealthIndex: nn(r.brand_health_index), crisisRiskScore: nn(r.crisis_risk_score), polarizationIndex: nn(r.polarization_index),
   }));
-  const weeks = buildWeeks({ days, snaps, counts, endYmd });
+  const weeks = buildWeeks({ days, snaps, counts, endYmd, coverageStartYmd: coverage.startYmd });
 
   // Serie diaria de la ventana previa, con la misma forma que TIMELINE de eco-data.
   const snapByDate = new Map(snaps.map((s) => [s.date, s]));

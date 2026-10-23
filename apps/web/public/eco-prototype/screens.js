@@ -350,6 +350,9 @@ function openMetricInsightShared(setSlice, opts) {
       }
       const json = await res.json();
       setSlice((s) => s ? { ...s, insightText: json.insight || 'Sin insight disponible.' } : s);
+      // Texto cacheado de antes de que llegaran menciones: el endpoint ya lo
+      // regenera; se sigue consultando para cambiarlo sin cerrar el modal.
+      if (json.outdated && Date.now() - startedAt <= MAX_POLL_MS) setTimeout(tick, POLL_MS);
     } catch (_) {
       setSlice((s) => s ? { ...s, insightText: 'Error de red al cargar el insight.' } : s);
     }
@@ -952,7 +955,7 @@ function DashboardScreen({ onMentionClick, period, setPeriod, setActive, agency 
   const timeline = D.TIMELINE || [];
   const prev = sc.data && sc.data.prev ? sc.data.prev : null;
   const days = Math.max(1, timeline.length);
-  const win = window.ecoResolvedWindow ? window.ecoResolvedWindow() : null;
+  const win = ecoDataWindow();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
@@ -1548,6 +1551,16 @@ function MentionsScreen({ onMentionClick }) {
     if (agencyKey) p.set('agency', agencyKey);
     return p;
   };
+  // Los análisis (por día, mapa, historias, quién amplifica, lenguaje) son del
+  // periodo CERRADO que muestra la página (D.PERIOD), no de la lista en vivo:
+  // con la ventana rolante el 16-oct de DF salía con 20 menciones (de 231) y la
+  // barra abría una lista de 231 (QA oct-2026). La lista sigue «en vivo».
+  const analysisParams = () => {
+    const w = ecoDataWindow();
+    const p = new URLSearchParams(w.from && w.to ? { from: w.from, to: w.to } : window.ecoGetPeriodParams());
+    if (agencyKey) p.set('agency', agencyKey);
+    return p;
+  };
 
   // Feed (server-side, paginado).
   React.useEffect(() => {
@@ -1575,7 +1588,7 @@ function MentionsScreen({ onMentionClick }) {
   React.useEffect(() => {
     const ctrl = new AbortController();
     setAnalysis(null);
-    ecoFetchAuthed('/api/mentions/analysis?' + baseParams().toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
+    ecoFetchAuthed('/api/mentions/analysis?' + analysisParams().toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
       .then((j) => {
         const byId = {}; (j.points || []).forEach((p) => { byId[p.id] = p; });
         const storyOf = {}; (j.stories || []).forEach((g) => g.forEach((id) => { storyOf[id] = g; }));
@@ -1588,7 +1601,7 @@ function MentionsScreen({ onMentionClick }) {
   // Virales: agregado global del periodo (no reacciona a los filtros).
   React.useEffect(() => {
     const ctrl = new AbortController();
-    const vw = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+    const vw = ecoDataWindow();
     const params = new URLSearchParams({ ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()), limit: '1', minEngagement: String(VIRAL_THRESHOLD) });
     if (agencyKey) params.set('agency', agencyKey);
     setViralCount(null);
@@ -1612,7 +1625,7 @@ function MentionsScreen({ onMentionClick }) {
     const here = data.mentions.find((m) => m.id === id);
     const done = (m) => { if (!m) return; setSelected({ ...m, _pinned: true }); if (panelsRef.current) panelsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
     if (here) return done(here);
-    const params = baseParams(); params.set('id', id); params.set('limit', '1');
+    const params = analysisParams(); params.set('id', id); params.set('limit', '1');
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
       .then((j) => done((j.mentions || [])[0])).catch(() => {});
   };
@@ -2332,7 +2345,10 @@ function StDays({ timeline, onPick }) {
   const src = (timeline || []).map((d) => ({ ...d, ymd: (d.fullDate || '').slice(0, 10), n: (d.positivo || 0) + (d.neutral || 0) + (d.negativo || 0) }));
   const weekly = src.length > 45;
   let rows = src;
-  if (weekly) { rows = []; src.forEach((d, i) => { if (i % 7 === 0) rows.push({ ymd: d.ymd, positivo: 0, neutral: 0, negativo: 0, n: 0 }); const b = rows[rows.length - 1]; b.positivo += d.positivo || 0; b.neutral += d.neutral || 0; b.negativo += d.negativo || 0; b.n += d.n; }); }
+  // Semanas contadas desde el ÚLTIMO día: contadas desde el primero, con 90
+  // días la última barra tenía 6 días y parecía una caída (QA oct-2026). La
+  // semana incompleta, si la hay, queda al principio y lo dice su tooltip.
+  if (weekly) { rows = []; const off = src.length % 7; src.forEach((d, i) => { if (i === 0 || (i - off) % 7 === 0) rows.push({ ymd: d.ymd, positivo: 0, neutral: 0, negativo: 0, n: 0, days: 0 }); const b = rows[rows.length - 1]; b.positivo += d.positivo || 0; b.neutral += d.neutral || 0; b.negativo += d.negativo || 0; b.n += d.n; b.days += 1; }); }
   const mx = Math.max(1, ...rows.map((d) => d.n));
   const every = rows.length <= 14 ? 1 : Math.ceil(rows.length / 10);
   return (
@@ -2343,7 +2359,7 @@ function StDays({ timeline, onPick }) {
           <div className="st-days" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
             {rows.map((d, i) => (
               <button key={d.ymd || i} className="st-day" disabled={weekly} onClick={() => onPick(d)}
-                title={`${weekly ? 'Semana del ' : ''}${stDate(d.ymd)}: ${d.n} menciones · ${d.positivo} positivas · ${d.negativo} negativas`}>
+                title={`${weekly ? 'Semana del ' : ''}${stDate(d.ymd)}${weekly && d.days < 7 ? ` (${d.days} días)` : ''}: ${d.n} menciones · ${d.positivo} positivas · ${d.negativo} negativas`}>
                 <span className="st-day-p"><span className="st-day-s">
                   {rows.length <= 31 && <span className="st-day-n num">{d.n}</span>}
                   <span className="st-day-b" style={{ height: `max(2px, calc((100% - 20px) * ${(d.n / mx).toFixed(4)}))` }}>
@@ -2389,25 +2405,32 @@ function StEmotions({ emotions, an, onPick }) {
 function StEmoWeeks({ an, onPick }) {
   const head = (sub) => <div className="card-hd"><div><div className="card-hd-title">Emociones, 12 semanas</div><div className="card-hd-sub">{sub}</div></div></div>;
   if (!an) return <div className="card">{head('Cargando…')}<div className="card-bd st-empty">Cargando…</div></div>;
-  if (an.error) return null;
+  if (an.error) return <div className="card">{head('')}<div className="card-bd st-empty">No se pudieron cargar las emociones de las últimas 12 semanas.</div></div>;
   const { weeks, rows } = an.emotionWeeks;
   if (!rows.length) return <div className="card">{head('')}<div className="card-bd st-empty">Sin emociones clasificadas en las últimas 12 semanas.</div></div>;
   const mx = Math.max(1, ...rows.flatMap((r) => r.counts));
   const last = weeks.length - 1;
+  // Las semanas son de 7 días que TERMINAN en el último día de la ventana (no
+  // lunes–domingo), así que cada columna se rotula con su ÚLTIMO día: con el
+  // primero, la columna de 16–22 oct decía «16 oct» y parecía que el gráfico
+  // no llegaba a hoy (QA oct-2026). Se resaltan las semanas que tocan la
+  // ventana elegida (con 30D son cinco, no solo la última).
+  const win = an.window || {};
+  const inWin = (w) => (win.startYmd && win.endYmd ? w.end >= win.startYmd && w.start <= win.endYmd : false);
   return (
     <div className="card">
-      {head(`menciones con cada emoción por semana, hasta el ${stDate(weeks[last].end)} · clic para leerlas`)}
+      {head(`menciones con cada emoción por semana · cada columna son los 7 días que terminan en esa fecha · clic para leerlas`)}
       <div className="card-bd scroll-x">
         <div className="st-ew" style={{ gridTemplateColumns: `minmax(110px, 160px) repeat(${weeks.length}, minmax(44px, 1fr))` }}>
           <span />
-          {weeks.map((w, i) => <span key={w.start} className={`st-ew-h num${i === last ? ' cur' : ''}`}>{stDate(w.start)}</span>)}
+          {weeks.map((w, i) => <span key={w.start} className={`st-ew-h num${inWin(w) || i === last ? ' cur' : ''}`} title={`${stDate(w.start)} – ${stDate(w.end)}`}>{stDate(w.end)}</span>)}
           {rows.map((r) => (
             <React.Fragment key={r.emotion}>
               <span className="st-ew-n">{r.emotion}</span>
               {r.counts.map((v, i) => {
                 const k = v ? Math.min(5, 1 + Math.floor((v / mx) * 5)) : 0;
                 return (
-                  <button key={i} className={`st-ew-c num${i === last ? ' cur' : ''}`} disabled={!v} onClick={() => onPick(r.emotion, weeks[i])}
+                  <button key={i} className={`st-ew-c num${inWin(weeks[i]) || i === last ? ' cur' : ''}`} disabled={!v} onClick={() => onPick(r.emotion, weeks[i])}
                     style={k ? { background: ST_SEQ[k], color: k >= 4 ? 'var(--canvas)' : 'var(--text)', borderColor: 'transparent' } : undefined}
                     title={`${r.emotion} · ${stDate(weeks[i].start)} – ${stDate(weeks[i].end)}: ${v} menciones`}>{v || '·'}</button>
                 );
@@ -2552,7 +2575,11 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     } else if (groupBy === 'topic') {
       filter.topic = row.slug || row.topic || label;
     } else if (groupBy === 'subtopic') {
+      // Mismo criterio que la fila (subtópico del tópico PRINCIPAL de cada
+      // mención): sin topic+primary el modal contaba cualquier fila con ese
+      // nombre (DF «Imagen y Credibilidad» 100 → 418; QA oct-2026).
       filter.subtopic = label;
+      if (row.topicSlug) { filter.topic = row.topicSlug; filter.topicMode = 'primary'; }
     } else if (groupBy === 'region') {
       filter.region = label;
     }
@@ -3401,7 +3428,7 @@ function TopicsScreen({ onMentionClick }) {
               title: dayModal.topicName,
               accent,
               mentions: [],
-              _filter: { topic: dayModal.topicSlug, day: dayIso, topicMode: 'all' },
+              _filter: { topic: dayModal.topicSlug, day: dayIso, topicMode: 'primary' },
               ctaLabel: `Ver tópico · ${dayModal.topicName}`,
               ctaIcon: 'Hash',
               onCta: () => { setDayModal(null); openTopic(dayModal.topicSlug); },
@@ -3434,6 +3461,27 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   // subtópico) esto siempre es ≤ topic.count; la diferencia son las menciones
   // primarias sin subtópico asignado.
   const subsTotal = subs.reduce((acc, s) => acc + (s.count || 0), 0);
+  // La serie del endpoint solo trae los días CON menciones y el gráfico
+  // espacia por índice: los días vacíos desaparecían (Legislación de DF: 18 de
+  // 35 días; QA oct-2026). Se rellena con 0 la misma ventana que pide eco-data
+  // (max(35, 2×días) terminando en el último día cargado).
+  const evoSeries = React.useMemo(() => {
+    const evo = topic.evolution || [];
+    const end = (ecoDataWindow().to) || (evo.length ? String(evo[evo.length - 1].fullDate).slice(0, 10) : null);
+    if (!end || !evo.length) return evo;
+    const w = ecoDataWindow();
+    const days = w.from && w.to ? Math.round((Date.parse(w.to) - Date.parse(w.from)) / 864e5) + 1 : 7;
+    const n = Math.max(35, 2 * days);
+    const by = {};
+    evo.forEach((e) => { by[String(e.fullDate).slice(0, 10)] = e.count; });
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const ymd = new Date(Date.parse(end + 'T12:00:00Z') - i * 864e5).toISOString().slice(0, 10);
+      const fullDate = ymd + 'T12:00:00Z';
+      out.push({ date: stDate(ymd), fullDate, count: by[ymd] || 0 });
+    }
+    return out;
+  }, [topic.slug]);
 
   // Modal de menciones de un subtópico. Misma ventana y universo que la fila
   // (ecoDataWindow + topicMode primary), así el total del modal cuadra con el
@@ -3463,22 +3511,18 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
   const [desc, setDesc] = React.useState({ status: 'loading', text: null, generatedAt: null });
   React.useEffect(() => {
     let cancelled = false;
+    // La ventana que se ve (D.PERIOD), no una recalculada desde localStorage:
+    // así la descripción habla del mismo periodo que las cifras de la página.
     const params = new URLSearchParams();
     const agency = localStorage.getItem('eco.agency');
     const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
-    const customFrom = localStorage.getItem('eco.from');
-    const customTo = localStorage.getItem('eco.to');
+    const w = ecoDataWindow();
     if (agency) params.set('agency', agency);
-    if (period === 'custom' && customFrom && customTo) {
-      params.set('from', customFrom);
-      params.set('to', customTo);
-    } else {
-      params.set('period', period);
-    }
+    params.set('period', period);
+    if (w.from && w.to) { params.set('from', w.from); params.set('to', w.to); }
     params.set('topic', topic.slug);
     setDesc({ status: 'loading', text: null, generatedAt: null });
-    fetch('/api/eco-topic-description?' + params.toString(), { cache: 'no-store' })
-      .then(r => r.json())
+    ecoFetchAuthed('/api/eco-topic-description?' + params.toString(), { cache: 'no-store', credentials: 'same-origin' })
       .then(d => {
         if (cancelled) return;
         if (d.status === 'ready') setDesc({ status: 'ready', text: d.description, generatedAt: d.generatedAt });
@@ -3557,7 +3601,7 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
           </div>
         )}
         {desc.status === 'ready' && (
-          <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.55, color: 'var(--text)' }}>{desc.text}</div>
+          <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.55, color: 'var(--text)' }} dangerouslySetInnerHTML={{ __html: sanitizeBriefingHtml(desc.text || '') }} />
         )}
         {desc.status === 'empty' && (
           <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>
@@ -3649,10 +3693,10 @@ function TopicDetail({ topic, subs, onBack, onMentionClick }) {
 
       {/* Evolution — datos reales por tópico (mention_topics × día AST). */}
       <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">Menciones reales (zona AST)</div></div></div>
+        <div className="card-hd"><div><div className="card-hd-title">Evolución del tópico</div><div className="card-hd-sub">{evoSeries.length ? `Menciones por día · ${ecoFmtRange(evoSeries[0].fullDate.slice(0, 10), evoSeries[evoSeries.length - 1].fullDate.slice(0, 10))} (zona AST)` : 'Menciones reales (zona AST)'}</div></div></div>
         <div className="card-bd">
           {(topic.evolution && topic.evolution.length > 0) ? (
-            <AreaLineChart data={topic.evolution} accessor={(d) => d.count} height={200} color="var(--accent)" />
+            <AreaLineChart data={evoSeries} accessor={(d) => d.count} height={200} color="var(--accent)" />
           ) : (
             <div style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>
               Sin menciones registradas para este tópico en este periodo.
@@ -3754,7 +3798,17 @@ function TopicCalendar({ data, onSelect, onDayClick }) {
   const first = parsed[0].dt;
   const last = parsed[parsed.length - 1].dt;
   const firstDow = (first.getDay() + 6) % 7; // Monday-first: 0..6
-  const cells = Array(firstDow).fill(null).concat(parsed);
+  // Un día sin menciones con tópico no llega del endpoint: sin su celda vacía,
+  // todos los días siguientes caían en la columna de otro día de la semana
+  // (DF 3M: faltan 02-ago y 19-sep; QA oct-2026).
+  const cells = Array(firstDow).fill(null);
+  parsed.forEach((d, i) => {
+    if (i > 0) {
+      const gap = Math.round((d.dt - parsed[i - 1].dt) / 864e5) - 1;
+      for (let g = 0; g < gap; g++) cells.push(null);
+    }
+    cells.push(d);
+  });
 
   // Agrupar en filas de 7 días (semanas). En cada salto de fila, si el día
   // que comienza la fila (o cualquier día en ella) pertenece a un mes distinto
@@ -4014,7 +4068,7 @@ function fetchSliceMentions(filter) {
   // `period=custom` SIN from/to y el backend degradaba en silencio a 30 días
   // rolantes (auditoría 2026-08). El caller puede sobreescribir from/to
   // pasándolos en `filter`.
-  const w = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+  const w = ecoDataWindow();
   if (w.from && w.to) {
     params.set('from', w.from);
     params.set('to', w.to);
@@ -4086,7 +4140,7 @@ function GgDetail({ m, an, filterParams, onClose, onOpenAll, onMentionClick }) {
   React.useEffect(() => {
     const ctrl = new AbortController();
     setItems(null);
-    const vw = (window.ecoResolvedWindow && window.ecoResolvedWindow()) || {};
+    const vw = ecoDataWindow();
     const p = new URLSearchParams({ ...(vw.from && vw.to ? { from: vw.from, to: vw.to } : window.ecoGetPeriodParams()), municipality: m.slug, limit: '4', sortBy: 'engagement' });
     const agency = localStorage.getItem('eco.agency'); if (agency) p.set('agency', agency);
     Object.entries(filterParams).forEach(([k, v]) => p.set(k, String(v)));
@@ -4197,11 +4251,11 @@ function GgWeeks({ an, selected, onPick, onCell }) {
   const last = weeks.length - 1;
   return (
     <div className="card">
-      {head(`12 semanas hasta el ${ggDate(weeks[last].end)} · clic en una celda para leer esas menciones`)}
+      {head(`12 semanas hasta el ${ggDate(weeks[last].end)} · cada columna son los 7 días que terminan en esa fecha · clic en una celda para leer esas menciones`)}
       <div className="card-bd scroll-x">
         <div className="gg-wk" style={{ gridTemplateColumns: `minmax(120px, 170px) repeat(${weeks.length}, minmax(44px, 1fr)) 52px` }}>
           <span />
-          {weeks.map((w, i) => <span key={w.start} className={`gg-wk-h num${i === last ? ' cur' : ''}`}>{ggDate(w.start)}</span>)}
+          {weeks.map((w, i) => <span key={w.start} className={`gg-wk-h num${i === last ? ' cur' : ''}`} title={`${ggDate(w.start)} – ${ggDate(w.end)}`}>{ggDate(w.end)}</span>)}
           <span className="gg-wk-h">total</span>
           {rows.map(({ m, tot }) => (
             <React.Fragment key={m.slug}>
@@ -4253,11 +4307,12 @@ function GeographyScreen({ onMentionClick }) {
     const agency = localStorage.getItem('eco.agency');
     const period = localStorage.getItem('eco.period') || window.ECO_DEFAULT_PERIOD || '7D';
     if (agency) params.set('agency', agency);
-    if (period === 'custom') {
-      const from = localStorage.getItem('eco.from'), to = localStorage.getItem('eco.to');
-      if (from) params.set('from', from);
-      if (to) params.set('to', to);
-    } else params.set('period', period);
+    // Siempre la ventana cargada (D.PERIOD): con solo `period` el servidor la
+    // recalculaba con su reloj y, tras la medianoche de PR, el mapa y las
+    // listas quedaban en otra ventana que la del resto de la página.
+    const w = ecoDataWindow();
+    if (period !== 'custom') params.set('period', period);
+    if (w.from && w.to) { params.set('from', w.from); params.set('to', w.to); }
     for (const [k, v] of Object.entries(contentFilter)) params.set(k, String(v));
     return params;
   };
@@ -4292,7 +4347,7 @@ function GeographyScreen({ onMentionClick }) {
       ...(senti ? { sentiment: senti } : {}),
       mentions: [],
       _filter: {
-        ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}),
+        ...ecoDataWindow(),
         municipality: m.slug,
         ...contentFilter,
         ...(contentFilter.topic ? { topicMode: 'all' } : {}),
@@ -4320,7 +4375,7 @@ function GeographyScreen({ onMentionClick }) {
       if (!focus || !focus.slug || (Date.now() - (focus.ts || 0)) > 30_000) return;
       const muni = (D.MUNICIPALITIES || []).find((m) => m.slug === focus.slug || (m.name || '').toLowerCase() === (focus.name || '').toLowerCase());
       if (muni) { setSel(muni.slug); requestAnimationFrame(() => { if (mapRef.current) mapRef.current.scrollIntoView({ block: 'start' }); }); }
-      else setSlice({ eyebrow: 'Región', title: focus.name || focus.slug, accent: 'var(--accent)', mentions: [], _filter: { ...((window.ecoResolvedWindow && window.ecoResolvedWindow()) || {}), municipality: focus.slug } });
+      else setSlice({ eyebrow: 'Región', title: focus.name || focus.slug, accent: 'var(--accent)', mentions: [], _filter: { ...ecoDataWindow(), municipality: focus.slug } });
     } catch (_) {}
   }, []);
 
@@ -4414,7 +4469,7 @@ function CrisisAlertsTab() {
     try {
       const [cfg, hist] = await Promise.all([
         fetch(`/api/alerts/crisis-config?agency=${ag}&agencySlug=${ag}`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&limit=10`).then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+        fetch(`/api/alerts/history?agency=${ag}&agencySlug=${ag}&limit=10&period=Max`).then((r) => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
       ]);
       setConfig(cfg.config ?? null);
       setHistory(hist.history ?? []);
@@ -4975,8 +5030,11 @@ function AlertsHistory({ onMentionClick }) {
   // Aggregate by day for a mini bar chart
   const byDay = {};
   rows.forEach((r) => {
-    const day = (r.triggeredAt || '').slice(0, 10);
-    if (!day) return;
+    // Día de PR (UTC−4), no el del ISO en UTC: un disparo de las 8:10 PM del
+    // 8-oct caía en la columna del 9 (QA oct-2026).
+    const t = Date.parse(r.triggeredAt || '');
+    if (!Number.isFinite(t)) return;
+    const day = new Date(t - 4 * 3600 * 1000).toISOString().slice(0, 10);
     byDay[day] = (byDay[day] || 0) + 1;
   });
   const days = Object.keys(byDay).sort();
@@ -6120,6 +6178,7 @@ function useOverviewInsights(periodStart, periodEnd, agency) {
     const MAX_POLL_MS = 90 * 1000;
     const ctrl = new AbortController();
     let timer = null;
+    let firstGeneratedAt;
     async function fetchOnce() {
       const params = new URLSearchParams({ from: periodStart, to: periodEnd });
       if (agency) params.set('agency', agency);
@@ -6137,7 +6196,14 @@ function useOverviewInsights(periodStart, periodEnd, agency) {
         // disparó el recálculo; seguimos consultando hasta que llegue el
         // vigente (OVERVIEW_LEDE_VERSION, la misma que /api/eco-insights).
         const outdated = json && json.dailySummary && (json.lede == null || Number(json.lede.v || 1) < OVERVIEW_LEDE_VERSION);
-        return outdated ? 'computing' : 'ready';
+        // `stale`: se muestra el texto cacheado y el endpoint ya lo está
+        // regenerando (llegaron menciones después de generarlo). Antes el hook
+        // paraba aquí: la píldora «Actualizando…» quedaba fija y el texto nuevo
+        // solo aparecía al recargar (QA oct-2026). Se sigue consultando hasta
+        // que cambie generatedAt.
+        if (firstGeneratedAt === undefined) firstGeneratedAt = json && json.generatedAt;
+        const regenerating = json && (json.stale || json.outdated) && json.generatedAt === firstGeneratedAt;
+        return outdated || regenerating ? 'computing' : 'ready';
       } catch (e) {
         if (e?.name === 'AbortError') return 'aborted';
         setState({ phase: 'error', data: null, error: String(e?.message || e) });
@@ -7931,6 +7997,16 @@ function crisisBandPill(band) {
   return { cls: 'pill-pos', color: 'var(--pos)', label: 'NORMAL' };
 }
 
+// Píldora de una fila de agencia en las vistas ejecutivas: antes de la banda,
+// el estado de los datos. crisisBandPill(null) devuelve NORMAL verde, y así
+// SGPR (sin menciones desde el 1-sep) y AAA (en pausa desde el 22-oct) salían
+// como agencias sanas (QA oct-2026). /api/exec-overview manda `dataState`.
+function agencyBandPill(a) {
+  if (a && a.dataState === 'sin-datos') return { cls: 'pill-neu', color: 'var(--text-3)', label: a.lastMentionYmd ? `SIN DATOS desde ${stDate(a.lastMentionYmd)}` : 'SIN DATOS' };
+  if (a && a.dataState === 'pausada') return { cls: 'pill-neu', color: 'var(--text-3)', label: 'EN PAUSA' };
+  return crisisBandPill(a && a.crisisBand);
+}
+
 // Barra apilada de sentimiento pos/neu/neg (mismo patrón que el mockup Tabla).
 function SentimentSplitBar({ pos, neu, neg, height = 6 }) {
   const total = (pos || 0) + (neu || 0) + (neg || 0);
@@ -8038,7 +8114,7 @@ function TablaScreen({ period }) {
 
                   {rows.map((a, idx) => {
                     const bb = { color: execToneColor(a.display.bhi.tone) };
-                    const cb = crisisBandPill(a.crisisBand);
+                    const cb = agencyBandPill(a);
                     const markPct = bhiMarkPct(a.display.bhi.raw != null ? a.display.bhi.raw : (a.bhi != null ? a.bhi / 10 : null));
                     const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-2)';
                     const velInfo = a.deltaDisplay.totalMentions;
@@ -8136,7 +8212,7 @@ function SalaScreen({ period }) {
                 <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>El muro · {tiles.length} agencias · orden por riesgo</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--sp-3)' }}>
                   {tiles.map((a) => {
-                    const cb = crisisBandPill(a.crisisBand);
+                    const cb = agencyBandPill(a);
                     const isCrisis = cb.cls === 'pill-neg';
                     const bhiColor = execToneColor(a.display.bhi.tone);
                     const nssColor = a.nss > 0 ? 'var(--pos)' : a.nss < 0 ? 'var(--neg)' : 'var(--text-3)';
@@ -8231,7 +8307,7 @@ function RadarScreen({ period }) {
               <div className="section-eyebrow" style={{ marginBottom: 'var(--sp-2)' }}>Riesgo por agencia ▾</div>
               <div className="card" style={{ padding: '6px 0' }}>
                 {ranked.map((a) => {
-                  const cb = crisisBandPill(a.crisisBand);
+                  const cb = agencyBandPill(a);
                   const w = Math.max(6, ((a.crisis || 0) / maxCrisis) * 100);
                   return (
                     <div key={a.slug} className="row-hover" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1.2fr auto', '1fr'), gap: 'var(--sp-2)', alignItems: 'center', padding: '8px 14px' }}>

@@ -27,16 +27,13 @@ import { getPool } from '@eco/database';
 import { agencies } from '@eco/database';
 import { getDb } from '@eco/database';
 import { eq } from 'drizzle-orm';
+import { addDaysYmd, resolveWindow, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
 import { stopSurfacesFor, STOP_STEMS } from '@/lib/wordcloud/stopwords';
 
 export const dynamic = 'force-dynamic';
-
-const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '1M': 30, '3M': 90, '6M': 180, '1A': 365, Max: 3650,
-};
 
 type Row = {
   term: string;
@@ -75,27 +72,26 @@ export async function GET(request: NextRequest) {
 
   const mode = searchParams.get('mode') === 'frequent' ? 'frequent' : 'distinctive';
   const limit = Math.min(120, Math.max(10, Number(searchParams.get('limit') ?? '60')));
-  const periodKey = searchParams.get('period') ?? '7D';
-  const days = PERIOD_DAYS[periodKey] ?? 7;
+  // La ventana de /api/eco-data (D.PERIOD): from/to cerrados si llegan; si no,
+  // `period` → N días CERRADOS terminando ayer en TZ PR. Antes el endpoint
+  // ignoraba from/to, tenía su propia tabla (Max=3650 vs 730 canónico) y
+  // contaba NOW()-N rolling: la nube no hablaba del periodo de la página
+  // (QA 2026-10-23, M6).
+  const w = resolveWindow({ period: searchParams.get('period'), from: searchParams.get('from'), to: searchParams.get('to') })
+    ?? resolveWindow({ period: '7D' })!;
+  const days = w.days;
 
+  // Sin fallback a "primera agencia activa": resolveAgencyId ya resuelve dentro
+  // del set PERMITIDO del usuario; null = set vacío. Servir la primera agencia
+  // activa era un leak de tenant, igual que el que /api/eco-mentions cerró en la
+  // auditoría 2026-08 (P1-1) (QA 2026-10-23, M7).
   const db = getDb();
-  let agencyId = await resolveAgencyId(searchParams);
-  let agencySlug: string | null = null;
-  if (!agencyId) {
-    const [first] = await db
-      .select({ id: agencies.id, slug: agencies.slug })
-      .from(agencies)
-      .where(eq(agencies.isActive, true))
-      .limit(1);
-    agencyId = first?.id ?? null;
-    agencySlug = first?.slug ?? null;
-  } else {
-    const [row] = await db.select({ slug: agencies.slug }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
-    agencySlug = row?.slug ?? null;
-  }
+  const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) {
     return NextResponse.json({ terms: [], mode, refMode: null, total: 0 });
   }
+  const [agRow] = await db.select({ slug: agencies.slug }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
+  const agencySlug: string | null = agRow?.slug ?? null;
 
   // ---- filtros de contenido: los MISMOS nombres de param que /api/eco-mentions
   const q = (searchParams.get('q') ?? '').trim();
@@ -119,7 +115,10 @@ export async function GET(request: NextRequest) {
   const P = (v: unknown) => `$${params.push(v)}`;
 
   const agencyP = P(agencyId);
-  const daysP = P(days);
+  // AST = UTC−4 todo el año (sin DST): bordes del día con offset fijo, como
+  // parseCustomRange de /api/eco-mentions. Fin EXCLUSIVO (día siguiente 00:00).
+  const sinceP = P(`${w.startYmd}T04:00:00.000Z`);
+  const untilP = P(`${addDaysYmd(w.endYmd, 1)}T04:00:00.000Z`);
 
   // Condiciones de contenido, compartidas por scope y por la referencia
   // `siblings` (que las omite todas menos el periodo).
@@ -134,7 +133,18 @@ export async function GET(request: NextRequest) {
          OR COALESCE(m.nlp_sentiment, m.bw_sentiment) NOT IN ('positivo','positive','negativo','negative'))`,
     );
   }
-  if (source && source !== 'all') contentConds.push(`m.page_type = ${P(source)}`);
+  // Fuente: la MISMA coincidencia que /api/eco-mentions (sourceMatchTerms, el
+  // reverso de sourceKey). Con `page_type = 'facebook'` exacto la nube de DF
+  // 16–22 oct veía 1 mención de Facebook contra 434 en la lista (casi todo es
+  // `facebook_public`), e Instagram 0 vs 114 → nube vacía (QA 2026-10-23, M4).
+  if (source && source !== 'all') {
+    const { negate, terms } = sourceMatchTerms(source);
+    if (terms.length > 0) {
+      const col = `LOWER(COALESCE(m.page_type, ''))`;
+      const joined = terms.map((t) => `${col} ${t.op === 'like' ? 'LIKE' : '='} ${P(t.value)}`).join(' OR ');
+      contentConds.push(negate ? `NOT (${joined})` : `(${joined})`);
+    }
+  }
   if (municipality) {
     contentConds.push(`EXISTS (
       SELECT 1 FROM mention_municipalities mm
@@ -144,7 +154,7 @@ export async function GET(request: NextRequest) {
   if (topic) {
     contentConds.push(`EXISTS (
       SELECT 1 FROM mention_topics mt2 JOIN topics t2 ON t2.id = mt2.topic_id
-       WHERE mt2.mention_id = m.id AND t2.slug = ${P(topic)})`);
+       WHERE mt2.mention_id = m.id AND t2.slug = ${P(topic)} AND t2.agency_id = ${agencyP}::uuid)`);
   }
   if (emotion) contentConds.push(`m.nlp_emotions @> ${P(JSON.stringify([emotion.toLowerCase()]))}::jsonb`);
   if (q) {
@@ -161,15 +171,12 @@ export async function GET(request: NextRequest) {
   //
   // Con la forma vieja el endpoint devolvía 500 en producción:
   // `operator does not exist: text + unknown`. Un parámetro de bind tiene UN
-  // tipo para toda la sentencia, y `${daysP} || ' days'` lo fijaba como `text`;
-  // cuando la referencia lo volvía a usar en `(${daysP} + ${refDaysP})`, eso
-  // quedaba como `text + unknown` y Postgres no resuelve ese operador. Fijar el
-  // tipo con `::int` elimina la ambigüedad y de paso hace la aritmética en
-  // enteros, que es lo que se quería.
-  const windowScope = `m.published_at >= NOW() - (${daysP}::int * INTERVAL '1 day')`;
-  // Referencia: la ventana inmediatamente anterior, de 3x la longitud, acotada
-  // a [30, 180] días para que un periodo de 1D no compare contra 3 días de ruido
-  // ni un periodo de 1A contra una década.
+  // tipo para toda la sentencia: cada $N se castea igual en todos sus usos
+  // (`::timestamptz`, `::int`) para que Postgres no tenga que adivinarlo.
+  const windowScope = `m.published_at >= ${sinceP}::timestamptz AND m.published_at < ${untilP}::timestamptz`;
+  // Referencia: la ventana inmediatamente anterior AL INICIO de la ventana (no a
+  // NOW()), de 3x la longitud, acotada a [30, 180] días para que un periodo de
+  // 1D no compare contra 3 días de ruido ni un periodo de 1A contra una década.
   //
   // El parámetro se registra SOLO en modo 'prev'. Antes se registraba siempre,
   // así que en modo 'siblings' (cuando hay filtro de contenido) quedaba un $N
@@ -177,8 +184,8 @@ export async function GET(request: NextRequest) {
   // Postgres no puede inferir su tipo → segundo fallo, en la otra rama.
   const refDays = Math.min(180, Math.max(30, days * 3));
   const windowRefPrev = refMode === 'prev'
-    ? `m.published_at >= NOW() - ((${daysP}::int + ${P(refDays)}::int) * INTERVAL '1 day')
-                          AND m.published_at < NOW() - (${daysP}::int * INTERVAL '1 day')`
+    ? `m.published_at >= ${sinceP}::timestamptz - (${P(refDays)}::int * INTERVAL '1 day')
+                          AND m.published_at < ${sinceP}::timestamptz`
     : '';
 
   const scopeWhere = [...baseConds, windowScope, ...contentConds].join(' AND ');
@@ -323,6 +330,7 @@ SELECT st.term,
       mode,
       refMode,
       refDays: refMode === 'prev' ? refDays : days,
+      window: { from: w.startYmd, to: w.endYmd },
       total: terms.length,
       // Se declara la ruta usada: sin `mention_terms` la ventana grande es lenta,
       // y el cliente merece saber por qué.

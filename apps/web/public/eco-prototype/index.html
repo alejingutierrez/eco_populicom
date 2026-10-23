@@ -1414,6 +1414,45 @@
     setInterval(function () {
       fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
     }, 20 * 60 * 1000);
+    // Ventana viva (QA oct-2026). Todo /api/eco-data se carga UNA vez, aquí,
+    // y la ventana es «cerrada, termina ayer»: con la pestaña abierta al pasar
+    // la medianoche de PR, las cards seguían en la ventana de ayer mientras el
+    // título del header y las pantallas que piden su propio endpoint ya iban
+    // por la de hoy (dos ventanas en la misma pantalla). Igual si otra pestaña
+    // cambia agencia/periodo en localStorage: las pantallas perezosas lo leían
+    // y pedían la otra agencia bajo los KPIs de ésta. En ambos casos se
+    // recarga: en seguida si la pestaña está oculta (se recarga al volver), y
+    // con un aviso si el usuario la está usando, para no interrumpirle.
+    (function () {
+      function ymdAst() { return new Date(Date.now() - 4 * 3600 * 1000).toISOString().slice(0, 10); }
+      var bootDay = ymdAst();
+      var staleMsg = null;
+      function flush() {
+        if (!staleMsg) return;
+        if (document.hidden) { location.reload(); return; }
+        showApiBanner('warn', staleMsg);
+        var btn = document.querySelector('#eco-api-banner button');
+        if (btn) btn.textContent = 'Actualizar';
+      }
+      function checkDay() {
+        var p = null;
+        try { p = localStorage.getItem('eco.period'); } catch (_) {}
+        if (p !== 'custom' && ymdAst() !== bootDay) {
+          staleMsg = 'Cambió el día: estos datos son hasta anteayer.';
+          flush();
+        }
+      }
+      setInterval(checkDay, 60 * 1000);
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) { if (staleMsg) location.reload(); return; }
+        checkDay();
+      });
+      window.addEventListener('storage', function (e) {
+        if (['eco.agency', 'eco.period', 'eco.from', 'eco.to'].indexOf(e.key) === -1) return;
+        staleMsg = 'Cambiaste la agencia o el periodo en otra pestaña.';
+        flush();
+      });
+    })();
     const boot = document.getElementById('eco-boot');
     if (boot) boot.remove();
     if (apiFailed) {
@@ -1428,7 +1467,7 @@
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = base + '/' + f + '?v=prodc97';
+        s.src = base + '/' + f + '?v=prodc98';
         s.async = false;
         s.onload = resolve;
         s.onerror = () => {

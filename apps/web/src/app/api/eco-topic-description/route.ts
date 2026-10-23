@@ -14,8 +14,16 @@
  * eco-ai-tasks. Esto evita el patrón 202/polling que sí usa
  * /api/eco-metric-insight, manteniendo el código del endpoint más simple.
  *
- * Histórico (period_end_date < ayer AST) inmutable; rolling (period_end_date
- * = ayer AST) refresca si el cache está stale > 1h (regen async best-effort).
+ * Frescura: un hit se regenera (síncrono, como un miss) si llegaron menciones
+ * PRIMARIAS del tópico a la ventana después de generarlo (lib/ai-cache-
+ * freshness). Antes la histórica era inmutable y la rolling solo marcaba
+ * stale: DF asistencia-social 14→20 oct se generó sin 40 de sus 95 menciones
+ * (QA 23-oct-2026). Si la regeneración falla se sirve la vieja con stale.
+ *
+ * Universo del prompt: menciones cuyo tópico PRIMARIO (top-confidence) es éste,
+ * el mismo criterio que TOPICS de /api/eco-data. Antes contaba cualquier fila
+ * de mention_topics (incluye secundarios) y el texto citaba cifras que la
+ * página no muestra (DF gestion-secretaria: 612 en el prompt vs 183 en la UI).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
@@ -24,6 +32,7 @@ import {
   closedWindowYmdInTZ,
   ymdInTimeZone,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
+  type PgClientLike,
   buildTopicDescriptionPrompt,
   type TopicAggregateForDescription,
   type TopicMentionSample,
@@ -32,6 +41,7 @@ import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
+import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger } from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -40,6 +50,13 @@ export const maxDuration = 30;
 const TZ = 'America/Puerto_Rico';
 const PRIMARY_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
 const FALLBACK_MODEL = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+
+/**
+ * Marca en model_used de las filas generadas con el universo de tópico
+ * PRIMARIO. Las anteriores (multi-tópico, citaban cifras que la UI no muestra)
+ * se tratan como viejas y se regeneran una vez, sin cambio de esquema.
+ */
+const PRIMARY_UNIVERSE_TAG = '+primary';
 
 const PERIOD_DAYS: Record<string, number> = {
   '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
@@ -128,6 +145,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Topic not found for this agency' }, { status: 404 });
   }
 
+  // Fila vieja que se está regenerando: respaldo si la regeneración falla.
+  let staleRow: { description: string; generatedAt: Date | string } | null = null;
+  const serveStale = (): NextResponse | null => {
+    if (!staleRow) return null;
+    const res = NextResponse.json({
+      status: 'ready' as const,
+      topicSlug,
+      periodStart: startYmd,
+      periodEnd: endYmd,
+      description: staleRow.description,
+      generatedAt: staleRow.generatedAt,
+      stale: true,
+    });
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
+  };
+
   try {
     await ensureTopicDescriptionsCacheSchema(pool);
 
@@ -150,20 +184,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const ageMs = Date.now() - generatedAt.getTime();
       const STALE_MS = 60 * 60 * 1000;
       const stale = !isHistorical && ageMs > STALE_MS;
-      // Para rolling stale podríamos disparar regen en background; por ahora
-      // devolvemos lo que tenemos (suficiente para una descripción que cambia
-      // poco entre horas) y dejamos el flag stale para que la UI decida.
-      const res = NextResponse.json({
-        status: 'ready' as const,
-        topicSlug,
-        periodStart: startYmd,
-        periodEnd: endYmd,
-        description: cached.description,
-        generatedAt: cached.generatedAt,
-        stale,
-      });
-      res.headers.set('Cache-Control', 'no-store');
-      return res;
+      const outdated = !String(cached.modelUsed ?? '').endsWith(PRIMARY_UNIVERSE_TAG)
+        || isAiCacheOutdated(
+          await loadWindowFreshness(pool as unknown as PgClientLike, {
+            agencyId, startYmd, endYmd, generatedAt, topicId: topicRow.id,
+          }),
+        );
+      if (!outdated) {
+        const res = NextResponse.json({
+          status: 'ready' as const,
+          topicSlug,
+          periodStart: startYmd,
+          periodEnd: endYmd,
+          description: cached.description,
+          generatedAt: cached.generatedAt,
+          stale,
+        });
+        res.headers.set('Cache-Control', 'no-store');
+        return res;
+      }
+      // Vieja: se regenera abajo como un miss; si otra petición ya la está
+      // regenerando (< 3 min), se sirve la vieja.
+      staleRow = cached;
+      if (!claimAiTrigger(`topic-description:${topicRow.id}:${startYmd}:${endYmd}`)) return serveStale()!;
     }
 
     // Cache miss: genera ahora (síncrono). Window inclusivo en ambos extremos
@@ -176,6 +219,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const aggregate = await loadTopicAggregate(pool, agencyId, agencyRow.name, topicRow.id, topicRow.name, topicRow.slug, sinceIso, untilIso, periodDays);
     if (aggregate.totalMentions === 0) {
+      const fallback = serveStale();
+      if (fallback) return fallback;
       const res = NextResponse.json({
         status: 'empty' as const,
         topicSlug,
@@ -222,6 +267,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const description = (parsed.description ?? '').trim().slice(0, 1200);
     if (!description) {
       log.warn('eco-topic-description', 'model returned empty', { topicSlug, startYmd, endYmd });
+      const fallback = serveStale();
+      if (fallback) return fallback;
       return NextResponse.json(
         { error: 'Model returned empty description', topicSlug, periodStart: startYmd, periodEnd: endYmd },
         { status: 502 },
@@ -238,7 +285,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
        DO UPDATE SET description = EXCLUDED.description,
                      model_used  = EXCLUDED.model_used,
                      generated_at = NOW()`,
-      [agencyId, topicRow.id, startYmd, endYmd, description, PRIMARY_MODEL],
+      [agencyId, topicRow.id, startYmd, endYmd, description, PRIMARY_MODEL + PRIMARY_UNIVERSE_TAG],
     );
 
     const res = NextResponse.json({
@@ -254,6 +301,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return res;
   } catch (err) {
     log.error('eco-topic-description', 'handler failed', { msg: (err as Error).message, topicSlug, startYmd, endYmd });
+    const fallback = serveStale();
+    if (fallback) return fallback;
     return NextResponse.json(
       { error: 'eco-topic-description error', message: (err as Error).message },
       { status: 500 },
@@ -264,6 +313,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
   }
 }
+
+/**
+ * Menciones de la ventana cuyo tópico PRIMARIO (fila de mention_topics de
+ * mayor confianza; mismo ORDER BY que TOPICS de /api/eco-data) es $2, con el
+ * subtópico de esa misma fila. Universo pertinente. Params: $1 agencia,
+ * $2 topic_id, $3/$4 bordes ISO.
+ */
+const PRIMARY_TOPIC_MENTIONS_CTE = `
+  tm AS (
+    SELECT m.id, m.title, m.snippet, m.author, m.page_type,
+           m.nlp_sentiment, m.bw_sentiment, m.engagement_score, m.published_at,
+           p.subtopic_id
+      FROM mentions m
+      CROSS JOIN LATERAL (
+        SELECT mt.topic_id, mt.subtopic_id
+          FROM mention_topics mt
+         WHERE mt.mention_id = m.id
+         ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC
+         LIMIT 1
+      ) p
+     WHERE m.agency_id = $1 AND p.topic_id = $2
+       AND m.is_duplicate = false
+       AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+       AND m.published_at >= $3 AND m.published_at <= $4
+  )`;
 
 async function loadTopicAggregate(
   pool: ReturnType<typeof getPool>,
@@ -277,30 +351,24 @@ async function loadTopicAggregate(
   periodDays: number,
 ): Promise<TopicAggregateForDescription> {
   const totalsRes = await pool.query<{ total: number; pos: number; neg: number }>(
-    `SELECT COUNT(*)::int AS total,
+    `WITH ${PRIMARY_TOPIC_MENTIONS_CTE}
+     SELECT COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
             COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg
-       FROM mention_topics mt
-       JOIN mentions m ON m.id = mt.mention_id
-      WHERE m.agency_id = $1 AND mt.topic_id = $2
-        AND m.is_duplicate = false
-        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-        AND m.published_at >= $3 AND m.published_at <= $4`,
+       FROM tm m`,
     [agencyId, topicId, sinceIso, untilIso],
   );
   const total = Number(totalsRes.rows[0]?.total ?? 0);
   const positive = Number(totalsRes.rows[0]?.pos ?? 0);
   const negative = Number(totalsRes.rows[0]?.neg ?? 0);
 
+  // Subtópico de la fila primaria (como SUBTOPICS de eco-data): la suma
+  // nunca excede el total del tópico.
   const subRes = await pool.query<{ name: string; count: number }>(
-    `SELECT s.name AS name, COUNT(*)::int AS count
-       FROM mention_topics mt
-       JOIN mentions m ON m.id = mt.mention_id
-       JOIN subtopics s ON s.id = mt.subtopic_id
-      WHERE m.agency_id = $1 AND mt.topic_id = $2
-        AND m.is_duplicate = false
-        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-        AND m.published_at >= $3 AND m.published_at <= $4
+    `WITH ${PRIMARY_TOPIC_MENTIONS_CTE}
+     SELECT s.name AS name, COUNT(*)::int AS count
+       FROM tm m
+       JOIN subtopics s ON s.id = m.subtopic_id
       GROUP BY s.name
       ORDER BY count DESC
       LIMIT 10`,
@@ -308,15 +376,11 @@ async function loadTopicAggregate(
   );
 
   const muniRes = await pool.query<{ name: string; count: number }>(
-    `SELECT mu.name AS name, COUNT(*)::int AS count
-       FROM mention_topics mt
-       JOIN mentions m ON m.id = mt.mention_id
+    `WITH ${PRIMARY_TOPIC_MENTIONS_CTE}
+     SELECT mu.name AS name, COUNT(*)::int AS count
+       FROM tm m
        JOIN mention_municipalities mm ON mm.mention_id = m.id
        JOIN municipalities mu ON mu.id = mm.municipality_id
-      WHERE m.agency_id = $1 AND mt.topic_id = $2
-        AND m.is_duplicate = false
-        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-        AND m.published_at >= $3 AND m.published_at <= $4
       GROUP BY mu.name
       ORDER BY count DESC
       LIMIT 5`,
@@ -367,18 +431,14 @@ async function loadTopicSamples(
     // Dos pasadas por sentimiento: top engagement + más recientes. UNION ALL
     // en una sola query para no multiplicar round-trips.
     const res = await pool.query<{ id: string; title: string | null; snippet: string | null; sentiment: string | null; subtopic: string | null; source: string | null; author: string | null }>(
-      `WITH pool AS (
-         SELECT m.id, m.title, m.snippet, m.author, m.page_type,
+      `WITH ${PRIMARY_TOPIC_MENTIONS_CTE},
+       pool AS (
+         SELECT m.id, m.title, m.snippet, m.author, m.page_type, m.subtopic_id,
                 COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
                 COALESCE(m.engagement_score, 0) AS eng,
                 m.published_at
-           FROM mention_topics mt
-           JOIN mentions m ON m.id = mt.mention_id
-          WHERE m.agency_id = $1 AND mt.topic_id = $2
-            AND m.is_duplicate = false
-            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-            AND m.published_at >= $3 AND m.published_at <= $4
-            AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($5, $6)
+           FROM tm m
+          WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($5, $6)
        ),
        picked AS (
          (SELECT * FROM pool ORDER BY eng DESC LIMIT $7)
@@ -387,8 +447,7 @@ async function loadTopicSamples(
        )
        SELECT p.id, p.title, p.snippet, p.sentiment, p.author,
               p.page_type AS source,
-              (SELECT sub.name FROM mention_topics mt2 JOIN subtopics sub ON sub.id = mt2.subtopic_id
-                WHERE mt2.mention_id = p.id AND mt2.topic_id = $2 LIMIT 1) AS subtopic
+              (SELECT sub.name FROM subtopics sub WHERE sub.id = p.subtopic_id) AS subtopic
          FROM picked p
         ORDER BY p.eng DESC`,
       [agencyId, topicId, sinceIso, untilIso, s, altSentiment, half, SAMPLES_PER_SENTIMENT - half],

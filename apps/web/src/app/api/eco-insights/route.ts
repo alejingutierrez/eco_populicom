@@ -6,17 +6,22 @@
  *   - period=custom + from/to → ventana explícita
  *
  * Cache semantics sobre `overview_period_insights`:
- *   - Existe + period_end < ayer (histórico inmutable) → 200 {status:'ready'}
+ *   - Existe + period_end < ayer + datos sin cambios → 200 {status:'ready'}
  *   - Existe + period_end >= ayer + generated_at > NOW - 1h → 200 ready
  *   - Existe + stale → 200 ready + dispara recalc async
+ *   - Existe + vieja (llegaron menciones después de generarla, ver
+ *     lib/ai-cache-freshness) → 200 ready {outdated:true} + recalc async; si
+ *     era una fila «sin señal» y hoy ya hay señal → 202 + recalc async
  *   - No existe → 202 {status:'computing'} + invoca lambda async
+ * Los disparos se deduplican por ventana (claimAiTrigger, 3 min).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, overviewPeriodInsights } from '@eco/database';
 import { sql, and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS } from '@eco/shared';
+import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
+import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger } from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
@@ -47,6 +52,19 @@ function getLambdaClient(): LambdaClient {
 }
 
 async function triggerLambdaAsync(agencySlug: string, periodStart: string, periodEnd: string): Promise<void> {
+  // Una generación por ventana cada 3 min: el SPA consulta cada 2 s mientras
+  // recibe 202 y cada consulta disparaba OTRA corrida Opus (~10 por vista).
+  const key = `period-insights:${agencySlug}:${periodStart}:${periodEnd}`;
+  if (!claimAiTrigger(key)) return;
+  try {
+    await sendInvoke(agencySlug, periodStart, periodEnd);
+  } catch (e) {
+    releaseAiTrigger(key);
+    throw e;
+  }
+}
+
+async function sendInvoke(agencySlug: string, periodStart: string, periodEnd: string): Promise<void> {
   // InvocationType: 'Event' devuelve 202 inmediato; el lambda corre en background.
   await getLambdaClient().send(new InvokeCommand({
     FunctionName: AI_TASKS_FUNCTION_NAME,
@@ -133,6 +151,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // recalculan UNA vez en segundo plano, también las históricas.
       const ledeVersion = Number((row.lede as { v?: number } | null)?.v ?? 1);
       const missingLede = row.dailySummary != null && (row.lede == null || ledeVersion < LEDE_VERSION);
+      const rollingStale = !isHistorical && ageMs > STALE_MS;
+      // Vieja = llegaron menciones a la ventana después de generarla (QA
+      // 23-oct: DF 15→21 decía «720» con 1,037 en la base). Aplica también a
+      // las históricas y a las «sin señal» (DF 19/20-oct: daily_summary NULL
+      // con 81/199 menciones hoy). Solo se consulta si no va a recalcular ya
+      // (salvo las «sin señal», que deben pasar a 202 aunque sean rolling).
+      const wasEmpty = row.dailySummary == null;
+      const outdated = !missingLede && (wasEmpty || !rollingStale) && generatedAt != null
+        && isAiCacheOutdated(
+          await loadWindowFreshness(pool as unknown as PgClientLike, { agencyId, startYmd, endYmd, generatedAt }),
+          { wasEmpty },
+        );
+      if (outdated && wasEmpty) {
+        // La fila vieja no tiene texto que mostrar: 202 para que el SPA siga
+        // consultando hasta que llegue la nueva.
+        await triggerLambdaAsync(agencySlug, startYmd, endYmd);
+        const res = NextResponse.json(
+          { status: 'computing', periodStart: startYmd, periodEnd: endYmd },
+          { status: 202 },
+        );
+        res.headers.set('Cache-Control', 'no-store');
+        return res;
+      }
       const ready = {
         status: 'ready' as const,
         periodStart: startYmd,
@@ -145,11 +186,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         dailySummary: row.dailySummary,
         lede: row.lede ?? null,
         generatedAt: row.generatedAt,
-        stale: missingLede || (!isHistorical && ageMs > STALE_MS),
+        stale: missingLede || rollingStale || outdated,
+        outdated,
       };
       // Background recalc si stale y es ventana rolling (incluye hoy/ayer),
-      // o si a la fila le falta el lede.
-      if (missingLede || (!isHistorical && ageMs > STALE_MS)) {
+      // si a la fila le falta el lede o si quedó vieja.
+      if (missingLede || rollingStale || outdated) {
         // No await — fire and forget.
         triggerLambdaAsync(agencySlug, startYmd, endYmd).catch((e) => {
           log.warn('eco-insights', 'background recalc failed to invoke', { err: (e as Error).message });
