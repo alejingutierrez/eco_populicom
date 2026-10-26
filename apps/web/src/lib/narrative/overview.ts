@@ -561,12 +561,18 @@ export function buildOverview(input: OverviewInput): OverviewPayload {
       cajones.push({ id: nid, name: meta.name, life: rows.length, bornDay: first.day });
       continue;
     }
+    // Sin menciones en la semana de referencia no está naciendo ni activa,
+    // diga lo que diga el estado guardado: los backfills de DF (Bunker 16-oct,
+    // BW 22-oct) dejaron narrativas en «emerging» con la última mención en
+    // septiembre (QA 23-oct: 12 de 29 «Naciendo», 7 de 15 «Activas»).
+    const stale = lastDay < weekFrom && (COLUMN_OF[meta.status] === 'emerging' || COLUMN_OF[meta.status] === 'active');
+    const status = stale ? 'declining' : meta.status;
     work.push({
       id: nid,
       name: meta.name,
       summary: meta.summary,
-      status: meta.status,
-      column: COLUMN_OF[meta.status] ?? null,
+      status,
+      column: COLUMN_OF[status] ?? null,
       createdDay: toYmd(meta.created_at),
       bornDay: first.day,
       lastDay,

@@ -10,6 +10,7 @@ import {
   loadDailySentimentSeries,
   formatMetric,
   formatDelta,
+  MIN_WINDOW_MENTIONS,
 } from '@eco/shared';
 import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay, HourlyPoint, DailyPoint } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
@@ -54,12 +55,13 @@ interface OverviewResponse {
   /**
    * Riesgo de crisis del bloque 02. `window`/`prevWindow` son la métrica de la
    * VENTANA (la misma del correo: loadMetricsForWindow); `daily` es el
-   * snapshot de cada día (cinta bajo la tendencia, pico y cierre).
+   * snapshot de cada día (cinta bajo la tendencia, pico y cierre); `score`
+   * es null en los días con menos de MIN_WINDOW_MENTIONS menciones.
    */
   crisis: {
     window: number | null;
     prevWindow: number | null;
-    daily: Array<{ date: string; score: number }>;
+    daily: Array<{ date: string; score: number | null }>;
     peak: { date: string; score: number } | null;
     last: { date: string; score: number } | null;
   };
@@ -164,8 +166,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ),
       pool.query<{ slug: string; name: string }>(`SELECT slug, name FROM agencies WHERE id = $1 LIMIT 1`, [agencyId]),
     ]);
-    const daily = crisisDaily.rows.map((r) => ({ date: r.d, score: Number(r.score) }));
-    const peak = daily.reduce<{ date: string; score: number } | null>((best, p) => (!best || p.score > best.score ? p : best), null);
+    // El snapshot diario no aplica el mínimo de menciones que sí exige la
+    // ventana: AAA pintaba «0% Normal» en días con 2–3 menciones (QA
+    // 23-oct-2026). Un día bajo MIN_WINDOW_MENTIONS (en el universo de la
+    // serie diaria) no tiene riesgo que mostrar, como un 1D en los KPI.
+    const dayTotal = new Map(report.dailySeries.map((d) => [d.date, d.positive + d.neutral + d.negative]));
+    const daily = crisisDaily.rows.map((r) => ({
+      date: r.d,
+      score: (dayTotal.get(r.d) ?? 0) < MIN_WINDOW_MENTIONS ? null : Number(r.score),
+    }));
+    const scored = daily.filter((p): p is { date: string; score: number } => p.score != null);
+    const peak = scored.reduce<{ date: string; score: number } | null>((best, p) => (!best || p.score > best.score ? p : best), null);
+    const lastDaily = daily.length ? daily[daily.length - 1] : null;
     const ag = agencyRow.rows[0];
 
     // Tendencia por HORA cuando la ventana es de un solo día. Mismo universo
@@ -201,7 +213,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         prevWindow: winPrev.crisisRiskScore,
         daily,
         peak,
-        last: daily.length ? daily[daily.length - 1] : null,
+        // «Cierre» solo si el último día tiene riesgo (no se corre a otro día).
+        last: lastDaily && lastDaily.score != null ? { date: lastDaily.date, score: lastDaily.score } : null,
       },
       trendGranularity: singleDay ? 'hour' : 'day',
       hourlySeries,

@@ -136,10 +136,21 @@ describe('tripwire — predicados de universo por endpoint', () => {
   const MANIFEST: Array<{ file: string; rawDup: number; rawPert: number; drzDup: number; drzPert: number }> = [
     // +2 queries (sep-2026): ventana previa por tópico y voz principal del
     // ranking de Tópicos, ambas sobre el universo pertinente.
-    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 11, rawPert: 10, drzDup: 1, drzPert: 2 },
-    { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 2, rawPert: 0, drzDup: 1, drzPert: 1 },
+    // +1 (oct-2026): «Sentimiento por región» cuenta menciones distintas en su
+    // propia query (antes sumaba los pares mención×municipio del mapa).
+    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 11, rawPert: 10, drzDup: 1, drzPert: 3 },
+    // rawPert 1 (oct-2026): «Menciones parecidas» (similar_to) excluye pertinencia baja.
+    { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 2, rawPert: 1, drzDup: 1, drzPert: 1 },
     { file: 'apps/web/src/app/api/eco-geo/route.ts', rawDup: 0, rawPert: 0, drzDup: 1, drzPert: 1 },
-    { file: 'apps/web/src/app/api/eco-topic-description/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
+    // Oct-2026: total, subtópicos, municipios y muestras salen de UN CTE que
+    // elige el tópico primario (antes 4 queries multi-tópico).
+    { file: 'apps/web/src/app/api/eco-topic-description/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Frescura de los textos IA cacheados (oct-2026): menciones de la ventana
+    // que llegaron después de generar el texto, sobre el universo pertinente.
+    { file: 'apps/web/src/lib/ai-cache-freshness.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Vista ejecutiva (oct-2026): conteo de la ventana previa por tópico para
+    // el delta de las olas del Radar (antes volumeDelta: 0 fijo).
+    { file: 'apps/web/src/app/api/exec-overview/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     { file: 'apps/web/src/app/api/ai/metric-insight/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Resumen ejecutivo por periodo (ago-2026): 4 queries de contexto para el
     // prompt — muestras, municipios, autores y crecimiento por tópico. Todas
@@ -187,12 +198,14 @@ describe('tripwire — predicados de universo por endpoint', () => {
     }).toEqual({ rawDup, rawPert, drzDup, drzPert });
   });
 
-  test('overview y exec-overview no tienen SQL propio sobre mentions (solo el agregador compartido)', () => {
+  test('overview no tiene SQL propio sobre mentions (solo el agregador compartido)', () => {
+    // exec-overview salió de esta regla en oct-2026: el delta de las olas y el
+    // estado de los datos (sin datos / en pausa) necesitan su propia consulta;
+    // su conteo está en el manifest de arriba.
     for (const file of ['apps/web/src/app/api/overview/route.ts', 'apps/web/src/app/api/exec-overview/route.ts']) {
-      const src = read(file);
-      expect(src).toContain('buildSentimentReport');
-      expect(src).not.toContain('FROM mentions');
+      expect(read(file)).toContain('buildSentimentReport');
     }
+    expect(read('apps/web/src/app/api/overview/route.ts')).not.toContain('FROM mentions');
   });
 
   // 5 queries desde ago-2026: las 4 originales (totals actual, totals previa,

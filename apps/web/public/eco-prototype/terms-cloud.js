@@ -209,6 +209,9 @@ function TermsCloud({ filters, period, agency, onToggleTerm, selected, limit }) 
     const p = new URLSearchParams({ mode, limit: String(isMobile ? Math.min(40, cap) : cap) });
     if (agency) p.set('agency', agency);
     if (period) p.set('period', period);
+    // Rango personalizado: sin from/to la nube caía siempre a 7 días.
+    const pp = window.ecoGetPeriodParams ? window.ecoGetPeriodParams() : {};
+    if (pp.from && pp.to) { p.set('from', pp.from); p.set('to', pp.to); }
     for (const [k, v] of Object.entries(filters || {})) {
       if (v != null && v !== '' && v !== 'all') p.set(k, String(v));
     }

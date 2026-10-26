@@ -75,11 +75,14 @@ function parseCustomRange(
 type TimelineRow = {
   date: string;
   fullDate: string;
-  nss: number;
-  brandHealthIndex: number;
+  // null = día sin snapshot o sin menciones (el snapshot guarda NULL): el SPA
+  // lo pinta como hueco. Con 0 se dibujaba NSS 0 y Brand Health 1.0/10 —el
+  // peor valor— en días vacíos (QA oct-2026).
+  nss: number | null;
+  brandHealthIndex: number | null;
   totalMentions: number;
-  crisisRiskScore: number;
-  engagementRate: number;
+  crisisRiskScore: number | null;
+  engagementRate: number | null;
   polarizationIndex: number | null;
   positivo: number;
   neutral: number;
@@ -292,11 +295,11 @@ export async function GET(request: NextRequest) {
       return {
         date: esShortDate(iso),
         fullDate: iso,
-        nss: Number(s?.nss ?? 0),
-        brandHealthIndex: Number(s?.brandHealthIndex ?? 0),
+        nss: s?.nss != null ? Number(s.nss) : null,
+        brandHealthIndex: s?.brandHealthIndex != null ? Number(s.brandHealthIndex) : null,
         totalMentions: d.negative + d.neutral + d.positive,
-        crisisRiskScore: Number(s?.crisisRiskScore ?? 0),
-        engagementRate: Number(s?.engagementRate ?? 0),
+        crisisRiskScore: s?.crisisRiskScore != null ? Number(s.crisisRiskScore) : null,
+        engagementRate: s?.engagementRate != null ? Number(s.engagementRate) : null,
         polarizationIndex: s?.polarizationIndex != null ? Number(s.polarizationIndex) : null,
         positivo: d.positive,
         neutral: d.neutral,
@@ -501,18 +504,28 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
       .slice(0, 8);
 
-    // ---- SENTIMENT_BY_SUBTOPIC (dedup top-confidence; solo menciones con subtopic) ----
+    // ---- SENTIMENT_BY_SUBTOPIC (primary_pick: el subtópico de la fila TOP de cada mención) ----
+    // Antes se tomaba la fila de mayor confianza QUE TUVIERA subtópico, que
+    // podía colgar de un tópico secundario, y el modal filtraba por nombre en
+    // cualquier fila: «Imagen y Credibilidad» de DF decía 100 y abría 418 (QA
+    // oct-2026). Ahora es el mismo criterio que SUBTOPICS/TOPICS y el modal
+    // abre con topic + topicMode=primary + subtopic, que cuadra 1:1.
     const sBySubtopicRaw = await (pool as ReturnType<typeof getPool>).query<{
-      slug: string; name: string; sentiment: string | null; c: number | string;
+      slug: string; name: string; topic_slug: string; sentiment: string | null; c: number | string;
     }>(
-      `SELECT st.slug, st.name, pt.sentiment, COUNT(*)::int AS c
+      `SELECT st.slug, st.name, t.slug AS topic_slug, pt.sentiment, COUNT(*)::int AS c
          FROM (
            SELECT m.id AS mention_id,
                   COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-                  (SELECT subtopic_id FROM mention_topics
-                     WHERE mention_id = m.id AND subtopic_id IS NOT NULL
-                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
+                  p.topic_id, p.subtopic_id
              FROM mentions m
+             CROSS JOIN LATERAL (
+               SELECT mt.topic_id, mt.subtopic_id
+                 FROM mention_topics mt
+                WHERE mt.mention_id = m.id
+                ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC
+                LIMIT 1
+             ) p
             WHERE m.agency_id = $1
               AND m.is_duplicate = false
               AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
@@ -520,13 +533,15 @@ export async function GET(request: NextRequest) {
               AND m.published_at <= $3
          ) pt
          JOIN subtopics st ON st.id = pt.subtopic_id
-         GROUP BY st.slug, st.name, pt.sentiment`,
+         JOIN topics t ON t.id = pt.topic_id
+         GROUP BY st.slug, st.name, t.slug, pt.sentiment`,
       [agencyId, since.toISOString(), until.toISOString()],
     );
-    const bySubtopic = new Map<string, { subtopic: string; slug: string; positivo: number; neutral: number; negativo: number }>();
+    const bySubtopic = new Map<string, { subtopic: string; slug: string; topicSlug: string; positivo: number; neutral: number; negativo: number }>();
     for (const r of sBySubtopicRaw.rows) {
-      if (!bySubtopic.has(r.slug)) bySubtopic.set(r.slug, { subtopic: r.name, slug: r.slug, positivo: 0, neutral: 0, negativo: 0 });
-      bySubtopic.get(r.slug)![pillFromSentiment(r.sentiment)] += Number(r.c);
+      const k = `${r.topic_slug}/${r.slug}`;
+      if (!bySubtopic.has(k)) bySubtopic.set(k, { subtopic: r.name, slug: r.slug, topicSlug: r.topic_slug, positivo: 0, neutral: 0, negativo: 0 });
+      bySubtopic.get(k)![pillFromSentiment(r.sentiment)] += Number(r.c);
     }
     const SENTIMENT_BY_SUBTOPIC = Array.from(bySubtopic.values())
       .sort((a, b) => (b.positivo + b.neutral + b.negativo) - (a.positivo + a.neutral + a.negativo))
@@ -904,8 +919,18 @@ export async function GET(request: NextRequest) {
           COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos,
           COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg
           FROM mentions m
-          JOIN mention_topics mt ON mt.mention_id = m.id
-          JOIN topics t ON t.id = mt.topic_id
+          -- Tópico PRINCIPAL (fila de mayor confianza), como TOPICS y el resto
+          -- de la página: contando todas las filas, el 21-oct de DF salía
+          -- «Gestión de la Secretaria 226» cuando por tópico principal era
+          -- Controversia ADSEF 130 (QA oct-2026).
+          CROSS JOIN LATERAL (
+            SELECT mt.topic_id
+              FROM mention_topics mt
+             WHERE mt.mention_id = m.id
+             ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC
+             LIMIT 1
+          ) p
+          JOIN topics t ON t.id = p.topic_id
          WHERE m.agency_id = ${agencyId}
            AND m.is_duplicate = false
            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
@@ -1004,10 +1029,23 @@ export async function GET(request: NextRequest) {
       });
 
     // ---- SENTIMENT_BY_REGION ----
-    // Agrupar los muniRows ya recolectados por la columna `region`. Reutiliza
-    // el aggregator existente — no requiere un round-trip extra a la DB.
+    // Menciones DISTINTAS por región: sumar los muniRows contaba pares
+    // mención×municipio (una nota de Bayamón y Cataño valía 2 en Metro) y el
+    // modal, que cuenta menciones, no cuadraba — DF 7D Metro 223 vs 195 (QA
+    // oct-2026). Mismo universo que el mapa y que el modal (eco-mentions region).
+    const regionRows = await db
+      .select({
+        region: municipalities.region,
+        s: effectiveSentimentSql,
+        c: sql<number>`COUNT(DISTINCT ${mentions.id})::int`,
+      })
+      .from(mentionMunicipalities)
+      .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
+      .innerJoin(mentions, eq(mentions.id, mentionMunicipalities.mentionId))
+      .where(and(baseWhere, sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
+      .groupBy(municipalities.region, effectiveSentimentSql);
     const byRegion = new Map<string, { region: string; positivo: number; neutral: number; negativo: number }>();
-    for (const r of muniRows) {
+    for (const r of regionRows) {
       const region = (r.region || '').trim() || 'Sin región';
       if (!byRegion.has(region)) byRegion.set(region, { region, positivo: 0, neutral: 0, negativo: 0 });
       byRegion.get(region)![pillFromSentiment(r.s)] += Number(r.c);
