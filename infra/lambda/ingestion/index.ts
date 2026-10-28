@@ -3,6 +3,7 @@ import { SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BrandwatchClient } from '@eco/brandwatch';
 import type { BrandwatchMention } from '@eco/shared';
+import { advanceCursorMs } from './cursor';
 
 const s3 = new S3Client({});
 const sqs = new SQSClient({});
@@ -14,6 +15,12 @@ const INGESTION_QUEUE_URL = process.env.INGESTION_QUEUE_URL!;
 // ~2000 menciones/corrida; el cursor avanza, así que el resto se ingiere en
 // corridas siguientes. Evita que un backlog post-caída agote la cuota de BW.
 const MAX_PAGES_PER_RUN = 20;
+// Cuánto se re-escanea hacia atrás del cursor en cada corrida normal. Brandwatch
+// indexa con retraso (mediana ~3 h web, cola de >24 h): con el cursor en la
+// mención más reciente, lo que llega tarde queda "detrás" y solo lo recoge el
+// refresh diario. Cada corrida paga esta ventana completa: ≈ +1 página/corrida
+// en DF y +0–1 en Gobernadora con 12 h (más horas = más páginas, no menos).
+const INCREMENTAL_LOOKBACK_MS = 12 * 60 * 60 * 1000;
 const BRANDWATCH_TOKEN_SECRET_ARN = process.env.BRANDWATCH_TOKEN_SECRET_ARN!;
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 
@@ -113,9 +120,7 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           if (isBackfill) {
             startDate = evt.backfillStartDate!;
           } else if (cursor) {
-            const cursorDate = new Date(cursor.last_mention_date);
-            cursorDate.setMinutes(cursorDate.getMinutes() - 1);
-            startDate = cursorDate.toISOString();
+            startDate = new Date(new Date(cursor.last_mention_date).getTime() - INCREMENTAL_LOOKBACK_MS).toISOString();
           } else {
             const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
             startDate = yesterday.toISOString();
@@ -125,7 +130,10 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
           let totalMentions = 0;
           let pageIndex = 0;
-          let lastMentionDate = startDate;
+          // Fecha máxima válida entre TODAS las menciones traídas (null = ninguna
+          // con fecha). Los shells de X vienen con date null, ver ./cursor.
+          let cursorMs: number | null = null;
+          const endMs = Date.parse(endDate);
           let sendFailures = 0; // entries que SQS rechazó tras reintentos
 
           for await (const mentions of bw.fetchMentionPages({
@@ -173,11 +181,8 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
               }
             }
 
-            // Track last mention date for cursor update
-            const lastMention = mentions[mentions.length - 1];
-            if (lastMention?.date) {
-              lastMentionDate = lastMention.date;
-            }
+            // Track latest mention date for cursor update
+            cursorMs = advanceCursorMs(cursorMs, mentions, endMs);
 
             totalMentions += mentions.length;
             pageIndex++;
@@ -198,6 +203,9 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           // fallos de encolado, NO avanzamos el cursor: la ventana se re-escanea
           // la próxima corrida para recuperar las menciones que no se encolaron.
           if (!isBackfill && totalMentions > 0 && sendFailures === 0) {
+            // Sin ninguna mención con fecha (todo shells) queda startDate; el
+            // GREATEST de updateCursor impide que eso mueva el cursor atrás.
+            const lastMentionDate = cursorMs !== null ? new Date(cursorMs).toISOString() : startDate;
             await updateCursor(client, queryId, lastMentionDate, totalMentions);
           } else if (sendFailures > 0) {
             console.error(`[${agency.slug}] Query ${queryId}: cursor NO avanzado por ${sendFailures} fallos de encolado`);
@@ -267,11 +275,13 @@ async function updateCursor(
   lastMentionDate: string,
   mentionsFetched: number,
 ): Promise<void> {
+  // GREATEST: el cursor nunca retrocede (una corrida sin menciones con fecha
+  // llega con startDate = cursor − lookback y antes lo hacía retroceder).
   await client.query(
     `INSERT INTO ingestion_cursors (query_id, last_mention_date, last_run_at, mentions_fetched, status)
      VALUES ($1, $2, NOW(), $3, 'idle')
      ON CONFLICT (query_id)
-     DO UPDATE SET last_mention_date = $2, last_run_at = NOW(), mentions_fetched = ingestion_cursors.mentions_fetched + $3, status = 'idle'`,
+     DO UPDATE SET last_mention_date = GREATEST(ingestion_cursors.last_mention_date, $2), last_run_at = NOW(), mentions_fetched = ingestion_cursors.mentions_fetched + $3, status = 'idle'`,
     [queryId, lastMentionDate, mentionsFetched],
   );
 }
