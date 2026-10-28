@@ -7,6 +7,7 @@ import type { SQSEvent, SQSRecord } from 'aws-lambda';
 import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
 import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, mentionPlatformKey, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
+import { EXISTING_MENTIONS_SQL, MENTION_CONFLICT_TARGET, mentionKey, selectNewRecords, type BatchEntry } from '../lib/mention-keys';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -154,30 +155,31 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   console.log(`Processing ${event.Records.length} records`);
 
   try {
-    // Batch dedup: one SELECT filters out mentions already in DB.
-    const resourceIds: string[] = [];
-    for (const r of event.Records) {
+    // Batch dedup: un SELECT filtra las menciones que ya existen PARA SU AGENCIA.
+    // La llave es (agencia, resourceId), no resourceId solo: la misma nota puede
+    // coincidir con las queries de dos agencias y cada una tiene que guardarla
+    // (ver lib/mention-keys.ts). Las que no se pueden llavear (queryId fuera del
+    // mapa cacheado, sin resourceId) pasan: processRecord las refresca o rechaza.
+    const entries: BatchEntry<SQSRecord>[] = event.Records.map((record) => {
       try {
-        const body = JSON.parse(r.body) as BrandwatchMention;
-        if (body.resourceId) resourceIds.push(body.resourceId);
-      } catch { /* skip malformed */ }
-    }
-
-    let existingSet = new Set<string>();
-    if (resourceIds.length > 0) {
-      const existing = await client.query(
-        'SELECT bw_resource_id FROM mentions WHERE bw_resource_id = ANY($1::text[])',
-        [resourceIds],
-      );
-      existingSet = new Set(existing.rows.map((r: any) => r.bw_resource_id));
-    }
-
-    const newRecords = event.Records.filter((r) => {
-      try {
-        const body = JSON.parse(r.body) as BrandwatchMention;
-        return !existingSet.has(body.resourceId);
-      } catch { return false; }
+        const body = JSON.parse(record.body) as BrandwatchMention;
+        return { record, valid: true, resourceId: body.resourceId, agencyId: agencyMap!.get(body.queryId)?.id };
+      } catch {
+        return { record, valid: false, resourceId: undefined, agencyId: undefined };
+      }
     });
+
+    const keyed = entries.filter((e) => e.valid && e.agencyId && e.resourceId);
+    let existingSet = new Set<string>();
+    if (keyed.length > 0) {
+      const existing = await client.query(EXISTING_MENTIONS_SQL, [
+        keyed.map((e) => e.agencyId),
+        keyed.map((e) => e.resourceId),
+      ]);
+      existingSet = new Set(existing.rows.map((r: any) => mentionKey(r.agency_id, r.bw_resource_id)));
+    }
+
+    const newRecords = selectNewRecords(entries, existingSet);
 
     const skipped = event.Records.length - newRecords.length;
     console.log(`Batch: ${event.Records.length} records — ${skipped} duplicates skipped, ${newRecords.length} new`);
@@ -279,8 +281,9 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     throw new Error(`Unknown queryId ${mention.queryId} after refresh — check agency seed`);
   }
 
-  // NOTE: bw_resource_id existence check is done in the handler via batch SELECT,
-  // so this record is guaranteed new here. The INSERT still has a UNIQUE guard.
+  // NOTE: la existencia (agencia, resourceId) se chequea en el handler con un
+  // SELECT por lote, así que este registro es nuevo para su agencia. El INSERT
+  // conserva el índice único (agency_id, bw_resource_id) como guarda.
 
   // Compute text hash for deduplication
   const textForHash = normalizeText((mention.title ?? '') + ' ' + (mention.snippet ?? ''));
@@ -401,7 +404,7 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
       $41, $42, $43,
       $44, NOW(), $45,
       $46
-    ) ON CONFLICT (bw_resource_id) DO NOTHING
+    ) ON CONFLICT ${MENTION_CONFLICT_TARGET} DO NOTHING
     RETURNING id`,
     [
       // vc(): Brandwatch entrega autores/nombres/queries que exceden los

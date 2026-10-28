@@ -10,6 +10,7 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
@@ -20,7 +21,9 @@ export const mentions = pgTable(
     agencyId: uuid('agency_id').notNull().references(() => agencies.id),
 
     // Brandwatch raw identifiers
-    bwResourceId: varchar('bw_resource_id', { length: 255 }).notNull().unique(),
+    // Único POR AGENCIA (índice mentions_agency_bw_resource_uq abajo): la misma
+    // nota puede coincidir con las queries de dos agencias y cada una la guarda.
+    bwResourceId: varchar('bw_resource_id', { length: 255 }).notNull(),
     bwGuid: varchar('bw_guid', { length: 255 }),
     bwQueryId: bigint('bw_query_id', { mode: 'number' }).notNull(),
     bwQueryName: varchar('bw_query_name', { length: 255 }),
@@ -105,5 +108,6 @@ export const mentions = pgTable(
     index('idx_mentions_text_hash').on(t.textHash),
     index('idx_mentions_domain').on(t.domain),
     index('idx_mentions_agency_published').on(t.agencyId, t.publishedAt),
+    uniqueIndex('mentions_agency_bw_resource_uq').on(t.agencyId, t.bwResourceId),
   ],
 );
