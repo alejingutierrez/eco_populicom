@@ -12,3 +12,8 @@ dist/
 
 # Previews generados por scripts/preview-export-report.ts (artefactos de build)
 apps/web/public/report-preview/
+
+# Conocimiento del asesor generado desde docs/manejo-de-crisis (scripts/build-advisor-knowledge.ts)
+packages/shared/src/advisor/manual.ts
+packages/shared/src/advisor/legal-rules.ts
+packages/shared/src/advisor/templates.ts
