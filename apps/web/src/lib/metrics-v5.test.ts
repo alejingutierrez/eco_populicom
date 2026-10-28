@@ -66,6 +66,50 @@ describe('Riesgo de crisis V5', () => {
     const m = calculateMetrics(agg({ totalMentions: 200, neutralCount: 80, negativeCount: 115 }), steady);
     expect(m.crisisVelocity).toBe(1);
   });
+  test('V5.1: un pico de negativas que solo acompaña al volumen (% igual o menor que lo usual) no sube la velocidad', () => {
+    const steady = history().map((h, i) => ({ ...h, negativeCount: i % 2 ? 28 : 32 })); // usual 30%
+    // 4× el volumen y 4× las negativas absolutas (z enorme), pero 27.9% < 30%.
+    const m = calculateMetrics(agg({ totalMentions: 430, positiveCount: 60, neutralCount: 250, negativeCount: 120 }), steady);
+    expect(m.crisisVelocity).toBe(0);
+  });
+  test('V5.1: caso real DDEC 27-oct (155 menciones, 12 negativas, usual ~10%) no llega a Alerta', () => {
+    const usual = history({ totalMentions: 20, negativeCount: 2 }); // 10% usual, ~2 negativas/día
+    const m = calculateMetrics(agg({ totalMentions: 155, positiveCount: 39, neutralCount: 104, negativeCount: 12 }), usual);
+    expect(m.crisisVelocity).toBe(0);
+    expect(m.crisisRiskScore!).toBeLessThan(0.25); // Normal (antes: velocidad 1.0 → 0.53 = Alerta)
+  });
+  test('V5.1: apenas por encima de lo usual la velocidad vuelve a contar', () => {
+    const steady = history().map((h, i) => ({ ...h, negativeCount: i % 2 ? 28 : 32 })); // usual 30%
+    const m = calculateMetrics(agg({ totalMentions: 400, positiveCount: 40, neutralCount: 238, negativeCount: 122 }), steady); // 30.5%
+    expect(m.crisisVelocity).toBe(1);
+  });
+  describe('V5.1: excepción para conversaciones mayoritariamente negativas (≥50%)', () => {
+    // Agencia crítica por naturaleza (como AAA): usual 70% de negativas, ~14/día.
+    const chronic = () => history().map((h, i) => ({ ...h, totalMentions: 20, negativeCount: i % 2 ? 13 : 15 }));
+
+    test('caso real AAA 9–15 jun (460 menciones, 254 negativas = 55% vs 69% usual) sigue siendo Crisis', () => {
+      const m = calculateMetrics(agg({ totalMentions: 460, positiveCount: 6, neutralCount: 200, negativeCount: 254 }), chronic(), 7);
+      expect(m.crisisBaselineNegShare).toBe(0.7);
+      expect(m.crisisVelocity).toBe(1); // 55% < 70% usual, pero ≥ 50%: la velocidad cuenta
+      expect(m.crisisRiskScore!).toBeGreaterThanOrEqual(0.6); // Crisis (con el gate simple habría sido 0.20)
+    });
+    test('justo en 50% cuenta; en 49% no', () => {
+      const at = calculateMetrics(agg({ totalMentions: 400, positiveCount: 0, neutralCount: 200, negativeCount: 200 }), chronic(), 7);
+      const below = calculateMetrics(agg({ totalMentions: 400, positiveCount: 0, neutralCount: 204, negativeCount: 196 }), chronic(), 7);
+      expect(at.crisisVelocity).toBe(1);
+      expect(below.crisisVelocity).toBe(0);
+    });
+    test('no rescata el caso DDEC: 7.7% de negativas con volumen 10× sigue sin velocidad', () => {
+      const usual = history({ totalMentions: 20, negativeCount: 2 });
+      expect(calculateMetrics(agg({ totalMentions: 155, positiveCount: 39, neutralCount: 104, negativeCount: 12 }), usual).crisisVelocity).toBe(0);
+    });
+  });
+  test('V5.1: sin baseline (historia sin menciones) la velocidad no se condiciona', () => {
+    const empty = history({ totalMentions: 0, negativeCount: 0 });
+    const m = calculateMetrics(agg({ totalMentions: 100, neutralCount: 70, negativeCount: 25 }), empty);
+    expect(m.crisisBaselineNegShare).toBeNull();
+    expect(m.crisisVelocity).toBe(1);
+  });
   test('tan negativa como siempre: la mitad «contra lo usual» no suma', () => {
     const m = calculateMetrics(agg(), history()); // 30% negativas hoy y en lo usual
     expect(m.crisisBaselineNegShare).toBe(0.3);
