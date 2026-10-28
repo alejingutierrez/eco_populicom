@@ -1,9 +1,16 @@
 import type { BrandwatchMention } from '@eco/shared';
+import type { RetryPolicy, RunBudget } from './resilience';
 
 export interface BrandwatchConfig {
   token: string;
   projectId: number;
   baseUrl?: string;
+  /** Política de reintentos. Por defecto LONG_RETRY (la histórica, para backfill). */
+  retry?: RetryPolicy;
+  /** Presupuesto (tiempo / requests / pacing) de la corrida, compartido entre clientes. */
+  budget?: RunBudget;
+  /** Para pruebas: sustituto de `fetch`. */
+  fetch?: typeof fetch;
 }
 
 export interface MentionsResponse {

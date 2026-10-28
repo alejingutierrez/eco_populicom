@@ -32,6 +32,38 @@ export function latestMentionDateMs(
   return latest;
 }
 
+export interface CursorCommitInput {
+  isBackfill: boolean;
+  /** Menciones ya traídas (y encoladas) en esta corrida para la query. */
+  totalMentions: number;
+  /** Entries que SQS rechazó tras reintentos. */
+  sendFailures: number;
+  /** Fecha máxima válida de las páginas ya procesadas (ver advanceCursorMs). */
+  cursorMs: number | null;
+  /** Inicio de la ventana de la corrida (cursor − lookback). */
+  startDate: string;
+  /** La query falló a media paginación (p. ej. 429 en la página 5 de 8). */
+  partial?: boolean;
+}
+
+/**
+ * Fecha ISO a la que hay que llevar el cursor al terminar (o abortar) una
+ * query, o null si no se debe tocar. El cursor solo refleja páginas COMPLETAS
+ * ya encoladas (las páginas vienen ascendentes por fecha y el cursor avanza
+ * después de encolar), así que sigue siendo un punto de reanudación válido si
+ * la query falla a media paginación: sin esto, un 429 en la página 12 de un
+ * backlog obligaba a la corrida siguiente a repetir las 12 páginas (más cupo
+ * gastado) y el backlog nunca avanzaba. Con fallos de encolado nunca avanza.
+ */
+export function cursorToCommit(input: CursorCommitInput): string | null {
+  if (input.isBackfill || input.totalMentions <= 0 || input.sendFailures > 0) return null;
+  if (input.cursorMs !== null) return new Date(input.cursorMs).toISOString();
+  // Sin ninguna mención con fecha (todo shells): al terminar bien se registra
+  // startDate (el GREATEST de updateCursor impide que mueva el cursor atrás);
+  // a media paginación no hay nada que comprometer.
+  return input.partial ? null : input.startDate;
+}
+
 /**
  * Avanza el cursor de una corrida con una página nueva: el máximo entre el
  * cursor acumulado y la mención más reciente de la página. Nunca retrocede.

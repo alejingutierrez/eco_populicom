@@ -80,13 +80,14 @@ export class WorkersStack extends cdk.Stack {
     };
 
     // ---- eco-ingestion Lambda ----
-    // Reserved concurrency = 1: the EventBridge cron fires every minute, but a
-    // single invocation can take 5–10 min when Brandwatch rate-limits us (10
-    // retries × exponential backoff up to 45 s). Without serialization,
-    // concurrent lambdas pile up, every one hits 429s, and the pipeline
-    // collapses into a self-reinforcing failure cascade. With concurrency 1,
-    // surplus EventBridge invocations are throttled (cheap, expected) and
-    // Brandwatch sees one caller at a time.
+    // Reserved concurrency = 1: without serialization, concurrent lambdas pile
+    // up, every one hits 429s, and the pipeline collapses into a
+    // self-reinforcing failure cascade. With concurrency 1, surplus EventBridge
+    // invocations are throttled (cheap, expected) and Brandwatch sees one
+    // caller at a time. A run under rate limiting no longer lasts 5–10+ min:
+    // incremental runs retry 3 times, have a 3-min budget and abort the rest of
+    // the run on the first exhausted 429 (lambda/ingestion/run-guard.ts); only
+    // manual backfills keep the long retry ladder.
     this.ingestionFunction = new NodejsFunction(this, 'IngestionFunction', {
       functionName: 'eco-ingestion',
       runtime: lambda.Runtime.NODEJS_22_X,

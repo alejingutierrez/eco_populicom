@@ -1,26 +1,37 @@
 import type { BrandwatchConfig, MentionsResponse, MentionsQuery } from './types';
 import type { BrandwatchMention } from '@eco/shared';
+import {
+  BrandwatchRateLimitError,
+  LONG_RETRY,
+  RunBudget,
+  decideRetry,
+  parseRetryAfterMs,
+} from './resilience';
+import type { RetryPolicy } from './resilience';
 
 const DEFAULT_BASE_URL = 'https://api.brandwatch.com';
 const DEFAULT_PAGE_SIZE = 100;
-// Brandwatch's per-token quota is 30 requests per 10 minutes. Under load
-// (backfill windows, multiple query IDs, overlapping with the 1-min cron),
-// the 429s cluster together and a tiny retry budget drops mentions.
-// Retry generously with a capped exponential backoff so the Lambda can wait
-// out a full quota window if it has to.
-const MAX_RETRIES = 10;
-const RETRY_BASE_DELAY_MS = 2000;
-const RETRY_MAX_DELAY_MS = 45000;
+// Brandwatch's quota is ~30 requests per 10 minutes per account, shared with
+// biq-ingestion, and 429s consume quota too. How many times to retry, how long
+// to wait and how much wall-clock a run may spend is decided by the caller via
+// `retry` + `budget` (see ./resilience): incremental runs retry little and
+// give up; only manual backfills use the long policy (the default here).
 
 export class BrandwatchClient {
   private token: string;
   private projectId: number;
   private baseUrl: string;
+  private retry: RetryPolicy;
+  private budget: RunBudget;
+  private fetchImpl: typeof fetch;
 
   constructor(config: BrandwatchConfig) {
     this.token = config.token;
     this.projectId = config.projectId;
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
+    this.retry = config.retry ?? LONG_RETRY;
+    this.budget = config.budget ?? new RunBudget();
+    this.fetchImpl = config.fetch ?? ((input, init) => fetch(input, init));
   }
 
   /**
@@ -85,9 +96,16 @@ export class BrandwatchClient {
     return data.mentionsCount;
   }
 
-  private async request<T>(url: string, retries = MAX_RETRIES): Promise<T> {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      const response = await fetch(url, {
+  /**
+   * Each attempt goes through `budget.acquire()` (pacing, request cap, run
+   * deadline). A 429 whose retries run out throws BrandwatchRateLimitError so
+   * the caller can stop hammering the shared quota; auth errors are not
+   * retried; 5xx retry with backoff within the same attempt limit.
+   */
+  private async request<T>(url: string): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      await this.budget.acquire();
+      const response = await this.fetchImpl(url, {
         headers: {
           Authorization: `Bearer ${this.token}`,
           'Content-Type': 'application/json',
@@ -98,43 +116,43 @@ export class BrandwatchClient {
         return (await response.json()) as T;
       }
 
-      // Rate limited — wait and retry
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('Retry-After');
-        const waitMs = Math.min(
-          retryAfter
-            ? parseInt(retryAfter, 10) * 1000
-            : RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
-          RETRY_MAX_DELAY_MS,
-        );
-        console.warn(`Rate limited. Waiting ${waitMs}ms before retry ${attempt + 1}/${retries}`);
-        await sleep(waitMs);
-        continue;
-      }
-
       // Auth error — don't retry
       if (response.status === 401 || response.status === 403) {
         throw new Error(`Brandwatch auth error ${response.status}: ${await response.text()}`);
       }
 
-      // Server error — retry with backoff
-      if (response.status >= 500 && attempt < retries) {
-        const waitMs = Math.min(
-          RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
-          RETRY_MAX_DELAY_MS,
+      if (response.status === 429 || response.status >= 500) {
+        const retryAfterMs =
+          response.status === 429
+            ? parseRetryAfterMs(response.headers.get('Retry-After'), this.budget.now())
+            : null;
+        const decision = decideRetry(
+          this.retry,
+          { status: response.status, attempt, retryAfterMs },
+          this.budget.remainingMs(),
         );
-        console.warn(`Server error ${response.status}. Retrying in ${waitMs}ms`);
-        await sleep(waitMs);
-        continue;
+
+        if (decision.retry) {
+          // Drain the body so the connection is released before sleeping.
+          await response.text().catch(() => '');
+          console.warn(
+            `${response.status === 429 ? 'Rate limited' : `Server error ${response.status}`}. ` +
+              `Waiting ${decision.waitMs}ms before retry ${attempt}/${this.retry.maxAttempts - 1}`,
+          );
+          await this.budget.sleep(decision.waitMs);
+          continue;
+        }
+
+        if (response.status === 429) {
+          await response.text().catch(() => '');
+          console.warn(
+            `Rate limited: giving up (${decision.reason}) after ${attempt}/${this.retry.maxAttempts} attempts`,
+          );
+          throw new BrandwatchRateLimitError(decision.reason, attempt, retryAfterMs);
+        }
       }
 
       throw new Error(`Brandwatch API error ${response.status}: ${await response.text()}`);
     }
-
-    throw new Error('Max retries exceeded');
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
