@@ -11,8 +11,8 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { RuntimeLLM, type AdvisorLLM, type AdvisorResponse, type AdvisorRequest } from '../packages/shared/src/advisor/llm';
 import { triage, type TriageContexto, type TriageDecision } from '../apps/web/src/lib/advisor/triage';
 
-const SET_PATH = path.resolve(__dirname, '..', 'apps/web/src/lib/advisor/triage-set/set.json');
-const REPORT_PATH =
+const SET_PATH = process.env.TRIAGE_SET ?? path.resolve(__dirname, '..', 'apps/web/src/lib/advisor/triage-set/set.json');
+const REPORT_PATH = process.env.TRIAGE_REPORT ??
   '/private/tmp/claude-502/-Users-alegut-MyApps-eco-populicom--claude-worktrees-distracted-stonebraker-7d0bec/388bdcbe-d975-4d3b-b443-b1ee4004b8b9/scratchpad/triage-eval.json';
 const CONCURRENCIA = 5;
 
