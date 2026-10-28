@@ -188,6 +188,23 @@ EcoWorkers` con cambio de código de Lambda: 30–45 segundos.
 
 ---
 
+## Ingesta de Brandwatch y 429
+
+Cuota de BW: ~30 req/10 min por cuenta, compartida con `biq-ingestion` y con
+cualquier llamada manual; los 429 también gastan cupo. `eco-ingestion` ya NO
+reintenta 11 veces por query: el modo de la corrida (`incremental` / `refresh`
+diario de 07:00Z / `backfill` manual) fija intentos, presupuesto de reloj,
+pacing y tope (`infra/lambda/ingestion/run-guard.ts`,
+`packages/brandwatch/src/resilience.ts`), y la primera query que agota sus
+reintentos por 429 aborta el resto de la corrida (cortacircuitos; busca
+`ABORTED por cortacircuitos` en el log). Detalle, parámetros y el diseño del
+limitador compartido con BrandIQ (no implementado) en
+`docs/tecnica/ingesta-brandwatch-429.md`. Las pruebas
+(`infra/test/ingestion-*.test.ts`) simulan `fetch`, AWS y el reloj: ninguna
+llama a Brandwatch, y tú tampoco la llames al probar.
+
+---
+
 ## Migraciones de DB
 
 Drizzle vive en `packages/database/src/migrations/`. **NO** corre

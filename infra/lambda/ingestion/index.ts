@@ -1,9 +1,10 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { BrandwatchClient } from '@eco/brandwatch';
+import { BrandwatchClient, RunBudget } from '@eco/brandwatch';
 import type { BrandwatchMention } from '@eco/shared';
-import { advanceCursorMs } from './cursor';
+import { advanceCursorMs, cursorToCommit } from './cursor';
+import { RunBreaker, computeDeadlineMs, planRun, resolveRunMode } from './run-guard';
 
 const s3 = new S3Client({});
 const sqs = new SQSClient({});
@@ -39,11 +40,11 @@ interface AgencyRow {
 }
 
 async function loadActiveAgencies(client: any): Promise<AgencyRow[]> {
-  const result = await client.query<AgencyRow>(
+  const result = await client.query(
     `SELECT slug, brandwatch_project_id, brandwatch_query_ids FROM agencies
      WHERE is_active = true AND brandwatch_project_id IS NOT NULL AND brandwatch_query_ids IS NOT NULL`,
   );
-  return result.rows;
+  return result.rows as AgencyRow[];
 }
 
 interface IngestEvent {
@@ -61,11 +62,38 @@ interface IngestEvent {
   refreshLastHours?: number;
 }
 
-export const handler = async (event: unknown): Promise<{ statusCode: number; body: string }> => {
+// Solo lo que usamos del Context de Lambda (opcional: en local no hay).
+interface LambdaContextLike {
+  getRemainingTimeInMillis?: () => number;
+}
+
+export const handler = async (
+  event: unknown,
+  context?: LambdaContextLike,
+): Promise<{ statusCode: number; body: string }> => {
   console.log('Ingestion handler invoked', JSON.stringify(event));
 
   const evt = (event ?? {}) as IngestEvent;
   const now = new Date();
+  // El modo se resuelve ANTES de traducir refreshLastHours a una ventana de
+  // backfill: de él dependen los reintentos, el pacing y el presupuesto.
+  const plan = planRun(resolveRunMode(evt));
+  const deadlineMs = computeDeadlineMs(
+    now.getTime(),
+    plan.budgetMs,
+    context?.getRemainingTimeInMillis?.(),
+  );
+  // Presupuesto único de la corrida, compartido por los clientes de todas las
+  // agencias: tiempo, tope de requests y pacing son de la corrida entera.
+  const budget = new RunBudget({
+    deadlineMs,
+    maxRequests: plan.maxRequests,
+    minIntervalMs: plan.minRequestIntervalMs,
+  });
+  // Cortacircuitos: una query que agota sus reintentos por 429 (o el
+  // presupuesto) aborta lo que falta de la corrida.
+  const breaker = new RunBreaker();
+  const skippedQueries: string[] = [];
   // Translate refreshLastHours to a real backfill window so the cron of
   // LateArrivalRefresh actually re-scans recent history.
   if (evt.refreshLastHours && !evt.backfillStartDate) {
@@ -78,7 +106,8 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
   const dbUrl = await getDatabaseUrl();
   const brandwatchToken = await getBrandwatchToken();
-  const pg = await import('pg');
+  // Sin tipos a propósito: en el bundle de esbuild `pg.default` existe (interop CJS).
+  const pg: any = await import('pg');
   const client = new pg.default.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
 
@@ -87,11 +116,18 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
   try {
     const agencies = await loadActiveAgencies(client);
     console.log(`Found ${agencies.length} active agencies${isBackfill ? ` (backfill ${evt.backfillStartDate} → ${endDate})` : ''}`);
+    console.log(
+      `Run plan: mode=${plan.mode} maxAttempts=${plan.retry.maxAttempts} ` +
+        `budget=${Math.round((deadlineMs - now.getTime()) / 1000)}s ` +
+        `pacing=${plan.minRequestIntervalMs}ms maxRequests=${plan.maxRequests ?? 'none'}`,
+    );
 
     for (const agency of agencies) {
       const bw = new BrandwatchClient({
         token: brandwatchToken,
         projectId: agency.brandwatch_project_id,
+        retry: plan.retry,
+        budget,
       });
 
       for (const rawQueryId of agency.brandwatch_query_ids) {
@@ -105,16 +141,36 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           continue;
         }
 
+        // Cortacircuitos abierto: no se sondea lo que falta (cada query
+        // volvería a gastar su escalera de reintentos y más cupo compartido).
+        // Sus cursores no se tocan; la próxima corrida los retoma.
+        if (breaker.isOpen) {
+          skippedQueries.push(`${agency.slug}:${queryId}`);
+          continue;
+        }
+
+        // Estado de la query hoisteado fuera del try: si falla a media
+        // paginación (429 en la página 5 de 8) el catch compromete el avance
+        // de las páginas que SÍ se encolaron (ver cursorToCommit).
+        let startDate: string | null = null;
+        let totalMentions = 0;
+        let pageIndex = 0;
+        // Fecha máxima válida entre TODAS las menciones traídas (null = ninguna
+        // con fecha). Los shells de X vienen con date null, ver ./cursor.
+        let cursorMs: number | null = null;
+        let sendFailures = 0; // entries que SQS rechazó tras reintentos
+
         // Un query que falla (5xx de Brandwatch, query borrado, cuota) no debe
         // tumbar la corrida: sin esto, los queries que vienen después en el
         // loop se quedan sin sondear (incidente de jul-2026, SGPR/Gobernadora
-        // tres días sin ingesta). El cursor del que falló no avanza, así que
-        // la próxima corrida lo reintenta.
+        // tres días sin ingesta). El cursor del que falló no avanza más allá
+        // de lo ya encolado, así que la próxima corrida lo retoma. Si el
+        // fallo es de cuota (429 sin reintentos) o de presupuesto, además se
+        // abre el cortacircuitos y se abortan las queries que faltan.
         try {
           // Determine time window from cursor (normal mode) or from the event
           // (backfill mode — cursor is left alone so the regular cron keeps
           // advancing from wherever it was).
-          let startDate: string;
           const cursor = isBackfill ? null : await readCursor(client, queryId);
 
           if (isBackfill) {
@@ -128,13 +184,7 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
 
           console.log(`[${agency.slug}] Query ${queryId}: fetching ${startDate} → ${endDate}`);
 
-          let totalMentions = 0;
-          let pageIndex = 0;
-          // Fecha máxima válida entre TODAS las menciones traídas (null = ninguna
-          // con fecha). Los shells de X vienen con date null, ver ./cursor.
-          let cursorMs: number | null = null;
           const endMs = Date.parse(endDate);
-          let sendFailures = 0; // entries que SQS rechazó tras reintentos
 
           for await (const mentions of bw.fetchMentionPages({
             queryId,
@@ -202,10 +252,10 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           // and must not push the cursor backwards or count duplicates. Si hubo
           // fallos de encolado, NO avanzamos el cursor: la ventana se re-escanea
           // la próxima corrida para recuperar las menciones que no se encolaron.
-          if (!isBackfill && totalMentions > 0 && sendFailures === 0) {
-            // Sin ninguna mención con fecha (todo shells) queda startDate; el
-            // GREATEST de updateCursor impide que eso mueva el cursor atrás.
-            const lastMentionDate = cursorMs !== null ? new Date(cursorMs).toISOString() : startDate;
+          // Sin ninguna mención con fecha (todo shells) queda startDate; el
+          // GREATEST de updateCursor impide que eso mueva el cursor atrás.
+          const lastMentionDate = cursorToCommit({ isBackfill, totalMentions, sendFailures, cursorMs, startDate });
+          if (lastMentionDate !== null) {
             await updateCursor(client, queryId, lastMentionDate, totalMentions);
           } else if (sendFailures > 0) {
             console.error(`[${agency.slug}] Query ${queryId}: cursor NO avanzado por ${sendFailures} fallos de encolado`);
@@ -215,9 +265,26 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
           console.log(summary);
           agencySummaries.push(summary);
         } catch (err) {
-          const summary = `[${agency.slug}] Query ${queryId}: FAILED (continúa el resto): ${(err as Error)?.message ?? err}`;
+          const opened = breaker.record(err, `[${agency.slug}] Query ${queryId}`);
+          const summary = opened
+            ? `[${agency.slug}] Query ${queryId}: FAILED (cortacircuitos: se aborta el resto): ${(err as Error)?.message ?? err}`
+            : `[${agency.slug}] Query ${queryId}: FAILED (continúa el resto): ${(err as Error)?.message ?? err}`;
           console.error(summary);
           agencySummaries.push(summary);
+
+          // Lo ya encolado antes del fallo no se re-baja la próxima corrida.
+          const partialDate =
+            startDate === null
+              ? null
+              : cursorToCommit({ isBackfill, totalMentions, sendFailures, cursorMs, startDate, partial: true });
+          if (partialDate !== null) {
+            try {
+              await updateCursor(client, queryId, partialDate, totalMentions);
+              console.warn(`[${agency.slug}] Query ${queryId}: cursor avanzado a ${partialDate} con las ${pageIndex} páginas encoladas antes del fallo`);
+            } catch (cursorErr) {
+              console.error(`[${agency.slug}] Query ${queryId}: no se pudo guardar el avance parcial del cursor: ${(cursorErr as Error)?.message ?? cursorErr}`);
+            }
+          }
         }
       }
     }
@@ -225,7 +292,18 @@ export const handler = async (event: unknown): Promise<{ statusCode: number; bod
     await client.end();
   }
 
-  const body = agencySummaries.length > 0
+  if (breaker.isOpen) {
+    const aborted =
+      `ABORTED por cortacircuitos (${breaker.reason}); ${skippedQueries.length} queries sin sondear` +
+      `${skippedQueries.length > 0 ? `: ${skippedQueries.join(', ')}` : ''}`;
+    console.error(aborted);
+    agencySummaries.push(aborted);
+  }
+  agencySummaries.push(
+    `[run] mode=${plan.mode} requests=${budget.requestsMade} elapsed=${Math.round((Date.now() - now.getTime()) / 1000)}s`,
+  );
+
+  const body = agencySummaries.length > 1
     ? agencySummaries.join('; ')
     : 'No active agencies with Brandwatch configuration found';
 
