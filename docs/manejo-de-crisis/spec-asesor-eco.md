@@ -23,7 +23,7 @@ tres caminos según la gravedad:
 | Camino | Qué es | Dónde corre | Tiempo objetivo |
 |---|---|---|---|
 | **1 · Directo** | Un agente con herramientas de solo lectura y el manual | Ruta web, en streaming | p50 < 20 s |
-| **2 · Panel** | Hoja de hechos, tres asientos, abogado del diablo y síntesis | Ruta web, en segundo plano, con eventos | p50 < 60 s |
+| **2 · Panel** | Hoja de hechos, tres asientos, abogado del diablo y síntesis | Ruta web, en segundo plano, con eventos | **Pendiente de confirmación del usuario** (sustituye los 60 s): hechos listos p50 < 60 s y p95 < 90 s; memorando completo p50 < 240 s y p95 < 300 s. La respuesta inicial (el `run` del POST) depende de la base de datos y no se midió en el arnés. |
 | **3 · Consejo** | Hoja de hechos, contención inmediata, nueve asientos y seis rondas | Hoja de hechos en la web; rondas 1 a 5 en el lambda `eco-advisor` | contención < 30 s; memorando p50 < 4 min |
 
 La salida de los caminos 2 y 3 es un **memorando** con:
@@ -1216,9 +1216,12 @@ empezar.
 **Aceptación:**
 
 - [ ] Tasa de subestimación del triaje ≤ 2 % en el set.
-- [ ] Panel con p50 < 60 s medido en 20 corridas.
-- [ ] El memorando del panel pasa la validación de esquema el 100 % de las
-  veces y muestra la objeción del abogado del diablo con su estado.
+- [ ] Panel: criterio de latencia de §0.1 (pendiente de confirmación) medido en
+  20 corridas. Medido: hechos listos p50 48 s / p95 56 s; memorando p50 203 s /
+  p95 243 s.
+- [x] El memorando del panel pasa la validación de esquema el 100 % de las
+  veces y muestra la objeción del abogado del diablo con su estado (20/20 en
+  la medición, con 6 objeciones cada una).
 - [ ] Cerrar y reabrir el drawer recupera la corrida.
 
 ### Fase 2 · Consejo + evaluación
