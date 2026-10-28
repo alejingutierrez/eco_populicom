@@ -98,6 +98,9 @@ export interface ComputedMetrics {
 /** Menciones mínimas para publicar los índices de una ventana. */
 export const MIN_WINDOW_MENTIONS = 20;
 
+/** Desde este % de negativas la velocidad de crisis cuenta aunque no supere «lo usual» (V5.1). */
+const MAJORITY_NEGATIVE_SHARE = 0.5;
+
 // ============================================================
 // Utilidades
 // ============================================================
@@ -263,7 +266,20 @@ export function calculateMetrics(
   //               días previos) / 0.25: 25 puntos sobre lo usual satura)
   //   velocidad = z de las NEGATIVAS por día contra los 30 días previos / 3
   //               (desviación mínima 1 para que un historial plano no dispare)
+  //               SOLO si la ventana es más negativa que lo usual O ya es
+  //               mayoritariamente negativa (≥50%) (V5.1, 28-oct)
   //   riesgo    = confianza · (0.5·severidad + 0.5·velocidad)
+  // V5.1: la velocidad cuenta negativas ABSOLUTAS, así que un post viral con
+  // 10× los comentarios (DDEC 27-oct: 155 menciones, 12 negativas = 7.7%, bajo
+  // lo usual 9%, NSS +17) saturaba la velocidad en 1.0 y el índice subía a 0.53
+  // (Alerta) con severidad 0.055. Un aumento de negativas que solo acompaña al
+  // volumen, sin que la conversación se vuelva más negativa, no es crisis.
+  // La excepción ≥50% protege a las agencias críticas por naturaleza: AAA vive
+  // en ~70% de negativas, así que «bajo lo usual» incluía su semana del 9–15
+  // jun (460 menciones, 254 negativas = 55% vs 69% usual; Crisis 0.70) y con el
+  // gate solo habría pasado a Normal 0.20. El 50% es un criterio, no una medida.
+  // Backtest (ventanas 1D y 7D desde 20-abr, 3 agencias): DDEC/Gobernadora se
+  // corrigen igual que con el gate simple; AAA 0 cambios en 7D.
   // Efecto (7D, post-quiebre): semanas en Normal DDEC 29→74%, Gobernadora
   // 0→78%, AAA 0→67%; los mismos eventos siguen arriba (26-may DDEC, 5-may
   // Gobernadora, 17-jun y 11-ago AAA, 17-jul SGPR).
@@ -278,7 +294,11 @@ export function calculateMetrics(
   const severityRel = baselineNegShare != null ? clamp01((negShare - baselineNegShare) / 0.25) : 0;
   const crisisSeverity = baselineNegShare != null ? 0.5 * severityAbs + 0.5 * severityRel : severityAbs;
   let crisisVelocity = 0;
-  if (crisisHistory.length >= 7) {
+  // Sin baseline (historia insuficiente) no hay «lo usual» contra qué comparar:
+  // se conserva el comportamiento V5 y la velocidad no se condiciona.
+  const velocityApplies =
+    baselineNegShare == null || negShare > baselineNegShare || negShare >= MAJORITY_NEGATIVE_SHARE;
+  if (crisisHistory.length >= 7 && velocityApplies) {
     const negHistory = crisisHistory.map((h) => h.negativeCount);
     const negPerDay = windowDays > 1 ? negativeCount / windowDays : negativeCount;
     const zNeg = (negPerDay - average(negHistory)) / Math.max(stddev(negHistory), 1);
