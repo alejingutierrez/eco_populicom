@@ -93,7 +93,8 @@
                   m.error ? m.error : 'Pensando…')),
         !isUser && m.streaming && m.content
           ? React.createElement('span', { style: { display: 'inline-block', width: 7, height: 13, marginLeft: 2, background: 'var(--accent)', verticalAlign: 'text-bottom', animation: 'fadeIn 0.6s infinite alternate' } })
-          : null
+          : null,
+        window.ECO_ADVISOR ? window.ECO_ADVISOR.renderExtras(m) : null
       )
     );
   }
@@ -106,6 +107,8 @@
     const [input, setInput] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [listOpen, setListOpen] = useState(false);
+    // 'descriptive' (chat actual) | 'advisor' (asesor de crisis, camino 1 en fase 0).
+    const [mode, setMode] = useState('descriptive');
     const scrollRef = useRef(null);
     const taRef = useRef(null);
     const abortRef = useRef(null);
@@ -165,6 +168,7 @@
       if (!q || streaming) return;
       setInput('');
       if (taRef.current) taRef.current.style.height = 'auto';
+      const advising = mode === 'advisor' && !!window.ECO_ADVISOR;
       const viewContext = buildViewContext(props);
       // Solo la forma del mensaje (largo, si fue sugerencia): el texto puede
       // traer nombres y no debe salir hacia GA4.
@@ -181,14 +185,20 @@
       abortRef.current = ctrl;
       let convId = activeId;
       try {
-        const resp = await fetch('/api/chat/stream?' + agencyQS(), {
+        const resp = await fetch((advising ? '/api/chat/advisor?' : '/api/chat/stream?') + agencyQS(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
           signal: ctrl.signal,
-          body: JSON.stringify({ conversationId: activeId || undefined, message: q, viewContext }),
+          body: JSON.stringify(advising
+            ? { conversationId: activeId || undefined, message: q }
+            : { conversationId: activeId || undefined, message: q, viewContext }),
         });
         if (!resp.ok || !resp.body) {
+          if (advising) {
+            const body = await resp.json().catch(() => null);
+            throw new Error(window.ECO_ADVISOR.httpErrorText(resp.status, body));
+          }
           throw new Error(resp.status === 401 ? 'Sesión expirada. Recarga la página.' : 'Error ' + resp.status);
         }
         const reader = resp.body.getReader();
@@ -214,6 +224,21 @@
                 const copy = ms.slice();
                 const last = copy[copy.length - 1];
                 if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, content: last.content + evt.text };
+                return copy;
+              });
+            } else if (evt.type === 'status' && advising) {
+              // Notas de progreso del camino 1: se muestran hasta que llega el texto.
+              setMessages((ms) => {
+                const copy = ms.slice();
+                const last = copy[copy.length - 1];
+                if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, progress: [...(last.progress || []), evt.texto] };
+                return copy;
+              });
+            } else if (evt.type === 'done' && advising) {
+              setMessages((ms) => {
+                const copy = ms.slice();
+                const last = copy[copy.length - 1];
+                if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, meta: { citations: evt.citations, revision: evt.revision } };
                 return copy;
               });
             } else if (evt.type === 'error') {
@@ -250,7 +275,7 @@
         // Refrescar orden de la lista (updatedAt) tras responder.
         loadConvos();
       }
-    }, [input, streaming, activeId, props, loadConvos]);
+    }, [input, streaming, activeId, props, loadConvos, mode]);
 
     const onKeyDown = (e) => {
       // Enter (con o sin ⌘/Ctrl) envía; Shift+Enter hace salto de línea.
@@ -279,6 +304,11 @@
             React.createElement('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, activeTitle),
             React.createElement(Icons.ChevronDown, { key: 'c', size: 13 }),
           ]),
+          window.ECO_ADVISOR && window.ECO_ADVISOR.canAdvise()
+            ? React.createElement(window.ECO_ADVISOR.ModeSelector, {
+                key: 'm', mode, onChange: (m) => { if (!streaming) setMode(m); },
+              })
+            : null,
         ]),
         React.createElement('button', { key: 'new', className: 'btn', onClick: newChat, title: 'Nueva conversación' },
           React.createElement(Icons.Plus, { size: 14 })),
