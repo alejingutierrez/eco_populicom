@@ -143,6 +143,18 @@ export function computeFloor(inputs: TriageInputs): FloorResult {
     motivos.push(`Guía probable ${inputs.guiaProbable} (integridad, renuncia o menor): piso 3`);
   }
 
+  // R8 · guía probable G-6 (caso personal de un titular en una agencia de servicio) → piso 2;
+  // con redacción o decisión, piso 3.
+  if (inputs.guiaProbable === 'G-6') {
+    const r8: Camino = TIPOS_ESCRITURA_O_DECISION.has(tipo) ? 3 : 2;
+    piso = Math.max(piso, r8) as Camino;
+    motivos.push(
+      r8 === 3
+        ? 'Guía probable G-6 (caso personal) con redacción o decisión: piso 3'
+        : 'Guía probable G-6 (caso personal): piso 2',
+    );
+  }
+
   return { piso, motivos, legalObligatorio };
 }
 

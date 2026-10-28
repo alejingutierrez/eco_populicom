@@ -20,8 +20,10 @@ import { reviewDraft } from '@eco/shared/src/advisor/review';
 import {
   FACT_SHEET_SCHEMA,
   MEMO_HEAD_SCHEMA,
-  MEMO_BODY_SCHEMA,
+  MEMO_CAMINOS_SCHEMA,
+  MEMO_DA_SCHEMA,
   validateMemoPart,
+  type MemoPart,
   POSITION_SCHEMA,
   PREMORTEM_SCHEMA,
   validateFactSheet,
@@ -234,14 +236,17 @@ export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
     p.objeciones.forEach((o, k) => objeciones.push({ id: `C${p.camino}-${k + 1}`, texto: o.relato_72h }));
   }
   const memoCtx = `${SEAT_PREAMBLE}\n\nAsiento: moderador. Escribe el memorando con las secciones del esquema. Recomienda un camino (índice en caminos) con confianza. Cada objeción del abogado del diablo debe aparecer en objeciones_da con su id, su estado (resuelta, mitigada o aceptada) y cómo se trata. Todo veto del asiento legal debe aparecer en vetos[]. Si un veto sigue sin resolver, no recomiendes ese camino.\n\nAgencia: ${d.agency.name}. Fecha: ${d.dateLabel}.\nPregunta: ${d.question}\n\nCaminos:\n${JSON.stringify(caminos)}\n\nAbogado del diablo:\n${JSON.stringify(premortems)}\n\nObjeciones a cubrir (id y texto):\n${JSON.stringify(objeciones)}`;
-  // El memorando se pide en dos mitades en paralelo (el esquema completo no compila en el servicio).
-  const [memoHead, memoBody] = await Promise.all([
-    structuredCall(d, ledger, { model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema: MEMO_HEAD_SCHEMA as unknown as Record<string, unknown>, messages: [{ role: 'user', content: memoCtx }] },
-      (x) => validateMemoPart('head', x), 'memo_head_invalid'),
-    structuredCall(d, ledger, { model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema: MEMO_BODY_SCHEMA as unknown as Record<string, unknown>, messages: [{ role: 'user', content: memoCtx }] },
-      (x) => validateMemoPart('body', x), 'memo_body_invalid'),
+  // El memorando se pide en tres partes en paralelo (el esquema completo no compila en el servicio).
+  // Cada parte tiene su propio tope de salida: partir el cuerpo evita agotarlo, sin subirlo.
+  const memoPart = (outputSchema: Record<string, unknown>, part: MemoPart) =>
+    structuredCall(d, ledger, { model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema, messages: [{ role: 'user', content: memoCtx }] },
+      (x) => validateMemoPart(part, x), `memo_${part}_invalid`);
+  const [memoHead, memoCaminos, memoDa] = await Promise.all([
+    memoPart(MEMO_HEAD_SCHEMA as unknown as Record<string, unknown>, 'head'),
+    memoPart(MEMO_CAMINOS_SCHEMA as unknown as Record<string, unknown>, 'caminos'),
+    memoPart(MEMO_DA_SCHEMA as unknown as Record<string, unknown>, 'da'),
   ]);
-  const memoRaw = { ...memoHead, ...memoBody };
+  const memoRaw = { ...memoHead, ...memoCaminos, ...memoDa };
   if (!validateMemo(memoRaw)) throw new PanelError('memo_invalid', 'memorando combinado no cumple el esquema');
   const memo = applyMemoRules(memoRaw, { objeciones, caminos, seat: rotating });
 

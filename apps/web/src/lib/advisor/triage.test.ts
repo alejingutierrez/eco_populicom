@@ -115,7 +115,10 @@ describe('computeFloor', () => {
     ['guía G-4: piso 3', inp({ guiaProbable: 'G-4' }), 3, false],
     ['guía G-11: piso 3', inp({ guiaProbable: 'G-11' }), 3, false],
     ['guía G-3 con descriptiva: piso 3', conTipo('descriptiva', { guiaProbable: 'G-3' }), 3, false],
-    ['guía G-6: sin efecto', inp({ guiaProbable: 'G-6' }), 1, false],
+    ['guía G-6 con descriptiva: piso 2', conTipo('descriptiva', { guiaProbable: 'G-6' }), 2, false],
+    ['guía G-6 con redacción: piso 3', conTipo('redaccion', { guiaProbable: 'G-6' }), 3, false],
+    ['guía G-6 con decisión: piso 3', conTipo('decision', { guiaProbable: 'G-6' }), 3, false],
+    ['guía G-6 sin clasificación: peor caso, piso 3', inp({ guiaProbable: 'G-6' }), 3, false],
     ['guía G-12: sin efecto', inp({ guiaProbable: 'G-12' }), 1, false],
   ];
 

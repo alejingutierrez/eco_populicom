@@ -257,12 +257,15 @@ export function validateMemo(x: unknown): Obj | null {
   return x;
 }
 
-// ---- Memorando en dos mitades (el esquema completo supera el límite de compilación) -----
-// Un solo MEMO_SCHEMA rebasa el tamaño de gramática que acepta el servicio. Se parte en dos
+// ---- Memorando en tres partes (el esquema completo supera el límite de compilación) ----
+// Un solo MEMO_SCHEMA rebasa el tamaño de gramática que acepta el servicio. Se parte en tres
 // llamadas independientes con las mismas definiciones; el memorando completo se valida al final.
+// Con dos mitades, el cuerpo (caminos + objeciones + borradores) agotaba 12 000 tokens de salida
+// en 2 de 20 corridas (spec §15, fase 1). Cada parte tiene su propio tope, sin subirlo.
 
 const MEMO_HEAD_KEYS = ['encabezado', 'hechos', 'linea_base', 'senales', 'recomendacion', 'disenso', 'sin_camino_b_porque', 'limites'] as const;
-const MEMO_BODY_KEYS = ['caminos', 'objeciones_da', 'vetos', 'borradores'] as const;
+const MEMO_CAMINOS_KEYS = ['caminos'] as const;
+const MEMO_DA_KEYS = ['objeciones_da', 'vetos', 'borradores'] as const;
 const memoProps = (MEMO_SCHEMA as { properties: Record<string, unknown> }).properties;
 const pickMemo = (keys: readonly string[]) => ({
   type: 'object',
@@ -272,7 +275,11 @@ const pickMemo = (keys: readonly string[]) => ({
 });
 
 export const MEMO_HEAD_SCHEMA = pickMemo(MEMO_HEAD_KEYS);
-export const MEMO_BODY_SCHEMA = pickMemo(MEMO_BODY_KEYS);
+export const MEMO_CAMINOS_SCHEMA = pickMemo(MEMO_CAMINOS_KEYS);
+export const MEMO_DA_SCHEMA = pickMemo(MEMO_DA_KEYS);
+
+export type MemoPart = 'head' | 'caminos' | 'da';
+const MEMO_PART_KEYS: Record<MemoPart, readonly string[]> = { head: MEMO_HEAD_KEYS, caminos: MEMO_CAMINOS_KEYS, da: MEMO_DA_KEYS };
 
 /** Relleno válido para las secciones que no pertenecen a la mitad que se valida. */
 const MEMO_FILLER: Obj = {
@@ -290,10 +297,10 @@ const MEMO_FILLER: Obj = {
   limites: [],
 };
 
-/** Valida una mitad del memorando: sus claves deben existir y el resultado combinado debe cumplir validateMemo. */
-export function validateMemoPart(part: 'head' | 'body', x: unknown): Obj | null {
+/** Valida una parte del memorando: sus claves deben existir y el resultado combinado debe cumplir validateMemo. */
+export function validateMemoPart(part: MemoPart, x: unknown): Obj | null {
   if (!isObj(x)) return null;
-  const keys = part === 'head' ? MEMO_HEAD_KEYS : MEMO_BODY_KEYS;
+  const keys = MEMO_PART_KEYS[part];
   if (!keys.every((k) => k in x)) return null;
   return validateMemo({ ...MEMO_FILLER, ...x }) ? x : null;
 }
