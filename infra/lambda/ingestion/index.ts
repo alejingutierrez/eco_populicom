@@ -210,7 +210,7 @@ export const handler = async (
             // y, como el cursor avanzaría igual, se perderían para siempre.
             // Reintentamos las fallidas; las que persistan se contabilizan para
             // NO avanzar el cursor de esta query (la próxima corrida re-escanea;
-            // el UNIQUE bw_resource_id deduplica las que sí entraron).
+            // el UNIQUE (agency_id, bw_resource_id) deduplica las que sí entraron).
             const batches = chunk(mentions, 10);
             for (const batch of batches) {
               let entries = batch.map((mention, idx) => ({

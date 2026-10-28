@@ -207,8 +207,8 @@ async function loadAgency(slug: string): Promise<{ id: string; slug: string; nam
 }
 
 /**
- * Lee el archivo, mapea y cruza contra la base: por resourceId (global, como
- * el processor) y por publicación (`mentionPlatformKey`) contra las menciones
+ * Lee el archivo, mapea y cruza contra la base: por (agencia, resourceId), como
+ * el processor, y por publicación (`mentionPlatformKey`) contra las menciones
  * de la agencia en la ventana del archivo ± 3 días.
  */
 async function buildPlan(s3Key: string, agency: { id: string; queryId: number }): Promise<{ summary: Summary; pending: BrandwatchMention[] }> {
@@ -222,7 +222,8 @@ async function buildPlan(s3Key: string, agency: { id: string; queryId: number })
   const ids = mapped.mentions.map((m) => m.resourceId);
   for (let i = 0; i < ids.length; i += 1000) {
     const { rows: found } = await c.query<{ bw_resource_id: string }>(
-      `SELECT bw_resource_id FROM mentions WHERE bw_resource_id = ANY($1::text[])`, [ids.slice(i, i + 1000)],
+      `SELECT bw_resource_id FROM mentions WHERE agency_id = $1 AND bw_resource_id = ANY($2::text[])`,
+      [agency.id, ids.slice(i, i + 1000)],
     );
     for (const r of found) existing.add(r.bw_resource_id);
   }
@@ -334,7 +335,7 @@ async function phaseEnqueue(row: ImportRow, ctx: LambdaContext): Promise<boolean
 async function countProcessed(row: ImportRow, ids: string[]): Promise<{ processed: number; duplicates: number }> {
   const { rows } = await (await db()).query<{ n: string; dup: string }>(
     `SELECT count(*) AS n, count(*) FILTER (WHERE is_duplicate) AS dup
-       FROM mentions WHERE bw_resource_id = ANY($1::text[])`, [ids],
+       FROM mentions WHERE agency_id = $1 AND bw_resource_id = ANY($2::text[])`, [row.agency_id, ids],
   );
   return { processed: Number(rows[0]?.n ?? 0), duplicates: Number(rows[0]?.dup ?? 0) };
 }
