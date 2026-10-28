@@ -6,6 +6,7 @@ import { requireAuth } from '@/lib/auth/require-admin';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
 import { processRows, propagationRows, type RawMentionRow } from '@/lib/narrative/overview';
+import { PROPAGATION_ROWS_SQL } from '@/lib/narrative/propagation-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,16 +65,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     const narrative = own.rows[0];
 
     const rowsRes = await pool.query<RawMentionRow>(
-      `SELECT nm.narrative_id AS nid, m.id, m.published_at, m.url, m.title, m.page_type,
-              m.author, m.author_fullname, m.domain,
-              COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
-              (COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0)) AS inter
-         FROM narrative_mentions nm
-         JOIN mentions m ON m.id = nm.mention_id
-        WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.agency_id = $2
-          AND m.is_duplicate = false
-          AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
-          AND m.published_at < $3::timestamptz`,
+      PROPAGATION_ROWS_SQL,
       // Borde holgado: la última mención con hora del día final es anterior a
       // las 04:00Z del siguiente; `processRows` descarta lo posterior a endYmd.
       [narrative.id, agencyId, `${addDaysYmd(endYmd, 1)}T04:00:00Z`],

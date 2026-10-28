@@ -140,7 +140,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // propia query (antes sumaba los pares mención×municipio del mapa).
     { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 11, rawPert: 10, drzDup: 1, drzPert: 3 },
     // rawPert 1 (oct-2026): «Menciones parecidas» (similar_to) excluye pertinencia baja.
-    { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 2, rawPert: 1, drzDup: 1, drzPert: 1 },
+    // Refactor (oct-2026): el feed y «parecidas» viven en lib/mentions/query.ts
+    // (queryMentions); la ruta solo resuelve la agencia y llama. Mismos conteos.
+    { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/lib/mentions/query.ts', rawDup: 2, rawPert: 1, drzDup: 1, drzPert: 1 },
     { file: 'apps/web/src/app/api/eco-geo/route.ts', rawDup: 0, rawPert: 0, drzDup: 1, drzPert: 1 },
     // Oct-2026: total, subtópicos, municipios y muestras salen de UN CTE que
     // elige el tópico primario (antes 4 queries multi-tópico).
@@ -157,8 +160,10 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // sobre el universo pertinente, igual que el resto del producto.
     { file: 'apps/web/src/app/api/eco-executive-summary/route.ts', rawDup: 4, rawPert: 4, drzDup: 0, drzPert: 0 },
     // Nube de palabras: un solo `baseConds` compartido por el scope y por la
-    // referencia, así que los predicados aparecen una vez.
-    { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // referencia, así que los predicados aparecen una vez. El SQL vive en
+    // lib/terms/query.ts (queryTerms); la ruta solo llama.
+    { file: 'apps/web/src/app/api/eco-terms/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/lib/terms/query.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Scorecard (oct-2026; las consultas viven en lib/scorecard/payload.ts y la
     // ruta solo las llama): los agregados diarios de los ÍNDICES, «Quién habló»
     // y las voces previas, todo sobre el universo pertinente (V5: un solo
@@ -184,8 +189,13 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // narrativas no filtraban pertinencia). overview: el CTE que elige las
     // narrativas del mapa + sus filas de toda la vida + la fila de contexto
     // («todas las menciones» por día); propagation: las filas de una narrativa.
-    { file: 'apps/web/src/app/api/narrative/overview/route.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
-    { file: 'apps/web/src/app/api/narrative/[id]/propagation/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // Refactor (oct-2026): el SQL de overview vive en lib/narrative/compute.ts
+    // y el de propagación en lib/narrative/propagation-query.ts; las rutas solo
+    // llaman y cachean. Mismos conteos, otros archivos.
+    { file: 'apps/web/src/app/api/narrative/overview/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/lib/narrative/compute.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/app/api/narrative/[id]/propagation/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
+    { file: 'apps/web/src/lib/narrative/propagation-query.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {
