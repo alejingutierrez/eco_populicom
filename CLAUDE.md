@@ -215,6 +215,23 @@ aplicar cambios:
    UPDATE a un estado detectable (ej. `WHERE timezone = 'America/Bogota'`)
    para que sea no-op tras la primera corrida.
 
+### Unicidad de `mentions`: por agencia, no global (oct 2026)
+
+La llave es `(agency_id, bw_resource_id)` (índice `mentions_agency_bw_resource_uq`),
+no `bw_resource_id` solo: una nota que coincide con las queries de DOS agencias
+trae el mismo resourceId en cada proyecto, y con el UNIQUE global la copia de
+la segunda se descartaba en silencio. Todo SQL que busque una mención por
+resourceId debe filtrar también por `agency_id` (ver `lambda/lib/mention-keys.ts`;
+lo usan el processor, `mention-import` y `scripts/import-bunker-xlsx.ts`).
+Se aplica con la acción `mentions-unique-per-agency` de `eco-migration`
+(`status` | `add` | `drop`, ver `lambda/lib/mentions-unique.ts`), en este orden:
+`add` → desplegar `eco-processor` → `drop`. Antes del `drop` el processor
+nuevo solo falla en menciones nuevas-para-su-agencia que ya existen en otra
+(23505; SQS reintenta); después del `drop` el processor VIEJO ya no puede
+escribir (su `ON CONFLICT (bw_resource_id)` no encuentra índice): el rollback
+es hacia adelante. La acción responde "success" aunque no haga nada: verifica
+con `status` o `pg_indexes`.
+
 ### Inspección rápida de la DB
 
 ```bash

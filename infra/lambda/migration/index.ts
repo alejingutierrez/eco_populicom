@@ -5,6 +5,7 @@
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
+import { mentionsUniquePerAgency } from '../lib/mentions-unique';
 import { MUNICIPALITIES, TOPICS_BY_AGENCY, scrapeImageForMention } from '@eco/shared';
 
 const sm = new SecretsManagerClient({});
@@ -14,7 +15,7 @@ const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 // barato que Opus y suficiente para escoger entre 5-6 opciones predefinidas.
 const SUBTOPIC_BACKFILL_MODEL_ID = process.env.SUBTOPIC_BACKFILL_MODEL_ID ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
-export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string }): Promise<{ statusCode: number; body: string }> => {
+export const handler = async (event: { action?: string; query?: string; queryIds?: number[]; limit?: number; agencySlug?: string; phase?: string }): Promise<{ statusCode: number; body: string }> => {
   const action = event.action ?? 'migrate-and-seed';
   console.log(`Migration handler invoked with action: ${action}`);
 
@@ -833,6 +834,12 @@ export const handler = async (event: { action?: string; query?: string; queryIds
       };
     }
 
+    if (action === 'mentions-unique-per-agency') {
+      // Unicidad de mentions por (agency_id, bw_resource_id) en vez de global.
+      // Pasos, orden y guardas en lib/mentions-unique.ts.
+      return mentionsUniquePerAgency(client, event.phase ?? 'status');
+    }
+
     if (action === 'add-resolved-image-column') {
       // Idempotente: añade la columna `resolved_image_url` a mentions. La
       // puebla el processor en ingesta y el backfill 'backfill-resolved-images'.
@@ -1061,7 +1068,7 @@ async function runMigrations(client: any): Promise<void> {
     CREATE TABLE IF NOT EXISTS mentions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       agency_id UUID NOT NULL REFERENCES agencies(id),
-      bw_resource_id VARCHAR(255) NOT NULL UNIQUE,
+      bw_resource_id VARCHAR(255) NOT NULL,
       bw_guid VARCHAR(255),
       bw_query_id BIGINT NOT NULL,
       bw_query_name VARCHAR(255),
@@ -1117,6 +1124,8 @@ async function runMigrations(client: any): Promise<void> {
   await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_page_type ON mentions(page_type);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_text_hash ON mentions(text_hash);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_mentions_domain ON mentions(domain);`);
+  // Único por AGENCIA, no global (ver lib/mention-keys.ts)
+  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS mentions_agency_bw_resource_uq ON mentions(agency_id, bw_resource_id);`);
 
   // mention_topics junction
   await client.query(`

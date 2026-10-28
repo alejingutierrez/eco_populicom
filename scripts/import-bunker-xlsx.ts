@@ -107,14 +107,14 @@ async function main(): Promise<void> {
   if (parsed.missingColumns.length) throw new Error(`No parece un exporte de Bunker: faltan ${parsed.missingColumns.join(', ')}`);
   const mapped = parsed.mentions;
 
-  // 3) Saltar las que ya están en la DB: por resourceId (único global) y por
+  // 3) Saltar las que ya están en la DB: por resourceId (único por agencia) y por
   //    publicación (la misma con otra URL) en la ventana del archivo ± 3 días.
   const existing = new Set<string>();
   const ids = mapped.map((m) => m.resourceId);
   for (let i = 0; i < ids.length; i += 400) {
     const chunk = ids.slice(i, i + 400);
     const found = await query<{ bw_resource_id: string }>(
-      `SELECT bw_resource_id FROM mentions WHERE bw_resource_id IN (${chunk.map(sqlStr).join(',')})`,
+      `SELECT bw_resource_id FROM mentions WHERE agency_id = ${sqlStr(agency.id)} AND bw_resource_id IN (${chunk.map(sqlStr).join(',')})`,
     );
     for (const r of found) existing.add(r.bw_resource_id);
   }
