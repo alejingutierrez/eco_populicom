@@ -39,6 +39,8 @@ export interface AdvisorRequest {
   system?: AdvisorContentBlock[];
   messages: AdvisorMessage[];
   tools?: AdvisorTool[];
+  /** Salida estructurada (spec §5.2 regla 2): JSON Schema validado por el servicio. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface AdvisorUsage {
@@ -96,6 +98,9 @@ export function buildRuntimeBody(req: AdvisorRequest): Record<string, unknown> {
   };
   if (req.system?.length) body.system = req.system;
   if (req.tools?.length) body.tools = req.tools;
+  if (req.outputSchema) {
+    body.output_config = { effort: req.effort, format: { type: 'json_schema', schema: req.outputSchema } };
+  }
   assertAdvisorRequestRules(body);
   return body;
 }
@@ -270,5 +275,34 @@ export class RuntimeLLM implements AdvisorLLM {
     });
 
     return { model, stopReason, content, usage: toUsage(usage), ms: Date.now() - t0 };
+  }
+}
+
+// ---- Salida estructurada -------------------------------------------------------
+
+export class AdvisorStructuredError extends Error {
+  constructor(message: string, readonly stopReason: string) {
+    super(message);
+    this.name = 'AdvisorStructuredError';
+  }
+}
+
+/**
+ * JSON de una respuesta con `outputSchema`. Lanza si la respuesta no fue `end_turn`
+ * (refusal o max_tokens, spec §5.2 regla 4) o si el texto no es JSON. El caller valida
+ * el contenido contra su esquema con los validadores de schemas.ts.
+ */
+export function structuredJson(res: AdvisorResponse): unknown {
+  if (res.stopReason !== 'end_turn') {
+    throw new AdvisorStructuredError(`salida estructurada interrumpida: ${res.stopReason}`, res.stopReason);
+  }
+  const text = res.content
+    .filter((b): b is Extract<AdvisorContentBlock, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new AdvisorStructuredError('la salida estructurada no es JSON válido', res.stopReason);
   }
 }

@@ -1,0 +1,429 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { advisorModelId } from '@eco/shared/src/advisor/models';
+import type { AdvisorLLM, AdvisorRequest, AdvisorResponse } from '@eco/shared/src/advisor/llm';
+import {
+  CLASIFICACION_SCHEMA,
+  classify,
+  computeFloor,
+  contextoTexto,
+  decideCamino,
+  triage,
+  validateClasificacion,
+  type Clasificacion,
+  type TipoPregunta,
+  type TriageInputs,
+} from './triage';
+
+// ---- Helpers -----------------------------------------------------------------
+
+const clas = (o: Partial<Clasificacion> = {}): Clasificacion => ({
+  tipo_pregunta: 'descriptiva',
+  reversible: true,
+  quien_da_la_cara: 'nadie',
+  presion_tiempo: 'baja',
+  riesgo_personas: false,
+  situacion: 'no_aplica',
+  guia_probable: 'ninguna',
+  camino_sugerido: 1,
+  motivo: 'Pregunta de prueba.',
+  ...o,
+});
+
+const inp = (o: Partial<TriageInputs> = {}): TriageInputs => ({
+  indiceHoy: null,
+  alertasUltimas12h: 0,
+  riesgoPersonas: false,
+  vedaActiva: false,
+  guiaProbable: null,
+  clasificacion: null,
+  ...o,
+});
+
+const conTipo = (tipo: TipoPregunta, o: Partial<TriageInputs> = {}): TriageInputs =>
+  inp({ clasificacion: clas({ tipo_pregunta: tipo }), ...o });
+
+function respuesta(text: string, stopReason = 'end_turn'): AdvisorResponse {
+  return {
+    model: 'test-model',
+    stopReason,
+    content: [{ type: 'text', text }],
+    usage: { inputNew: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 },
+    ms: 1,
+  };
+}
+
+/**
+ * LLM falso. Cada entrada de `script` es la respuesta de una llamada en orden: un string
+ * (texto crudo), un objeto (se serializa a JSON), un Error (la llamada lanza) o `{stop}`.
+ * Si se agotan las entradas, repite la última.
+ */
+function fakeLLM(script: Array<unknown>) {
+  const calls: AdvisorRequest[] = [];
+  const llm = {
+    create: async (req: AdvisorRequest): Promise<AdvisorResponse> => {
+      calls.push(req);
+      const entrada = script[Math.min(calls.length - 1, script.length - 1)];
+      if (entrada instanceof Error) throw entrada;
+      if (typeof entrada === 'object' && entrada !== null && 'stop' in entrada) {
+        return respuesta('{}', (entrada as { stop: string }).stop);
+      }
+      const text = typeof entrada === 'string' ? entrada : JSON.stringify(entrada);
+      return respuesta(text);
+    },
+    stream: async (): Promise<AdvisorResponse> => {
+      throw new Error('no usado');
+    },
+  };
+  return { llm: llm as unknown as AdvisorLLM, calls };
+}
+
+// ---- Capa 1 · computeFloor ---------------------------------------------------
+
+describe('computeFloor', () => {
+  const casos: Array<[string, TriageInputs, 1 | 2 | 3, boolean]> = [
+    ['sin reglas activas', inp(), 1, false],
+    ['índice 0.39 descriptiva: nada se activa', conTipo('descriptiva', { indiceHoy: 0.39 }), 1, false],
+    ['índice 0.40 descriptiva: piso 2', conTipo('descriptiva', { indiceHoy: 0.4 }), 2, false],
+    ['índice 0.40 decisión: piso 3', conTipo('decision', { indiceHoy: 0.4 }), 3, false],
+    ['índice 0.40 redacción: piso 2', conTipo('redaccion', { indiceHoy: 0.4 }), 2, false],
+    ['índice 0.40 revisión de borrador: piso 2', conTipo('revision_borrador', { indiceHoy: 0.4 }), 2, false],
+    ['índice 0.59 redacción: piso 2 (aún ALERTA)', conTipo('redaccion', { indiceHoy: 0.59 }), 2, false],
+    ['índice 0.60 descriptiva: piso 2', conTipo('descriptiva', { indiceHoy: 0.6 }), 2, false],
+    ['índice 0.60 decisión: piso 3', conTipo('decision', { indiceHoy: 0.6 }), 3, false],
+    ['índice 0.60 redacción: piso 3', conTipo('redaccion', { indiceHoy: 0.6 }), 3, false],
+    ['índice 0.60 revisión de borrador: piso 3 (agrupada con redacción)', conTipo('revision_borrador', { indiceHoy: 0.6 }), 3, false],
+    ['índice 0.95 descriptiva: piso 2', conTipo('descriptiva', { indiceHoy: 0.95 }), 2, false],
+    ['sin clasificación, índice 0.30: sin regla de índice', inp({ indiceHoy: 0.3 }), 1, false],
+    ['sin clasificación, índice 0.40: peor caso (decisión) → piso 3', inp({ indiceHoy: 0.4 }), 3, false],
+    ['sin clasificación, índice 0.80: peor caso → piso 3', inp({ indiceHoy: 0.8 }), 3, false],
+    ['alerta sola: 1 → 2', inp({ alertasUltimas12h: 1 }), 2, false],
+    ['dos alertas: +1 una sola vez (1 → 2, no 3)', inp({ alertasUltimas12h: 2 }), 2, false],
+    ['cinco alertas: sigue en +1 (1 → 2)', inp({ alertasUltimas12h: 5 }), 2, false],
+    ['alerta sobre piso 2: 3', conTipo('descriptiva', { indiceHoy: 0.4, alertasUltimas12h: 1 }), 3, false],
+    ['alerta sobre piso 3: tope en 3', conTipo('decision', { indiceHoy: 0.6, alertasUltimas12h: 1 }), 3, false],
+    ['riesgo a personas: piso 2', inp({ riesgoPersonas: true }), 2, false],
+    ['riesgo sobre piso 3: se queda en 3', conTipo('decision', { indiceHoy: 0.6, riesgoPersonas: true }), 3, false],
+    ['veda + redacción: 1 → 2 y legal', conTipo('redaccion', { vedaActiva: true }), 2, true],
+    ['veda + decisión: 1 → 2 y legal', conTipo('decision', { vedaActiva: true }), 2, true],
+    ['veda + revisión de borrador: 1 → 2 y legal', conTipo('revision_borrador', { vedaActiva: true }), 2, true],
+    ['veda + descriptiva: sin efecto ni legal', conTipo('descriptiva', { vedaActiva: true }), 1, false],
+    ['veda + redacción + alerta: 3 (tope) y legal', conTipo('redaccion', { vedaActiva: true, alertasUltimas12h: 1 }), 3, true],
+    ['veda + decisión sobre CRISIS: tope 3 y legal', conTipo('decision', { vedaActiva: true, indiceHoy: 0.6 }), 3, true],
+    ['sin clasificación + veda: peor caso → 2 y legal', inp({ vedaActiva: true }), 2, true],
+    ['guía G-3: piso 3', inp({ guiaProbable: 'G-3' }), 3, false],
+    ['guía G-4: piso 3', inp({ guiaProbable: 'G-4' }), 3, false],
+    ['guía G-11: piso 3', inp({ guiaProbable: 'G-11' }), 3, false],
+    ['guía G-3 con descriptiva: piso 3', conTipo('descriptiva', { guiaProbable: 'G-3' }), 3, false],
+    ['guía G-6: sin efecto', inp({ guiaProbable: 'G-6' }), 1, false],
+    ['guía G-12: sin efecto', inp({ guiaProbable: 'G-12' }), 1, false],
+  ];
+
+  it.each(casos)('%s', (_nombre, entrada, pisoEsperado, legalEsperado) => {
+    const r = computeFloor(entrada);
+    expect(r.piso).toBe(pisoEsperado);
+    expect(r.legalObligatorio).toBe(legalEsperado);
+  });
+
+  it('sin reglas activas no deja motivos', () => {
+    expect(computeFloor(inp()).motivos).toEqual([]);
+  });
+
+  it('cada regla que se cumple deja su motivo en español', () => {
+    const r = computeFloor(
+      conTipo('decision', { indiceHoy: 0.6, alertasUltimas12h: 1, riesgoPersonas: true, vedaActiva: true, guiaProbable: 'G-3' }),
+    );
+    expect(r.piso).toBe(3);
+    const texto = r.motivos.join(' | ');
+    expect(texto).toMatch(/Índice de crisis ≥ 0\.40/);
+    expect(texto).toMatch(/Índice ≥ 0\.60/);
+    expect(texto).toMatch(/Alerta de crisis/);
+    expect(texto).toMatch(/Personas en riesgo/);
+    expect(texto).toMatch(/Veda activa/);
+    expect(texto).toMatch(/Guía probable G-3/);
+  });
+});
+
+// ---- Capa 3 · decideCamino ---------------------------------------------------
+
+describe('decideCamino', () => {
+  it('sin override: camino = max(piso, camino_sugerido)', () => {
+    expect(decideCamino({ piso: 2, clasificacion: clas({ camino_sugerido: 1 }), override: null }).camino).toBe(2);
+    expect(decideCamino({ piso: 1, clasificacion: clas({ camino_sugerido: 3 }), override: null }).camino).toBe(3);
+    expect(decideCamino({ piso: 2, clasificacion: clas({ camino_sugerido: 3 }), override: null }).camino).toBe(3);
+  });
+
+  it('override council fuerza 3 aunque el piso y la sugerencia sean 1', () => {
+    const r = decideCamino({ piso: 1, clasificacion: clas({ camino_sugerido: 1 }), override: 'council' });
+    expect(r.camino).toBe(3);
+    expect(r.override).toBe('council');
+  });
+
+  it('override council también aplica sin clasificación', () => {
+    expect(decideCamino({ piso: 1, clasificacion: null, override: 'council' }).camino).toBe(3);
+  });
+
+  it('override quick = max(piso, 1): ignora la sugerencia del clasificador', () => {
+    expect(decideCamino({ piso: 1, clasificacion: clas({ camino_sugerido: 3 }), override: 'quick' }).camino).toBe(1);
+    expect(decideCamino({ piso: 2, clasificacion: clas({ camino_sugerido: 1 }), override: 'quick' }).camino).toBe(2);
+    expect(decideCamino({ piso: 3, clasificacion: null, override: 'quick' }).camino).toBe(3);
+  });
+
+  it('sin clasificación: camino = piso y el motivo lo dice', () => {
+    const r = decideCamino({ piso: 2, clasificacion: null, override: null, motivosPiso: ['Índice de crisis ≥ 0.40 (ALERTA): piso 2'] });
+    expect(r.camino).toBe(2);
+    expect(r.piso).toBe(2);
+    expect(r.clasificacion).toBeNull();
+    expect(r.motivo).toMatch(/Clasificador no disponible/);
+    expect(r.motivo).toMatch(/ALERTA/);
+  });
+
+  it('el motivo combina los motivos del piso y el del clasificador', () => {
+    const r = decideCamino({
+      piso: 3,
+      clasificacion: clas({ camino_sugerido: 2, motivo: 'Pide texto para prensa.' }),
+      override: null,
+      motivosPiso: ['Guía probable G-3 (integridad, renuncia o menor): piso 3'],
+    });
+    expect(r.motivo).toMatch(/Guía probable G-3/);
+    expect(r.motivo).toMatch(/Pide texto para prensa\./);
+  });
+
+  it('pasa legalObligatorio y clasificación tal cual', () => {
+    const c = clas({ camino_sugerido: 2 });
+    const r = decideCamino({ piso: 2, clasificacion: c, override: null, legalObligatorio: true });
+    expect(r.legalObligatorio).toBe(true);
+    expect(r.clasificacion).toBe(c);
+  });
+});
+
+// ---- Capa 2 · classify -------------------------------------------------------
+
+const VALIDA = {
+  tipo_pregunta: 'decision',
+  reversible: false,
+  quien_da_la_cara: 'secretario',
+  presion_tiempo: 'horas',
+  riesgo_personas: false,
+  situacion: 'crisis',
+  guia_probable: 'G-4',
+  camino_sugerido: 3,
+  motivo: 'Renuncia con carta pública.',
+};
+
+describe('classify', () => {
+  const PREGUNTA = 'PREGUNTA_SECRETA_DE_PRUEBA ¿Respondemos a la carta de renuncia?';
+  const CONTEXTO = contextoTexto({
+    indiceHoy: 0.7,
+    alertasUltimas12h: 1,
+    riesgoPersonas: false,
+    vedaActiva: false,
+    guiaProbable: null,
+  });
+
+  it('respuesta válida: devuelve la clasificación y llama una sola vez con el contrato de triaje', async () => {
+    const { llm, calls } = fakeLLM([VALIDA]);
+    const r = await classify(llm, PREGUNTA, CONTEXTO);
+    expect(r).toEqual(VALIDA);
+    expect(calls).toHaveLength(1);
+    const req = calls[0];
+    expect(req.model).toBe(advisorModelId('FAST'));
+    expect(req.effort).toBe('low');
+    expect(req.maxTokens).toBe(1000);
+    expect(req.outputSchema).toEqual(CLASIFICACION_SCHEMA);
+    expect(req.tools).toBeUndefined();
+    expect('temperature' in req).toBe(false);
+  });
+
+  it('la pregunta viaja solo en el turno de usuario, nunca en el sistema', async () => {
+    const { llm, calls } = fakeLLM([VALIDA]);
+    await classify(llm, PREGUNTA, CONTEXTO);
+    const sistema = (calls[0].system ?? []).map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(sistema).not.toContain('PREGUNTA_SECRETA_DE_PRUEBA');
+    const usuario = calls[0].messages[0].content as string;
+    expect(usuario).toContain('PREGUNTA_SECRETA_DE_PRUEBA');
+    expect(usuario.startsWith(CONTEXTO)).toBe(true);
+  });
+
+  it('JSON inválido dos veces: null tras dos intentos', async () => {
+    const { llm, calls } = fakeLLM(['esto no es json', 'tampoco']);
+    expect(await classify(llm, PREGUNTA, CONTEXTO)).toBeNull();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('enum inválido dos veces: se reintenta y devuelve null', async () => {
+    const malo = { ...VALIDA, tipo_pregunta: 'opinion' };
+    const { llm, calls } = fakeLLM([malo, malo]);
+    expect(await classify(llm, PREGUNTA, CONTEXTO)).toBeNull();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('enum inválido y luego válido: el reintento gana', async () => {
+    const malo = { ...VALIDA, camino_sugerido: 4 };
+    const { llm, calls } = fakeLLM([malo, VALIDA]);
+    expect(await classify(llm, PREGUNTA, CONTEXTO)).toEqual(VALIDA);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('salida interrumpida (max_tokens) cuenta como fallo y se reintenta', async () => {
+    const { llm, calls } = fakeLLM([{ stop: 'max_tokens' }, VALIDA]);
+    expect(await classify(llm, PREGUNTA, CONTEXTO)).toEqual(VALIDA);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('error de red en ambos intentos: null, sin propagar', async () => {
+    const { llm, calls } = fakeLLM([new Error('timeout'), new Error('timeout')]);
+    expect(await classify(llm, PREGUNTA, CONTEXTO)).toBeNull();
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe('validateClasificacion', () => {
+  it('acepta exactamente el esquema', () => {
+    expect(validateClasificacion(VALIDA)).toEqual(VALIDA);
+  });
+
+  it.each([
+    ['clave extra', { ...VALIDA, extra: 1 }],
+    ['clave faltante', (() => { const { motivo, ...r } = VALIDA; return r; })()],
+    ['booleano como texto', { ...VALIDA, reversible: 'si' }],
+    ['motivo de 201 caracteres', { ...VALIDA, motivo: 'x'.repeat(201) }],
+    ['camino 0', { ...VALIDA, camino_sugerido: 0 }],
+    ['camino como texto', { ...VALIDA, camino_sugerido: '2' }],
+    ['arreglo en vez de objeto', []],
+    ['null', null],
+  ])('rechaza %s', (_n, raw) => {
+    expect(validateClasificacion(raw)).toBeNull();
+  });
+
+  it('motivo de exactamente 200 caracteres es válido', () => {
+    expect(validateClasificacion({ ...VALIDA, motivo: 'x'.repeat(200) })).not.toBeNull();
+  });
+});
+
+// ---- Orquestador -------------------------------------------------------------
+
+describe('triage (orquestador)', () => {
+  it('índice 0.65 con respuesta descriptiva del clasificador: el piso sube el camino a 2', async () => {
+    const { llm, calls } = fakeLLM([clas({ tipo_pregunta: 'descriptiva', camino_sugerido: 1, motivo: 'Dato.', guia_probable: 'ninguna' })]);
+    const d = await triage({
+      llm,
+      question: '¿Cuántas menciones hay?',
+      inputs: { indiceHoy: 0.65, alertasUltimas12h: 0, riesgoPersonas: false, vedaActiva: false, guiaProbable: null },
+      override: null,
+    });
+    expect(d.piso).toBe(2);
+    expect(d.camino).toBe(2);
+  });
+
+  it('clasificador caído: camino = piso', async () => {
+    const { llm } = fakeLLM([new Error('down')]);
+    const d = await triage({
+      llm,
+      question: '¿Qué decimos?',
+      inputs: { indiceHoy: 0.45, alertasUltimas12h: 0, riesgoPersonas: false, vedaActiva: false, guiaProbable: null },
+      override: null,
+    });
+    expect(d.clasificacion).toBeNull();
+    expect(d.camino).toBe(d.piso);
+    expect(d.piso).toBe(3); // peor caso sin clasificación: índice ≥ 0.40 con decisión supuesta
+  });
+
+  it('la guía que sugiere el clasificador (G-3) fija piso 3 aunque el caller no la envíe', async () => {
+    const { llm } = fakeLLM([{ ...VALIDA, tipo_pregunta: 'descriptiva', camino_sugerido: 1, guia_probable: 'G-3' }]);
+    const d = await triage({
+      llm,
+      question: 'pregunta',
+      inputs: { indiceHoy: null, alertasUltimas12h: 0, riesgoPersonas: false, vedaActiva: false, guiaProbable: null },
+      override: null,
+    });
+    expect(d.piso).toBe(3);
+    expect(d.camino).toBe(3);
+  });
+
+  it('override council se respeta tras el clasificador', async () => {
+    const { llm } = fakeLLM([clas()]);
+    const d = await triage({
+      llm,
+      question: 'pregunta',
+      inputs: { indiceHoy: null, alertasUltimas12h: 0, riesgoPersonas: false, vedaActiva: false, guiaProbable: null },
+      override: 'council',
+    });
+    expect(d.camino).toBe(3);
+    expect(d.override).toBe('council');
+  });
+});
+
+// ---- Integridad del set de triaje -------------------------------------------
+
+interface SetItem {
+  id: string;
+  tipo: string;
+  variante: string;
+  pregunta: string;
+  contexto: {
+    indiceHoy: number | null;
+    alertasUltimas12h: number;
+    riesgoPersonas: boolean;
+    vedaActiva: boolean;
+    guiaProbable: string | null;
+  };
+  caminoMinimo: 1 | 2 | 3;
+  reglaBase: boolean;
+}
+
+const SET: SetItem[] = JSON.parse(fs.readFileSync(path.join(__dirname, 'triage-set', 'set.json'), 'utf8'));
+
+describe('triage-set/set.json', () => {
+  it('tiene entre 100 y 200 preguntas', () => {
+    expect(SET.length).toBeGreaterThanOrEqual(100);
+    expect(SET.length).toBeLessThanOrEqual(200);
+  });
+
+  it('los ids son únicos', () => {
+    expect(new Set(SET.map((x) => x.id)).size).toBe(SET.length);
+  });
+
+  it('caminoMinimo ∈ {1,2,3} y reglaBase es booleano', () => {
+    for (const x of SET) {
+      expect([1, 2, 3]).toContain(x.caminoMinimo);
+      expect(typeof x.reglaBase).toBe('boolean');
+    }
+  });
+
+  it('reglaBase solo se marca en caminos 2 o 3 (un 1 no necesita regla)', () => {
+    for (const x of SET) {
+      if (x.reglaBase) expect(x.caminoMinimo).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('cada contexto tiene las claves requeridas con su tipo', () => {
+    for (const x of SET) {
+      const c = x.contexto;
+      expect(c).toBeDefined();
+      expect(c.indiceHoy === null || typeof c.indiceHoy === 'number').toBe(true);
+      expect(typeof c.alertasUltimas12h).toBe('number');
+      expect(typeof c.riesgoPersonas).toBe('boolean');
+      expect(typeof c.vedaActiva).toBe('boolean');
+      expect(c.guiaProbable === null || typeof c.guiaProbable === 'string').toBe(true);
+    }
+  });
+
+  it('cada pregunta es texto no vacío', () => {
+    for (const x of SET) expect(x.pregunta.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe('subestimación con reglas solas (CI, sin LLM)', () => {
+  it('para cada ítem con reglaBase, el piso con clasificación null alcanza caminoMinimo', () => {
+    const fallos: string[] = [];
+    const reglaBase = SET.filter((x) => x.reglaBase);
+    for (const x of reglaBase) {
+      const piso = computeFloor({ ...x.contexto, clasificacion: null }).piso;
+      if (piso < x.caminoMinimo) fallos.push(`${x.id}: piso ${piso} < gold ${x.caminoMinimo}`);
+    }
+    // Los ítems con reglaBase son los que exigen camino por una regla (no por el contenido).
+    expect(reglaBase.length).toBeGreaterThan(0);
+    expect(fallos).toEqual([]);
+  });
+});
