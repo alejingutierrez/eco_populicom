@@ -32,6 +32,8 @@ export const EVENT_PARAMS = [
   'mention_source', 'mention_sentiment', 'mention_domain', 'link_domain',
   // asistente
   'prompt_type', 'message_length', 'is_new_conversation',
+  // modo asesor (spec §3.4)
+  'advisor_path', 'advisor_path_forced', 'advisor_floor', 'advisor_status', 'advisor_choice', 'duration_bucket',
   // exportar / alertas / reportes
   'export_format', 'alert_type', 'origin', 'metric', 'is_active',
   'report_type', 'result_status', 'recipients_count', 'target_agency',
