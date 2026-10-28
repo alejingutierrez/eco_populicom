@@ -19,7 +19,9 @@ import { checkCitations, idsInToolResult } from '@eco/shared/src/advisor/citatio
 import { reviewDraft } from '@eco/shared/src/advisor/review';
 import {
   FACT_SHEET_SCHEMA,
-  MEMO_SCHEMA,
+  MEMO_HEAD_SCHEMA,
+  MEMO_BODY_SCHEMA,
+  validateMemoPart,
   POSITION_SCHEMA,
   PREMORTEM_SCHEMA,
   validateFactSheet,
@@ -206,13 +208,15 @@ export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
   if (await cancelled()) return cancelledOutcome(d, ledger);
   await roundStart(d, 3);
   const caminos = positions.map((p, i) => ({ camino: i, nombre: String(p.pos.nombre), posicion: p.pos }));
+  // Entrada compacta para el abogado del diablo: solo lo que necesita para fracasar un camino.
+  const caminosCompactos = caminos.map((c) => ({ camino: c.camino, nombre: c.nombre, accion: c.posicion.accion, mecanismo: c.posicion.mecanismo }));
   const premortems = await structuredCall(
     d, ledger,
     {
       model: d.models.deep, effort: 'medium', maxTokens: 5000, system: famB, outputSchema: PREMORTEM_SCHEMA,
       messages: [{
         role: 'user',
-        content: `${SEAT_PREAMBLE}\n\nAsiento: abogado_diablo. Eres pesimista por diseño: no propones ni votas. Para cada camino, imagina que fracasó a las 72 h y escribe 3 formas de fracasar con su señal temprana y su supuesto frágil. Lista también lo que concedes y qué te haría ceder.\n\nCaminos:\n${JSON.stringify(caminos)}`,
+        content: `${SEAT_PREAMBLE}\n\nAsiento: abogado_diablo. Eres pesimista por diseño: no propones ni votas. Para cada camino, imagina que fracasó a las 72 h y escribe 2 formas de fracasar, cada una con su señal temprana y su supuesto frágil. Lista también lo que concedes y qué te haría ceder. Responde en máximo 400 palabras en total.\n\nCaminos:\n${JSON.stringify(caminosCompactos)}`,
       }],
     },
     validatePremortems,
@@ -229,18 +233,16 @@ export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
   for (const p of (premortems.premortems as Array<{ camino: number; objeciones: Array<{ relato_72h: string }> }>)) {
     p.objeciones.forEach((o, k) => objeciones.push({ id: `C${p.camino}-${k + 1}`, texto: o.relato_72h }));
   }
-  const memoRaw = await structuredCall(
-    d, ledger,
-    {
-      model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema: MEMO_SCHEMA,
-      messages: [{
-        role: 'user',
-        content: `${SEAT_PREAMBLE}\n\nAsiento: moderador. Escribe el memorando con las secciones del esquema. Recomienda un camino (índice en caminos) con confianza. Cada objeción del abogado del diablo debe aparecer en objeciones_da con su id, su estado (resuelta, mitigada o aceptada) y cómo se trata. Todo veto del asiento legal debe aparecer en vetos[]. Si un veto sigue sin resolver, no recomiendes ese camino.\n\nAgencia: ${d.agency.name}. Fecha: ${d.dateLabel}.\nPregunta: ${d.question}\n\nCaminos:\n${JSON.stringify(caminos)}\n\nAbogado del diablo:\n${JSON.stringify(premortems)}\n\nObjeciones a cubrir (id y texto):\n${JSON.stringify(objeciones)}`,
-      }],
-    },
-    validateMemo,
-    'memo_invalid',
-  );
+  const memoCtx = `${SEAT_PREAMBLE}\n\nAsiento: moderador. Escribe el memorando con las secciones del esquema. Recomienda un camino (índice en caminos) con confianza. Cada objeción del abogado del diablo debe aparecer en objeciones_da con su id, su estado (resuelta, mitigada o aceptada) y cómo se trata. Todo veto del asiento legal debe aparecer en vetos[]. Si un veto sigue sin resolver, no recomiendes ese camino.\n\nAgencia: ${d.agency.name}. Fecha: ${d.dateLabel}.\nPregunta: ${d.question}\n\nCaminos:\n${JSON.stringify(caminos)}\n\nAbogado del diablo:\n${JSON.stringify(premortems)}\n\nObjeciones a cubrir (id y texto):\n${JSON.stringify(objeciones)}`;
+  // El memorando se pide en dos mitades en paralelo (el esquema completo no compila en el servicio).
+  const [memoHead, memoBody] = await Promise.all([
+    structuredCall(d, ledger, { model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema: MEMO_HEAD_SCHEMA as unknown as Record<string, unknown>, messages: [{ role: 'user', content: memoCtx }] },
+      (x) => validateMemoPart('head', x), 'memo_head_invalid'),
+    structuredCall(d, ledger, { model: d.models.deep, effort: 'medium', maxTokens: 12000, system: famB, outputSchema: MEMO_BODY_SCHEMA as unknown as Record<string, unknown>, messages: [{ role: 'user', content: memoCtx }] },
+      (x) => validateMemoPart('body', x), 'memo_body_invalid'),
+  ]);
+  const memoRaw = { ...memoHead, ...memoBody };
+  if (!validateMemo(memoRaw)) throw new PanelError('memo_invalid', 'memorando combinado no cumple el esquema');
   const memo = applyMemoRules(memoRaw, { objeciones, caminos, seat: rotating });
 
   // Citas y revisión automática (spec §3.3 paso 8, §8.3 reglas).

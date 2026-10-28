@@ -256,3 +256,44 @@ export function validateMemo(x: unknown): Obj | null {
   if (!isStrArr(x.limites)) return null;
   return x;
 }
+
+// ---- Memorando en dos mitades (el esquema completo supera el límite de compilación) -----
+// Un solo MEMO_SCHEMA rebasa el tamaño de gramática que acepta el servicio. Se parte en dos
+// llamadas independientes con las mismas definiciones; el memorando completo se valida al final.
+
+const MEMO_HEAD_KEYS = ['encabezado', 'hechos', 'linea_base', 'senales', 'recomendacion', 'disenso', 'sin_camino_b_porque', 'limites'] as const;
+const MEMO_BODY_KEYS = ['caminos', 'objeciones_da', 'vetos', 'borradores'] as const;
+const memoProps = (MEMO_SCHEMA as { properties: Record<string, unknown> }).properties;
+const pickMemo = (keys: readonly string[]) => ({
+  type: 'object',
+  properties: Object.fromEntries(keys.map((k) => [k, memoProps[k]])),
+  required: [...keys],
+  additionalProperties: false,
+});
+
+export const MEMO_HEAD_SCHEMA = pickMemo(MEMO_HEAD_KEYS);
+export const MEMO_BODY_SCHEMA = pickMemo(MEMO_BODY_KEYS);
+
+/** Relleno válido para las secciones que no pertenecen a la mitad que se valida. */
+const MEMO_FILLER: Obj = {
+  encabezado: { agencia: '', fecha: '', camino: '', motivo: '' },
+  hechos: { sabido: [], no_claro: [], supuesto: [] },
+  linea_base: { descripcion: '', rango_indice_72h: null },
+  caminos: [],
+  sin_camino_b_porque: null,
+  senales: { h24: { va_bien_si: '', va_mal_si: '' }, h48: { va_bien_si: '', va_mal_si: '' }, h72: { va_bien_si: '', va_mal_si: '' }, cambiar_si: [] },
+  recomendacion: { camino: 0, confianza_cualitativa: 'baja', porque: '' },
+  disenso: [],
+  objeciones_da: [],
+  vetos: [],
+  borradores: [],
+  limites: [],
+};
+
+/** Valida una mitad del memorando: sus claves deben existir y el resultado combinado debe cumplir validateMemo. */
+export function validateMemoPart(part: 'head' | 'body', x: unknown): Obj | null {
+  if (!isObj(x)) return null;
+  const keys = part === 'head' ? MEMO_HEAD_KEYS : MEMO_BODY_KEYS;
+  if (!keys.every((k) => k in x)) return null;
+  return validateMemo({ ...MEMO_FILLER, ...x }) ? x : null;
+}

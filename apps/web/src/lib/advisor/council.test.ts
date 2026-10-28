@@ -2,7 +2,8 @@ import { runPanel, rotatingSeatFor, applyMemoRules, type PanelDeps } from './cou
 import type { AdvisorLLM, AdvisorRequest, AdvisorResponse } from '@eco/shared/src/advisor/llm';
 import {
   FACT_SHEET_SCHEMA,
-  MEMO_SCHEMA,
+  MEMO_HEAD_SCHEMA,
+  MEMO_BODY_SCHEMA,
   POSITION_SCHEMA,
   PREMORTEM_SCHEMA,
   validateMemo,
@@ -71,7 +72,8 @@ function fakeLLM(overrides: { failSeat?: string } = {}): { llm: AdvisorLLM; call
         else if (seat === 'legal') payload = pos('legal', [{ texto: 'publicidad vedada', estado: 'sin_resolver' }]);
         else payload = pos(seat);
       } else if (req.outputSchema === PREMORTEM_SCHEMA) payload = PREMORT;
-      else if (req.outputSchema === MEMO_SCHEMA) payload = MEMO_BASE;
+      else if (req.outputSchema === MEMO_HEAD_SCHEMA) payload = Object.fromEntries(['encabezado', 'hechos', 'linea_base', 'senales', 'recomendacion', 'disenso', 'sin_camino_b_porque', 'limites'].map((k) => [k, (MEMO_BASE as Record<string, unknown>)[k]]));
+      else if (req.outputSchema === MEMO_BODY_SCHEMA) payload = Object.fromEntries(['caminos', 'objeciones_da', 'vetos', 'borradores'].map((k) => [k, (MEMO_BASE as Record<string, unknown>)[k]]));
       const content: AdvisorResponse['content'] = payload === null
         ? [{ type: 'text', text: 'Listo.' }]
         : [{ type: 'text', text: JSON.stringify(payload) }];
