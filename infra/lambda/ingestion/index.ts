@@ -19,11 +19,17 @@ const INGESTION_QUEUE_URL = process.env.INGESTION_QUEUE_URL!;
 // corridas siguientes. Evita que un backlog post-caída agote la cuota de BW.
 const MAX_PAGES_PER_RUN = 20;
 // Cuánto se re-escanea hacia atrás del cursor en cada corrida normal. Brandwatch
-// indexa con retraso (mediana ~3 h web, cola de >24 h): con el cursor en la
-// mención más reciente, lo que llega tarde queda "detrás" y solo lo recoge el
-// refresh diario. Cada corrida paga esta ventana completa: ≈ +1 página/corrida
-// en DF y +0–1 en Gobernadora con 12 h (más horas = más páginas, no menos).
-const INCREMENTAL_LOOKBACK_MS = 12 * 60 * 60 * 1000;
+// indexa con retraso (mediana ~3 h web, p90 ~7 h, cola de >24 h): con el cursor
+// en la mención más reciente, lo que llega tarde queda "detrás" y solo lo
+// recogería el refresh diario de 07:00Z. Cada corrida paga la ventana completa
+// (más horas = más páginas): con 12 h salían 11–13 requests por corrida (22–26
+// de los ~30 por 10 min de cuota, compartida con biq-ingestion) y el 29-oct
+// 07:15Z DF agotó sus reintentos. Con 8 h bajan a ~8: lo que ocupa las páginas
+// son sobre todo los shells de X (81–83 % de los resultados de Gobernadora y
+// DF, sin fecha ni texto). A 8 h, ~7 % de las menciones tardías (rezago > 8 h;
+// muestra de 20 h, n≈320) esperan al refresh en vez de entrar a la corrida
+// siguiente; con 6 h solo se ahorraría ~1 request más y se perdería ~11 %.
+const INCREMENTAL_LOOKBACK_MS = 8 * 60 * 60 * 1000;
 const BRANDWATCH_TOKEN_SECRET_ARN = process.env.BRANDWATCH_TOKEN_SECRET_ARN!;
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 
