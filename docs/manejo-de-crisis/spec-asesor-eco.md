@@ -605,6 +605,20 @@ guardados en la corrida:
 | Guía probable G-6 (caso personal de un titular) | 2; 3 si es redacción o decisión |
 | Paracrisis: el clasificador marca `situacion = paracrisis` (conversación pública negativa que se extiende: varias cuentas, medios, un video o un post viral sobre la agencia), aunque el índice esté bajo. Una queja aislada, sin eco, no cuenta | 2 |
 
+**Textos positivos para publicar** (regla aplicada a `redaccion` y
+`revision_borrador`): un agradecimiento, una felicitación, un reconocimiento
+o el anuncio de un logro o de una actividad que la agencia hace con buena
+noticia **no suben el camino por ser texto para publicar**. Van por el
+**camino 1** cuando el texto no responde a una controversia. Si el texto
+responde a una controversia (una crítica, una denuncia, un rumor o una
+polémica abierta sobre el mismo tema, o sale en medio de ella), se trata como
+cualquier respuesta pública: **camino 2** como mínimo. Un texto que mezcla
+agradecimiento con disculpa, o que corrige un error ya publicado, no es
+positivo: es una respuesta. Esta regla solo decide el camino por el contenido;
+los pisos de la tabla (índice, alerta, veda, personas en riesgo, guías) se
+aplican igual: un agradecimiento en veda activa sigue pidiendo camino 2 como
+mínimo por R6, y uno con índice ≥ 0.40 también por R1.
+
 **Capa 2 · clasificador** (Haiku, *structured outputs*):
 
 ```json
