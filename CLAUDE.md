@@ -10,11 +10,14 @@ agente, no al humano. Si algo cambia, actualízalo aquí.
 Los bundles desplegados pueden contener código que NO existe en ninguna rama
 (deploys desde worktrees nunca pusheados). Casos conocidos (QA 2026-06-10):
 
-- `eco-ingestion`: la versión live (runProgressiveBackfill, makeRateLimiter,
-  bw_request_log, backfill_cursors) no tiene fuente TS en git. Snapshot
-  verbatim en `infra/lambda/ingestion/deployed-snapshot/index.deployed.js`.
-  NO deployees `infra/lambda/ingestion/index.ts` (239 líneas, versión vieja)
-  sin portar primero el snapshot.
+- `eco-ingestion`: **sin drift desde el 28-oct-2026** (#147 y #150). El
+  bundle vivo sale de `infra/lambda/ingestion/*.ts` + `packages/brandwatch/src`:
+  se comprobó con el fuente embebido en el `index.js.map` del bundle vivo
+  (idéntico a `main`) y con el árbol de git del merge. La versión de junio
+  (runProgressiveBackfill, makeRateLimiter, bw_request_log, backfill_cursors)
+  ya no está desplegada y `deployed-snapshot/` ya no existe: no hay nada que
+  portar. Compara igual antes de redeployar (ver abajo): el `.map` trae
+  `sourcesContent`, así que el diff contra git es exacto.
 - `eco-migration`: el bundle live tiene acciones extra (`backfill-topics`,
   `seed-default-alert-rules`, …) que el fuente no tiene. Para añadir una
   acción: descargar bundle (`aws lambda get-function … Code.Location` + curl
@@ -197,7 +200,12 @@ diario de 07:00Z / `backfill` manual) fija intentos, presupuesto de reloj,
 pacing y tope (`infra/lambda/ingestion/run-guard.ts`,
 `packages/brandwatch/src/resilience.ts`), y la primera query que agota sus
 reintentos por 429 aborta el resto de la corrida (cortacircuitos; busca
-`ABORTED por cortacircuitos` en el log). Detalle, parámetros y el diseño del
+`ABORTED por cortacircuitos` en el log). Las queries de TODAS las agencias se
+recorren de la que lleva más tiempo sin servirse a la más reciente (clave:
+`ingestion_cursors.last_run_at`, no `last_mention_date`; ver
+`infra/lambda/ingestion/query-order.ts` y la línea `Query order:` del log), así
+que lo que el cortacircuitos se salta hoy va primero mañana; el backfill manual
+conserva el orden de la tabla. Detalle, parámetros y el diseño del
 limitador compartido con BrandIQ (no implementado) en
 `docs/tecnica/ingesta-brandwatch-429.md`. Las pruebas
 (`infra/test/ingestion-*.test.ts`) simulan `fetch`, AWS y el reloj: ninguna

@@ -71,6 +71,49 @@ lo ya encolado** cuando la query falla en la página N (`cursorToCommit` con
 es un punto de reanudación válido. Con fallos de encolado nunca avanza; en
 backfill nunca se toca.
 
+### Orden de las queries
+
+Con el cortacircuitos, lo que queda al final del recorrido es lo que se queda
+sin sondear. Si el orden fuera siempre el de la tabla (DDEC → Gobernadora → DF),
+serían siempre las mismas. Por eso el handler arma una lista plana con las
+queries de **todas las agencias** y la recorre de la que **lleva más tiempo sin
+servirse** a la más reciente (`orderQueryJobs`, `infra/lambda/ingestion/query-order.ts`):
+
+1. `ingestion_cursors.last_run_at` ascendente. Sin fila de cursor (nunca
+   servida) va primero.
+2. Si empatan, `last_mention_date` más viejo.
+3. Si siguen empatadas, el orden original (estable; sin datos de nadie el
+   orden es el de siempre).
+
+La clave es `last_run_at` y no `last_mention_date` a propósito: la fecha de la
+mención más reciente depende del volumen de la query, no de cuánto se sondeó.
+Una query muy activa (DF, DDEC) siempre tiene el cursor a minutos y una
+tranquila siempre lo tiene viejo, así que ordenar por cursor dejaría a las más
+activas —las más caras— al final del recorrido para siempre. `last_run_at` sube
+cada vez que la query se sirve y se queda atrás cuando se salta, de modo que el
+hueco rota: lo que el cortacircuitos se saltó hoy va primero en la próxima
+corrida.
+
+Detalles:
+
+- **Una corrida sin menciones también cuenta como servida.** `updateCursor`
+  solo se llama cuando hay menciones; para que una query tranquila no parezca
+  desatendida por horas, esa corrida hace `UPDATE ingestion_cursors SET
+  last_run_at = NOW() WHERE query_id = $1` (`touchCursor`, `shouldTouchCursor`).
+  No mueve el cursor ni cuenta menciones; si falla, solo avisa (la query ya
+  encoló todo lo que traía). Una query sin fila de cursor no tiene qué tocar y
+  sigue "nunca servida" hasta que traiga menciones.
+- **Un fallo a media paginación** compromete el cursor parcial (ver arriba) y
+  eso también sube `last_run_at`: hubo avance, la query cuenta como servida.
+- **Si no se puede leer `ingestion_cursors`**, se conserva el orden de la tabla
+  y la corrida sigue (es una optimización del reparto de cuota, no parte de la
+  ingesta).
+- **Backfill manual**: conserva el orden de la tabla (ventana explícita).
+- **Refresh de 07:00Z**: usa el mismo orden, pero no lo rota por sí mismo (no
+  toca cursores ni `last_run_at`). Si alguna vez topara con el tope de 24
+  requests, saltaría casi siempre las mismas; hoy cabe holgado (~19).
+- El log trae una línea `Query order: ddecpr:…, df:…` con el orden de la corrida.
+
 ### Refresh diario de 07:00Z
 
 Era el disparador habitual de la espiral: ~19 requests en 20 s. Ahora va a un
@@ -90,6 +133,7 @@ Líneas de log (CloudWatch, grupo `/aws/lambda/eco-ingestion`):
 | Línea | Significa |
 |---|---|
 | `Run plan: mode=… maxAttempts=… budget=…s pacing=…ms maxRequests=…` | plan con el que arrancó la corrida |
+| `Query order: agencia:query, …` | orden en que se sirven las queries de la corrida (la más desatendida primero) |
 | `Rate limited. Waiting …ms before retry n/m` | un 429 con reintento |
 | `Rate limited: giving up (reason) after n/m attempts` | una query agotó sus reintentos |
 | `ABORTED por cortacircuitos (…); N queries sin sondear: …` | el cortacircuitos se abrió; lista lo que no se sondeó |
@@ -111,9 +155,11 @@ fields @timestamp, @message
 | Política de reintentos, `Retry-After`, pacing, `RunBudget`, errores tipados | `packages/brandwatch/src/resilience.ts` |
 | Cliente (usa lo anterior; `fetch` inyectable para pruebas) | `packages/brandwatch/src/client.ts` |
 | Modo y plan de la corrida, deadline, cortacircuitos | `infra/lambda/ingestion/run-guard.ts` |
-| Cursor (incluye `cursorToCommit`) | `infra/lambda/ingestion/cursor.ts` |
+| Cursor (incluye `cursorToCommit` y `shouldTouchCursor`) | `infra/lambda/ingestion/cursor.ts` |
+| Orden de las queries (más desatendida primero) | `infra/lambda/ingestion/query-order.ts` |
 | Orquestación | `infra/lambda/ingestion/index.ts` |
 | Pruebas puras y del cliente (reloj y `fetch` falsos) | `infra/test/ingestion-resilience.test.ts` |
+| Pruebas del orden de las queries | `infra/test/ingestion-query-order.test.ts` |
 | Pruebas del handler completo (AWS, `pg`, `fetch` y reloj simulados) | `infra/test/ingestion-handler.test.ts` |
 
 ```bash
@@ -213,10 +259,10 @@ Reglas para cualquiera de las opciones:
 
 ## Seguimiento (fuera de este cambio)
 
-- **Orden de queries**: el loop recorre agencias y queries en orden fijo, sin
-  `ORDER BY`. Con presupuesto o tope, la cola siempre es la misma y es la que se
-  queda sin sondear. Propuesta: ordenar por cursor más viejo primero
-  (`last_run_at` ascendente) y rotar el orden del refresh.
+- **Rotar el orden del refresh**: el orden por antigüedad ya está (ver arriba),
+  pero el refresh no actualiza `last_run_at`, así que con tope de requests
+  saltaría siempre las mismas. Hoy no topa; si pasara, haría falta guardar
+  cuándo se refrescó cada query (columna nueva o tabla aparte).
 - **Timeout del lambda** (CDK): 15 min → 3–4 min para el cron incremental
   (hoy el presupuesto de 3 min lo hace cumplir en código; el timeout es la red
   de seguridad) y alarma de "ingesta callada" (BrandIQ ya la tiene).

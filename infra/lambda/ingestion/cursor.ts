@@ -65,6 +65,21 @@ export function cursorToCommit(input: CursorCommitInput): string | null {
 }
 
 /**
+ * ¿Hay que anotar que la query se sirvió (`last_run_at`) aunque no haya cursor
+ * que mover? Pasa en una corrida normal que terminó bien sin traer menciones:
+ * `cursorToCommit` devuelve null (nada que avanzar) y sin esto la query
+ * parecería no servida por horas, con lo que el orden por antigüedad la
+ * pondría siempre primera (ver ./query-order).
+ */
+export function shouldTouchCursor(input: {
+  isBackfill: boolean;
+  totalMentions: number;
+  sendFailures: number;
+}): boolean {
+  return !input.isBackfill && input.totalMentions <= 0 && input.sendFailures === 0;
+}
+
+/**
  * Avanza el cursor de una corrida con una página nueva: el máximo entre el
  * cursor acumulado y la mención más reciente de la página. Nunca retrocede.
  */

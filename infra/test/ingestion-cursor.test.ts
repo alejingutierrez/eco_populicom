@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { advanceCursorMs, latestMentionDateMs } from '../lambda/ingestion/cursor';
+import { advanceCursorMs, latestMentionDateMs, shouldTouchCursor } from '../lambda/ingestion/cursor';
 
 const gobernadoraPage: Array<{ date: string | null; pageType: string }> = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures/ingestion-gobernadora-page.json'), 'utf8'),
@@ -89,5 +89,25 @@ describe('página real de Gobernadora (21:35Z del 26-oct, solo fecha y tipo)', (
 
     // Antes: lastMention.date era null → el cursor se quedaba en startDate.
     expect(latestMentionDateMs(gobernadoraPage)).toBe(ms('2026-10-26T19:58:45.000Z'));
+  });
+});
+
+describe('shouldTouchCursor', () => {
+  const base = { isBackfill: false, totalMentions: 0, sendFailures: 0 };
+
+  test('corrida normal que terminó bien sin menciones: se anota que la query se sirvió', () => {
+    expect(shouldTouchCursor(base)).toBe(true);
+  });
+
+  test('con menciones el cursor se mueve por la vía normal (updateCursor), no se "toca"', () => {
+    expect(shouldTouchCursor({ ...base, totalMentions: 5 })).toBe(false);
+  });
+
+  test('el backfill y el refresh no tocan nada', () => {
+    expect(shouldTouchCursor({ ...base, isBackfill: true })).toBe(false);
+  });
+
+  test('con fallos de encolado no se anota como servida', () => {
+    expect(shouldTouchCursor({ ...base, sendFailures: 2 })).toBe(false);
   });
 });
