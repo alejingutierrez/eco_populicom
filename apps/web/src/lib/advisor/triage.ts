@@ -155,6 +155,13 @@ export function computeFloor(inputs: TriageInputs): FloorResult {
     );
   }
 
+  // R9 · paracrisis (conversación pública negativa que se extiende, con índice bajo) → piso 2.
+  // La marca viene del clasificador (situacion); una queja aislada no la activa.
+  if (inputs.clasificacion?.situacion === 'paracrisis') {
+    piso = Math.max(piso, 2) as Camino;
+    motivos.push('Paracrisis (conversación pública negativa que se extiende): piso 2');
+  }
+
   return { piso, motivos, legalObligatorio };
 }
 

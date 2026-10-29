@@ -603,6 +603,7 @@ guardados en la corrida:
 | Bandera de veda activa y `tipo_pregunta ∈ {redaccion, decision}` | +1 y asiento legal obligatorio |
 | Guía probable G-3, G-4 o G-11 (integridad, renuncia, menor) | 3 |
 | Guía probable G-6 (caso personal de un titular) | 2; 3 si es redacción o decisión |
+| Paracrisis: el clasificador marca `situacion = paracrisis` (conversación pública negativa que se extiende: varias cuentas, medios, un video o un post viral sobre la agencia), aunque el índice esté bajo. Una queja aislada, sin eco, no cuenta | 2 |
 
 **Capa 2 · clasificador** (Haiku, *structured outputs*):
 

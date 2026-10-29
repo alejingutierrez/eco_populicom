@@ -119,6 +119,8 @@ describe('computeFloor', () => {
     ['guía G-6 con redacción: piso 3', conTipo('redaccion', { guiaProbable: 'G-6' }), 3, false],
     ['guía G-6 con decisión: piso 3', conTipo('decision', { guiaProbable: 'G-6' }), 3, false],
     ['guía G-6 sin clasificación: peor caso, piso 3', inp({ guiaProbable: 'G-6' }), 3, false],
+    ['paracrisis con índice bajo: piso 2', inp({ indiceHoy: 0.1, clasificacion: clas({ situacion: 'paracrisis' }) }), 2, false],
+    ['situación crisis sin paracrisis: sin efecto', inp({ indiceHoy: 0.1, clasificacion: clas({ situacion: 'crisis' }) }), 1, false],
     ['guía G-12: sin efecto', inp({ guiaProbable: 'G-12' }), 1, false],
   ];
 
