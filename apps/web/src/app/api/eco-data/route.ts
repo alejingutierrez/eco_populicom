@@ -14,7 +14,7 @@ import {
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
 import {
-  dashboardWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
+  dashboardPresetWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
   formatMetric, formatDelta, formatVelocity,
   sourceKey, sourceLabel,
   loadSentimentTotals,
@@ -32,7 +32,7 @@ import { consume, clientKey } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  'HOY': 1, '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
   '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         const prevStartYmd = addDaysYmd(prevEndYmd, -(customRange.days - 1));
         return { startYmd, endYmd, prevStartYmd, prevEndYmd };
       })()
-    : dashboardWindowYmdInTZ(days, new Date(), TZ);
+    : dashboardPresetWindowYmdInTZ(periodKey, days, new Date(), TZ);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
   // Para el filtro de mentions usamos los bordes de la ventana traducidos a

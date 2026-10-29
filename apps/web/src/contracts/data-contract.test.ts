@@ -27,7 +27,7 @@ const REPO = path.resolve(__dirname, '../../../..');
 const read = (rel: string) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 const count = (s: string, needle: string) => s.split(needle).length - 1;
 
-const UI_PERIOD_TOKENS = ['1D', '5D', '7D', '30D', '3M', '6M', '1A', 'Max'];
+const UI_PERIOD_TOKENS = ['HOY', '1D', '5D', '7D', '30D', '3M', '6M', '1A', 'Max'];
 const PERT_SQL = 'nlp_pertinence IS NULL OR';
 const TIE_BREAK = 'ORDER BY confidence DESC NULLS LAST, topic_id ASC';
 
@@ -48,9 +48,20 @@ describe('resolveWindow — ventana canónica', () => {
 
   test('cruce de medianoche AST (04:00Z): la ventana salta de día', () => {
     // 03:59Z = 23:59 AST del 08-09 → hoy AST = 08-09.
-    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T03:59:00Z') })!.endYmd).toBe('2026-08-09');
+    expect(resolveWindow({ period: 'HOY', now: new Date('2026-08-10T03:59:00Z') })!.endYmd).toBe('2026-08-09');
     // 04:00Z = 00:00 AST del 08-10 → hoy AST = 08-10.
-    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T04:00:00Z') })!.endYmd).toBe('2026-08-10');
+    expect(resolveWindow({ period: 'HOY', now: new Date('2026-08-10T04:00:00Z') })!.endYmd).toBe('2026-08-10');
+  });
+
+  test('«Ayer» (1D) es el último día CERRADO; HOY es el día en curso', () => {
+    // DF 29-oct: tras #154 «Ayer» mostraba hoy a medio día (19 menciones →
+    // «datos insuficientes»).
+    expect(resolveWindow({ period: '1D', now })).toMatchObject({
+      startYmd: '2026-08-09', endYmd: '2026-08-09', prevStartYmd: '2026-08-08', prevEndYmd: '2026-08-08', days: 1,
+    });
+    expect(resolveWindow({ period: 'HOY', now })).toMatchObject({
+      startYmd: '2026-08-10', endYmd: '2026-08-10', prevStartYmd: '2026-08-09', prevEndYmd: '2026-08-09', days: 1,
+    });
   });
 
   test('from/to gana sobre period y deriva la ventana previa de igual duración', () => {

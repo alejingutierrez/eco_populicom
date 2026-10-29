@@ -3,7 +3,7 @@ import { getDb, getPool, agencies, alertHistory, alertRules } from '@eco/databas
 import { sql, eq, inArray, and } from 'drizzle-orm';
 import {
   buildSentimentReport,
-  dashboardWindowYmdInTZ,
+  dashboardPresetWindowYmdInTZ,
   formatPeriodLabel,
   loadMetricsForWindow,
   formatMetric,
@@ -37,6 +37,7 @@ const TZ = 'America/Puerto_Rico';
 
 // Misma tabla de periodos que /api/overview.
 const PERIOD_DAYS: Record<string, number> = {
+  'HOY': 1,
   '1D': 1,
   '5D': 5,
   '7D': 7,
@@ -240,7 +241,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const window = customRange
       ? customRange
-      : dashboardWindowYmdInTZ(daysBack as number, new Date(), TZ);
+      : dashboardPresetWindowYmdInTZ(periodKey, daysBack as number, new Date(), TZ);
     const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
     // Agencias activas (id + slug) + sus nombres. listActiveAgencies solo trae
