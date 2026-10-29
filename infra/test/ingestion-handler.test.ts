@@ -60,18 +60,48 @@ interface AgencyFixture {
 type FetchStep = { status: number; headers?: Record<string, string>; mentions?: Array<{ resourceId: string; date: string | null }>; total?: number };
 
 let cursorWrites: unknown[][];
+let touchWrites: unknown[][];
 let fetchCalls: Array<{ queryId: string; at: number }>;
 let logs: string[];
 
-function setupAgencies(agencies: AgencyFixture[], cursors: Record<number, string> = {}) {
+/**
+ * `cursors` = last_mention_date por query; `lastRuns` = last_run_at por query
+ * (la clave del orden). Como la DB de verdad, un INSERT/UPDATE de cursor sube
+ * el `last_run_at` de la query a la hora (simulada) de la escritura, así que
+ * `lastRuns` sirve también para encadenar dos corridas.
+ */
+function setupAgencies(
+  agencies: AgencyFixture[],
+  cursors: Record<number, string> = {},
+  lastRuns: Record<number, string> = {},
+  opts: { servedAtFails?: boolean } = {},
+) {
   mockPgQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
     if (/FROM agencies/.test(sql)) return { rows: agencies };
+    if (/FROM ingestion_cursors WHERE query_id = ANY/.test(sql)) {
+      if (opts.servedAtFails) throw new Error('connection reset');
+      const rows = (params![0] as number[])
+        // Una fila de cursor siempre trae last_run_at (NOT NULL): sin lastRuns, la query no tiene fila.
+        .filter((q) => lastRuns[q] !== undefined)
+        .map((q) => ({
+          query_id: String(q), // pg devuelve bigint como string
+          last_run_at: new Date(lastRuns[q]),
+          last_mention_date: cursors[q] ? new Date(cursors[q]) : null,
+        }));
+      return { rows };
+    }
     if (/FROM ingestion_cursors/.test(sql)) {
       const iso = cursors[params![0] as number];
       return { rows: iso ? [{ last_mention_date: iso }] : [] };
     }
     if (/INSERT INTO ingestion_cursors/.test(sql)) {
       cursorWrites.push(params!);
+      lastRuns[params![0] as number] = new Date(Date.now()).toISOString();
+      return { rows: [] };
+    }
+    if (/UPDATE ingestion_cursors SET last_run_at/.test(sql)) {
+      touchWrites.push(params!);
+      lastRuns[params![0] as number] = new Date(Date.now()).toISOString();
       return { rows: [] };
     }
     throw new Error(`unexpected SQL: ${sql}`);
@@ -119,6 +149,7 @@ async function run(event: unknown, context?: { getRemainingTimeInMillis: () => n
 beforeEach(() => {
   jest.useFakeTimers({ now: NOW });
   cursorWrites = [];
+  touchWrites = [];
   fetchCalls = [];
   logs = [];
   mockS3Send.mockReset().mockResolvedValue({});
@@ -308,5 +339,143 @@ describe('eco-ingestion: backfill manual', () => {
 
     expect(res.body).toContain('FAILED');
     expect(cursorWrites).toEqual([]);
+  });
+});
+
+describe('eco-ingestion: orden de las queries (la más desatendida primero)', () => {
+  const agencies: AgencyFixture[] = [
+    { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11, 12] },
+    { slug: 'gobernadora', brandwatch_project_id: 3, brandwatch_query_ids: [31] },
+    { slug: 'df', brandwatch_project_id: 2, brandwatch_query_ids: [21, -1001] },
+  ];
+  const order = () => fetchCalls.map((c) => c.queryId);
+
+  test('recorre todas las agencias de la query que lleva más tiempo sin servirse a la más reciente', async () => {
+    setupAgencies(agencies, {}, {
+      11: '2026-10-28T15:00:00.000Z',
+      12: '2026-10-28T14:40:00.000Z',
+      31: '2026-10-28T14:50:00.000Z',
+      21: '2026-10-28T14:10:00.000Z',
+    });
+    setupFetch(() => ({ status: 200 }));
+
+    const res = await run({});
+
+    expect(order()).toEqual(['21', '12', '31', '11']);
+    expect(logs.some((l) => l.includes('Query order: df:21, ddecpr:12, gobernadora:31, ddecpr:11'))).toBe(true);
+    expect(res.body).not.toContain('ABORTED');
+  });
+
+  test('cada query usa el project id de SU agencia aunque se intercalen', async () => {
+    setupAgencies(agencies, {}, {
+      11: '2026-10-28T15:00:00.000Z',
+      12: '2026-10-28T14:40:00.000Z',
+      31: '2026-10-28T14:50:00.000Z',
+      21: '2026-10-28T14:10:00.000Z',
+    });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({});
+
+    const urls = (global as unknown as { fetch: jest.Mock }).fetch.mock.calls.map((c) => String(c[0]));
+    const projectOf = (queryId: string) =>
+      /\/projects\/(\d+)\//.exec(urls.find((u) => new URL(u).searchParams.get('queryId') === queryId)!)![1];
+    expect(projectOf('21')).toBe('2'); // df
+    expect(projectOf('12')).toBe('1'); // ddecpr
+    expect(projectOf('31')).toBe('3'); // gobernadora
+  });
+
+  test('sin fila de cursor (nunca servida) va primero; sin datos de nadie se conserva el orden de la tabla', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00.000Z', 12: '2026-10-28T14:40:00.000Z' });
+    setupFetch(() => ({ status: 200 }));
+    await run({});
+    // 31 y 21 no tienen cursor: van primero, en el orden de la tabla
+    expect(order()).toEqual(['31', '21', '12', '11']);
+
+    fetchCalls = [];
+    setupAgencies(agencies);
+    setupFetch(() => ({ status: 200 }));
+    await run({});
+    expect(order()).toEqual(['11', '12', '31', '21']);
+  });
+
+  test('tras un aborto por 429, lo que se saltó va antes que lo que ya se sirvió', async () => {
+    const lastRuns: Record<number, string> = {
+      11: '2026-10-28T14:00:00.000Z',
+      12: '2026-10-28T14:01:00.000Z',
+      31: '2026-10-28T14:02:00.000Z',
+      21: '2026-10-28T14:03:00.000Z',
+    };
+    // Corrida 1: la 11 sale bien y la 12 agota sus reintentos por 429 (cuota parcial).
+    setupAgencies(agencies, {}, lastRuns);
+    setupFetch((q) => (q === '12' ? { status: 429 } : { status: 200, mentions: page(2, '2026-10-28T15:00:00.000+0000') }));
+    const first = await run({});
+    expect(first.body).toContain('ABORTED por cortacircuitos');
+    expect(first.body).toContain('gobernadora:31, df:21');
+    expect(order().filter((q, i, a) => a.indexOf(q) === i)).toEqual(['11', '12']);
+
+    // Corrida 2 (la cuota volvió): la 11 ya se sirvió → va al final; las saltadas, antes.
+    fetchCalls = [];
+    setupAgencies(agencies, {}, lastRuns);
+    setupFetch(() => ({ status: 200 }));
+    const second = await run({});
+    expect(order()).toEqual(['12', '31', '21', '11']);
+    expect(second.body).not.toContain('ABORTED');
+  });
+
+  test('una corrida sin menciones anota last_run_at sin mover el cursor', async () => {
+    setupAgencies([{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11, 12] }]);
+    setupFetch((q) => (q === '12' ? { status: 200, mentions: page(1, '2026-10-28T14:30:00.000+0000') } : { status: 200 }));
+
+    await run({});
+
+    expect(cursorWrites).toEqual([[12, '2026-10-28T14:30:00.000Z', 1]]);
+    expect(touchWrites).toEqual([[11]]);
+  });
+
+  test('un fallo al anotar last_run_at no marca la query como fallida', async () => {
+    mockPgQuery.mockImplementation(async (sql: string) => {
+      if (/FROM agencies/.test(sql)) return { rows: [{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] }] };
+      if (/FROM ingestion_cursors/.test(sql)) return { rows: [] };
+      throw new Error('db caída');
+    });
+    setupFetch(() => ({ status: 200 }));
+
+    const res = await run({});
+
+    expect(res.body).toContain('Query 11: 0 mentions in 0 pages');
+    expect(res.body).not.toContain('FAILED');
+  });
+
+  test('si no se puede leer ingestion_cursors, se conserva el orden de la tabla y la corrida sigue', async () => {
+    setupAgencies(agencies, {}, { 31: '2026-10-28T09:00:00.000Z' }, { servedAtFails: true });
+    setupFetch(() => ({ status: 200 }));
+
+    const res = await run({});
+
+    expect(order()).toEqual(['11', '12', '31', '21']);
+    expect(res.body).not.toContain('FAILED');
+    expect(logs.some((l) => l.includes('No se pudo leer ingestion_cursors para ordenar'))).toBe(true);
+  });
+
+  test('el refresh también va de la más desatendida, sin anotar nada', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00.000Z', 12: '2026-10-28T14:00:00.000Z' });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({ refreshLastHours: 48 });
+
+    expect(order()).toEqual(['31', '21', '12', '11']);
+    expect(touchWrites).toEqual([]);
+    expect(cursorWrites).toEqual([]);
+  });
+
+  test('el backfill manual conserva el orden de la tabla y no anota nada', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00.000Z', 12: '2026-10-28T14:00:00.000Z' });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({ backfillStartDate: '2026-10-20T00:00:00Z', backfillEndDate: '2026-10-21T00:00:00Z' });
+
+    expect(order()).toEqual(['11', '12', '31', '21']);
+    expect(touchWrites).toEqual([]);
   });
 });
