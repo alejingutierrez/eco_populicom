@@ -9,6 +9,7 @@ import {
   contextoTexto,
   decideCamino,
   triage,
+  TRIAGE_SYSTEM,
   validateClasificacion,
   type Clasificacion,
   type TipoPregunta,
@@ -435,5 +436,79 @@ describe('subestimación con reglas solas (CI, sin LLM)', () => {
     // Los ítems con reglaBase son los que exigen camino por una regla (no por el contenido).
     expect(reglaBase.length).toBeGreaterThan(0);
     expect(fallos).toEqual([]);
+  });
+});
+
+describe('prompt del clasificador: positivos y paracrisis (spec §8.1)', () => {
+  it('un texto positivo para publicar sin controversia va a camino 1 y no cuenta como duda', () => {
+    const l = TRIAGE_SYSTEM.split('\n');
+    const c1 = l.find((x) => x.startsWith('- 1 = '))!;
+    expect(c1).toContain('texto positivo para publicar');
+    expect(c1).toMatch(/agradecimiento, felicitación/);
+    expect(c1).toMatch(/no responde a ninguna crítica, rumor ni polémica/);
+    expect(c1).toMatch(/no cuenta como duda/);
+  });
+
+  it('el positivo que responde a una controversia, se disculpa o corrige va a camino 2', () => {
+    const c2 = TRIAGE_SYSTEM.split('\n').find((x) => x.startsWith('- 2 = '))!;
+    expect(c2).toMatch(/agradecimiento o una felicitación que responde a una crítica/);
+    expect(c2).toMatch(/disculpa o corrige un error/);
+    expect(c2).toContain('camino 2');
+  });
+
+  it('el campo paracrisis cubre preguntar si crece o si tiene prensa, pero no el conteo de quejas aisladas', () => {
+    const sit = TRIAGE_SYSTEM.split('\n').find((x) => x.startsWith('Escala de situacion'))!;
+    expect(sit).toMatch(/si crece, si va en aumento, si ya tiene prensa o si va a explotar/);
+    expect(sit).toMatch(/Una queja aislada, sin eco, no es paracrisis/);
+    expect(sit).toMatch(/solo pide el contenido o el conteo/);
+  });
+
+  it('los pisos por reglas no cambian con los positivos: veda con redacción sube a 2', () => {
+    const f = computeFloor(
+      inp({ indiceHoy: 0.1, vedaActiva: true, clasificacion: clas({ tipo_pregunta: 'redaccion', camino_sugerido: 1 }) }),
+    );
+    expect(f.piso).toBe(2);
+    expect(f.legalObligatorio).toBe(true);
+  });
+});
+
+describe('triage-set/holdout-7.json', () => {
+  interface H7 { id: string; tipo: string; variante: string; pregunta: string; contexto: TriageInputs; caminoMinimo: 1 | 2 | 3; reglaBase: boolean }
+  const dir = path.join(__dirname, 'triage-set');
+  const H7: H7[] = JSON.parse(fs.readFileSync(path.join(dir, 'holdout-7.json'), 'utf8'));
+  const toks = (t: string) => new Set(t.toLowerCase().match(/\p{L}[\p{L}\p{N}]*|\p{N}+/gu) ?? []);
+  const jaccard = (a: Set<string>, b: Set<string>) => {
+    let n = 0;
+    for (const x of a) if (b.has(x)) n++;
+    return n / (a.size + b.size - n);
+  };
+
+  it('tiene al menos 183 casos, ids únicos y mezcla de los tres caminos', () => {
+    expect(H7.length).toBeGreaterThanOrEqual(183);
+    expect(new Set(H7.map((x) => x.id)).size).toBe(H7.length);
+    for (const c of [1, 2, 3]) expect(H7.filter((x) => x.caminoMinimo === c).length).toBeGreaterThanOrEqual(40);
+  });
+
+  it('ninguna etiqueta queda por debajo del piso por reglas con su propio tipo', () => {
+    const bajo = H7.filter(
+      (x) =>
+        computeFloor({ ...x.contexto, clasificacion: clas({ tipo_pregunta: x.tipo as TipoPregunta }) }).piso > x.caminoMinimo,
+    ).map((x) => x.id);
+    expect(bajo).toEqual([]);
+  });
+
+  it('sin casi copias (similitud de tokens < 0,5) con los demás sets ni entre sí', () => {
+    const otros = fs
+      .readdirSync(dir)
+      .filter((f) => /^(set|holdout(-[2-6])?)\.json$/.test(f))
+      .flatMap((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as { pregunta: string }[])
+      .map((x) => toks(x.pregunta));
+    const propios = H7.map((x) => toks(x.pregunta));
+    const malos: string[] = [];
+    propios.forEach((t, i) => {
+      if (otros.some((o) => jaccard(t, o) >= 0.5)) malos.push(`${H7[i].id} (otro set)`);
+      for (let j = 0; j < i; j++) if (jaccard(t, propios[j]) >= 0.5) malos.push(`${H7[i].id} ~ ${H7[j].id}`);
+    });
+    expect(malos).toEqual([]);
   });
 });
