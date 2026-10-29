@@ -292,7 +292,6 @@ describe('validateClasificacion', () => {
     ['clave extra', { ...VALIDA, extra: 1 }],
     ['clave faltante', (() => { const { motivo, ...r } = VALIDA; return r; })()],
     ['booleano como texto', { ...VALIDA, reversible: 'si' }],
-    ['motivo de 201 caracteres', { ...VALIDA, motivo: 'x'.repeat(201) }],
     ['camino 0', { ...VALIDA, camino_sugerido: 0 }],
     ['camino como texto', { ...VALIDA, camino_sugerido: '2' }],
     ['arreglo en vez de objeto', []],
@@ -303,6 +302,12 @@ describe('validateClasificacion', () => {
 
   it('motivo de exactamente 200 caracteres es válido', () => {
     expect(validateClasificacion({ ...VALIDA, motivo: 'x'.repeat(200) })).not.toBeNull();
+  });
+
+  it('motivo de más de 200 caracteres se recorta y la clasificación se acepta', () => {
+    const r = validateClasificacion({ ...VALIDA, motivo: 'x'.repeat(250) });
+    expect(r).not.toBeNull();
+    expect(r?.motivo.length).toBe(200);
   });
 });
 
