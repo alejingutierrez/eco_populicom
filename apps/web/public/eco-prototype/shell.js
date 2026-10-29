@@ -84,7 +84,7 @@ window.ecoGetPeriodParams = getPeriodParams;
 // Espejo client-side del PERIOD_DAYS canónico de @eco/shared/dates.ts. Si se
 // añade un chip de período nuevo, actualizar AMBOS.
 const ECO_PERIOD_DAYS = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  'HOY': 1, '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
   '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
 };
 
@@ -92,7 +92,8 @@ const ECO_PERIOD_DAYS = {
  * Ventana efectiva del dashboard como { from, to } (YYYY-MM-DD, días AST
  * inclusivos). Custom → lo guardado por el FilterBar; preset → la MISMA
  * ventana que termina HOY (incluido, parcial) que calculan /api/eco-data, /api/overview
- * (dashboardWindowYmdInTZ); los correos siguen con días cerrados (closedWindowYmdInTZ). Los drill-downs la usan para mandar
+ * (dashboardPresetWindowYmdInTZ); '1D' («Ayer») es el último día cerrado y
+ * 'HOY' el día en curso; los correos siguen con días cerrados (closedWindowYmdInTZ). Los drill-downs la usan para mandar
  * bordes explícitos a /api/eco-mentions en vez de dejar que el endpoint
  * derive una ventana rolling distinta — la causa #1 de "el número de la
  * modal no cuadra con la card" (auditoría consistencia 2026-08).
@@ -110,7 +111,8 @@ function ecoResolvedWindow() {
     }
     const days = ECO_PERIOD_DAYS[period] || 7;
     const cursor = new Date(Date.now() - 4 * 3600 * 1000); // reloj AST
-    // hoy AST, incluido aunque sea parcial
+    // hoy AST, incluido aunque sea parcial; «Ayer» termina en el día cerrado
+    if (period === '1D') cursor.setUTCDate(cursor.getUTCDate() - 1);
     const to = cursor.toISOString().slice(0, 10);
     cursor.setUTCDate(cursor.getUTCDate() - (days - 1));
     const from = cursor.toISOString().slice(0, 10);
@@ -572,11 +574,11 @@ function SearchField({ size = 'sm', value, onChange, onKeyDown, placeholder = SE
 // Período del header (H1, sep-2026). Los cuatro más usados van a la vista en un
 // segmentado; el resto y el rango personalizado viven en «Más». Antes eran 8
 // chips + «Fechas» = 9 controles para UNA decisión. Los nombres largos dicen
-// lo que el código abreviado no: la ventana termina AYER (día cerrado AST), así
-// que '1D' es «Ayer», no «Hoy».
+// lo que el código abreviado no: los presets terminan HOY (día parcial) salvo
+// '1D', que es «Ayer» (día cerrado AST); el día en curso solo es 'HOY'.
 const PERIOD_QUICK = ['7D', '30D', '3M', '1A'];
 const PERIOD_OPTIONS = [
-  ['1D', 'Ayer'], ['5D', 'Últimos 5 días'], ['7D', 'Últimos 7 días'], ['30D', 'Últimos 30 días'],
+  ['HOY', 'Hoy (parcial)'], ['1D', 'Ayer'], ['5D', 'Últimos 5 días'], ['7D', 'Últimos 7 días'], ['30D', 'Últimos 30 días'],
   ['3M', 'Últimos 3 meses'], ['6M', 'Últimos 6 meses'], ['1A', 'Último año'], ['Max', 'Máximo (2 años)'],
 ];
 const ECO_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -684,9 +686,10 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
             cifras se leen como de hoy. */}
         <div style={{ marginTop: 'var(--sp-05)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', display: 'flex', gap: 'var(--sp-15)', flexWrap: 'wrap', alignItems: 'center' }}>
           {showPeriod && rangeLabel && <span className="mono" style={{ color: 'var(--text-2)' }}>{rangeLabel}</span>}
-          {/* Solo los presets terminan ayer; un rango personalizado termina donde
-              el usuario dijo, y ahí «al cierre de ayer» sería falso. */}
-          {showPeriod && !isCustom && <span>· hasta hoy (día parcial)</span>}
+          {/* Los presets terminan hoy (parcial) salvo «Ayer», que es el día
+              cerrado; un rango personalizado termina donde el usuario dijo. */}
+          {showPeriod && !isCustom && period === '1D' && <span>· día cerrado</span>}
+          {showPeriod && !isCustom && period !== '1D' && <span>· hasta hoy (día parcial)</span>}
           {showPeriod && isCustom && <span>· rango personalizado</span>}
           {!showPeriod && <span>Ventanas fijas al cierre de ayer ({ecoFmtRange(ecoYesterdayAst(), ecoYesterdayAst())}) · 30 días, 7 contra 7 y 26 semanas</span>}
           {current && current.archived && (
@@ -831,9 +834,10 @@ function CommandPalette({ onClose, onNav, onSetPeriod, onSetMode, onMentionClick
     ...paletteNav.filter((n) => paletteAgency === '__all__' || ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     ...SYSTEM_NAV.filter((n) => ecoCanSeePage(n.key)).map((n) => ({ kind: 'Ir a', label: n.label, action: () => onNav(n.key), icon: n.icon })),
     // Period (real)
+    { kind: 'Período', label: 'Hoy, día parcial (HOY)', action: () => onSetPeriod('HOY'), icon: 'Calendar' },
     { kind: 'Período', label: 'Ayer (1D)', action: () => onSetPeriod('1D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 5 días (5D)', action: () => onSetPeriod('5D'), icon: 'Calendar' },
-    { kind: 'Período', label: 'Últimos 7 días cerrados (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
+    { kind: 'Período', label: 'Últimos 7 días (7D)', action: () => onSetPeriod('7D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 30 días (30D)', action: () => onSetPeriod('30D'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 3 meses (3M)', action: () => onSetPeriod('3M'), icon: 'Calendar' },
     { kind: 'Período', label: 'Últimos 6 meses (6M)', action: () => onSetPeriod('6M'), icon: 'Calendar' },

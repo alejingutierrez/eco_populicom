@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { mentions, municipalities, mentionMunicipalities } from '@eco/database';
 import { sql, eq, and, gte, lte, count } from 'drizzle-orm';
-import { dashboardWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
+import { dashboardPresetWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 
@@ -12,7 +12,7 @@ const TZ = 'America/Puerto_Rico';
 
 // Mismo mapa de períodos que /api/eco-data, para que la ventana coincida.
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  'HOY': 1, '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
   '1M': 30, '2M': 60, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
   '24h': 1, '7d': 7, '30d': 30, '90d': 90,
 };
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
   } else {
     const period = searchParams.get('period') || '1M';
     const days = PERIOD_DAYS[period] ?? 30;
-    const w = dashboardWindowYmdInTZ(days, new Date(), TZ);
+    const w = dashboardPresetWindowYmdInTZ(period, days, new Date(), TZ);
     since = new Date(`${w.startYmd}T00:00:00-04:00`);
     until = new Date(`${w.endYmd}T23:59:59.999-04:00`);
   }

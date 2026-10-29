@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
 import {
-  dashboardWindowYmdInTZ,
+  dashboardPresetWindowYmdInTZ,
   ymdInTimeZone,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   type PgClientLike,
@@ -59,7 +59,7 @@ const FALLBACK_MODEL = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.anthropic.cl
 const PRIMARY_UNIVERSE_TAG = '+primary';
 
 const PERIOD_DAYS: Record<string, number> = {
-  '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
+  'HOY': 1, '1D': 1, '5D': 5, '7D': 7, '30D': 30, '90D': 90,
   '1M': 30, '3M': 90, '6M': 180, '1A': 365, 'Max': 730,
 };
 
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!days) {
       return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
     }
-    const w = dashboardWindowYmdInTZ(days, new Date(), TZ);
+    const w = dashboardPresetWindowYmdInTZ(periodKey, days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }
