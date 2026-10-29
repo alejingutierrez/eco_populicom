@@ -91,8 +91,8 @@ const ECO_PERIOD_DAYS = {
 /**
  * Ventana efectiva del dashboard como { from, to } (YYYY-MM-DD, días AST
  * inclusivos). Custom → lo guardado por el FilterBar; preset → la MISMA
- * ventana cerrada terminando AYER que calculan /api/eco-data, /api/overview
- * y los correos (closedWindowYmdInTZ). Los drill-downs la usan para mandar
+ * ventana que termina HOY (incluido, parcial) que calculan /api/eco-data, /api/overview
+ * (dashboardWindowYmdInTZ); los correos siguen con días cerrados (closedWindowYmdInTZ). Los drill-downs la usan para mandar
  * bordes explícitos a /api/eco-mentions en vez de dejar que el endpoint
  * derive una ventana rolling distinta — la causa #1 de "el número de la
  * modal no cuadra con la card" (auditoría consistencia 2026-08).
@@ -110,7 +110,7 @@ function ecoResolvedWindow() {
     }
     const days = ECO_PERIOD_DAYS[period] || 7;
     const cursor = new Date(Date.now() - 4 * 3600 * 1000); // reloj AST
-    cursor.setUTCDate(cursor.getUTCDate() - 1);            // ayer (día cerrado)
+    // hoy AST, incluido aunque sea parcial
     const to = cursor.toISOString().slice(0, 10);
     cursor.setUTCDate(cursor.getUTCDate() - (days - 1));
     const from = cursor.toISOString().slice(0, 10);
@@ -686,7 +686,7 @@ function Header({ title, period, setPeriod, agency, agencies, onOpenCommand, onO
           {showPeriod && rangeLabel && <span className="mono" style={{ color: 'var(--text-2)' }}>{rangeLabel}</span>}
           {/* Solo los presets terminan ayer; un rango personalizado termina donde
               el usuario dijo, y ahí «al cierre de ayer» sería falso. */}
-          {showPeriod && !isCustom && <span>· al cierre de ayer</span>}
+          {showPeriod && !isCustom && <span>· hasta hoy (día parcial)</span>}
           {showPeriod && isCustom && <span>· rango personalizado</span>}
           {!showPeriod && <span>Ventanas fijas al cierre de ayer ({ecoFmtRange(ecoYesterdayAst(), ecoYesterdayAst())}) · 30 días, 7 contra 7 y 26 semanas</span>}
           {current && current.archived && (

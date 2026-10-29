@@ -117,7 +117,7 @@ MÉTRICA: ${input.metricLabel} (${input.metric})
 
 COMO SE MUESTRA AL USUARIO: ${displayLine}
 INTERPRETACIÓN DE DIRECCIÓN: ${direction[input.metric]}
-VENTANA: últimos ${input.windowDays} días (cerrada, terminando ayer en AST PR).
+VENTANA: últimos ${input.windowDays} días, hasta hoy inclusive (el último día puede ser parcial; AST PR).
 CAMBIO vs ventana anterior de la misma duración: ${deltaStr}
 RANGO HISTÓRICO 90d: P25 = ${p25Str} ; P75 = ${p75Str}
 

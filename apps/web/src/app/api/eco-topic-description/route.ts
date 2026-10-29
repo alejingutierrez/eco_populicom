@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ,
+  dashboardWindowYmdInTZ,
   ymdInTimeZone,
   TOPIC_DESCRIPTION_SYSTEM_PROMPT,
   type PgClientLike,
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!days) {
       return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
     }
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = dashboardWindowYmdInTZ(days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }

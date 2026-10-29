@@ -14,7 +14,7 @@ import {
 } from '@eco/database';
 import { sql, eq, and, gte, lt, lte, desc, count, inArray } from 'drizzle-orm';
 import {
-  closedWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
+  dashboardWindowYmdInTZ, loadMetricsForWindow, addDaysYmd, type PgClientLike,
   formatMetric, formatDelta, formatVelocity,
   sourceKey, sourceLabel,
   loadSentimentTotals,
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         const prevStartYmd = addDaysYmd(prevEndYmd, -(customRange.days - 1));
         return { startYmd, endYmd, prevStartYmd, prevEndYmd };
       })()
-    : closedWindowYmdInTZ(days, new Date(), TZ);
+    : dashboardWindowYmdInTZ(days, new Date(), TZ);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
   // Para el filtro de mentions usamos los bordes de la ventana traducidos a

@@ -85,7 +85,23 @@ export function closedWindowYmdInTZ(
   timeZone: string = 'America/Puerto_Rico',
 ): ClosedWindow {
   const today = ymdInTimeZone(now, timeZone);
-  const endYmd = addDaysYmd(today, -1);
+  return windowEndingOn(addDaysYmd(today, -1), daysBack);
+}
+
+/**
+ * Ventana de `daysBack` días que termina HOY (incluido, parcial) en la TZ
+ * dada. Es la que usa el dashboard: el día en curso siempre aparece. Los
+ * correos y el podcast siguen con `closedWindowYmdInTZ` (solo días cerrados).
+ */
+export function dashboardWindowYmdInTZ(
+  daysBack: number,
+  now: Date = new Date(),
+  timeZone: string = 'America/Puerto_Rico',
+): ClosedWindow {
+  return windowEndingOn(ymdInTimeZone(now, timeZone), daysBack);
+}
+
+function windowEndingOn(endYmd: string, daysBack: number): ClosedWindow {
   const startYmd = addDaysYmd(endYmd, -(daysBack - 1));
   const prevEndYmd = addDaysYmd(startYmd, -1);
   const prevStartYmd = addDaysYmd(prevEndYmd, -(daysBack - 1));
@@ -129,8 +145,9 @@ export interface ResolvedWindow extends ClosedWindow {
  *  - `from`/`to` válidos (YYYY-MM-DD, from <= to) ganan sobre `period` y se
  *    interpretan como días calendario AST inclusivos; la ventana previa tiene
  *    la misma duración terminando justo antes de `from`.
- *  - Si no, `period` se traduce a una ventana CERRADA de N días terminando
- *    AYER en la TZ dada (`closedWindowYmdInTZ`) — nunca rolling, nunca hoy.
+ *  - Si no, `period` se traduce a una ventana de N días que termina HOY en la
+ *    TZ dada (`dashboardWindowYmdInTZ`), con el día en curso incluido aunque
+ *    sea parcial. Los correos NO usan esta función (ver closedWindowYmdInTZ).
  *  - Devuelve null si no hay ni rango válido ni período conocido: el caller
  *    decide si eso es 400 o un default, pero NUNCA debe degradar en silencio
  *    a otra ventana.
@@ -153,6 +170,6 @@ export function resolveWindow(opts: {
   }
   const days = PERIOD_DAYS[opts.period ?? ''];
   if (!days) return null;
-  const w = closedWindowYmdInTZ(days, opts.now ?? new Date(), opts.timeZone ?? 'America/Puerto_Rico');
+  const w = dashboardWindowYmdInTZ(days, opts.now ?? new Date(), opts.timeZone ?? 'America/Puerto_Rico');
   return { ...w, custom: false, days };
 }

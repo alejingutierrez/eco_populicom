@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@eco/database';
 import { mentions, municipalities, mentionMunicipalities } from '@eco/database';
 import { sql, eq, and, gte, lte, count } from 'drizzle-orm';
-import { closedWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
+import { dashboardWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
   } else {
     const period = searchParams.get('period') || '1M';
     const days = PERIOD_DAYS[period] ?? 30;
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = dashboardWindowYmdInTZ(days, new Date(), TZ);
     since = new Date(`${w.startYmd}T00:00:00-04:00`);
     until = new Date(`${w.endYmd}T23:59:59.999-04:00`);
   }
