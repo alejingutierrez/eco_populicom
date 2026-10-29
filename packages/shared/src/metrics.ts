@@ -98,8 +98,11 @@ export interface ComputedMetrics {
 /** Menciones mínimas para publicar los índices de una ventana. */
 export const MIN_WINDOW_MENTIONS = 20;
 
-/** Desde este % de negativas la velocidad de crisis cuenta aunque no supere «lo usual» (V5.1). */
+/** Desde este % de negativas la velocidad de crisis cuenta entera aunque no supere «lo usual» (V5.1). */
 const MAJORITY_NEGATIVE_SHARE = 0.5;
+
+/** Puntos de % de negativas sobre «lo usual» en que la velocidad de crisis llega a contar entera (V5.2). */
+const VELOCITY_RAMP_SHARE = 0.06;
 
 // ============================================================
 // Utilidades
@@ -265,9 +268,10 @@ export function calculateMetrics(
   //             + ½ contra lo usual ((negativas − negativas de los hasta 30
   //               días previos) / 0.25: 25 puntos sobre lo usual satura)
   //   velocidad = z de las NEGATIVAS por día contra los 30 días previos / 3
-  //               (desviación mínima 1 para que un historial plano no dispare)
-  //               SOLO si la ventana es más negativa que lo usual O ya es
-  //               mayoritariamente negativa (≥50%) (V5.1, 28-oct)
+  //               (desviación mínima 1 para que un historial plano no dispare),
+  //               multiplicado por una rampa: 0 si la ventana no es más negativa
+  //               que lo usual, lineal hasta 1 a 6 puntos sobre lo usual, y 1
+  //               si ya es mayoritariamente negativa (≥50%) (V5.1 gate, V5.2 rampa)
   //   riesgo    = confianza · (0.5·severidad + 0.5·velocidad)
   // V5.1: la velocidad cuenta negativas ABSOLUTAS, así que un post viral con
   // 10× los comentarios (DDEC 27-oct: 155 menciones, 12 negativas = 7.7%, bajo
@@ -283,6 +287,17 @@ export function calculateMetrics(
   // Efecto (7D, post-quiebre): semanas en Normal DDEC 29→74%, Gobernadora
   // 0→78%, AAA 0→67%; los mismos eventos siguen arriba (26-may DDEC, 5-may
   // Gobernadora, 17-jun y 11-ago AAA, 17-jul SGPR).
+  // V5.2 (29-oct): el gate de V5.1 era binario: apenas sobre lo usual daba la
+  // velocidad entera. DDEC 28-oct (160 menciones, 134 comentarios de Facebook de
+  // un solo post, 20 negativas = 12.5% vs 10.5% usual; unas 12 de las 20 eran
+  // quejas por la dirección o los guantes del negocio, no por la agencia) subía
+  // a 0.56 (Alerta) con severidad 0.13. La rampa de 6 puntos lo deja en 0.23
+  // (Normal). El ancho es un criterio, no una medida: 5 puntos lo dejaba en 0.26
+  // (Elevado) y 10 apagaba semanas reales de Gobernadora (22–27-jul).
+  // Backtest (816 ventanas 7D y 460 de 1 día desde 20-abr, 5 agencias): 13
+  // cambios de banda en cada tipo; los eventos grandes no cambian; se pierden 4
+  // Alertas en 7D (DDEC 18–21-jun: 48% de negativas vs 45–47% usual, <50%) y 5
+  // en 1D, todas a 2–5 puntos sobre lo usual.
   //
   // Las bandas no cambian: NORMAL <0.25 · ELEVADO <0.40 · ALERTA <0.60 · CRISIS.
   const negShare = negativeCount / totalMentions;
@@ -296,13 +311,15 @@ export function calculateMetrics(
   let crisisVelocity = 0;
   // Sin baseline (historia insuficiente) no hay «lo usual» contra qué comparar:
   // se conserva el comportamiento V5 y la velocidad no se condiciona.
-  const velocityApplies =
-    baselineNegShare == null || negShare > baselineNegShare || negShare >= MAJORITY_NEGATIVE_SHARE;
-  if (crisisHistory.length >= 7 && velocityApplies) {
+  const velocityRamp =
+    baselineNegShare == null || negShare >= MAJORITY_NEGATIVE_SHARE
+      ? 1
+      : clamp01((negShare - baselineNegShare) / VELOCITY_RAMP_SHARE);
+  if (crisisHistory.length >= 7 && velocityRamp > 0) {
     const negHistory = crisisHistory.map((h) => h.negativeCount);
     const negPerDay = windowDays > 1 ? negativeCount / windowDays : negativeCount;
     const zNeg = (negPerDay - average(negHistory)) / Math.max(stddev(negHistory), 1);
-    crisisVelocity = clamp01(zNeg / 3);
+    crisisVelocity = clamp01(zNeg / 3) * velocityRamp;
   }
   const crisisConfidence: number = totalMentions > 1 ? Math.min(Math.log10(totalMentions) / 2, 1.0) : 0;
   const crisisRiskScore: number = (0.5 * crisisSeverity + 0.5 * crisisVelocity) * crisisConfidence;

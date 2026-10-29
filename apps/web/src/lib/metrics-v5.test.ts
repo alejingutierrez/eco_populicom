@@ -78,10 +78,39 @@ describe('Riesgo de crisis V5', () => {
     expect(m.crisisVelocity).toBe(0);
     expect(m.crisisRiskScore!).toBeLessThan(0.25); // Normal (antes: velocidad 1.0 → 0.53 = Alerta)
   });
-  test('V5.1: apenas por encima de lo usual la velocidad vuelve a contar', () => {
-    const steady = history().map((h, i) => ({ ...h, negativeCount: i % 2 ? 28 : 32 })); // usual 30%
-    const m = calculateMetrics(agg({ totalMentions: 400, positiveCount: 40, neutralCount: 238, negativeCount: 122 }), steady); // 30.5%
-    expect(m.crisisVelocity).toBe(1);
+  describe('V5.2: la velocidad entra en rampa hasta 6 puntos sobre lo usual', () => {
+    const steady = () => history().map((h, i) => ({ ...h, negativeCount: i % 2 ? 28 : 32 })); // usual 30%, ~30 negativas/día
+    // 400 menciones y las negativas indicadas: el z absoluto es enorme (satura en 1), así que la velocidad es la rampa pura.
+    const at = (negativeCount: number) =>
+      calculateMetrics(agg({ totalMentions: 400, positiveCount: 40, neutralCount: 360 - negativeCount, negativeCount }), steady());
+
+    test('en lo usual o por debajo la velocidad es 0', () => {
+      expect(at(120).crisisVelocity).toBe(0); // 30.0%
+      expect(at(110).crisisVelocity).toBe(0); // 27.5%
+    });
+    test('apenas por encima de lo usual casi no cuenta (antes del gate binario contaba entera)', () => {
+      expect(at(122).crisisVelocity).toBeCloseTo(0.5 / 6, 2); // 30.5%
+    });
+    test('es lineal: a 3 puntos sobre lo usual cuenta la mitad', () => {
+      expect(at(132).crisisVelocity).toBeCloseTo(0.5, 2); // 33%
+    });
+    test('a 6 puntos o más sobre lo usual cuenta entera', () => {
+      expect(at(144).crisisVelocity).toBe(1); // 36%
+      expect(at(200).crisisVelocity).toBe(1); // 50%: mayoritariamente negativa
+    });
+    test('caso real DDEC 28-oct (160 menciones, 20 negativas = 12.5% vs ~10.5% usual) ya no es Alerta', () => {
+      const usual = history({ totalMentions: 19, negativeCount: 2 }); // 10.5% usual, ~2 negativas/día
+      const m = calculateMetrics(agg({ totalMentions: 160, positiveCount: 24, neutralCount: 116, negativeCount: 20 }), usual);
+      expect(m.crisisBaselineNegShare).toBe(0.105);
+      expect(m.crisisVelocity).toBeCloseTo(0.33, 2); // z enorme, pero solo 2 puntos sobre lo usual
+      expect(m.crisisRiskScore!).toBeLessThan(0.25); // Normal (con el gate binario: velocidad 1.0 → 0.56 = Alerta)
+    });
+    test('un pico real sigue arriba: 24.8% vs 12% usual (Gobernadora 21-jul) conserva la velocidad entera', () => {
+      const usual = history({ totalMentions: 100, negativeCount: 12 });
+      const m = calculateMetrics(agg({ totalMentions: 222, positiveCount: 10, neutralCount: 157, negativeCount: 55 }), usual);
+      expect(m.crisisVelocity).toBe(1);
+      expect(m.crisisRiskScore!).toBeGreaterThanOrEqual(0.6); // Crisis
+    });
   });
   describe('V5.1: excepción para conversaciones mayoritariamente negativas (≥50%)', () => {
     // Agencia crítica por naturaleza (como AAA): usual 70% de negativas, ~14/día.
