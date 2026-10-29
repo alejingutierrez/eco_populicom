@@ -1639,7 +1639,7 @@ function MentionsScreen({ onMentionClick }) {
   const cm = D.CURRENT_METRICS || {};
   const disp = cm.display || {};
   const metrics = [
-    { k: 'Menciones', v: window.ecoFmtCount(cm.totalMentions), s: 'periodo · cierre de ayer' },
+    { k: 'Menciones', v: window.ecoFmtCount(cm.totalMentions), s: 'periodo · hasta hoy' },
     { k: 'Alcance', v: fmt(cm.totalReach), s: '' },
     { k: 'Engagement rate', ...mnMetric(disp.engagementRate) },
     { k: 'Velocidad', ...mnMetric(disp.velocity, 'vs periodo ant.') },

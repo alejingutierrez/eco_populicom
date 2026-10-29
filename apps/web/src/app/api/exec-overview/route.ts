@@ -3,7 +3,7 @@ import { getDb, getPool, agencies, alertHistory, alertRules } from '@eco/databas
 import { sql, eq, inArray, and } from 'drizzle-orm';
 import {
   buildSentimentReport,
-  closedWindowYmdInTZ,
+  dashboardWindowYmdInTZ,
   formatPeriodLabel,
   loadMetricsForWindow,
   formatMetric,
@@ -240,7 +240,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const window = customRange
       ? customRange
-      : closedWindowYmdInTZ(daysBack as number, new Date(), TZ);
+      : dashboardWindowYmdInTZ(daysBack as number, new Date(), TZ);
     const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
 
     // Agencias activas (id + slug) + sus nombres. listActiveAgencies solo trae

@@ -35,22 +35,22 @@ describe('resolveWindow — ventana canónica', () => {
   // 2026-08-10T18:00Z = 14:00 AST → "hoy AST" = 2026-08-10, ayer = 08-09.
   const now = new Date('2026-08-10T18:00:00Z');
 
-  test('preset 7D = 7 días cerrados terminando AYER en AST', () => {
+  test('preset 7D = 7 días terminando HOY (parcial) en AST', () => {
     expect(resolveWindow({ period: '7D', now })).toMatchObject({
-      startYmd: '2026-08-03',
-      endYmd: '2026-08-09',
-      prevStartYmd: '2026-07-27',
-      prevEndYmd: '2026-08-02',
+      startYmd: '2026-08-04',
+      endYmd: '2026-08-10',
+      prevStartYmd: '2026-07-28',
+      prevEndYmd: '2026-08-03',
       custom: false,
       days: 7,
     });
   });
 
   test('cruce de medianoche AST (04:00Z): la ventana salta de día', () => {
-    // 03:59Z = 23:59 AST del 08-09 → ayer AST = 08-08.
-    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T03:59:00Z') })!.endYmd).toBe('2026-08-08');
-    // 04:00Z = 00:00 AST del 08-10 → ayer AST = 08-09.
-    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T04:00:00Z') })!.endYmd).toBe('2026-08-09');
+    // 03:59Z = 23:59 AST del 08-09 → hoy AST = 08-09.
+    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T03:59:00Z') })!.endYmd).toBe('2026-08-09');
+    // 04:00Z = 00:00 AST del 08-10 → hoy AST = 08-10.
+    expect(resolveWindow({ period: '1D', now: new Date('2026-08-10T04:00:00Z') })!.endYmd).toBe('2026-08-10');
   });
 
   test('from/to gana sobre period y deriva la ventana previa de igual duración', () => {

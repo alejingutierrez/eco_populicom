@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, metricInsightsCache } from '@eco/database';
 import { and, eq, desc } from 'drizzle-orm';
-import { closedWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS, type PgClientLike } from '@eco/shared';
+import { dashboardWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger } from '@/lib/ai-cache-freshness';
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!days) {
       return NextResponse.json({ error: `Unsupported period: ${periodKey}` }, { status: 400 });
     }
-    const w = closedWindowYmdInTZ(days, new Date(), TZ);
+    const w = dashboardWindowYmdInTZ(days, new Date(), TZ);
     startYmd = w.startYmd;
     endYmd = w.endYmd;
   }
