@@ -114,6 +114,54 @@ Detalles:
   requests, saltaría casi siempre las mismas; hoy cabe holgado (~19).
 - El log trae una línea `Query order: ddecpr:…, df:…` con el orden de la corrida.
 
+### Lookback de la corrida incremental (8 h)
+
+Cada corrida incremental pide `[cursor − lookback, ahora]`: el cursor es la
+fecha de la mención más reciente y Brandwatch indexa con retraso (mediana ~3 h
+en web, p90 ~7 h), así que lo que llega tarde queda "detrás" del cursor y sin
+lookback solo lo recogería el refresh de 07:00Z. El lookback se paga entero en
+cada corrida: es la palanca más directa sobre la cuota.
+
+`INCREMENTAL_LOOKBACK_MS` pasó de **12 h a 8 h** (29-oct-2026). Medición que lo
+sustenta:
+
+- **Costo con 12 h**: 11–13 requests por corrida (6 queries, una página mínima
+  cada una; Gobernadora 4 páginas, DF 2, la principal de DDEC 2–3) = 22–26 de
+  los ~30 por 10 min, compartidos con `biq-ingestion`. El 29-oct 07:15Z DF
+  agotó sus 3 intentos.
+- **Qué ocupa las páginas**: los *shells* de X (sin fecha ni texto, nunca se
+  hidratan) son el 83 % de los resultados de Gobernadora (325 de 390) y el 81 %
+  de DF (180 de 221) en las páginas crudas de S3. Crecen con las horas de
+  ventana igual que lo demás.
+- **Estimado por lookback** (requests por corrida; piso = 6, una por query):
+  12 h → 11–13; **8 h → ~8** (Gobernadora 3, DF 1, DDEC principal 1–2); 6 h →
+  ~7 (Gobernadora 2). De 8 h a 6 h solo se ahorra ~1 request más.
+- **Qué se pierde**: menciones que Brandwatch indexa con más de 8 h de rezago
+  ya no entran en la corrida siguiente, esperan al refresh de 07:00Z (hasta
+  ~24 h más tarde); no se pierden. Con las ingestas incrementales del 28-oct
+  15:05Z → 29-oct 15:00Z de DDEC y Gobernadora (sin la hora 07Z, sin artículos
+  con fecha sin hora; n = 319): 8 h dejaría fuera el ~6.6 %, 6 h el ~10.7 %,
+  10 h el ~0.6 %. Muestra chica y de un solo día: si el realtime empeora,
+  revisar esto primero.
+- **Dónde se nota el recorte**: sobre todo en las fuentes con más rezago (nota
+  de DDEC, no-noticias de Gobernadora); Facebook/Instagram y las noticias de
+  Gobernadora casi no cambian (≥ 91 % llega en ≤ 6 h).
+
+Medir de nuevo (SELECT sobre `mentions`: `ingested_at − published_at` de las
+ingestas `brandwatch` fuera de la hora 07 UTC) y comparar contra la línea base
+de `project_ingestion_cursor_shells` antes de tocar el valor.
+
+Alternativas que no se hicieron (más grandes que este cambio):
+
+1. **Lookback en dos niveles**: 6 h en cada corrida y 12 h solo en la de la hora
+   en punto. Promedia ~7 requests por corrida (11 una vez por hora) y lo tardío
+   entra en ≤ 1 h; necesita una regla sobre el minuto de la corrida.
+2. **No pedir los shells de X**: filtrar por `pageType` en la petición de
+   Brandwatch quitaría ~80 % de los resultados de Gobernadora y DF (y sus
+   páginas) sin perder ninguna mención con texto. Hay que verificar con la API
+   (en una ventana con la ingesta pausada, 429s incluidos) si el filtro admite
+   exclusión o hay que listar los tipos que sí interesan.
+
 ### Refresh diario de 07:00Z
 
 Era el disparador habitual de la espiral: ~19 requests en 20 s. Ahora va a un

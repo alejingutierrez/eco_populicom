@@ -205,7 +205,11 @@ recorren de la que lleva más tiempo sin servirse a la más reciente (clave:
 `ingestion_cursors.last_run_at`, no `last_mention_date`; ver
 `infra/lambda/ingestion/query-order.ts` y la línea `Query order:` del log), así
 que lo que el cortacircuitos se salta hoy va primero mañana; el backfill manual
-conserva el orden de la tabla. Detalle, parámetros y el diseño del
+conserva el orden de la tabla. La corrida incremental re-escanea 8 h hacia
+atrás del cursor (`INCREMENTAL_LOOKBACK_MS` en `index.ts`; era 12 h): cada hora
+de más cuesta páginas de cuota y lo que ocupa las páginas son los shells de X
+de Gobernadora y DF; lo más tardío lo recoge el refresh de 07:00Z. Detalle,
+parámetros y el diseño del
 limitador compartido con BrandIQ (no implementado) en
 `docs/tecnica/ingesta-brandwatch-429.md`. Las pruebas
 (`infra/test/ingestion-*.test.ts`) simulan `fetch`, AWS y el reloj: ninguna

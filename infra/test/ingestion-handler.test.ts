@@ -273,6 +273,32 @@ describe('eco-ingestion: corrida normal (sin regresiones)', () => {
   });
 });
 
+describe('eco-ingestion: lookback de la corrida normal', () => {
+  const agency = { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] };
+  const startDateOf = () => {
+    const url = String((global as unknown as { fetch: jest.Mock }).fetch.mock.calls[0][0]);
+    return new URL(url).searchParams.get('startDate');
+  };
+
+  test('re-escanea 8 h hacia atrás del cursor (cada hora de más cuesta páginas de cuota)', async () => {
+    setupAgencies([agency], { 11: '2026-10-28T14:00:00.000Z' });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({});
+
+    expect(startDateOf()).toBe('2026-10-28T06:00:00.000Z');
+  });
+
+  test('sin cursor arranca 24 h atrás del reloj, sin lookback', async () => {
+    setupAgencies([agency]);
+    setupFetch(() => ({ status: 200 }));
+
+    await run({});
+
+    expect(startDateOf()).toBe(new Date(NOW - 24 * 60 * MINUTE).toISOString());
+  });
+});
+
 describe('eco-ingestion: refresh diario de 07:00Z', () => {
   // El handler muta el evento (traduce refreshLastHours a una ventana): uno nuevo por prueba.
   const refresh = () => ({ refreshLastHours: 48 });
