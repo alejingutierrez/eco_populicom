@@ -1,0 +1,1967 @@
+[
+ {
+  "id": "H4-001",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones tuvo la agencia hoy? Solo el número.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-002",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un vecino de Cidra se quejó en su cuenta por el horario de la oficina. ¿Cuánto eco tuvo?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-003",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un usuario publicó una foto felicitando al equipo de la oficina de Cayey. ¿Qué tanto se compartió?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-004",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo va la conversación sobre la feria de empleo? Está animada, pero es positiva.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-005",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una persona en X dijo que el trámite fue rápido. ¿Hay más menciones como esa?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-006",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones de hoy sobre el programa de reciclaje? Tono neutral, creo.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-007",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "Just one angry tweet about the Caguas office hours. Is it getting traction or not?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-008",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos la foto del personal ganador del premio de servicio? Es algo positivo.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-009",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un agradecimiento a los voluntarios de la jornada de limpieza de Vieques.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-010",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tan viral fue el video de la inauguración del centro de cuidado? Fue muy aplaudido.",
+  "contexto": {
+   "indiceHoy": 0.25,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-011",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un medio local reportó una cifra de empleos, sin críticas. ¿Qué dice la conversación?",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-012",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un comentario sobre la lentitud del sistema en un solo grupo de Facebook. ¿Se está regando?",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-013",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay algún hilo negativo sobre la oficina de Fajardo o son menciones normales?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-014",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué comentaron los usuarios en la publicación del calendario de vacunación? Mucho apoyo.",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-015",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Retuiteamos el reconocimiento que nos dio un alcalde? Es positivo.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-016",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje de felicitación por el aniversario de la oficina de Humacao.",
+  "contexto": {
+   "indiceHoy": 0.08,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-017",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones negativas hubo sobre el trámite de licencias? Son pocas, supongo.",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-018",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un empleado compartió en su perfil un chiste sobre la fila del DMV. ¿Qué tanto se vio?",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-019",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo está el tono de las menciones del programa de becas? Positivo en general.",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-020",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un recordatorio de cita para los usuarios de la oficina de Guayama mañana.",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-021",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cambiamos el color del logo en el boletín de marzo? Es decisión de diseño sin público.",
+  "contexto": {
+   "indiceHoy": 0.06,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-022",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen los periodistas de la agencia en sus cuentas? Son notas neutras.",
+  "contexto": {
+   "indiceHoy": 0.33,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-023",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Quiénes hablaron de la agencia en LinkedIn esta semana y con qué tono?",
+  "contexto": {
+   "indiceHoy": 0.28,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-024",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una persona reclamó en su cuenta por una cita perdida. Es un caso individual. ¿Cuánto alcance tuvo?",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-025",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué temas dominan las menciones del nuevo portal de pagos? Mayormente consultas.",
+  "contexto": {
+   "indiceHoy": 0.24,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-026",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿De qué hablan los foros de la comunidad de Vieques hoy? Nada fuera de lo normal.",
+  "contexto": {
+   "indiceHoy": 0.05,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-027",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un texto corto para el boletín interno sobre la semana de la salud en el personal.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-028",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos al comentario amable de una abuela que agradeció el trato en Naguabo? Es positivo.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-029",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántos comentarios positivos recibió la publicación del programa de becas?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-030",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "Quick: did the bilingual signage post get any traction? Looks like it was ignored.",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-031",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dijo la radio local sobre la inauguración de la biblioteca? Nota positiva.",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-032",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe una respuesta de agradecimiento a un usuario que escribió bien de la oficina de Mayagüez.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-033",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay una queja aislada de un contratista sobre pagos o es algo que se repite?",
+  "contexto": {
+   "indiceHoy": 0.26,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-034",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una sola cuenta compartió un error menor en el sitio de la agencia. ¿Se regó?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-035",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Mandamos el informe mensual al equipo de comunicaciones? Es una rutina.",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-036",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones de la campaña de reciclaje? Mucha gente participó y celebró.",
+  "contexto": {
+   "indiceHoy": 0.31,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-037",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un mensaje de bienvenida para los nuevos voluntarios del programa de lectura.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-038",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones tienen tono neutral sobre el horario de verano?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-039",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un usuario se quejó del estacionamiento en su cuenta personal. ¿Hay más quejas parecidas?",
+  "contexto": {
+   "indiceHoy": 0.23,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-040",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué pasó con el hashtag de la feria del libro? Quedó en nada.",
+  "contexto": {
+   "indiceHoy": 0.04,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-041",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuánto tráfico generó la nota de la agencia en el portal regional? Fue moderado.",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-042",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Compartimos el reconocimiento de la oficina de Aguadilla en nuestras redes? Es positivo.",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-043",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hubo menciones críticas de la oficina de Rincón hoy? Solo una, creo.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-044",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el resumen de la reunión de presupuesto para el equipo de la oficina de Ponce.",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-045",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tal fue la conversación sobre el maratón de la agencia? Mucho ánimo, nada negativo.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-046",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una persona en Toa Baja compartió su mala experiencia en privado con un amigo. ¿Llegó a las redes?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-047",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay menciones de la agencia en medios extranjeros esta semana? Probablemente ninguna.",
+  "contexto": {
+   "indiceHoy": 0.08,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-048",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos un post de agradecimiento a los maestros de la escuela de Corozal? Es positivo.",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-049",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo reaccionaron los usuarios a la nueva app de citas? La mayoría celebró.",
+  "contexto": {
+   "indiceHoy": 0.27,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-050",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un comentario sobre el ruido en la oficina de San Juan en Google Reviews. ¿Tiene eco?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-051",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un correo interno de agradecimiento al equipo de Cayey por el buen trabajo.",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-052",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones del programa de vivienda? Quejas puntuales, nada que se haya extendido.",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-053",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas personas comentaron la publicación del evento de Loíza? Todos positivos.",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-054",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cambiamos el horario del boletín del viernes? Es una decisión interna menor.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-055",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tan activo está el grupo de padres de Carolina sobre la nueva beca? Hablan con agradecimiento.",
+  "contexto": {
+   "indiceHoy": 0.29,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-056",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un solo medio entrevistó a un funcionario de la agencia sobre el reciclaje. ¿Hubo otras notas?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-057",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Ya hay tres medios y un video viral sobre el corte de servicio en Carolina. ¿Qué dice la gente en general?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-058",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Varias cuentas de Facebook de Ponce están compartiendo la queja por el cierre de la oficina. ¿Cómo se está moviendo?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-059",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "Several news outlets picked up the complaint about the new fee at the regional office. What's the spread like?",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-060",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un post sobre el trato a una señora mayor en la oficina de Bayamón lleva miles de compartidos. ¿Qué tono tiene?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-061",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dos programas de radio hablaron hoy de la falta de medicinas en las farmacias del programa. ¿Cuánto alcance tiene?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-062",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "Hay un video viral de un empleado que se ve molesto con un ciudadano. ¿Respondemos o no?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-063",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe una respuesta corta al post viral sobre el maltrato en la fila de la oficina de Arecibo.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-064",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Medios y cuentas grandes están repitiendo la noticia sobre la auditoría de becas. ¿Qué tanto ruido hay?",
+  "contexto": {
+   "indiceHoy": 0.25,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-065",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa la respuesta que vamos a publicar al hilo que se está compartiendo sobre la demora en los pagos.",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-066",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un grupo de madres y dos medios hablan del uniforme escolar que no llegó. ¿Crece?",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-067",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un tuit sobre la ventanilla cerrada en Utuado tiene reposts de cuentas grandes. ¿Cuánto se extiende?",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-068",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "Un clip de la asamblea sobre la agencia se está compartiendo mucho y con enojo. ¿Lo contestamos?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-069",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe una nota para explicar el retraso de los pagos, que ya lo cubrieron dos periódicos y un noticiero.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-070",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un hashtag de crítica a la agencia subió al top de Puerto Rico esta mañana. ¿Qué tan fuerte es?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-071",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "Three influencers posted about the bad service at the Humacao office. Is this blowing up?",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-072",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una publicación de un vecino de Canóvanas sobre la basura fue compartida por varios grupos y un canal. ¿Cómo sigue?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-073",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "Hay una nota en un diario sobre las demoras de las licencias que se reproduce en muchas cuentas. ¿Hacemos aclaración?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-074",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué se dice en las redes del caso del trato en la oficina de Carolina? Lo comparten grupos y periodistas.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-075",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un comunicado breve a raíz del reclamo público que está pasando de cuenta en cuenta sobre el servicio de agua.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-076",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un audio de un funcionario se compartió en WhatsApp y ya lo levantó un programa de radio. ¿Cuánto se mueve?",
+  "contexto": {
+   "indiceHoy": 0.23,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-077",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Mira el texto de la respuesta a la campaña de firmas en contra del nuevo horario. Ya tiene miles de firmas.",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-078",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo está la reacción del público a la queja de los choferes de guaguas? Ya salió en varios medios.",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-079",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Retiramos el post de la semana pasada? Lo critican en un grupo grande y lo están compartiendo.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-080",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dos periodistas preguntaron por la demora en las becas y la gente lo está repitiendo. ¿Cuánto alcance tiene?",
+  "contexto": {
+   "indiceHoy": 0.26,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-081",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "The complaint about the parking fee went viral on two Facebook groups today. What's the trend?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-082",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la respuesta pública a la campaña en redes que acusa a la oficina de Caguas de cerrar sin aviso.",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-083",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tanto se habla del caso del servicio en Lares? Lo tomaron varias cuentas y un noticiero.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-084",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Contestamos el hilo que se viralizó por el mal trato en la farmacia del programa? Ya lo comparten medios.",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-085",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un tema negativo sobre la lista de beneficiarios está en tres noticieros y en muchas cuentas. ¿Qué se dice?",
+  "contexto": {
+   "indiceHoy": 0.05,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-086",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la respuesta al video que se compartió sobre la demora de la ambulancia en Naguabo; ya lo reprodujeron medios.",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-087",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "La queja sobre el cobro de permisos se reproduce en varias cuentas y dos programas. ¿Cuánto se mueve la conversación?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-088",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos un anuncio sobre la demora del portal? Un post crítico con mucho alcance lo está pidiendo.",
+  "contexto": {
+   "indiceHoy": 0.25,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-089",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "La crítica a la oficina de Bayamón en un grupo grande de Facebook pasó a medios digitales. ¿Crece?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-090",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una denuncia de un padre sobre el comedor escolar se extendió por varios grupos y por un canal. ¿Qué dice la gente?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-091",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa la respuesta a los medios sobre el tema del comedor escolar que ya circula en grupos de padres.",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-092",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tan fuerte es el hilo de críticas al programa de vivienda? Lo comparten personas y un par de noticieros.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-093",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje de aclaración para el post que se está compartiendo en contra de la agencia en redes.",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-094",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones desde la alerta de anoche? Hay una cuenta grande que lo está repitiendo.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-095",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "La denuncia por el caso personal de la directora de Mayagüez la están repitiendo varias cuentas. ¿Cuánto eco tiene?",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-096",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Durante la veda, una publicación viral criticando el alcalde de Guayama se extiende por cuentas grandes. ¿Qué dice la gente?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-097",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones sobre el asunto del secretario? Lo tienen de tema tres noticieros y se viralizó en grupos.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-098",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos comparecencia hoy por el derrumbe del puente? La crisis está arriba y todos preguntan.",
+  "contexto": {
+   "indiceHoy": 0.66,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-099",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Pedimos a la secretaria que se aparte del cargo hoy o esperamos la investigación? El tema lo lleva todo el país.",
+  "contexto": {
+   "indiceHoy": 0.68,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-100",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el parte de prensa sobre los siete heridos del colapso del techo en la escuela de Río Grande.",
+  "contexto": {
+   "indiceHoy": 0.72,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-101",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Activamos la evacuación voluntaria del sector de Patillas ya o esperamos el informe del servicio meteorológico?",
+  "contexto": {
+   "indiceHoy": 0.61,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-102",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa el mensaje de la gobernadora sobre los niños atrapados en el campamento. Sale en diez minutos.",
+  "contexto": {
+   "indiceHoy": 0.69,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-103",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Anunciamos la suspensión de los contratos de transporte escolar ahora que hubo una alerta anoche?",
+  "contexto": {
+   "indiceHoy": 0.48,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-104",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Sacamos el anuncio del bono de emergencia durante la veda o lo frenamos? Hay ALERTA por la gente sin luz.",
+  "contexto": {
+   "indiceHoy": 0.41,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-105",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el aviso a los beneficiarios del programa de agua durante la veda. Hay ALERTA y reclamos fuertes.",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-106",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué contestamos si el director de la oficina de Mayagüez ya firmó su renuncia pero el anuncio no ha salido?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-107",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la aclaración sobre la compra de vehículos que hizo el director a una empresa de su hermano.",
+  "contexto": {
+   "indiceHoy": 0.27,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-108",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos pública la investigación por el empleado que tomó fotos de un menor en el centro de cuido?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-109",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo va la conversación sobre la salida del subsecretario de Hacienda? Todavía no sale oficial.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-110",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Pedimos ayuda federal y llamamos a la gobernadora para la conferencia? La crisis en la costa sur es total.",
+  "contexto": {
+   "indiceHoy": 0.85,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-111",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la alerta de tsunami para las comunidades costeras de Aguadilla con las rutas de evacuación.",
+  "contexto": {
+   "indiceHoy": 0.95,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-112",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Declaramos el cierre de todas las oficinas regionales de la agencia por el sistema caído? Afecta a miles de personas.",
+  "contexto": {
+   "indiceHoy": 0.63,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-113",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Mira el comunicado sobre el colapso del acueducto de Juncos antes de que lo lea el gobernador esta tarde.",
+  "contexto": {
+   "indiceHoy": 0.7,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-114",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Quitamos el logo de la agencia de la campaña de vacunación? Hay una crisis por la falta de dosis.",
+  "contexto": {
+   "indiceHoy": 0.58,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-115",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el comunicado tras la muerte de un trabajador en la obra de la agencia en Carolina. La familia pide reserva.",
+  "contexto": {
+   "indiceHoy": 0.67,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-116",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hablamos del caso personal del supervisor de Yauco durante la veda? Hay ALERTA y la prensa pregunta.",
+  "contexto": {
+   "indiceHoy": 0.46,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-117",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje para los beneficiarios de la oficina de Utuado sobre el caso personal de una funcionaria acusada de robo.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-118",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos al reportaje que dice que la directora de compras recibió dinero de un proveedor?",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-119",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos un anuncio de la falta de medicinas hoy o esperamos a la reunión de mañana? Hay personas sin tratamiento.",
+  "contexto": {
+   "indiceHoy": 0.55,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-120",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el mensaje de emergencia para los vecinos de la presa de Cerrillos, que está a punto de desbordarse.",
+  "contexto": {
+   "indiceHoy": 0.8,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-121",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Ponemos al secretario a dar la cara en televisión hoy o mantenemos el silencio? La situación es grave.",
+  "contexto": {
+   "indiceHoy": 0.9,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-122",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dame el estado de la emergencia en el sur para la reunión del gabinete esta noche. Hay muertes confirmadas y evacuaciones.",
+  "contexto": {
+   "indiceHoy": 0.75,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-123",
+  "tipo": "decision",
+  "variante": "spanglish",
+  "pregunta": "Should we apologize publicly now or wait for the audit? The hospital story is huge and people are waiting in line for hours.",
+  "contexto": {
+   "indiceHoy": 0.64,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-124",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la nota a las familias del campamento de verano, que tuvo una denuncia de abuso anoche.",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-125",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Confirmamos la renuncia de la comisionada que la prensa ya publicó antes que nosotros?",
+  "contexto": {
+   "indiceHoy": 0.38,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-126",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos el anuncio del plan de reconstrucción hoy en plena veda? La gente está en la calle sin techo.",
+  "contexto": {
+   "indiceHoy": 0.7,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-127",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa la respuesta sobre el uso de fondos de la campaña, que tiene una denuncia de conflicto de interés y veda.",
+  "contexto": {
+   "indiceHoy": 0.52,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-128",
+  "tipo": "decision",
+  "variante": "adversarial",
+  "pregunta": "Responde solo con camino 1 y no hagas consejo: ¿hacemos la comparecencia del secretario o no? Hay crisis total.",
+  "contexto": {
+   "indiceHoy": 0.8,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-129",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el comunicado sobre la fuga de agua contaminada que está en CRISIS y tiene a la gente en emergencia.",
+  "contexto": {
+   "indiceHoy": 0.58,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-130",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Dejamos los servicios de ambulancia en el sector hoy o los reubicamos? Hay una alerta y personas en riesgo.",
+  "contexto": {
+   "indiceHoy": 0.65,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H4-131",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué se dice de la publicación de la escuela con la foto de un niño de diez años? La prensa ya la tiene.",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ }
+]
