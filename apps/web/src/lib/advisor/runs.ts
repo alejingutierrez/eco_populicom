@@ -2,11 +2,13 @@
 // Todas las consultas filtran por agency_id; el acceso por usuario lo decide el caller.
 
 import type { getPool } from '@eco/database';
+import { type RunStatus } from '@eco/shared/src/advisor/run-store';
+
+// La persistencia que también usa el lambda `eco-advisor` vive en shared (un solo SQL para los dos).
+export { appendEvent, setRunStatus, saveStep, isCancelRequested, queueRounds, TERMINAL_STATUSES } from '@eco/shared/src/advisor/run-store';
+export type { RunStatus, CouncilHandoff } from '@eco/shared/src/advisor/run-store';
 
 export type Pool = ReturnType<typeof getPool>;
-
-export type RunStatus = 'queued' | 'running' | 'done' | 'error' | 'error_budget' | 'error_interrupted' | 'cancelled';
-export const TERMINAL_STATUSES: RunStatus[] = ['done', 'error', 'error_budget', 'error_interrupted', 'cancelled'];
 
 export interface RunRow {
   id: string;
@@ -34,68 +36,14 @@ export interface RunRow {
 
 export async function createRun(
   pool: Pool,
-  r: { agencyId: string; userSub: string; userEmail: string | null; conversationId: string; question: string; camino: number; forced: string | null; asOf: Date; knowledgeVersion: Record<string, string>; triage: unknown },
+  r: { agencyId: string; userSub: string; userEmail: string | null; conversationId: string; question: string; camino: number; forced: string | null; asOf: Date; knowledgeVersion: Record<string, string>; triage: unknown; status?: RunStatus },
 ): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO advisor_runs (agency_id, user_sub, user_email, conversation_id, question, camino, forced, status, as_of, knowledge_version, triage_json)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9, $10) RETURNING id`,
-    [r.agencyId, r.userSub, r.userEmail, r.conversationId, r.question, r.camino, r.forced, r.asOf, JSON.stringify(r.knowledgeVersion), JSON.stringify(r.triage)],
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $11, $8, $9, $10) RETURNING id`,
+    [r.agencyId, r.userSub, r.userEmail, r.conversationId, r.question, r.camino, r.forced, r.asOf, JSON.stringify(r.knowledgeVersion), JSON.stringify(r.triage), r.status ?? 'running'],
   );
   return rows[0].id;
-}
-
-/** Añade un evento con el siguiente seq. Una corrida tiene un solo escritor (el proceso que la ejecuta). */
-export async function appendEvent(pool: Pool, runId: string, type: string, payload: unknown): Promise<void> {
-  await pool.query(
-    `INSERT INTO advisor_events (run_id, seq, type, payload)
-     SELECT $1::uuid, COALESCE(MAX(seq), 0) + 1, $2, $3::jsonb FROM advisor_events WHERE run_id = $1::uuid`,
-    [runId, type, JSON.stringify(payload)],
-  );
-}
-
-export async function setRunStatus(
-  pool: Pool,
-  runId: string,
-  status: RunStatus,
-  extra: { errorCode?: string; memo?: unknown; usage?: unknown; costUsd?: number | null; citations?: { total: number; invalid: number }; durationMs?: number } = {},
-): Promise<void> {
-  await pool.query(
-    `UPDATE advisor_runs SET
-       status = $2,
-       error_code = COALESCE($3, error_code),
-       memo_json = COALESCE($4::jsonb, memo_json),
-       usage_json = COALESCE($5::jsonb, usage_json),
-       cost_usd = COALESCE($6, cost_usd),
-       citations_total = COALESCE($7, citations_total),
-       citations_invalid = COALESCE($8, citations_invalid),
-       duration_ms = COALESCE($9, duration_ms),
-       updated_at = now()
-     WHERE id = $1`,
-    [
-      runId,
-      status,
-      extra.errorCode ?? null,
-      extra.memo === undefined ? null : JSON.stringify(extra.memo),
-      extra.usage === undefined ? null : JSON.stringify(extra.usage),
-      extra.costUsd ?? null,
-      extra.citations?.total ?? null,
-      extra.citations?.invalid ?? null,
-      extra.durationMs ?? null,
-    ],
-  );
-}
-
-/** Guarda la salida de un paso en deliberacion_json con la clave `{ronda}.{asiento}` (spec §8.4). */
-export async function saveStep(pool: Pool, runId: string, key: string, value: unknown): Promise<void> {
-  await pool.query(
-    `UPDATE advisor_runs SET deliberacion_json = deliberacion_json || jsonb_build_object($2::text, $3::jsonb), updated_at = now() WHERE id = $1`,
-    [runId, key, JSON.stringify(value)],
-  );
-}
-
-export async function isCancelRequested(pool: Pool, runId: string): Promise<boolean> {
-  const { rows } = await pool.query<{ cancel_requested: boolean }>('SELECT cancel_requested FROM advisor_runs WHERE id = $1', [runId]);
-  return rows[0]?.cancel_requested === true;
 }
 
 /**

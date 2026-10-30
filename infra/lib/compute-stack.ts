@@ -134,6 +134,10 @@ export class ComputeStack extends cdk.Stack {
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-ai-tasks`,
         // Configuración → Importar menciones (/api/admin/imports).
         `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-mention-import`,
+        // Asesor de crisis, camino 3: la web entrega la corrida al consejo (Event).
+        // El consejo se activa al poner ADVISOR_FUNCTION_NAME=eco-advisor en el task def; sin esa
+        // variable la ruta usa el panel, así que desplegar este permiso antes que el lambda es inocuo.
+        `arn:aws:lambda:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:function:eco-advisor`,
       ],
     }));
     // /api/admin/imports deja el xlsx subido en s3://<raw>/bunker/ antes de
