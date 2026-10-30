@@ -286,6 +286,22 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
   const corpus = { seenIds: d.seenIds, manual: MANUAL_TEXT, legal: LEGAL_RULES_TEXT };
   const retryBase = d.retryBaseMs ?? 1500;
 
+  // Señal interna: si una llamada de un abanico falla de verdad, se abortan las hermanas en vuelo
+  // (no se paga por trabajo que ya no se va a usar). La cancelación del usuario entra por d.signal.
+  const inner = new AbortController();
+  if (d.signal) {
+    if (d.signal.aborted) inner.abort();
+    else d.signal.addEventListener('abort', () => inner.abort(), { once: true });
+  }
+  const all = async <T,>(fns: Array<() => Promise<T>>): Promise<T[]> => {
+    try {
+      return await Promise.all(fns.map((f) => f()));
+    } catch (e) {
+      inner.abort();
+      throw e;
+    }
+  };
+
   const checkCancel = async () => {
     if (d.signal?.aborted || (await d.store.isCancelRequested())) throw new CancelledSignal();
   };
@@ -307,7 +323,7 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (d.signal?.aborted) throw new CancelledSignal();
       try {
-        const res = await d.llm.create({ ...req, signal: d.signal });
+        const res = await d.llm.create({ ...req, signal: inner.signal });
         ledger.add(req.model, res);
         return res;
       } catch (e) {
@@ -342,7 +358,7 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     if (items.length === 0) return;
     await fn(items[0]);
     await checkCancel();
-    await Promise.all(items.slice(1).map(fn));
+    await all(items.slice(1).map((it) => () => fn(it)));
   }
 
   try {
@@ -436,8 +452,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
         await emit('seat_done', { asiento: seat, resumen: seat === 'abogado_diablo' ? 'premortem por camino' : seat === 'periodista' ? 'titular de mañana por camino' : 'ataque por camino', citasInvalidas: 0 });
         return out;
       });
-    const [premortems, headlines, attacks] = await Promise.all([
-      attackCall('abogado_diablo', DEVILS_ADVOCATE_BRIEF, 'devils', PREMORTEM_SCHEMA as unknown as Obj, (x) => {
+    const [premortems, headlines, attacks] = await all<Obj>([
+      () => attackCall('abogado_diablo', DEVILS_ADVOCATE_BRIEF, 'devils', PREMORTEM_SCHEMA as unknown as Obj, (x) => {
         const p = validatePremortems(x);
         if (!p) return null;
         const arr = p.premortems as Array<{ camino: number; objeciones: unknown[] }>;
@@ -446,8 +462,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
         const cubiertos = new Set(arr.filter((e) => e.objeciones.length > 0).map((e) => e.camino));
         return okIdx && cubiertos.size === nCaminos ? p : null;
       }, 'premortem_invalid'),
-      attackCall('periodista', JOURNALIST_BRIEF, 'main', HEADLINE_SCHEMA as unknown as Obj, (x) => validateHeadlines(x, nCaminos), 'headline_invalid'),
-      attackCall('oposicion', OPPOSITION_BRIEF, 'main', ATTACK_SCHEMA as unknown as Obj, (x) => validateAttacks(x, nCaminos), 'attack_invalid'),
+      () => attackCall('periodista', JOURNALIST_BRIEF, 'main', HEADLINE_SCHEMA as unknown as Obj, (x) => validateHeadlines(x, nCaminos), 'headline_invalid'),
+      () => attackCall('oposicion', OPPOSITION_BRIEF, 'main', ATTACK_SCHEMA as unknown as Obj, (x) => validateAttacks(x, nCaminos), 'attack_invalid'),
     ]);
     if (!('3.done' in checkpoints)) {
       await step('3.done', async () => true);
@@ -527,10 +543,10 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
           },
           `memo_${which}_invalid`,
         );
-      const [head, caminos, da1] = await Promise.all([
-        part(MEMO_HEAD_SCHEMA as unknown as Obj, 'head'),
-        part(MEMO_CAMINOS_SCHEMA as unknown as Obj, 'caminos'),
-        part(MEMO_DA_SCHEMA as unknown as Obj, 'da'),
+      const [head, caminos, da1] = await all<Obj>([
+        () => part(MEMO_HEAD_SCHEMA as unknown as Obj, 'head'),
+        () => part(MEMO_CAMINOS_SCHEMA as unknown as Obj, 'caminos'),
+        () => part(MEMO_DA_SCHEMA as unknown as Obj, 'da'),
       ]);
       let da = da1;
       const faltan = missingObjections(da, objeciones);
@@ -558,8 +574,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     if (!('6.revision' in checkpoints)) {
       await emit('round_started', { ronda: 6, nombre: ROUND_NAMES[6] });
       const borradores = ((memo.borradores as Obj[]) ?? []).slice(0, 4);
-      const revisados: Obj[] = await Promise.all(
-        borradores.map(async (b): Promise<Obj> => {
+      const revisados: Obj[] = await all<Obj>(
+        borradores.map((b) => async (): Promise<Obj> => {
           const mec = reviewDraft(String(b.texto), { vedaActiva: d.vedaActiva, esFamilia: d.agency.slug === 'df' });
           let modelo: { puntos: Array<{ id: number; ok: boolean; nota: string }>; titular_peor: string } | null = null;
           try {
@@ -592,7 +608,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     const snap = ledger.snapshot();
     return { status: 'done', memo, citations: { total: citations.total, invalid: citations.invalid }, usage: snap.usage, costUsd: snap.costUsd, calls: ledger.calls, alarms };
   } catch (e) {
-    if (e instanceof CancelledSignal || (e as { name?: string })?.name === 'AbortError' || d.signal?.aborted) {
+    // Solo cancelación del usuario/plazo; un fallo real que abortó a sus hermanas no se disfraza de cancelación.
+    if (e instanceof CancelledSignal || ((e as { name?: string })?.name === 'AbortError' && !!d.signal?.aborted) || d.signal?.aborted) {
       const snap = ledger.snapshot();
       return { status: 'cancelled', memo: null, citations: { total: 0, invalid: 0 }, usage: snap.usage, costUsd: snap.costUsd, calls: ledger.calls, alarms: null };
     }

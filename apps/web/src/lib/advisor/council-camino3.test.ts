@@ -254,6 +254,27 @@ describe('runCouncil', () => {
     expect(out.status).toBe('cancelled');
   });
 
+  test('una falla real en el abanico aborta a las hermanas y el error original sube (no se disfraza de cancelación)', async () => {
+    const inner = fakeLLM();
+    const aborted: boolean[] = [];
+    const llm: AdvisorLLM = {
+      stream: inner.llm.stream,
+      create: async (req) => {
+        const seat = /Asiento: (\w+)/.exec(String(req.messages[0].content))?.[1];
+        if (req.outputSchema === POSITION_SCHEMA && seat === 'legal') throw new Error('validación imposible');
+        if (req.outputSchema === POSITION_SCHEMA && seat !== 'estratega') {
+          await new Promise((r) => setTimeout(r, 15));
+          aborted.push(!!req.signal?.aborted);
+        }
+        return inner.llm.create(req);
+      },
+    };
+    await expect(runCouncil(base(llm, memStore().store))).rejects.toThrow('validación imposible');
+    await new Promise((r) => setTimeout(r, 40));
+    expect(aborted.length).toBeGreaterThan(0);
+    expect(aborted.every(Boolean)).toBe(true);
+  });
+
   test('reintenta errores de transporte (límite de tasa) y no los de validación', async () => {
     const inner = fakeLLM();
     let n = 0;
