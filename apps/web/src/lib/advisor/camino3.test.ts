@@ -158,6 +158,7 @@ describe('runCamino3Front', () => {
     const handoff = JSON.parse(String(q.params[1]));
     expect(handoff.seenIds).toEqual(expect.arrayContaining(['M-48213', 'M-48214']));
     expect(handoff.injection[0].id).toBe('M-48214');
+    expect(events.some((e) => e.type === 'status' && /intento de manipulación/.test(String(e.payload.texto)) && /M-48214/.test(String(e.payload.texto)))).toBe(true);
     expect(handoff.context).toMatchObject({ vedaActiva: false, guiaProbable: 'G-1' });
     expect(q.sql).toMatch(/status = 'rounds_queued'/);
     // Orden: la hoja queda en la base antes de invocar el lambda, y se invoca una sola vez.

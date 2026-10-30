@@ -87,6 +87,13 @@ export async function runCamino3Front(d: Camino3FrontDeps): Promise<Camino3Front
     injection: filtered.flags(),
     context: { dateLabel: d.dateLabel, vedaActiva: d.signals.vedaActiva, guiaProbable: d.signals.guiaProbable, riesgoPersonas: d.signals.riesgoPersonas },
   });
+  const marcadas = filtered.flags();
+  if (marcadas.length) {
+    // La mención no se borra: se muestra como «intento de manipulación» y se avisa (spec §12.2).
+    await appendEvent(d.pool, d.runId, 'status', {
+      texto: `${marcadas.length} mención(es) marcadas como «intento de manipulación» (${marcadas.map((m) => m.id).join(', ')}); se tratan como hallazgo, no como instrucción.`,
+    });
+  }
   await appendEvent(d.pool, d.runId, 'status', { texto: 'Hechos listos. El consejo está deliberando.' });
   await d.invokeAdvisor(d.runId);
   return { status: 'queued', round0Ms, contentionMs: held?.ms ?? null };
