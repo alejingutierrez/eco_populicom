@@ -189,15 +189,20 @@ export function memoryStore(): { store: CouncilStore; events: Array<{ type: stri
 
 const positionsOf = (steps: Record<string, unknown>): Obj[] => Object.entries(steps).filter(([k]) => /^1\./.test(k) && k !== '1.done').map(([, v]) => v as Obj);
 
-/** Lo que el memorando DEBE traer: las objeciones del DA (ids C{camino}-{n}) y los vetos del asiento legal. */
-function expectedFrom(steps: Record<string, unknown>): { objeciones: string[]; vetos: string[] } {
+/**
+ * Lo que el memorando DEBE traer: las objeciones del DA (ids C{camino}-{n}) y los vetos del asiento legal.
+ * El consejo identifica los vetos con ids (V{n} de la ronda 1, W{n} de la ronda 4: el moderador los cita por id
+ * porque parafrasea el texto); el panel los identifica por su texto.
+ */
+function expectedFrom(steps: Record<string, unknown>, variant: 'b' | 'c'): { objeciones: string[]; vetos: string[] } {
   const objeciones: string[] = [];
   const prem = steps['3.abogado_diablo'] as { premortems?: Array<{ camino: number; objeciones: unknown[] }> } | undefined;
   for (const p of prem?.premortems ?? []) p.objeciones.forEach((_, k) => objeciones.push(`C${p.camino}-${k + 1}`));
+  const legal1 = (steps['1.legal'] as { vetos?: Array<{ texto: string }> } | undefined)?.vetos ?? [];
+  const legal4 = (steps['4.legal'] as { vetos?: Array<{ texto: string }> } | undefined)?.vetos ?? [];
+  if (variant === 'c') return { objeciones, vetos: [...legal1.map((_, i) => `V${i + 1}`), ...legal4.map((_, i) => `W${i + 1}`)] };
   const vetos = new Set<string>();
   for (const p of positionsOf(steps)) for (const v of (p.vetos as Array<{ texto: string }> | undefined) ?? []) vetos.add(v.texto);
-  const legal4 = steps['4.legal'] as { vetos?: Array<{ texto: string }> } | undefined;
-  for (const v of legal4?.vetos ?? []) vetos.add(v.texto);
   return { objeciones, vetos: [...vetos] };
 }
 
@@ -230,7 +235,7 @@ export async function runVariant(variant: VariantId, inp: CaseInputs, rep: numbe
           question: inp.case.question.texto, isCancelled: async () => false,
         });
         if (out.status !== 'done' || !out.memo) return finish(rec, meter, t0, { status: 'cancelled' });
-        return finish(rec, meter, t0, { memo: out.memo, expected: expectedFrom(steps), ranges: rangesFromPositions(positionsOf(steps)) });
+        return finish(rec, meter, t0, { memo: out.memo, expected: expectedFrom(steps, 'b'), ranges: rangesFromPositions(positionsOf(steps)) });
       }
       case 'c': {
         const { store, steps } = memoryStore();
@@ -240,7 +245,7 @@ export async function runVariant(variant: VariantId, inp: CaseInputs, rep: numbe
           seed: `${inp.case.caseId}|${rep}`, retryBaseMs: ctx.retryBaseMs ?? 1500,
         });
         if (out.status !== 'done' || !out.memo) return finish(rec, meter, t0, { status: 'cancelled' });
-        return finish(rec, meter, t0, { memo: out.memo, expected: expectedFrom(steps), alarms: out.alarms as unknown as Obj, ranges: rangesFromPositions(positionsOf(steps)) });
+        return finish(rec, meter, t0, { memo: out.memo, expected: expectedFrom(steps, 'c'), alarms: out.alarms as unknown as Obj, ranges: rangesFromPositions(positionsOf(steps)) });
       }
     }
   } catch (e) {

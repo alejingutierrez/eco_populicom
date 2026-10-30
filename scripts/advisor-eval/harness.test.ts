@@ -73,7 +73,7 @@ describe('variantes sobre una misma hoja de hechos (LLM simulado)', () => {
     const inp = await buildInputs(cases[0], dryRunFactSheets());
     const c = await runVariant('c', inp, 0, { llm: fakeCouncilLLM().llm, models, retryBaseMs: 0 });
     expect(c.expected?.objeciones).toEqual(['C0-1', 'C0-2', 'C0-3', 'C1-1', 'C1-2', 'C1-3']);
-    expect(c.expected?.vetos).toContain('LC-5 sin base');
+    expect(c.expected?.vetos).toEqual(['V1', 'W1']); // el consejo cita los vetos por id (V ronda 1, W ronda 4)
     const a = await runVariant('a', inp, 0, { llm: fakeCouncilLLM().llm, models });
     expect(a.expected).toBeNull();
   });

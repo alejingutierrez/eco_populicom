@@ -56,9 +56,10 @@ export function gradeRecord(r: RunRecord, ctx: GradeContext): CodeGrade {
   const cit = checkCitations(JSON.stringify(r.memo), { seenIds: new Set(r.seenIds), manual: ctx.manual, legal: ctx.legal });
   const schemaOk = validateMemo(r.memo) !== null;
   const ob = new Set(((r.memo.objeciones_da as Array<{ id: string }>) ?? []).map((o) => o.id));
-  const vt = new Set(((r.memo.vetos as Array<{ texto: string }>) ?? []).map((v) => v.texto));
+  const vetoTexts = ((r.memo.vetos as Array<{ texto: string }>) ?? []).map((v) => String(v.texto));
   const objeccionesFaltantes = (r.expected?.objeciones ?? []).filter((id) => !ob.has(id));
-  const vetosFaltantes = (r.expected?.vetos ?? []).filter((t) => !vt.has(t));
+  // Un veto con id (V1, W2) cuenta si algún veto del memorando lo cita; uno sin id, si su texto aparece tal cual.
+  const vetosFaltantes = (r.expected?.vetos ?? []).filter((t) => !vetoTexts.some((x) => (/^[VW]\d+$/.test(t) ? new RegExp(`\\b${t}\\b`).test(x) : x === t)));
   const ranges = ctx.observed && Object.keys(ctx.observed).length ? scoreRanges(r.ranges, ctx.observed) : null;
   return {
     ...base,
