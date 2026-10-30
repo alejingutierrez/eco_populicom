@@ -41,6 +41,8 @@ export interface AdvisorRequest {
   tools?: AdvisorTool[];
   /** Salida estructurada (spec §5.2 regla 2): JSON Schema validado por el servicio. */
   outputSchema?: Record<string, unknown>;
+  /** Cancelación (spec §8.4): aborta la petición en curso. No viaja en el cuerpo. */
+  signal?: AbortSignal;
 }
 
 export interface AdvisorUsage {
@@ -165,7 +167,7 @@ export function costOf(model: string, u: AdvisorUsage): number | null {
 
 /** Cliente estructural: el caller pasa su BedrockRuntimeClient. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type BedrockClientLike = { send: (cmd: any) => Promise<any> };
+export type BedrockClientLike = { send: (cmd: any, options?: { abortSignal?: AbortSignal }) => Promise<any> };
 
 type RawUsage = {
   input_tokens?: number;
@@ -202,6 +204,7 @@ export class RuntimeLLM implements AdvisorLLM {
         accept: 'application/json',
         body: JSON.stringify(buildRuntimeBody(req)),
       }),
+      req.signal ? { abortSignal: req.signal } : undefined,
     );
     const r = JSON.parse(Buffer.from(out.body).toString('utf8'));
     return {
@@ -223,6 +226,7 @@ export class RuntimeLLM implements AdvisorLLM {
         accept: 'application/json',
         body: JSON.stringify(buildRuntimeBody(req)),
       }),
+      req.signal ? { abortSignal: req.signal } : undefined,
     );
 
     // Acumuladores por índice de bloque.
