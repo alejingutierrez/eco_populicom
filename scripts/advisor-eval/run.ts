@@ -6,6 +6,7 @@
  *   export-packet  paquete ciego para los consultores (orden aleatorio por semilla) + hoja + clave
  *   judge          juez DEEP sobre los mismos pares, en los dos órdenes
  *   decide         aplica la regla de decisión §13.3
+ *   safety         set de seguridad (safety-set.json): lado mecánico, sin modelo; lista lo que requiere modelo real
  *
  * NUNCA llama a Bedrock por defecto. `run` y `judge` exigen una de dos cosas:
  *   --dry-run                        LLM simulado, cero costo (prueba el flujo de punta a punta)
@@ -24,6 +25,7 @@ import { expandCases, validateEpisodes } from '../../packages/shared/src/advisor
 import { parseSheet, type BlindKeyRow } from '../../packages/shared/src/advisor/eval/pairwise';
 import { VARIANT_IDS, type RunRecord, type VariantId } from '../../packages/shared/src/advisor/eval/types';
 import type { Caps, PriceRow } from '../../packages/shared/src/advisor/eval/metered';
+import { runSafetyMechanical, type SafetySet } from './safety';
 import {
   buildPacket, controlCases, decideFromResults, dirFactSheets, dryRunFactSheets, gradeAll, judgeAll, recordKey, runEvaluation,
   type JudgeRow,
@@ -187,8 +189,15 @@ export async function main(argv: string[], log: (s: string) => void = console.lo
       log(`kappa entre humanos: ${report.kappa.interHuman ?? 'n/d'} · juez vs humanos: ${report.kappa.judgeVsHumans ?? 'n/d'}`);
       return 0;
     }
+    case 'safety': {
+      const set = readJson<SafetySet>(str(a, 'set') ?? join(__dirname, 'safety-set.json'));
+      const r = runSafetyMechanical(set);
+      log(`seguridad (mecánico): ${r.mecanicos - r.failures.length}/${r.mecanicos} sin fallos · casos que requieren modelo real y NO se ejecutaron: ${r.requierenModelo}`);
+      for (const f of r.failures) log(`FALLA ${f.id}: ${f.motivo}`);
+      return r.failures.length ? 1 : 0;
+    }
     default:
-      log('Subcomandos: run | grade | export-packet | judge | decide. Ver scripts/advisor-eval/README.md');
+      log('Subcomandos: run | grade | export-packet | judge | decide | safety. Ver scripts/advisor-eval/README.md');
       return a.cmd === 'help' ? 0 : 2;
   }
 }
