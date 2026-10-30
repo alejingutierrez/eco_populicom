@@ -558,8 +558,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     if (!('6.revision' in checkpoints)) {
       await emit('round_started', { ronda: 6, nombre: ROUND_NAMES[6] });
       const borradores = ((memo.borradores as Obj[]) ?? []).slice(0, 4);
-      const revisados = await Promise.all(
-        borradores.map(async (b) => {
+      const revisados: Obj[] = await Promise.all(
+        borradores.map(async (b): Promise<Obj> => {
           const mec = reviewDraft(String(b.texto), { vedaActiva: d.vedaActiva, esFamilia: d.agency.slug === 'df' });
           let modelo: { puntos: Array<{ id: number; ok: boolean; nota: string }>; titular_peor: string } | null = null;
           try {

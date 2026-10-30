@@ -47,6 +47,7 @@ export class WorkersStack extends cdk.Stack {
   public readonly narrativeDriftFunction: NodejsFunction;
   public readonly articleFetchFunction: NodejsFunction;
   public readonly mentionImportFunction: NodejsFunction;
+  public readonly advisorFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: WorkersStackProps) {
     super(scope, id, props);
@@ -413,6 +414,77 @@ export class WorkersStack extends cdk.Stack {
     this.mentionImportFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['lambda:InvokeFunction'],
       resources: [`arn:aws:lambda:${this.region}:${this.account}:function:eco-mention-import`],
+    }));
+
+    // ---- eco-advisor Lambda ----
+    // Rondas 1 a 5 y revisión del consejo del asesor de crisis (camino 3; spec §9.7 y §11.1).
+    // La web deja la corrida en `rounds_queued` con la hoja de hechos y la invoca (Event). Cada salida es un
+    // checkpoint en `deliberacion_json`; el estado se toma con un UPDATE condicional, así que una invocación
+    // duplicada no hace nada.
+    //  · retryAttempts: 0 — un reintento automático duplicaría el consejo y su costo.
+    //  · reservedConcurrentExecutions: 5 — tope de costo y de cuota de Bedrock (spec §5.2 regla 7).
+    //  · Bundling SIN excluir `@anthropic-ai/*` (hoy no se usa: backend `runtime`; si algún día se pasa a
+    //    Mantle, el SDK va dentro del bundle) y con `pg` bundleado: solo `@aws-sdk/*` es externo.
+    //  · El reaper (cada 10 min) vive en este mismo lambda, con el evento { reaper: true }, en vez de en
+    //    eco-metrics-calculator: ese bundle tiene drift documentado (CLAUDE.md) y no se redeploya sin comparar.
+    // Aún no desplegado: ver el informe de la fase 2 (cdk diff EcoWorkers primero; si trae cambios ajenos,
+    // esbuild + create-function como eco-mention-import).
+    this.advisorFunction = new NodejsFunction(this, 'AdvisorFunction', {
+      functionName: 'eco-advisor',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../lambda/advisor/index.ts'),
+      handler: 'handler',
+      memorySize: 1024,
+      timeout: cdk.Duration.seconds(900),
+      reservedConcurrentExecutions: 5,
+      retryAttempts: 0,
+      maxEventAge: cdk.Duration.minutes(15),
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      securityGroups: [props.lambdaSecurityGroup],
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        ADVISOR_LLM_BACKEND: 'runtime',
+        ADVISOR_MODEL_FAST: 'us.anthropic.claude-haiku-5-5',
+        ADVISOR_MODEL_MAIN: 'us.anthropic.claude-sonnet-5-5',
+        ADVISOR_MODEL_DEEP: 'us.anthropic.claude-opus-5-5',
+      },
+      logGroup: new logs.LogGroup(this, 'AdvisorLogGroup', {
+        logGroupName: '/aws/lambda/eco-advisor',
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      }),
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: 'node22',
+        externalModules: ['@aws-sdk/*', 'pg-native'],
+      },
+    });
+    this.advisorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [props.dbSecret.secretArn],
+    }));
+    // Backend `runtime` (perfiles us.*): InvokeModel sobre el perfil y sobre el modelo base en cualquier región del perfil.
+    this.advisorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+      resources: [
+        `arn:aws:bedrock:*::foundation-model/anthropic.claude-*`,
+        `arn:aws:bedrock:*:${this.account}:inference-profile/*claude*`,
+      ],
+    }));
+    // El reaper se reinvoca a sí mismo para las corridas rounds_queued que nadie tomó.
+    this.advisorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:eco-advisor`],
+    }));
+    const advisorReaperRule = new events.Rule(this, 'AdvisorReaperSchedule', {
+      ruleName: 'eco-advisor-reaper-10min',
+      schedule: events.Schedule.rate(cdk.Duration.minutes(10)),
+      description: 'Reaper del asesor: running/r0_running sin eventos en 15 min → error_interrupted; rounds_queued sin cambio en 5 min → reinvoca una vez.',
+    });
+    advisorReaperRule.addTarget(new targets.LambdaFunction(this.advisorFunction, {
+      event: events.RuleTargetInput.fromObject({ reaper: true }),
     }));
 
     // ---- eco-weekly-report Lambda ----
