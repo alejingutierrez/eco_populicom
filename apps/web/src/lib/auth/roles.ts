@@ -21,16 +21,17 @@ export type Capability =
   | 'manage_templates'    // ver/editar plantillas de correo + config de reportes
   | 'manage_alert_rules'  // crear/editar reglas de alerta (incl. crisis)
   | 'export'              // exportar el reporte analítico (/api/export/report)
-  | 'import_mentions';    // subir exportes de menciones (Configuración → Importar)
+  | 'import_mentions'     // subir exportes de menciones (Configuración → Importar)
+  | 'advise';             // asesor de crisis (/api/chat/advisor); además exige staff y ADVISOR_AGENCIES
 // Hubo una capacidad 'edit' ("acciones de escritura: responder menciones") que
 // se repartía a admin y editor y que NO comprobaba ningún endpoint: describía
 // una funcionalidad que no existe. Se retira para que la matriz solo prometa lo
 // que de verdad corta; vuelve a añadirse el día que haya algo que gatear.
 
 const ROLE_CAPS: Record<Role, Capability[]> = {
-  admin:   ['manage_users', 'manage_templates', 'manage_alert_rules', 'export', 'import_mentions'],
-  editor:  ['manage_templates', 'manage_alert_rules', 'export'],
-  analyst: ['export'],
+  admin:   ['manage_users', 'manage_templates', 'manage_alert_rules', 'export', 'import_mentions', 'advise'],
+  editor:  ['manage_templates', 'manage_alert_rules', 'export', 'advise'],
+  analyst: ['export', 'advise'],
   viewer:  [],
 };
 

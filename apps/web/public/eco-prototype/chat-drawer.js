@@ -71,7 +71,25 @@
     'Resume las menciones más relevantes del periodo.',
   ];
 
-  function Bubble({ m }) {
+  // Parche sobre la última burbuja del asistente (campos del modo Asesor).
+  function patchLast(patch) {
+    return (ms) => {
+      const copy = ms.slice();
+      const last = copy[copy.length - 1];
+      if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, ...patch };
+      return copy;
+    };
+  }
+
+  // Fila del servidor → burbuja. Las corridas del asesor se reconstruyen desde content_json.
+  function fromRow(row) {
+    const cj = row.contentJson || null;
+    const base = { role: row.role, content: row.content };
+    if (!cj || cj.mode !== 'advisor') return base;
+    return { ...base, mode: 'advisor', camino: cj.camino, runId: cj.runId || undefined };
+  }
+
+  function Bubble({ m, actions }) {
     const isUser = m.role === 'user';
     return React.createElement('div', {
       style: { display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start' },
@@ -89,11 +107,13 @@
           ? React.createElement('div', { style: { lineHeight: 1.5, whiteSpace: 'pre-wrap' } }, m.content)
           : (m.content
               ? renderRich(m.content)
-              : React.createElement('span', { style: { color: 'var(--text-3)', fontSize: 'var(--fs-caption)' } },
-                  m.error ? m.error : 'Pensando…')),
+              : (m.runId && !m.error ? null
+                  : React.createElement('span', { style: { color: 'var(--text-3)', fontSize: 'var(--fs-caption)' } },
+                      m.error ? m.error : 'Pensando…'))),
         !isUser && m.streaming && m.content
           ? React.createElement('span', { style: { display: 'inline-block', width: 7, height: 13, marginLeft: 2, background: 'var(--accent)', verticalAlign: 'text-bottom', animation: 'fadeIn 0.6s infinite alternate' } })
-          : null
+          : null,
+        window.ECO_ADVISOR ? window.ECO_ADVISOR.renderExtras(m, actions) : null
       )
     );
   }
@@ -106,6 +126,8 @@
     const [input, setInput] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [listOpen, setListOpen] = useState(false);
+    // 'descriptive' (chat actual) | 'advisor' (asesor de crisis, camino 1 en fase 0).
+    const [mode, setMode] = useState('descriptive');
     const scrollRef = useRef(null);
     const taRef = useRef(null);
     const abortRef = useRef(null);
@@ -128,8 +150,104 @@
       if (el) el.scrollTop = el.scrollHeight;
     }, [messages, open]);
 
+    // ---- Modo Asesor: seguimiento de corridas (caminos 2 y 3, spec §3.2) ----
+    const pollersRef = useRef(new Map());
+    const stopPollers = useCallback(() => {
+      pollersRef.current.forEach((e) => { e.stopped = true; if (e.timer) clearTimeout(e.timer); });
+      pollersRef.current.clear();
+    }, []);
+    // Al cambiar de agencia o desmontar, se detienen los sondeos.
+    useEffect(() => stopPollers, [props.agency, stopPollers]);
+
+    const startPoll = useCallback((runId) => {
+      const A = window.ECO_ADVISOR;
+      if (!A || pollersRef.current.has(runId)) return;
+      const qs = 'agency=' + encodeURIComponent(props.agency || '');
+      const entry = { timer: null, stopped: false };
+      pollersRef.current.set(runId, entry);
+      let after = 0;
+      let failures = 0;
+      const patchRun = (fn) => setMessages((ms) => ms.map((m) => (m.runId === runId ? fn(m) : m)));
+      const stop = () => {
+        entry.stopped = true;
+        if (pollersRef.current.get(runId) === entry) pollersRef.current.delete(runId);
+      };
+      const tick = async () => {
+        entry.timer = null;
+        if (entry.stopped) return;
+        let again = A.POLL_MS;
+        try {
+          const ev = await A.fetchEvents(qs, runId, after);
+          if (entry.stopped) return;
+          failures = 0;
+          const list = ev.events || [];
+          if (list.length) {
+            after = list[list.length - 1].seq;
+            patchRun((m) => A.applyEvents(m, list));
+          }
+          if (list.length >= A.EVENTS_PAGE) {
+            again = 0; // página llena: hay más eventos, se sigue sin esperar
+          } else if (ev.done) {
+            const run = await A.fetchRun(qs, runId);
+            if (entry.stopped) return;
+            patchRun((m) => A.applyRun(m, run));
+            if (A.isTerminal(run.status)) {
+              stop();
+              A.trackRunDone(run);
+              return;
+            }
+          }
+        } catch (err) {
+          if (entry.stopped) return;
+          failures += 1;
+          if (failures >= 5 || (err && (err.status === 401 || err.status === 404))) {
+            stop();
+            patchRun((m) => ({ ...m, pollError: (err && err.message) || 'Error de red.' }));
+            return;
+          }
+        }
+        if (!entry.stopped) entry.timer = setTimeout(tick, again);
+      };
+      tick();
+    }, [props.agency]);
+
+    // Mensajes de corridas no terminadas (en vivo o recuperadas al abrir) reciben sondeo.
+    useEffect(() => {
+      if (!window.ECO_ADVISOR) return;
+      messages.forEach((m) => {
+        if (m.runId && m.camino !== 1 && !window.ECO_ADVISOR.isTerminal(m.runStatus) && !m.pollError) startPoll(m.runId);
+      });
+    }, [messages, startPoll]);
+
+    const cancelRun = useCallback((m) => {
+      const A = window.ECO_ADVISOR;
+      if (!A || !m.runId) return;
+      const runId = m.runId;
+      const qs = 'agency=' + encodeURIComponent(props.agency || '');
+      A.track('advisor_cancel', { advisor_path: m.camino });
+      setMessages((ms) => ms.map((x) => (x.runId === runId ? { ...x, cancelRequested: true } : x)));
+      A.postJSON('/api/chat/advisor/runs/' + encodeURIComponent(runId) + '/cancel?' + qs, {})
+        .catch(() => setMessages((ms) => ms.map((x) => (x.runId === runId ? { ...x, cancelRequested: false } : x))));
+    }, [props.agency]);
+
+    const chooseRun = useCallback((m, choice, note) => {
+      const A = window.ECO_ADVISOR;
+      const runId = m.runId;
+      const qs = 'agency=' + encodeURIComponent(props.agency || '');
+      return A.postJSON('/api/chat/advisor/runs/' + encodeURIComponent(runId) + '/choice?' + qs,
+        { choice, note: note || undefined })
+        .then(() => {
+          A.track('advisor_choice', { advisor_choice: choice });
+          setMessages((ms) => ms.map((x) => (x.runId === runId
+            ? { ...x, run: { ...(x.run || {}), choice, choiceNote: note || null } } : x)));
+        });
+    }, [props.agency]);
+
+    const actions = { cancel: cancelRun, choose: chooseRun };
+
     const newChat = useCallback(() => {
       if (abortRef.current) { try { abortRef.current.abort(); } catch (_) {} }
+      stopPollers();
       setActiveId(null); setMessages([]); setInput(''); setStreaming(false); setListOpen(false);
       if (taRef.current) taRef.current.focus();
     }, []);
@@ -142,10 +260,16 @@
       // cargado (corrupción) y dejaría streaming=true en la conversación ajena.
       if (abortRef.current) { try { abortRef.current.abort(); } catch (_) {} }
       setStreaming(false);
+      stopPollers();
       setActiveId(id); setMessages([]);
       fetch('/api/chat/conversations/' + id + '?' + agencyQS(), { credentials: 'same-origin', cache: 'no-store' })
         .then((r) => (r.ok ? r.json() : { messages: [] }))
-        .then((d) => setMessages((d.messages || []).map((m) => ({ role: m.role, content: m.content }))))
+        .then((d) => {
+          const rows = (d.messages || []).map(fromRow);
+          setMessages(rows);
+          // Una conversación del asesor se reabre en su modo.
+          if (rows.some((r) => r.mode === 'advisor')) setMode('advisor');
+        })
         .catch(() => {});
     }, [activeId, props.agency]);
 
@@ -160,11 +284,14 @@
         .catch(() => {});
     }, [activeId, props.agency, newChat]);
 
-    const send = useCallback(async (text) => {
+    const send = useCallback(async (text, force) => {
       const q = (text != null ? text : input).trim();
       if (!q || streaming) return;
       setInput('');
       if (taRef.current) taRef.current.style.height = 'auto';
+      const advising = mode === 'advisor' && !!window.ECO_ADVISOR;
+      const forced = advising && (force === 'council' || force === 'quick') ? force : null;
+      const startedAt = Date.now();
       const viewContext = buildViewContext(props);
       // Solo la forma del mensaje (largo, si fue sugerencia): el texto puede
       // traer nombres y no debe salir hacia GA4.
@@ -174,21 +301,28 @@
         is_new_conversation: !activeId,
       });
       // Burbuja del usuario + burbuja del asistente en progreso.
-      setMessages((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '', streaming: true }]);
+      if (advising) window.ECO_ADVISOR.track('advisor_ask', { advisor_path_forced: forced ? 'sí' : 'no' });
+      setMessages((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '', streaming: true, ...(advising ? { mode: 'advisor' } : {}) }]);
       setStreaming(true);
 
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       let convId = activeId;
       try {
-        const resp = await fetch('/api/chat/stream?' + agencyQS(), {
+        const resp = await fetch((advising ? '/api/chat/advisor?' : '/api/chat/stream?') + agencyQS(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
           signal: ctrl.signal,
-          body: JSON.stringify({ conversationId: activeId || undefined, message: q, viewContext }),
+          body: JSON.stringify(advising
+            ? { conversationId: activeId || undefined, message: q, ...(forced ? { force: forced } : {}) }
+            : { conversationId: activeId || undefined, message: q, viewContext }),
         });
         if (!resp.ok || !resp.body) {
+          if (advising) {
+            const body = await resp.json().catch(() => null);
+            throw new Error(window.ECO_ADVISOR.httpErrorText(resp.status, body));
+          }
           throw new Error(resp.status === 401 ? 'Sesión expirada. Recarga la página.' : 'Error ' + resp.status);
         }
         const reader = resp.body.getReader();
@@ -209,11 +343,35 @@
                 setActiveId(evt.conversationId);
                 setConvos((cs) => [{ id: evt.conversationId, title: evt.title, status: 'active', updatedAt: new Date().toISOString() }, ...cs]);
               }
+            } else if (evt.type === 'triage' && advising) {
+              window.ECO_ADVISOR.track('advisor_triage', { advisor_path: evt.camino, advisor_floor: evt.piso });
+              setMessages(patchLast({ triage: evt }));
+            } else if (evt.type === 'run' && advising) {
+              setMessages(patchLast({ runId: evt.runId, camino: evt.camino, runStatus: 'queued' }));
             } else if (evt.type === 'delta') {
               setMessages((ms) => {
                 const copy = ms.slice();
                 const last = copy[copy.length - 1];
                 if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, content: last.content + evt.text };
+                return copy;
+              });
+            } else if (evt.type === 'status' && advising) {
+              // Notas de progreso del camino 1: se muestran hasta que llega el texto.
+              setMessages((ms) => {
+                const copy = ms.slice();
+                const last = copy[copy.length - 1];
+                if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, progress: [...(last.progress || []), evt.texto] };
+                return copy;
+              });
+            } else if (evt.type === 'done' && advising) {
+              window.ECO_ADVISOR.track('advisor_run_done', {
+                advisor_path: 1, advisor_status: 'done',
+                duration_bucket: window.ECO_ADVISOR.durationBucket(Date.now() - startedAt),
+              });
+              setMessages((ms) => {
+                const copy = ms.slice();
+                const last = copy[copy.length - 1];
+                if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, meta: { citations: evt.citations, revision: evt.revision }, ...(evt.runId ? { runId: evt.runId, camino: 1 } : {}) };
                 return copy;
               });
             } else if (evt.type === 'error') {
@@ -250,7 +408,7 @@
         // Refrescar orden de la lista (updatedAt) tras responder.
         loadConvos();
       }
-    }, [input, streaming, activeId, props, loadConvos]);
+    }, [input, streaming, activeId, props, loadConvos, mode]);
 
     const onKeyDown = (e) => {
       // Enter (con o sin ⌘/Ctrl) envía; Shift+Enter hace salto de línea.
@@ -279,6 +437,16 @@
             React.createElement('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, activeTitle),
             React.createElement(Icons.ChevronDown, { key: 'c', size: 13 }),
           ]),
+          window.ECO_ADVISOR && window.ECO_ADVISOR.canAdvise()
+            ? React.createElement(window.ECO_ADVISOR.ModeSelector, {
+                key: 'm', mode,
+                onChange: (m) => {
+                  if (streaming || m === mode) return;
+                  setMode(m);
+                  window.ECO_ADVISOR.track('advisor_mode_toggle', { mode: m });
+                },
+              })
+            : null,
         ]),
         React.createElement('button', { key: 'new', className: 'btn', onClick: newChat, title: 'Nueva conversación' },
           React.createElement(Icons.Plus, { size: 14 })),
@@ -312,7 +480,7 @@
                   key: i, className: 'chat-suggest', onClick: () => send(s),
                 }, s))),
             ])
-          : messages.map((m, i) => React.createElement(Bubble, { key: i, m }))
+          : messages.map((m, i) => React.createElement(Bubble, { key: i, m, actions }))
       ),
 
       // ---- Composer ----
@@ -323,6 +491,11 @@
           value: input, onChange: onInput, onKeyDown,
           disabled: streaming,
         }),
+        (mode === 'advisor' && window.ECO_ADVISOR)
+          ? React.createElement(window.ECO_ADVISOR.ForceButtons, {
+              key: 'force', disabled: streaming || !input.trim(), onForce: (f) => send(undefined, f),
+            })
+          : null,
         React.createElement('button', {
           key: 'send', className: 'chat-send', onClick: () => send(), disabled: streaming || !input.trim(),
           title: 'Enviar (Enter)',

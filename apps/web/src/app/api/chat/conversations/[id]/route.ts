@@ -53,6 +53,7 @@ export async function GET(request: NextRequest, ctx: Ctx): Promise<NextResponse>
       id: chatMessages.id,
       role: chatMessages.role,
       content: chatMessages.content,
+      contentJson: chatMessages.contentJson,
       createdAt: chatMessages.createdAt,
     })
     .from(chatMessages)

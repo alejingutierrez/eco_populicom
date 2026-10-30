@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/compile-prototype.js",
+    "predev": "tsx ../../scripts/build-advisor-knowledge.ts && node scripts/compile-prototype.js",
     "dev": "next dev",
-    "prebuild": "node scripts/compile-prototype.js",
+    "prebuild": "tsx ../../scripts/build-advisor-knowledge.ts && node scripts/compile-prototype.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "pretest": "tsx ../../scripts/build-advisor-knowledge.ts",
     "test": "jest"
   },
   "dependencies": {
