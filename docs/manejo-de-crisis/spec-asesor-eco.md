@@ -619,6 +619,16 @@ los pisos de la tabla (índice, alerta, veda, personas en riesgo, guías) se
 aplican igual: un agradecimiento en veda activa sigue pidiendo camino 2 como
 mínimo por R6, y uno con índice ≥ 0.40 también por R1.
 
+**Paracrisis sin señal de extensión en el texto** (alcance de la Fase 1). El
+triaje no detecta paracrisis cuando la pregunta no dice ni insinúa que la
+conversación se extiende: «¿qué dicen las menciones?» o «¿cómo reaccionó la
+gente?» describen el contenido, no el alcance, y se tratan como queja aislada
+(R9). Esos casos los cubre el piso por índice y alertas (R1–R4): si la
+conversación pesa lo bastante, el índice o la alerta suben el camino aunque el
+texto no lo diga. Detectar paracrisis a partir de datos de situación (volumen,
+número de cuentas, medios que la recogen) queda para la Fase 3, con las
+señales S2, S4, S8 y S9. El clasificador no recibe esos datos en la Fase 1.
+
 **Capa 2 · clasificador** (Haiku, *structured outputs*):
 
 ```json

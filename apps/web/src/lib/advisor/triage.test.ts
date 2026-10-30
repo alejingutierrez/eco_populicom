@@ -463,6 +463,22 @@ describe('prompt del clasificador: positivos y paracrisis (spec §8.1)', () => {
     expect(sit).toMatch(/solo pide el contenido o el conteo/);
   });
 
+  it('el prompt alinea la veda con el piso de la spec: redacción o decisión en veda es camino 2, no 3', () => {
+    const l1 = TRIAGE_SYSTEM.split('\n');
+    const c2 = l1.find((x) => x.startsWith('- 2 ='))!;
+    const c3 = l1.find((x) => x.startsWith('- 3 ='))!;
+    expect(c2).toMatch(/veda electoral activa, redactar, revisar o decidir algo para publicar también es camino 2/);
+    expect(c2).toMatch(/sube a 3 solo si además hay alerta reciente/);
+    expect(c3).not.toMatch(/veda/);
+    // y el piso por código coincide: +1 sobre 1 = 2, con asiento legal; con alerta reciente llega a 3
+    const solo = computeFloor(inp({ vedaActiva: true, clasificacion: clas({ tipo_pregunta: 'decision', camino_sugerido: 2 }) }));
+    expect([solo.piso, solo.legalObligatorio]).toEqual([2, true]);
+    const alerta = computeFloor(
+      inp({ vedaActiva: true, alertasUltimas12h: 1, clasificacion: clas({ tipo_pregunta: 'decision', camino_sugerido: 2 }) }),
+    );
+    expect(alerta.piso).toBe(3);
+  });
+
   it('los pisos por reglas no cambian con los positivos: veda con redacción sube a 2', () => {
     const f = computeFloor(
       inp({ indiceHoy: 0.1, vedaActiva: true, clasificacion: clas({ tipo_pregunta: 'redaccion', camino_sugerido: 1 }) }),
@@ -508,6 +524,47 @@ describe('triage-set/holdout-7.json', () => {
     propios.forEach((t, i) => {
       if (otros.some((o) => jaccard(t, o) >= 0.5)) malos.push(`${H7[i].id} (otro set)`);
       for (let j = 0; j < i; j++) if (jaccard(t, propios[j]) >= 0.5) malos.push(`${H7[i].id} ~ ${H7[j].id}`);
+    });
+    expect(malos).toEqual([]);
+  });
+});
+
+describe('triage-set/holdout-8.json', () => {
+  interface H8 { id: string; tipo: string; pregunta: string; contexto: TriageInputs; caminoMinimo: 1 | 2 | 3 }
+  const dir = path.join(__dirname, 'triage-set');
+  const H8: H8[] = JSON.parse(fs.readFileSync(path.join(dir, 'holdout-8.json'), 'utf8'));
+  const toks = (t: string) => new Set(t.toLowerCase().match(/\p{L}[\p{L}\p{N}]*|\p{N}+/gu) ?? []);
+  const jaccard = (a: Set<string>, b: Set<string>) => {
+    let n = 0;
+    for (const x of a) if (b.has(x)) n++;
+    return n / (a.size + b.size - n);
+  };
+
+  it('tiene al menos 200 casos, ids únicos y mezcla de los tres caminos', () => {
+    expect(H8.length).toBeGreaterThanOrEqual(200);
+    expect(new Set(H8.map((x) => x.id)).size).toBe(H8.length);
+    for (const c of [1, 2, 3]) expect(H8.filter((x) => x.caminoMinimo === c).length).toBeGreaterThanOrEqual(25);
+  });
+
+  it('ninguna etiqueta queda por debajo del piso por reglas con su propio tipo', () => {
+    const bajo = H8.filter(
+      (x) =>
+        computeFloor({ ...x.contexto, clasificacion: clas({ tipo_pregunta: x.tipo as TipoPregunta }) }).piso > x.caminoMinimo,
+    ).map((x) => x.id);
+    expect(bajo).toEqual([]);
+  });
+
+  it('sin casi copias (similitud de tokens < 0,5) con holdout-1 a -7, el set ni entre sí', () => {
+    const otros = fs
+      .readdirSync(dir)
+      .filter((f) => /^(set|holdout(-[2-7])?)\.json$/.test(f))
+      .flatMap((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as { pregunta: string }[])
+      .map((x) => toks(x.pregunta));
+    const propios = H8.map((x) => toks(x.pregunta));
+    const malos: string[] = [];
+    propios.forEach((t, i) => {
+      if (otros.some((o) => jaccard(t, o) >= 0.5)) malos.push(`${H8[i].id} (otro set)`);
+      for (let j = 0; j < i; j++) if (jaccard(t, propios[j]) >= 0.5) malos.push(`${H8[i].id} ~ ${H8[j].id}`);
     });
     expect(malos).toEqual([]);
   });
