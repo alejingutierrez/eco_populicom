@@ -117,14 +117,17 @@ async function structuredCall(
   throw new PanelError(code, `salida inválida tras reintento (${last?.stopReason ?? 'sin respuesta'})`);
 }
 
-export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
-  const ledger = new TokenLedger(PANEL_EXPECTED_COST_USD);
+/**
+ * Ronda 0 · Hechos (camino 2 y 3): el analista consulta las herramientas (hasta 6 llamadas) y escribe
+ * la hoja de hechos. Devuelve también los IDs consultados, base de la verificación de citas.
+ * `d.tools` ya viene con el filtro de inyección cuando lo pone la ruta del camino 3.
+ */
+export async function runFactSheetRound(
+  d: PanelDeps,
+  ledger: TokenLedger,
+): Promise<{ factSheet: Record<string, unknown>; seen: Set<string> }> {
   const seen = new Set<string>();
-  const cancelled = async () => (d.isCancelled ? d.isCancelled() : isCancelRequested(d.pool, d.runId));
   const constitution = ADVISOR_CONSTITUTION;
-
-  // ---- Ronda 0 · Hechos -----------------------------------------------------------
-  if (await cancelled()) return cancelledOutcome(d, ledger);
   await roundStart(d, 0);
   const famA = buildFamilyASystem({ constitution, manual: MANUAL_TEXT });
   const toolLog: string[] = [];
@@ -169,6 +172,18 @@ export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
   );
   await saveStep(d.pool, d.runId, '0.analista', factSheet);
   await roundDone(d, 0);
+  return { factSheet, seen };
+}
+
+
+export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
+  const ledger = new TokenLedger(PANEL_EXPECTED_COST_USD);
+  const cancelled = async () => (d.isCancelled ? d.isCancelled() : isCancelRequested(d.pool, d.runId));
+  const constitution = ADVISOR_CONSTITUTION;
+
+  // ---- Ronda 0 · Hechos -----------------------------------------------------------
+  if (await cancelled()) return cancelledOutcome(d, ledger);
+  const { factSheet, seen } = await runFactSheetRound(d, ledger);
 
   // ---- Ronda 1 · Posiciones (3 asientos en paralelo) -------------------------------
   if (await cancelled()) return cancelledOutcome(d, ledger);
