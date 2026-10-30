@@ -384,6 +384,18 @@ Se usan *breakpoints* explícitos (no caché automática). Hay dos familias:
 - Se registran `cache_read_input_tokens` y `cache_creation_input_tokens` por
   llamada. Si en una corrida del camino 3 la lectura baja del 60 %, se
   dispara una alerta.
+- **Medido en la fase 2 (2 corridas reales, 30-oct-2026):** dentro de una
+  corrida la caché solo se leyó entre llamadas **con el mismo esquema de
+  salida** (los 5 asientos de la ronda 1, los 6 de la ronda 4). Las llamadas
+  con otro esquema (agrupación, premortem, titulares, ataques y las tres
+  partes del memorando) escribieron su prefijo de nuevo aunque la
+  constitución, el manual y la hoja de hechos fueran idénticos. Hipótesis (no
+  confirmada con el proveedor): `output_config.format` entra en la llave de la
+  caché. Lo que sí se comparte entre corridas es el bloque de 1 h (el manual):
+  la corrida fría leyó 43,5 % del total de entrada; la segunda, 20 minutos
+  después, 76,9 %. Consecuencia: la alarma «Caché < 60 %» se dispara en las
+  corridas frías y es esperable; el costo grueso de Opus son las tres partes
+  del memorando (≈ 65k tokens de entrada cada una, sin lectura de caché).
 
 ### 5.6 Archivos
 
@@ -720,7 +732,7 @@ Después siguen el abogado del diablo y la síntesis del moderador.
 | Ronda | Dónde | Quién | Entrada | Salida (esquema) |
 |---|---|---|---|---|
 | 0 · Hechos | Web | Analista con herramientas | Pregunta (sin la preferencia del usuario) | `FactSheet` |
-| C · Contención | Web | Redactor (MAIN) | `FactSheet` preliminar + plantilla de la guía | `HoldingStatement` + revisión |
+| C · Contención | Web, en paralelo con la ronda 0 | Redactor (MAIN) | Hoja **preliminar armada por código** (lo que el triaje ya midió: índice, banda, veda, guía probable) + plantilla A-n de la guía; no espera al analista | `HoldingStatement` + revisión mecánica, marcado «borrador» |
 | 1 · Posiciones a ciegas | Lambda, en paralelo | 6 asientos | `FactSheet` | `Position` × 6 |
 | 2 · Agrupación | Lambda | Moderador (DEEP) | Posiciones en orden aleatorio y sin el nombre del rol | `Grouping` (2 caminos, o 3 si hay empate real; si todos convergen, **contraplán obligatorio**) |
 | 3 · Ataque | Lambda, en paralelo | Abogado del diablo (DEEP), periodista y oposición | Caminos | `Premortem`, `Headline`, `Attack` |
@@ -742,7 +754,13 @@ Después siguen el abogado del diablo y la síntesis del moderador.
   5 una vez; si sigue faltando, se añade de oficio como «aceptada (sin
   respuesta del moderador)».
 - **Todo veto del asiento legal aparece en el memorando.** Si un camino tiene
-  un veto sin resolver, el moderador no puede recomendarlo.
+  un veto sin resolver, el moderador no puede recomendarlo. Para poder cruzar
+  vetos aunque el modelo los parafrasee, cada veto lleva un id (`V1…` de la
+  ronda 1; `W1…` de la ronda 4, ya asociados a un camino) y el moderador
+  empieza el texto de cada veto con su id. El que falte se añade con su texto
+  original. El estado que el moderador dio a un veto citado por id manda; si
+  deja sin resolver los de todos los caminos, se recomienda con confianza
+  `baja` y se dice. (Medido sin ids: 26 vetos en el memorando por 8 reales.)
 - **Citas:** cada `M-xxxx`, `N-xxx` y regla citada se verifica contra la base
   de datos y la versión del conocimiento. Las inválidas se marcan en la
   interfaz y se cuentan.
@@ -800,9 +818,11 @@ outputs*.
 - **`Premortem`:** por camino, `formas_de_fracasar[]` (3) con
   `{relato_72h, senal_temprana, supuesto_fragil}`, `concede[]` y
   `que_me_haria_ceder`.
-- **`Rebuttal`:** `mantiene` (booleano), `nuevo_camino` o null,
-  `evidencia_nueva` (cita, obligatoria si `mantiene=false`) y
-  `ajuste_rangos[]`.
+- **`Rebuttal`:** `mantiene` (booleano), `nuevo_camino` (índice) o null,
+  `evidencia_nueva` (cita, obligatoria si `mantiene=false`),
+  `ajuste_rangos[]` y `vetos[]` (`{camino, texto, estado}`; solo el asiento
+  legal lo llena y asocia cada veto a un camino; es la única adición al
+  esquema original).
 - **`Memo`:**
   - `encabezado`, `hechos` (sabido, no claro y supuesto), `linea_base`;
   - `caminos[]` con `{nombre, que, quien, canal, cuando, por_que, reglas[], efectos[], riesgos[], supuestos[], apoyos[]}`;
@@ -865,7 +885,8 @@ Devuelve hasta 100 eventos con `seq > after`. Tipos:
 
 - `round_started`
 - `seat_done`
-- `holding_statement`
+- `status` (avisos: hechos listos, menciones marcadas como intento de manipulación, contención no disponible)
+- `holding_statement` (borrador de contención de la ronda C, con su revisión)
 - `round_done`
 - `memo`
 - `review`
@@ -1001,11 +1022,20 @@ fila no se actualiza nunca.
 
 ### 10.4 Reaper
 
-Corre cada 10 minutos dentro de `eco-metrics-calculator` (fase 2):
+Corre cada 10 minutos. **Desviación respecto al plan original:** vive en el
+mismo lambda `eco-advisor` (evento `{ reaper: true }` desde una regla de
+EventBridge), no en `eco-metrics-calculator`, porque ese bundle tiene drift
+documentado (CLAUDE.md) y redeployarlo exige compararlo primero. La lógica es
+`reapStaleRuns` en `packages/shared/src/advisor/run-store.ts`, así que se puede
+mover cuando ese lambda se alinee.
 
 - corridas en `r0_running` o `running` sin eventos en 15 minutos pasan a
   `error_interrupted`;
-- `rounds_queued` sin cambio en 5 minutos se reinvocan una vez.
+- `rounds_queued` sin cambio en 5 minutos se reinvocan una vez (marca
+  `usage_json.reinvoked`); si siguen igual 5 minutos después pasan a
+  `error_interrupted`.
+- Reanudar a mano: `{ "runId": "…", "resume": true }` al lambda toma una
+  corrida `error_interrupted` desde la última ronda completa (checkpoints).
 
 ---
 
@@ -1287,9 +1317,99 @@ empezar.
 **Aceptación:**
 
 - [ ] Contención en < 30 s (p50) y memorando en < 4 min (p50), medidos en 20
-  corridas.
-- [ ] Cero fallos en el set de seguridad.
-- [ ] Informe de evaluación con la decisión escrita.
+  corridas. *Medido en 2 corridas reales, no 20:* contención 13,5 y 13,9 s;
+  rondas 1 a 5 y revisión 240,7 s (la primera, sin tope de extensión) y
+  209,5 s (con tope); a eso se suma la ronda 0 de la web (en el panel, p50
+  48 s). Está al borde de los 4 min y **no está demostrado**.
+- [ ] Cero fallos en el set de seguridad. *Parte mecánica (38 de 41 casos,
+  `scripts/advisor-eval/safety-set.json`): 0 fallos. Quedan 18 casos que
+  necesitan el modelo real y no se corrieron.*
+- [ ] Informe de evaluación con la decisión escrita. *Plantilla en
+  `evaluacion/informe-evaluacion.md`, decisión en blanco.*
+
+#### Estado de la fase 2 (30-oct-2026)
+
+Hecho, con código, pruebas y una prueba de contrato con el modelo real (no
+desplegado):
+
+- [x] `eco-advisor` (`infra/lambda/advisor/`): toma la corrida con un UPDATE
+  condicional desde `rounds_queued` (una invocación duplicada no hace nada),
+  checkpoints por paso en `deliberacion_json`, cancelación (`cancel_requested`
+  cada 4 s + `AbortController`), tope de tiempo con `error_interrupted`
+  reanudable, costo total = ronda 0 + contención + rondas. Reaper en el mismo
+  lambda (§10.4). CDK en `workers-stack.ts` (900 s, 1024 MB, concurrencia 5,
+  sin reintentos, regla cada 10 min). Permiso de invocación para la web en
+  `compute-stack.ts`. El bundle compila (223 KB, `pg` incluido).
+- [x] Consejo (`packages/shared/src/advisor/council.ts`): abanico con caché,
+  barajado con semilla guardada, contraplán obligatorio, réplica única (cambio
+  sin evidencia nueva = «mantiene»), objeciones y vetos forzados en el
+  memorando, un camino con veto sin resolver no se recomienda, alarmas de §13.5
+  calculadas en código. La preferencia del usuario solo llegó a las 3
+  peticiones del memorando (verificado sobre las peticiones reales).
+- [x] Ronda C (`apps/web/src/lib/advisor/contention.ts`, `camino3.ts`): en
+  paralelo con la ronda 0, con hoja preliminar por código; borrador marcado
+  como tal y con revisión mecánica. Un fallo no tumba el consejo.
+- [x] Filtro de inyección (`packages/shared/src/advisor/injection.ts`): reglas
+  (es/en/spanglish) + Haiku; la mención marcada conserva su ID y entra como
+  «intento de manipulación», con aviso en la corrida. En la corrida real marcó
+  las 2 plantadas y 0 falsos positivos (ambas por la capa de reglas; la capa
+  del modelo respondió, pero no aportó marcas propias en esta muestra).
+- [x] Ruta `POST /api/chat/advisor`: usa el consejo si `ADVISOR_FUNCTION_NAME`
+  está configurado; si no, el panel (fase 1), con el motivo dicho en el
+  evento `triage`. UI: borrador de contención y estados `r0_running` /
+  `rounds_queued`.
+- [x] `appendEvent` reintenta el choque de `seq` cuando varios asientos
+  terminan a la vez (en la fase 1 tres asientos lo evitaban por suerte).
+- [x] Arnés (`scripts/advisor-eval/` y `packages/shared/src/advisor/eval/`):
+  variantes (a), (a′), (b), (c), calificación por código, paquete ciego,
+  juez en los dos órdenes, kappa, error estándar por episodio, regla de §13.3
+  como función pura, set de seguridad. Probado solo con LLM simulado; el
+  `--dry-run` corre de punta a punta. Ver `scripts/advisor-eval/README.md`.
+- [x] Documentos para la sesión de consultores y plantilla del informe
+  (`evaluacion/`).
+
+Bloqueado por pasos humanos o aprobaciones (nada de esto se ejecutó):
+
+- [ ] **Desplegar** `eco-advisor` y activar el consejo (`cdk diff EcoWorkers`
+  primero; si trae cambios ajenos, esbuild + `create-function` como
+  `eco-mention-import`; después `ADVISOR_FUNCTION_NAME=eco-advisor` en el task
+  def). Requiere aprobación; hoy ningún ambiente lo tiene.
+- [ ] Elegir los 20–30 episodios y sus preguntas, cargar observados, generar
+  las hojas de hechos congeladas (falta ese subcomando; necesita la base).
+- [ ] Aprobar el gasto de las corridas de (a), (a′), (b) y (c) y fijar
+  `--max-usd`. **No hay precio verificado de Opus 5.5:** el costo de una
+  corrida del consejo es `null` y el tope se apoya en el número de llamadas.
+- [ ] Confirmar la unidad de «15 puntos» y «10 puntos» de §13.3 (el arnés usa
+  puntos porcentuales de preferencia, con el empate como medio punto).
+- [ ] Sesión de consultores (mínimo 3, calibración de kappa) y decisión de
+  §13.3.
+- [ ] Medición de 20 corridas para el criterio de latencia (y el costo real).
+
+**Medido en la prueba de contrato** (2 corridas reales del consejo con un
+escenario ficticio, sin base de datos; no es una medición de volumen). Todos
+los esquemas nuevos los aceptó el servicio, 0 rechazos, 0 `max_tokens`:
+
+| | Corrida 1 (fría, sin tope) | Corrida 2 (con tope de extensión) |
+|---|---|---|
+| Rondas 1 a 5 y revisión | 240,7 s | 209,5 s |
+| Ronda 1 / 2 / 3 / 4 (acumulado) | 40,0 / 63,6 / 89,5 / 103,7 s | 45,9 / 66,0 / 98,6 / 106,5 s |
+| Memorando + revisión | 137 s | 103 s |
+| Salida de la parte «caminos» (tope 12 000) | 10 010 tokens | 7 576 tokens |
+| Vetos en el memorando (reales: 8 y 7) | 24 | 6 |
+| Citas totales / inválidas | 72 / 0 | 51 / 0 |
+| Caché leída / total de entrada | 43,5 % | 76,9 % |
+| Haiku (filtro + revisión): entrada / salida | 4,6k / 5,2k | 3,3k / 4,1k |
+| Sonnet (15 llamadas): entrada nueva / escritura 5 m / escritura 1 h / lectura / salida | 44,6k / 11,5k / 149,3k / 351,3k / 15,8k | 45,7k / 12,1k / 0 / 503,4k / 15,7k |
+| Opus (5 llamadas): entrada nueva / escritura / lectura / salida | 123,8k / 153,8k / 0 / 28,4k | 125,3k / 3,2k / 150,6k / 21,6k |
+| Costo Sonnet + Haiku con la tabla **no verificada** | ≈ 0,68 USD | ≈ 0,33 USD |
+| Costo de Opus | sin precio verificado (no se estima) | sin precio verificado (no se estima) |
+
+Notas: la corrida 2 se hizo 20 minutos después de la 1 y por eso reutilizó el
+bloque de caché de 1 h (también leyó 150 k tokens de Opus). Sin el tope de
+extensión, el memorando tenía 6,9 k palabras en JSON; con él, 3,8 k. En ambas,
+las 6 réplicas «mantienen» (0 cambios de postura que validar) y la
+agrupación dio 2 caminos con apoyos 4/2 y 3/3. Los tiempos de ronda incluyen la
+espera del primer asiento del abanico (≈ 18 s) antes de lanzar los demás.
 
 ### Fase 3 · Calibración + señales baratas
 
