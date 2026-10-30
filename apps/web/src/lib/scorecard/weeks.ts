@@ -3,7 +3,7 @@
  *
  * Cada semana es una ventana de 7 días que termina el mismo día que la
  * ventana del usuario, y sus índices se calculan con el MISMO
- * `calculateMetrics` que los KPI de arriba (agregados del periodo + 30
+ * `calculateMetrics` que los KPI de arriba (agregados del periodo + 90
  * snapshots previos de historia), así que la semana actual de la cuadrícula
  * coincide con los KPI cuando el periodo es 7D. Las menciones se cuentan en
  * el universo pertinente, igual que el KPI de volumen.
@@ -12,7 +12,7 @@
  * 20-abr-2026: ese día cambió la calibración del sentimiento (DDEC pasó de
  * 54% a 6% de positivas) y mezclar semanas de antes compararía dos escalas.
  */
-import { MIN_WINDOW_MENTIONS, addDaysYmd, calculateMetrics, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
+import { HISTORY_DAYS, MIN_WINDOW_MENTIONS, addDaysYmd, calculateMetrics, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
 
 /** Primer lunes después del quiebre de serie del 19-abr-2026. */
 export const BASELINE_FROM = '2026-04-20';
@@ -49,9 +49,9 @@ export function sumAggregates(days: DayAggregates[], start: string, end: string)
   return out;
 }
 
-/** Los 30 snapshots ESTRICTAMENTE anteriores a `start`, del más reciente al más viejo (como loadHistoryBeforeWindow). */
+/** Los HISTORY_DAYS snapshots ESTRICTAMENTE anteriores a `start`, del más reciente al más viejo (como loadHistoryBeforeWindow). */
 export function historyBefore(snaps: SnapshotRow[], start: string): HistoricalSnapshot[] {
-  return snaps.filter((s) => s.date < start).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 30);
+  return snaps.filter((s) => s.date < start).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, HISTORY_DAYS);
 }
 
 export interface WindowIndices {

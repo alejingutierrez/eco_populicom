@@ -2,7 +2,7 @@
  * Índices V5 (oct-2026): las propiedades que motivaron el cambio, como pruebas.
  * Ver el encabezado de packages/shared/src/metrics.ts.
  */
-import { MIN_WINDOW_MENTIONS, calculateMetrics, loadMetricsForWindow, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
+import { MIN_WINDOW_MENTIONS, calculateMetrics, loadMetricsForWindow, longUsualNegShare, type DailyAggregates, type HistoricalSnapshot } from '@eco/shared';
 
 function agg(over: Partial<DailyAggregates> = {}): DailyAggregates {
   return {
@@ -152,6 +152,52 @@ describe('Riesgo de crisis V5', () => {
     const m = calculateMetrics(agg(), history().slice(0, 3));
     expect(m.crisisBaselineNegShare).toBeNull();
     expect(m.crisisSeverity).toBeCloseTo(0.3 / 0.7, 3);
+  });
+});
+
+describe('Riesgo de crisis V5.3: una crisis sostenida no se vuelve «lo usual»', () => {
+  /** `days` snapshots que terminan el 24-oct-2026, el más reciente primero; `at(i)` da [menciones, negativas] del día i (0 = 24-oct). */
+  function dated(days: number, at: (i: number) => [number, number]): HistoricalSnapshot[] {
+    return Array.from({ length: days }, (_, i) => {
+      const [totalMentions, negativeCount] = at(i);
+      return {
+        date: new Date(Date.UTC(2026, 9, 24 - i)).toISOString().slice(0, 10), totalMentions, negativeCount, nss: -25,
+        totalReach: 20_000, totalEngagementScore: 900, engagementRate: 1.85,
+      };
+    });
+  }
+  // DF: 30 días de crisis (200 menciones/día, 65% negativas) sobre 60 tranquilos (40/día, 15%).
+  const df = dated(90, (i) => (i < 30 ? [200, 130] : [40, 6]));
+  const window55 = agg({ totalMentions: 185, positiveCount: 10, neutralCount: 73, negativeCount: 102 });
+
+  test('DF 24–28-oct: con 55% de negativas ya no es «más tranquilo que lo usual»', () => {
+    const before = calculateMetrics(window55, df.slice(0, 30), 5); // V5.2: solo 30 días de historia
+    const after = calculateMetrics(window55, df, 5);
+    expect(before.crisisBaselineNegShare).toBe(0.65);
+    expect(before.crisisRiskScore!).toBeLessThan(0.25); // Normal
+    expect(after.crisisBaselineNegShare!).toBeLessThan(0.4);
+    expect(after.crisisRiskScore!).toBeGreaterThanOrEqual(0.25);
+  });
+  test('los días de crisis, de mucho volumen, no dominan la referencia larga', () => {
+    // Sin el tope en la mediana sería (30·130 + 60·6) / (30·200 + 60·40) = 51%.
+    expect(longUsualNegShare(df)!).toBeLessThan(0.35);
+  });
+  test('si los últimos 30 días no se apartan más de 5 puntos de la referencia larga, lo usual no cambia', () => {
+    const steady = dated(90, (i) => (i < 30 ? [100, 33] : [100, 30])); // 33% vs 31%
+    expect(calculateMetrics(agg(), steady).crisisBaselineNegShare).toBe(0.33);
+  });
+  test('la referencia larga no cruza el quiebre de serie del 20-abr-2026', () => {
+    // 30 días de 13-may a 11-jun en 60%; antes del quiebre, 15%. Desde el 20-abr hay 23 días más en 60%.
+    const h = Array.from({ length: 90 }, (_, i) => {
+      const date = new Date(Date.UTC(2026, 5, 11 - i)).toISOString().slice(0, 10);
+      return { date, totalMentions: 100, negativeCount: date >= '2026-04-20' ? 60 : 15, nss: -25, totalReach: 20_000, totalEngagementScore: 900, engagementRate: 1.85 };
+    });
+    expect(longUsualNegShare(h)).toBe(0.6);
+    expect(calculateMetrics(agg(), h).crisisBaselineNegShare).toBe(0.6);
+  });
+  test('acepta fechas como Date (pg devuelve DATE así en el lambda)', () => {
+    const asDates = df.map((h) => ({ ...h, date: new Date(h.date + 'T00:00:00Z') as unknown as string }));
+    expect(longUsualNegShare(asDates)).toBe(longUsualNegShare(df));
   });
 });
 

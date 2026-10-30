@@ -1,4 +1,4 @@
-import { calculateMetrics, addDaysYmd } from '@eco/shared';
+import { HISTORY_DAYS, calculateMetrics, addDaysYmd } from '@eco/shared';
 import { buildWeeks, historyBefore, percentile, sumAggregates, windowIndices, BASELINE_FROM, WEEKS_SHOWN, type DayAggregates, type SnapshotRow } from './weeks';
 
 function day(date: string, o: Partial<DayAggregates> = {}): DayAggregates {
@@ -27,11 +27,11 @@ describe('semanas del Scorecard', () => {
     expect(agg.totalMentions).toBe(days.filter((d) => d.date >= start).reduce((s, d) => s + d.totalMentions, 0));
   });
 
-  test('la historia son los 30 snapshots previos al inicio, del más reciente al más viejo', () => {
+  test('la historia son los 90 snapshots previos al inicio (HISTORY_DAYS), del más reciente al más viejo', () => {
     const h = historyBefore(snaps, '2026-09-30');
-    expect(h).toHaveLength(30);
+    expect(h).toHaveLength(HISTORY_DAYS);
     expect(h[0].date).toBe('2026-09-29');
-    expect(h[29].date).toBe('2026-08-31');
+    expect(h[HISTORY_DAYS - 1].date).toBe(addDaysYmd('2026-09-29', -(HISTORY_DAYS - 1)));
   });
 
   test('12 semanas que terminan en el último día, la más reciente al final', () => {

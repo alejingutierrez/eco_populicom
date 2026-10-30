@@ -104,6 +104,21 @@ const MAJORITY_NEGATIVE_SHARE = 0.5;
 /** Puntos de % de negativas sobre «lo usual» en que la velocidad de crisis llega a contar entera (V5.2). */
 const VELOCITY_RAMP_SHARE = 0.06;
 
+/** Snapshots de historia que cargan los loaders: 30 para «lo usual» y la velocidad, 90 para la referencia larga (V5.3). */
+export const HISTORY_DAYS = 90;
+
+/** Días de la historia corta: «lo usual» reciente, la velocidad de crisis, el z de volumen y el de engagement. */
+const SHORT_HISTORY_DAYS = 30;
+
+/**
+ * Quiebre de serie del sentimiento (calibración NLP del 19-abr-2026: DDEC pasó
+ * de 54% a 6% de positivas). La referencia larga de «lo usual» no lo cruza.
+ */
+export const SENTIMENT_SERIES_START = '2026-04-20';
+
+/** Puntos de % de negativas en que los últimos 30 días superan la referencia larga para dejar de ser «lo usual» (V5.3). */
+const USUAL_SHIFT_SHARE = 0.05;
+
 // ============================================================
 // Utilidades
 // ============================================================
@@ -131,6 +146,37 @@ function round(value: number, decimals = 2): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function ymdOf(date: string | Date): string {
+  return typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+/**
+ * Referencia larga de «lo usual» (V5.3): proporción de negativas de los hasta
+ * HISTORY_DAYS snapshots previos desde el quiebre de serie, con el peso de
+ * cada día topado en la mediana de menciones diarias. Sin el tope, los días de
+ * crisis (de mucho volumen) la dominan y la crisis vuelve a ser lo usual. null
+ * con menos de 7 días.
+ */
+export function longUsualNegShare(history: HistoricalSnapshot[]): number | null {
+  const days = history
+    .slice(0, HISTORY_DAYS)
+    .filter((h) => ymdOf(h.date) >= SENTIMENT_SERIES_START);
+  if (days.length < 7) return null;
+  const volumes = days.filter((h) => h.totalMentions > 0).map((h) => h.totalMentions).sort((a, b) => a - b);
+  if (volumes.length === 0) return null;
+  const mid = Math.floor(volumes.length / 2);
+  const cap = volumes.length % 2 ? volumes[mid] : (volumes[mid - 1] + volumes[mid]) / 2;
+  let weight = 0;
+  let negatives = 0;
+  for (const h of days) {
+    if (h.totalMentions <= 0) continue;
+    const w = Math.min(h.totalMentions, cap);
+    weight += w;
+    negatives += (w * h.negativeCount) / h.totalMentions;
+  }
+  return weight > 0 ? negatives / weight : null;
 }
 
 // ============================================================
@@ -176,7 +222,7 @@ export function calculateMetrics(
   // #1 NSS
   const nss = ((positiveCount - negativeCount) / totalMentions) * 100;
 
-  const nssValues = history.filter((h) => h.nss != null).map((h) => h.nss!);
+  const nssValues = history.slice(0, SHORT_HISTORY_DAYS).filter((h) => h.nss != null).map((h) => h.nss!);
   const nss7d = nssValues.length > 0
     ? average(nssValues.slice(0, Math.min(7, nssValues.length)))
     : null;
@@ -204,8 +250,8 @@ export function calculateMetrics(
   // #10 Engagement Velocity (z-score sobre 30d)
   const avgEngToday = totalEngagementScore / totalMentions;
   const engPerMentionHistory = history
+    .slice(0, SHORT_HISTORY_DAYS)
     .filter((h) => h.totalMentions > 0)
-    .slice(0, 30)
     .map((h) => h.totalEngagementScore / h.totalMentions);
   let engagementVelocity: number | null = null;
   if (engPerMentionHistory.length >= 7) {
@@ -243,7 +289,7 @@ export function calculateMetrics(
   // 1.0 en cualquier vista 1M/1A (inflaba el Crisis Score windowed con un +0.30
   // espurio). Normalizamos a tasa por-día. windowDays=1 (lambda diario / alert
   // gate) deja el cálculo idéntico — cambio acotado al recálculo del dashboard.
-  const volumeHistory = history.map((h) => h.totalMentions);
+  const volumeHistory = history.slice(0, SHORT_HISTORY_DAYS).map((h) => h.totalMentions);
   let volumeAnomalyZscore: number | null = null;
   if (volumeHistory.length >= 7) {
     const avgVol = average(volumeHistory);
@@ -299,12 +345,35 @@ export function calculateMetrics(
   // Alertas en 7D (DDEC 18–21-jun: 48% de negativas vs 45–47% usual, <50%) y 5
   // en 1D, todas a 2–5 puntos sobre lo usual.
   //
+  // V5.3 (29-oct): una crisis sostenida se volvía «lo usual». DF lleva desde
+  // el 28-sep entre 55 y 75% de negativas; a los 30 días «lo usual» era 65% y
+  // la ventana 24–28-oct (55%) salía «más tranquila que lo usual»: severidad
+  // relativa 0, velocidad 0 (el volumen ya bajaba) y riesgo 0.20 (Normal), con
+  // un techo de ~0.25 por mucho que siguiera la crisis. Ahora, si los últimos
+  // 30 días están más de 5 puntos por encima de la referencia larga (90 días
+  // desde el quiebre de serie, cada día con su peso topado en la mediana de
+  // menciones para que los días de crisis, de mucho volumen, no la dominen),
+  // lo usual es la referencia larga. DF 24–28-oct: lo usual 65% → 38%, riesgo
+  // 0.20 → 0.36; 7D al 28-oct 0.22 → 0.45 (Alerta).
+  // Backtest con esta función (813 ventanas 7D y 459 de 1 día desde 20-abr, 5
+  // agencias): 48 y 30 cambios de banda, todos hacia arriba. DF 14 / 19; DDEC
+  // 32 / 10, todos en su choque de mayo–julio (vuelven las Alertas del
+  // 18–24-jun que V5.2 había perdido por lo usual inflado); AAA 1 / 0;
+  // Gobernadora 1 / 1; SGPR 0.
+  // DDEC 28-oct sigue en 0.23. Con 3 puntos cambiaban 50 / 34 (AAA 4); con 8,
+  // 43 / 29. El umbral es un criterio, no una medida.
+  //
   // Las bandas no cambian: NORMAL <0.25 · ELEVADO <0.40 · ALERTA <0.60 · CRISIS.
   const negShare = negativeCount / totalMentions;
-  const crisisHistory = history.slice(0, 30);
+  const crisisHistory = history.slice(0, SHORT_HISTORY_DAYS);
   const histMentions = sum(crisisHistory.map((h) => h.totalMentions));
   const histNegatives = sum(crisisHistory.map((h) => h.negativeCount));
-  const baselineNegShare = crisisHistory.length >= 7 && histMentions > 0 ? histNegatives / histMentions : null;
+  const recentNegShare = crisisHistory.length >= 7 && histMentions > 0 ? histNegatives / histMentions : null;
+  const longNegShare = longUsualNegShare(history);
+  const baselineNegShare =
+    recentNegShare != null && longNegShare != null && recentNegShare - longNegShare > USUAL_SHIFT_SHARE
+      ? longNegShare
+      : recentNegShare;
   const severityAbs = Math.min(negShare / 0.7, 1.0);
   const severityRel = baselineNegShare != null ? clamp01((negShare - baselineNegShare) / 0.25) : 0;
   const crisisSeverity = baselineNegShare != null ? 0.5 * severityAbs + 0.5 * severityRel : severityAbs;
@@ -424,8 +493,9 @@ export async function loadAggregatesForWindow(
 }
 
 /**
- * Devuelve los últimos 30 snapshots diarios ESTRICTAMENTE PREVIOS a
- * `startYmd`. Usado como historia para BHI/Crisis/EngagementVelocity sobre
+ * Devuelve los últimos HISTORY_DAYS snapshots diarios ESTRICTAMENTE PREVIOS a
+ * `startYmd` (los 30 más recientes son la historia corta; los 90, la
+ * referencia larga de «lo usual»). Usado como historia para BHI/Crisis/EngagementVelocity sobre
  * una ventana del usuario.
  *
  * Solo desde el inicio de la cobertura continua de la agencia (coverage.ts):
@@ -454,7 +524,7 @@ export async function loadHistoryBeforeWindow(
       WHERE agency_id = $1 AND date < $2::date
         AND ($3::date IS NULL OR date >= $3::date)
       ORDER BY date DESC
-      LIMIT 30`,
+      LIMIT ${HISTORY_DAYS}`,
     [agencyId, startYmd, coverageStart],
   );
 

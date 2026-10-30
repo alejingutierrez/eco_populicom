@@ -8,7 +8,7 @@
  * las menciones pertinentes sin duplicados, como loadAggregatesForWindow, y
  * los CONTEOS (menciones, quién habló) cuentan esas mismas menciones.
  */
-import { addDaysYmd, loadAgencyCoverage, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
+import { HISTORY_DAYS, addDaysYmd, loadAgencyCoverage, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
 import { BASELINE_FROM, BASELINE_MAX_WEEKS, WEEKS_SHOWN, buildWeeks, type DayAggregates, type SnapshotRow } from './weeks';
 import { buildVoices, type VoiceRow } from './voices';
 
@@ -73,14 +73,14 @@ SELECT DISTINCT m.author, m.author_fullname, m.domain, m.page_type
 
 export async function computeScorecard(pool: PgClientLike, agencyId: string, startYmd: string, endYmd: string, prevStartYmd: string, prevEndYmd: string) {
   // Semanas: las 12 que se muestran y, para lo usual, hasta un año hacia atrás
-  // sin cruzar el quiebre de serie. La historia de cada semana necesita los 30
-  // días de snapshots anteriores a su inicio.
+  // sin cruzar el quiebre de serie. La historia de cada semana necesita los
+  // HISTORY_DAYS (90) días de snapshots anteriores a su inicio.
   const shownFrom = addDaysYmd(endYmd, -(7 * WEEKS_SHOWN - 1));
   const yearFrom = addDaysYmd(endYmd, -(7 * (BASELINE_MAX_WEEKS + 1) - 1));
   const baseFrom = BASELINE_FROM > yearFrom ? BASELINE_FROM : yearFrom;
   const aggFrom = shownFrom < baseFrom ? shownFrom : baseFrom;
   const countsFrom = aggFrom < prevStartYmd ? aggFrom : prevStartYmd;
-  const snapFrom = addDaysYmd(countsFrom, -45);
+  const snapFrom = addDaysYmd(countsFrom, -(HISTORY_DAYS + 15));
   const priorFrom = addDaysYmd(startYmd, -35), priorTo = addDaysYmd(startYmd, -1);
 
   const [agencyRes, aggRes, snapRes, counts, prevMetrics, voicesRes, priorRes, coverage] = await Promise.all([
