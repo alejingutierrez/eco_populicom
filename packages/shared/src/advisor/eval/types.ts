@@ -39,6 +39,8 @@ export interface Episode {
   control: { nombresSustituidos: boolean; nombres?: string[] };
   /** Los snapshots usados deben tener `computed_at` posterior a V5 (spec §13.1). */
   snapshotsV5: boolean;
+  /** Había veda electoral vigente en `asOf` (activa la regla L-7 del detector y el punto 11 de la revisión). */
+  vedaActiva?: boolean;
   preguntas: Question[];
 }
 

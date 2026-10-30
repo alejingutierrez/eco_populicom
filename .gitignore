@@ -17,3 +17,4 @@ apps/web/public/report-preview/
 packages/shared/src/advisor/manual.ts
 packages/shared/src/advisor/legal-rules.ts
 packages/shared/src/advisor/templates.ts
+scripts/advisor-eval/out/

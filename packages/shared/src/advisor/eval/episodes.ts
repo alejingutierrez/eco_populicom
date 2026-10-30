@@ -30,7 +30,6 @@ export function validateEpisodes(raw: unknown, opts: { full?: boolean } = {}): E
   if (!Array.isArray(raw)) return { ok: false, errors: ['episodes.json debe ser un arreglo'], warnings, episodes: [] };
 
   const ids = new Set<string>();
-  const qids = new Set<string>();
   const episodes: Episode[] = [];
   raw.forEach((e, i) => {
     const at = `episodio[${i}]${e && typeof e === 'object' && 'id' in e ? ` (${String((e as { id: unknown }).id)})` : ''}`;
@@ -53,6 +52,7 @@ export function validateEpisodes(raw: unknown, opts: { full?: boolean } = {}): E
     if (!Array.isArray(qs) || qs.length < 2 || qs.length > 3) errors.push(`${at}: debe tener de 2 a 3 preguntas`);
     else {
       const tipos = new Set<string>();
+      const qids = new Set<string>(); // el caseId es episodio:pregunta, basta con ids únicos dentro del episodio
       qs.forEach((q, j) => {
         const qa = `${at} pregunta[${j}]`;
         const qq = q as Record<string, unknown>;

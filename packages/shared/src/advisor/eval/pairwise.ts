@@ -48,14 +48,20 @@ export function buildPairs(records: readonly RunRecord[], cmp: Comparison): Pair
 const hashInt = (s: string) => createHash('sha256').update(s).digest().readUInt32LE(0);
 
 export interface BlindItem {
+  /** Id público y opaco (P001…): no delata la comparación ni el caso. */
   pairId: string;
+  /** Pregunta del caso, tal como se le hizo al asesor. */
+  question: string;
   /** Texto canónico mostrado como «A» y como «B». */
   A: string;
   B: string;
 }
 
 export interface BlindKeyRow {
+  /** Id público del paquete (el de la hoja de calificación). */
   pairId: string;
+  /** Id interno `comparación:caso:repetición`; solo vive en la clave. */
+  internalId: string;
   A: VariantId;
   B: VariantId;
   caseId: string;
@@ -67,19 +73,22 @@ export interface BlindKeyRow {
  * Paquete ciego: la orientación (quién es A) y el orden de los pares salen de la semilla, y el
  * texto va en el render canónico. La clave (qué variante es A y B) se guarda aparte y no se entrega.
  */
-export function makeBlindPacket(pairs: readonly Pair[], seed: string): { items: BlindItem[]; key: BlindKeyRow[] } {
+export function makeBlindPacket(pairs: readonly Pair[], seed: string, questions: ReadonlyMap<string, string> = new Map()): { items: BlindItem[]; key: BlindKeyRow[] } {
   const rows = pairs.map((p) => {
     const flip = hashInt(`${seed}|orient|${p.pairId}`) % 2 === 1;
     const a = flip ? p.y : p.x;
     const b = flip ? p.x : p.y;
-    return {
-      sort: hashInt(`${seed}|order|${p.pairId}`),
-      item: { pairId: p.pairId, A: renderMemoCanonical(a.memo!), B: renderMemoCanonical(b.memo!) },
-      key: { pairId: p.pairId, A: a.variant, B: b.variant, caseId: p.caseId, episodeId: p.episodeId, comparison: p.comparison },
-    };
+    return { sort: hashInt(`${seed}|order|${p.pairId}`), pair: p, a, b };
   });
-  rows.sort((r1, r2) => r1.sort - r2.sort || r1.item.pairId.localeCompare(r2.item.pairId));
-  return { items: rows.map((r) => r.item), key: rows.map((r) => r.key) };
+  rows.sort((r1, r2) => r1.sort - r2.sort || r1.pair.pairId.localeCompare(r2.pair.pairId));
+  const items: BlindItem[] = [];
+  const key: BlindKeyRow[] = [];
+  rows.forEach((r, i) => {
+    const pairId = `P${String(i + 1).padStart(3, '0')}`;
+    items.push({ pairId, question: questions.get(r.pair.caseId.replace(/~masked$/, '')) ?? '', A: renderMemoCanonical(r.a.memo!), B: renderMemoCanonical(r.b.memo!) });
+    key.push({ pairId, internalId: r.pair.pairId, A: r.a.variant, B: r.b.variant, caseId: r.pair.caseId, episodeId: r.pair.episodeId, comparison: r.pair.comparison });
+  });
+  return { items, key };
 }
 
 // ---- Hoja de calificación (CSV) --------------------------------------------------------------

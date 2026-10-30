@@ -24,6 +24,8 @@ export class MeteredLLM implements AdvisorLLM {
   readonly calls: CallRecord[] = [];
   spentUsd = 0;
   unpriced = 0;
+  /** Llamadas en vuelo: cuentan contra el tope de llamadas para que un abanico paralelo no lo desborde. */
+  private inflight = 0;
 
   constructor(private readonly inner: AdvisorLLM, private readonly caps: Caps | null = null, private readonly prices: Record<string, PriceRow> = {}) {}
 
@@ -36,7 +38,7 @@ export class MeteredLLM implements AdvisorLLM {
 
   private guardBefore(): void {
     if (!this.caps) return;
-    if (this.calls.length >= this.caps.maxCalls) throw new AdvisorBudgetError(`tope de llamadas del arnés alcanzado (${this.caps.maxCalls})`);
+    if (this.calls.length + this.inflight >= this.caps.maxCalls) throw new AdvisorBudgetError(`tope de llamadas del arnés alcanzado (${this.caps.maxCalls})`);
     if (this.spentUsd >= this.caps.maxUsd) throw new AdvisorBudgetError(`tope de gasto del arnés alcanzado (${this.caps.maxUsd} USD)`);
   }
 
@@ -49,16 +51,26 @@ export class MeteredLLM implements AdvisorLLM {
 
   async create(req: AdvisorRequest): Promise<AdvisorResponse> {
     this.guardBefore();
-    const res = await this.inner.create(req);
-    this.record(req, res);
-    return res;
+    this.inflight++;
+    try {
+      const res = await this.inner.create(req);
+      this.record(req, res);
+      return res;
+    } finally {
+      this.inflight--;
+    }
   }
 
   async stream(req: AdvisorRequest, h?: AdvisorStreamHandlers): Promise<AdvisorResponse> {
     this.guardBefore();
-    const res = await this.inner.stream(req, h);
-    this.record(req, res);
-    return res;
+    this.inflight++;
+    try {
+      const res = await this.inner.stream(req, h);
+      this.record(req, res);
+      return res;
+    } finally {
+      this.inflight--;
+    }
   }
 
   /** USD solo si TODAS las llamadas tienen precio; si no, null (no se estima el precio que falta). */

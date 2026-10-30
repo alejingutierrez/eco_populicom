@@ -115,9 +115,11 @@ describe('pares y paquete ciego', () => {
     const p2 = makeBlindPacket(pairs, 'semilla-1');
     const p3 = makeBlindPacket(pairs, 'semilla-2');
     expect(p1).toEqual(p2);
-    expect(p3.items.map((i) => i.pairId)).not.toEqual(p1.items.map((i) => i.pairId));
+    expect(p3.key.map((k) => k.internalId)).not.toEqual(p1.key.map((k) => k.internalId));
     expect(new Set(p1.key.map((k) => k.A)).size + new Set(p1.key.map((k) => k.B)).size).toBeGreaterThan(2); // ambas orientaciones
-    expect(JSON.stringify(p1.items)).not.toMatch(/"(?:variante|variant|key|c_vs_a2)"/);
+    expect(JSON.stringify(p1.items)).not.toMatch(/"(?:variante|variant|key)"|c_vs_a2|e1:q1/);
+    expect(p1.items.map((i) => i.pairId)).toEqual(p1.items.map((_, i) => `P${String(i + 1).padStart(3, '0')}`)); // ids opacos
+    expect(p1.key.every((k) => k.internalId.startsWith('c_vs_a2:'))).toBe(true);
     expect(JSON.stringify(p1.items)).not.toMatch(/variante (?:c|a2)|consejo de 6/);
   });
 
@@ -134,7 +136,7 @@ describe('pares y paquete ciego', () => {
   });
 
   test('la hoja reporta filas inválidas sin romperse', () => {
-    const key: BlindKeyRow[] = [{ pairId: 'p1', A: 'c', B: 'a2', caseId: 'e1:q', episodeId: 'e1', comparison: 'c_vs_a2' }];
+    const key: BlindKeyRow[] = [{ pairId: 'p1', internalId: 'x', A: 'c', B: 'a2', caseId: 'e1:q', episodeId: 'e1', comparison: 'c_vs_a2' }];
     const r = parseSheet('pair_id,rater,preferencia\np1,ana,Z\np9,ana,A\np1,,A\np1,ana,\n', key);
     expect(r.verdicts).toEqual([]);
     expect(r.errors).toHaveLength(3);
