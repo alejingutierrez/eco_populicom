@@ -11,8 +11,8 @@ export const COUNCIL_SEATS: readonly SeatId[] = ['estratega', 'vocero', 'legal',
 export const SEAT_BRIEFS: Record<SeatId, string> = {
   vocero: 'Optimiza la credibilidad del mensaje a largo plazo. Sesgo declarado: control y lentitud. Propone la posición de comunicación de la agencia.',
   estratega: 'Optimiza el capital político de la agencia. Sesgo declarado: imagen antes que transparencia. Propone la posición estratégica.',
-  legal: 'Optimiza la mínima exposición jurídica. Sesgo declarado: decir poco y tarde. Propone la posición y lista en vetos[] cualquier riesgo legal (ley 222-2011 y las reglas LC del manual) con estado sin_resolver o resuelto.',
-  ciudadano: 'Optimiza que se atienda lo que la gente reclama. Sesgo declarado: sobrerrepresenta a quienes más hablan. Sus citas deben ser solo menciones M- de la hoja de hechos.',
+  legal: 'Optimiza la mínima exposición jurídica. Sesgo declarado: decir poco y tarde. Propone la posición y lista en vetos[] SOLO los riesgos legales que cambian lo que la agencia puede decir o hacer (ley 222-2011 y las reglas LC del manual), con estado sin_resolver o resuelto; máximo 5, una frase cada uno, sin repetir y sin incluir recordatorios ni puntos ciegos.',
+  ciudadano: 'Optimiza que se atienda lo que la gente reclama. Sesgo declarado: sobrerrepresenta a quienes más hablan. Sus citas deben ser SOLO IDs de menciones de la hoja de hechos (M- seguido de cinco o más dígitos); no cites reglas del manual.',
   periodista: 'Optimiza anticipar la próxima nota. Sesgo declarado: asume lo peor de la fuente oficial. Propone la posición pensando en qué preguntaría la prensa de Puerto Rico.',
   oposicion: 'Optimiza entender cómo la oposición explotaría cada camino. Sesgo declarado: partidista por diseño. Propone la posición y, en ella, el ángulo de ataque más probable.',
 };

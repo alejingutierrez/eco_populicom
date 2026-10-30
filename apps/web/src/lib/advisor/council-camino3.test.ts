@@ -67,29 +67,40 @@ describe('reglas puras del consejo', () => {
     const memo = memoOf(2, 0, ['C0-1']);
     const out = applyCouncilMemoRules(memo, {
       objeciones: [{ id: 'C0-1', texto: 'a' }, { id: 'C1-1', texto: 'b' }], nCaminos: 2,
-      vetosR1: [{ texto: 'riesgo general', estado: 'sin_resolver' }],
-      vetosR4: [{ camino: 0, texto: 'LC-5 sin base', estado: 'sin_resolver' }],
+      vetosR1: [{ id: 'V1', texto: 'riesgo general', estado: 'sin_resolver' }],
+      vetosR4: [{ id: 'W1', camino: 0, texto: 'LC-5 sin base', estado: 'sin_resolver' }],
     });
     const ob = out.objeciones_da as Array<{ id: string; estado: string; como: string }>;
     expect(ob.find((o) => o.id === 'C1-1')).toMatchObject({ estado: 'aceptada', como: 'aceptada (sin respuesta del moderador)' });
-    expect((out.vetos as Array<{ texto: string }>).map((v) => v.texto)).toEqual(expect.arrayContaining(['riesgo general', 'LC-5 sin base']));
+    expect((out.vetos as Array<{ texto: string }>).map((v) => v.texto)).toEqual(expect.arrayContaining(['V1: riesgo general', 'W1: LC-5 sin base']));
     const rec = out.recomendacion as { camino: number; confianza_cualitativa: string; porque: string };
     expect(rec.camino).toBe(1);
     expect(rec.confianza_cualitativa).toBe('media');
     expect(rec.porque).toContain('veto sin resolver');
   });
 
+  test('un veto parafraseado pero citado por id no se duplica', () => {
+    const memo = { ...memoOf(2, 1), vetos: [{ asiento: 'legal', texto: 'V1/W1: no afirmar que no hubo exposición de datos', estado: 'sin_resolver' }] };
+    const out = applyCouncilMemoRules(memo, {
+      objeciones: [], nCaminos: 2,
+      vetosR1: [{ id: 'V1', texto: 'VETO de cualquier frase sobre datos personales', estado: 'sin_resolver' }],
+      vetosR4: [{ id: 'W1', camino: 0, texto: 'VETO de frases sobre datos personales', estado: 'sin_resolver' }],
+    });
+    expect(out.vetos as unknown[]).toHaveLength(1);
+    expect((out.recomendacion as { camino: number }).camino).toBe(1);
+  });
+
   test('applyCouncilMemoRules: si todos los caminos están vetados, baja la confianza', () => {
     const out = applyCouncilMemoRules(memoOf(2, 0), {
       objeciones: [], nCaminos: 2, vetosR1: [],
-      vetosR4: [{ camino: 0, texto: 'a', estado: 'sin_resolver' }, { camino: 1, texto: 'b', estado: 'sin_resolver' }],
+      vetosR4: [{ id: 'W1', camino: 0, texto: 'a', estado: 'sin_resolver' }, { id: 'W2', camino: 1, texto: 'b', estado: 'sin_resolver' }],
     });
     expect((out.recomendacion as { confianza_cualitativa: string }).confianza_cualitativa).toBe('baja');
   });
 
-  test('un veto que el moderador marcó resuelto no bloquea', () => {
-    const memo = { ...memoOf(2, 0), vetos: [{ asiento: 'legal', texto: 'a', estado: 'resuelto' }] };
-    const out = applyCouncilMemoRules(memo, { objeciones: [], nCaminos: 2, vetosR1: [], vetosR4: [{ camino: 0, texto: 'a', estado: 'sin_resolver' }] });
+  test('un veto que el moderador marcó resuelto (citado por id) no bloquea', () => {
+    const memo = { ...memoOf(2, 0), vetos: [{ asiento: 'legal', texto: 'W1: atendido con la vocería técnica', estado: 'resuelto' }] };
+    const out = applyCouncilMemoRules(memo, { objeciones: [], nCaminos: 2, vetosR1: [], vetosR4: [{ id: 'W1', camino: 0, texto: 'a', estado: 'sin_resolver' }] });
     expect((out.recomendacion as { camino: number }).camino).toBe(0);
   });
 
@@ -193,11 +204,12 @@ describe('runCouncil', () => {
     const out = await runCouncil(base(llm, memStore().store));
     const rec = out.memo!.recomendacion as { camino: number };
     expect(rec.camino).toBe(1);
-    expect((out.memo!.vetos as Array<{ texto: string }>).some((v) => v.texto === 'LC-5 sin base')).toBe(true);
+    expect((out.memo!.vetos as Array<{ texto: string }>).some((v) => /LC-5 sin base/.test(v.texto))).toBe(true);
   });
 
   test('ciudadanía inventada: citas del asiento ciudadano que no son M- válidas se cuentan', async () => {
-    const { llm } = fakeLLM({ positions: (seat) => pos(`r-${seat}`, seat === 'ciudadano' ? { citas: ['M-48213', 'M-77777', 'M-12'] } : {}) });
+    // M-77777 tiene forma de mención y no se consultó (invento); M-12 es una regla del manual (no cuenta).
+    const { llm } = fakeLLM({ positions: (seat) => pos(`r-${seat}`, seat === 'ciudadano' ? { citas: ['M-48213', 'M-77777', 'M-88888', 'M-12'] } : {}) });
     const out = await runCouncil(base(llm, memStore().store));
     expect(out.alarms?.ciudadania_inventada).toBe(2);
   });

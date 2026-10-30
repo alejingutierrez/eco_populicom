@@ -194,10 +194,10 @@ export interface MemoRuleCtx {
   /** Objeciones del abogado del diablo: id `C{camino}-{n}` y texto. */
   objeciones: Array<{ id: string; texto: string }>;
   nCaminos: number;
-  /** Vetos del asiento legal de la ronda 1 (sin camino asignado). */
-  vetosR1: Array<{ texto: string; estado: string }>;
-  /** Vetos del asiento legal de la ronda 4, ya asociados a un camino. */
-  vetosR4: Array<{ camino: number; texto: string; estado: string }>;
+  /** Vetos del asiento legal de la ronda 1 (sin camino asignado), con id `V{n}`. */
+  vetosR1: Array<{ id: string; texto: string; estado: string }>;
+  /** Vetos del asiento legal de la ronda 4, ya asociados a un camino, con id `W{n}`. */
+  vetosR4: Array<{ id: string; camino: number; texto: string; estado: string }>;
 }
 
 export function missingObjections(memo: Obj, objeciones: Array<{ id: string }>): string[] {
@@ -205,7 +205,14 @@ export function missingObjections(memo: Obj, objeciones: Array<{ id: string }>):
   return objeciones.filter((o) => !covered.has(o.id)).map((o) => o.id);
 }
 
-/** Reglas que hace cumplir el código sobre el memorando del consejo (spec §8.3). */
+const VETO_ID = /\b[VW]\d+\b/g;
+
+/**
+ * Reglas que hace cumplir el código sobre el memorando del consejo (spec §8.3).
+ * Los vetos del legal llevan id (V1.. de la ronda 1, W1.. de la ronda 4) y el moderador debe citar
+ * el id al inicio del texto: el modelo parafrasea, así que comparar texto exacto duplicaba o perdía
+ * vetos (medido en la corrida real del 30-oct-2026: 26 vetos en el memorando por 8 reales).
+ */
 export function applyCouncilMemoRules(memo: Obj, ctx: MemoRuleCtx): Obj {
   const out: Obj = { ...memo };
 
@@ -218,20 +225,26 @@ export function applyCouncilMemoRules(memo: Obj, ctx: MemoRuleCtx): Obj {
   }
   out.objeciones_da = objeciones;
 
-  // Todo veto del legal aparece; el estado del moderador manda si lo marcó, y si no, el del asiento.
+  // Todo veto del legal aparece: el moderador lo cita por id; el que falte se añade con su texto original.
   const vetos = [...((out.vetos as Obj[]) ?? [])];
-  const todos = [...ctx.vetosR1.map((v) => ({ ...v, camino: null as number | null })), ...ctx.vetosR4];
-  for (const v of todos) {
-    if (!vetos.some((x) => x.texto === v.texto)) vetos.push({ asiento: 'legal', texto: v.texto, estado: v.estado });
+  const cubiertos = new Set<string>();
+  for (const v of vetos) for (const id of String(v.texto).match(VETO_ID) ?? []) cubiertos.add(id);
+  for (const v of [...ctx.vetosR1, ...ctx.vetosR4]) {
+    if (!cubiertos.has(v.id)) vetos.push({ asiento: 'legal', texto: `${v.id}: ${v.texto}`, estado: v.estado });
   }
   out.vetos = vetos;
 
-  // Un camino con veto sin resolver no se recomienda.
-  const estadoDe = (texto: string, fallback: string) => (vetos.find((x) => x.texto === texto)?.estado as string | undefined) ?? fallback;
+  // Un camino con veto sin resolver no se recomienda. El estado que el moderador dio a un veto citado
+  // por id manda (si lo marcó resuelto es porque su memorando lo atiende); si no lo citó, el del asiento.
+  const estadoDe = (id: string, fallback: string): string => {
+    const m = vetos.filter((x) => (String(x.texto).match(VETO_ID) ?? []).includes(id));
+    if (m.length === 0) return fallback;
+    return m.every((x) => x.estado === 'resuelto') ? 'resuelto' : 'sin_resolver';
+  };
   const bloqueados = new Set<number>();
   const motivo = new Map<number, string>();
   for (const v of ctx.vetosR4) {
-    if (estadoDe(v.texto, v.estado) === 'sin_resolver') {
+    if (estadoDe(v.id, v.estado) === 'sin_resolver') {
       bloqueados.add(v.camino);
       if (!motivo.has(v.camino)) motivo.set(v.camino, v.texto);
     }
@@ -390,9 +403,10 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     }
     const positions = Object.fromEntries(COUNCIL_SEATS.map((s) => [s, checkpoints[`1.${s}`] as Obj])) as Record<SeatId, Obj>;
 
-    // Ciudadanía inventada: toda cita del asiento ciudadano debe ser una mención M- válida.
+    // Ciudadanía inventada: una cita con forma de mención (M-#### o más dígitos) que la ronda 0 no consultó.
+    // Las reglas del manual (M-20, G-2) no son menciones: el asiento puede apoyarse en ellas y no es invento.
     const citasCiudadano = (positions.ciudadano.citas as string[]) ?? [];
-    const ciudadania = citasCiudadano.filter((c) => !(/^M-\d{4,}$/.test(c) && d.seenIds.has(c))).length;
+    const ciudadania = citasCiudadano.filter((c) => /^M-\d{4,}$/.test(c) && !d.seenIds.has(c)).length;
 
     // ---- Ronda 2 · Agrupación (moderador, DEEP) -----------------------------------------
     await checkCancel();
@@ -514,8 +528,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
     for (const p of premortems.premortems as Array<{ camino: number; objeciones: Array<{ relato_72h: string }> }>) {
       p.objeciones.forEach((o, k) => objeciones.push({ id: `C${p.camino}-${k + 1}`, texto: o.relato_72h }));
     }
-    const vetosR1 = ((positions.legal.vetos as Array<{ texto: string; estado: string }>) ?? []).map((v) => ({ texto: v.texto, estado: v.estado }));
-    const vetosR4 = ((rebuttals.legal.vetos as Array<{ camino: number; texto: string; estado: string }>) ?? []).map((v) => ({ camino: v.camino, texto: v.texto, estado: v.estado }));
+    const vetosR1 = ((positions.legal.vetos as Array<{ texto: string; estado: string }>) ?? []).map((v, i) => ({ id: `V${i + 1}`, texto: v.texto, estado: v.estado }));
+    const vetosR4 = ((rebuttals.legal.vetos as Array<{ camino: number; texto: string; estado: string }>) ?? []).map((v, i) => ({ id: `W${i + 1}`, camino: v.camino, texto: v.texto, estado: v.estado }));
 
     if (!memoSaved) {
       await emit('round_started', { ronda: 5, nombre: ROUND_NAMES[5] });
@@ -527,7 +541,8 @@ export async function runCouncil(d: CouncilDeps): Promise<CouncilOutcome> {
       const memoCtx =
         `${SEAT_PREAMBLE}\n\nAsiento: moderador. Escribe el memorando del consejo con las secciones del esquema. ` +
         `Los caminos del memorando son EXACTAMENTE los ${nCaminos} de la agrupación, en el mismo orden (caminos[i] es el camino i). ` +
-        'Recomienda un camino (índice en caminos) con confianza cualitativa. Cada objeción del abogado del diablo aparece en objeciones_da con su id, su estado (resuelta, mitigada o aceptada) y cómo se trata. Todo veto del asiento legal aparece en vetos[]; un camino con veto sin resolver no se recomienda. Recoge el disenso real de las réplicas. Si la pregunta traía una preferencia del usuario, trátala como una opción más y no como la respuesta esperada. Para los borradores usa las plantillas del Anexo A.\n\n' +
+        'Recomienda un camino (índice en caminos) con confianza cualitativa. Cada objeción del abogado del diablo aparece en objeciones_da con su id, su estado (resuelta, mitigada o aceptada) y cómo se trata. Todo veto del asiento legal aparece en vetos[]: un elemento por veto (o por grupo de vetos que digan lo mismo) y su texto EMPIEZA con el id, por ejemplo «W2: …» o «V1/W3: …»; estado resuelto solo si tu memorando lo atiende, si no sin_resolver. Un camino con veto sin resolver no se recomienda. Recoge el disenso real de las réplicas. Si la pregunta traía una preferencia del usuario, trátala como una opción más y no como la respuesta esperada. Para los borradores usa las plantillas del Anexo A.\n\n' +
+        'EXTENSIÓN (es un límite, no una sugerencia): el memorando completo no pasa de 1.500 palabras sin contar los borradores; cada camino cabe en unas 180 palabras repartidas entre sus campos; cada objeción, veto, riesgo o supuesto es una frase; máximo 3 borradores de 150 palabras cada uno. Sé concreto y no repitas lo que ya dice otra sección.\n\n' +
         `Agencia: ${d.agency.name}. Fecha: ${d.dateLabel}.\nPregunta: ${d.question}\n` +
         `Preferencia del usuario (solo la ves tú): ${preferencia ?? 'ninguna'}\n\n` +
         `Caminos:\n${caminosJson}\n\nPosiciones de la ronda 1 por asiento:\n${JSON.stringify(positions)}\n\n` +
