@@ -479,6 +479,18 @@ describe('prompt del clasificador: positivos y paracrisis (spec §8.1)', () => {
     expect(alerta.piso).toBe(3);
   });
 
+  it('quién firma, quién da la cara o cuándo enviar, sin controversia, es camino 2 (spec §8.1)', () => {
+    const l = TRIAGE_SYSTEM.split('\n');
+    const c1 = l.find((x) => x.startsWith('- 1 ='))!;
+    const c2 = l.find((x) => x.startsWith('- 2 ='))!;
+    expect(c2).toMatch(/decisión sobre quién da la cara, quién firma o habla en nombre de la agencia, o cuándo enviar o publicar/);
+    expect(c2).toMatch(/aunque no haya controversia ni alerta/);
+    // la excepción de los positivos no se come la regla de vocería ni de momento
+    expect(c1).toMatch(/no alcanza a las decisiones de vocería ni de momento de publicación: esas son camino 2/);
+    // el camino 1 sigue siendo solo para lo descriptivo y los positivos
+    expect(c1).not.toMatch(/quién firma|cuándo enviar/);
+  });
+
   it('los pisos por reglas no cambian con los positivos: veda con redacción sube a 2', () => {
     const f = computeFloor(
       inp({ indiceHoy: 0.1, vedaActiva: true, clasificacion: clas({ tipo_pregunta: 'redaccion', camino_sugerido: 1 }) }),

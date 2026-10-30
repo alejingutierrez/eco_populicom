@@ -619,6 +619,16 @@ los pisos de la tabla (índice, alerta, veda, personas en riesgo, guías) se
 aplican igual: un agradecimiento en veda activa sigue pidiendo camino 2 como
 mínimo por R6, y uno con índice ≥ 0.40 también por R1.
 
+**Decisiones de vocería y de momento** (regla del clasificador, aplicada a
+`decision`): una pregunta sobre **quién da la cara, quién firma o habla en
+nombre de la agencia, o cuándo enviar o publicar** un comunicado, una nota de
+prensa o una carta va por el **camino 2 como mínimo, aunque no haya
+controversia ni alerta**. El manual tiene reglas de vocería y de tiempos
+(M-27, M-28, M-69); subestimar aquí es el error caro. La excepción de los textos
+positivos no la alcanza: redactar el agradecimiento es camino 1, decidir quién
+lo firma o cuándo sale es camino 2. Es una regla del clasificador, no un piso
+por código: no depende de datos de `situacion_actual`.
+
 **Paracrisis sin señal de extensión en el texto** (alcance de la Fase 1). El
 triaje no detecta paracrisis cuando la pregunta no dice ni insinúa que la
 conversación se extiende: «¿qué dicen las menciones?» o «¿cómo reaccionó la
@@ -628,6 +638,21 @@ conversación pesa lo bastante, el índice o la alerta suben el camino aunque el
 texto no lo diga. Detectar paracrisis a partir de datos de situación (volumen,
 número de cuentas, medios que la recogen) queda para la Fase 3, con las
 señales S2, S4, S8 y S9. El clasificador no recibe esos datos en la Fase 1.
+
+**Estado de la medición del triaje (30-oct-2026).** Holdout-7 y holdout-8
+pasan a ser sets de **desarrollo**: con ellos se decidieron cambios del prompt
+(paracrisis, positivos, veda, vocería y momento), así que ya no cuentan como
+prueba limpia. En holdout-8, con el prompt de `8abff13`, la subestimación fue
+10/205 (4,88 %; límite superior al 95 %: 8,13 %). Cuatro de esas diez eran
+casos de veda etiquetados con la política anterior (veda → 3) y tres eran
+decisiones de vocería o de momento, que la regla anterior de esta sección
+resuelve; no se relabeló nada. **El criterio ≤ 2 % queda pendiente.** Se mide
+una sola vez, con el prompt congelado, sobre un set nuevo de al menos 183
+casos etiquetado por una persona de comunicaciones con una política única
+escrita. La política y la plantilla están en
+`docs/manejo-de-crisis/triaje-etiquetado/`. Hasta entonces la casilla de
+aceptación de la Fase 1 no se marca. No se cambia el prompt ni las etiquetas
+después de esa medición.
 
 **Capa 2 · clasificador** (Haiku, *structured outputs*):
 
@@ -1240,7 +1265,7 @@ empezar.
 
 **Aceptación:**
 
-- [ ] Tasa de subestimación del triaje ≤ 2 % en el set.
+- [ ] Tasa de subestimación del triaje ≤ 2 % en el set. Pendiente: una sola medición con prompt congelado sobre un set nuevo etiquetado por una persona de comunicaciones (§8.1, «Estado de la medición del triaje»).
 - [ ] Panel: criterio de latencia de §0.1 (pendiente de confirmación) medido en
   20 corridas. Medido: hechos listos p50 48 s / p95 56 s; memorando p50 203 s /
   p95 243 s.
