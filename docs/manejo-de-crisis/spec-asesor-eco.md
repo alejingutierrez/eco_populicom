@@ -1395,7 +1395,7 @@ los esquemas nuevos los aceptó el servicio, 0 rechazos, 0 `max_tokens`:
 | Ronda 1 / 2 / 3 / 4 (acumulado) | 40,0 / 63,6 / 89,5 / 103,7 s | 45,9 / 66,0 / 98,6 / 106,5 s |
 | Memorando + revisión | 137 s | 103 s |
 | Salida de la parte «caminos» (tope 12 000) | 10 010 tokens | 7 576 tokens |
-| Vetos en el memorando (reales: 8 y 7) | 24 | 6 |
+| Vetos en el memorando (el legal dio 8 y 5 distintos) | 24 | 6 (con ids) |
 | Citas totales / inválidas | 72 / 0 | 51 / 0 |
 | Caché leída / total de entrada | 43,5 % | 76,9 % |
 | Haiku (filtro + revisión): entrada / salida | 4,6k / 5,2k | 3,3k / 4,1k |
