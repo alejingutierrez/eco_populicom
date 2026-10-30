@@ -228,7 +228,7 @@ export function applyCouncilMemoRules(memo: Obj, ctx: MemoRuleCtx): Obj {
   // Todo veto del legal aparece: el moderador lo cita por id; el que falte se añade con su texto original.
   const vetos = [...((out.vetos as Obj[]) ?? [])];
   const cubiertos = new Set<string>();
-  for (const v of vetos) for (const id of String(v.texto).match(VETO_ID) ?? []) cubiertos.add(id);
+  for (const v of vetos) for (const id of (String(v.texto).match(VETO_ID) ?? []) as string[]) cubiertos.add(id);
   for (const v of [...ctx.vetosR1, ...ctx.vetosR4]) {
     if (!cubiertos.has(v.id)) vetos.push({ asiento: 'legal', texto: `${v.id}: ${v.texto}`, estado: v.estado });
   }
@@ -237,7 +237,7 @@ export function applyCouncilMemoRules(memo: Obj, ctx: MemoRuleCtx): Obj {
   // Un camino con veto sin resolver no se recomienda. El estado que el moderador dio a un veto citado
   // por id manda (si lo marcó resuelto es porque su memorando lo atiende); si no lo citó, el del asiento.
   const estadoDe = (id: string, fallback: string): string => {
-    const m = vetos.filter((x) => (String(x.texto).match(VETO_ID) ?? []).includes(id));
+    const m = vetos.filter((x) => ((String(x.texto).match(VETO_ID) ?? []) as string[]).includes(id));
     if (m.length === 0) return fallback;
     return m.every((x) => x.estado === 'resuelto') ? 'resuelto' : 'sin_resolver';
   };
