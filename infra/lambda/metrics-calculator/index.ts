@@ -23,6 +23,7 @@ import {
   calculateMetrics,
   fetchOgImage,
   formatMetric,
+  HISTORY_DAYS,
   isArticlePageType,
   isGenericImageUrl,
   loadAgencyCoverage,
@@ -380,11 +381,12 @@ async function getHistoricalSnapshots(client: any, agencyId: string, today: stri
      WHERE agency_id = $1 AND date < $2
        AND ($3::date IS NULL OR date >= $3::date)
      ORDER BY date DESC
-     LIMIT 30`,
+     LIMIT ${HISTORY_DAYS}`,
     [agencyId, today, coverageStart],
   );
   return result.rows.map((r: any) => ({
-    date: r.date,
+    // pg devuelve DATE como Date; la referencia larga de «lo usual» compara YYYY-MM-DD.
+    date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
     totalMentions: r.total_mentions,
     negativeCount: r.negative_count,
     nss: r.nss != null ? Number(r.nss) : null,
