@@ -34,6 +34,7 @@ import { runAdvisorTool, advisorToolDefs, type AdvisorToolCtx } from '@/lib/advi
 import { runCamino1, AdvisorBudgetError } from '@/lib/advisor/camino1';
 import { triage, type TriageDecision } from '@/lib/advisor/triage';
 import { runPanel } from '@/lib/advisor/council';
+import { runCamino3Front } from '@/lib/advisor/camino3';
 import { createRun, appendEvent, setRunStatus, type Pool } from '@/lib/advisor/runs';
 
 export const runtime = 'nodejs';
@@ -193,9 +194,10 @@ export async function POST(request: NextRequest): Promise<Response> {
           },
           override,
         });
-        // Fase 1: el consejo completo (camino 3) no está cableado; se usa el panel.
-        const caminoRun: 1 | 2 = decision.camino === 1 ? 1 : 2;
-        const motivo = decision.camino === 3 ? `${decision.motivo} Consejo completo llega en la fase 2; se usa el panel.` : decision.motivo;
+        // El consejo (camino 3) corre si eco-advisor está configurado; si no, el panel (fase 1).
+        const councilOn = !!process.env.ADVISOR_FUNCTION_NAME;
+        const caminoRun: 1 | 2 | 3 = decision.camino === 1 ? 1 : decision.camino === 3 && councilOn ? 3 : 2;
+        const motivo = decision.camino === 3 && !councilOn ? `${decision.motivo} El consejo completo no está habilitado en este ambiente; se usa el panel.` : decision.motivo;
         send({ type: 'triage', camino: decision.camino, piso: decision.piso, motivo, clasificacion: decision.clasificacion });
 
         const triageJson = { camino: decision.camino, piso: decision.piso, motivo, clasificacion: decision.clasificacion, legalObligatorio: decision.legalObligatorio, override: decision.override };
@@ -204,6 +206,18 @@ export async function POST(request: NextRequest): Promise<Response> {
           await runCaminoUno({
             send, pool, db, tools, llm, models, dateLabel, now, agency, message, priorTurns, conversationId,
             knowledgeVersion, triageJson, userSub: user.sub, userEmail: user.email ?? null, agencyId,
+          });
+        } else if (caminoRun === 3) {
+          const runId = await createRun(pool, {
+            agencyId, userSub: user.sub, userEmail: user.email ?? null, conversationId, question: message, camino: 3, forced: override,
+            asOf: now, knowledgeVersion, triage: triageJson, status: 'r0_running',
+          });
+          await db.insert(chatMessages).values({ conversationId, role: 'assistant', content: 'Consejo completo en curso.', model: models.main, contentJson: { mode: 'advisor' as const, runId, camino: 3 } });
+          send({ type: 'run', runId, camino: 3 });
+          void executeCouncilFront({
+            pool, runId, llm, tools, models, dateLabel, agency, message, situacion,
+            signals: { guiaProbable: decision.clasificacion?.guia_probable ?? null, riesgoPersonas: decision.clasificacion?.riesgo_personas ?? false, vedaActiva },
+            startedAt: Date.now(),
           });
         } else {
           const runId = await createRun(pool, {
@@ -326,6 +340,49 @@ async function executePanel(a: {
     const code = err instanceof AdvisorBudgetError ? 'error_budget' : (e.code ?? 'error');
     log.error('advisor', 'panel.failed', { runId: a.runId, code });
     await appendEvent(a.pool, a.runId, 'error', { code, message: 'El panel no pudo terminar. Puedes intentar de nuevo.' }).catch(() => undefined);
+    await setRunStatus(a.pool, a.runId, code === 'error_budget' ? 'error_budget' : 'error', { errorCode: code, durationMs: Date.now() - a.startedAt }).catch(() => undefined);
+  }
+}
+
+/** Invoca eco-advisor de forma asíncrona (spec §11.3): `Event`, sin esperar la respuesta. */
+async function invokeAdvisorLambda(runId: string): Promise<void> {
+  const { LambdaClient, InvokeCommand } = await import('@aws-sdk/client-lambda');
+  const client = new LambdaClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+  await client.send(new InvokeCommand({
+    FunctionName: process.env.ADVISOR_FUNCTION_NAME!,
+    InvocationType: 'Event',
+    Payload: Buffer.from(JSON.stringify({ runId })),
+  }));
+}
+
+/** Camino 3, lado web: ronda 0 + contención y entrega al lambda. Los errores quedan como evento y estado. */
+async function executeCouncilFront(a: {
+  pool: Pool;
+  runId: string;
+  llm: RuntimeLLM;
+  tools: ToolRunner;
+  models: { fast: string; main: string; deep: string };
+  dateLabel: string;
+  agency: { slug: string; name: string };
+  message: string;
+  situacion: Record<string, unknown> | null;
+  signals: { guiaProbable: string | null; riesgoPersonas: boolean; vedaActiva: boolean };
+  startedAt: number;
+}): Promise<void> {
+  try {
+    const out = await runCamino3Front({
+      llm: a.llm, tools: a.tools, pool: a.pool, runId: a.runId, models: a.models, dateLabel: a.dateLabel,
+      agency: a.agency, signals: a.signals, question: a.message, situacion: a.situacion, invokeAdvisor: invokeAdvisorLambda,
+    });
+    if (out.status === 'cancelled') {
+      await appendEvent(a.pool, a.runId, 'cancelled', {});
+      await setRunStatus(a.pool, a.runId, 'cancelled', { durationMs: Date.now() - a.startedAt });
+    }
+  } catch (err) {
+    const e = err as { code?: string };
+    const code = err instanceof AdvisorBudgetError ? 'error_budget' : (e.code ?? 'error');
+    log.error('advisor', 'council.front.failed', { runId: a.runId, code });
+    await appendEvent(a.pool, a.runId, 'error', { code, message: 'El consejo no pudo arrancar. Puedes intentar de nuevo.' }).catch(() => undefined);
     await setRunStatus(a.pool, a.runId, code === 'error_budget' ? 'error_budget' : 'error', { errorCode: code, durationMs: Date.now() - a.startedAt }).catch(() => undefined);
   }
 }

@@ -35,15 +35,21 @@ export function buildFamilyASystem(opts: { constitution: string; manual: string 
  * constitución → manual (BP1, 1 h) → hoja de hechos (BP2, 5 min).
  * El rol del asiento va después del prefijo, en el turno del usuario.
  */
-export function buildFamilyBSystem(opts: { constitution: string; manual: string; factSheet: string }): AdvisorContentBlock[] {
+export function buildFamilyBSystem(opts: { constitution: string; manual: string; factSheet: string; roundContext?: string }): AdvisorContentBlock[] {
   assertStable('constitución', opts.constitution);
   assertStable('manual', opts.manual);
   assertStable('hoja de hechos', opts.factSheet);
-  return [
+  const blocks: AdvisorContentBlock[] = [
     { type: 'text', text: opts.constitution },
     { type: 'text', text: opts.manual, cache_control: { type: 'ephemeral', ttl: '1h' } },
     { type: 'text', text: opts.factSheet, cache_control: { type: 'ephemeral', ttl: '5m' } },
   ];
+  // BP3 (ronda 4): «caminos + ataques» al final, para que los seis asientos de la réplica lo compartan.
+  if (opts.roundContext) {
+    assertStable('contexto de la ronda', opts.roundContext);
+    blocks.push({ type: 'text', text: opts.roundContext, cache_control: { type: 'ephemeral', ttl: '5m' } });
+  }
+  return blocks;
 }
 
 /**

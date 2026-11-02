@@ -4,6 +4,7 @@
 |---|---|
 | [spec-asesor-eco.md](spec-asesor-eco.md) | **Spec de implementación v1.0** (28-oct-2026): capa LLM, herramientas, triaje, panel, consejo, API, datos, infra, seguridad, evaluación, fases y criterios de aceptación. Manda sobre el diseño |
 | [manual-eco.md](manual-eco.md) | Manual propio de ECO v0.2: 135 reglas (M-xx), 10 líneas rojas (L-x), 12 guías (G-x) y referencia a las 28 reglas legales (LC-x). Base de conocimiento del asesor |
+| [evaluacion/README.md](evaluacion/README.md) | **Evaluación de la fase 2** (spec §13): pasos con personas, protocolo de la sesión de consultores, hoja de calificación e informe con la decisión §13.3 en blanco. El código del arnés está en `scripts/advisor-eval/` |
 | [diseno-asesor.md](diseno-asesor.md) | Diseño v0.1 (superado por el spec en lo que discrepen): triaje de tres caminos, consejo con abogado del diablo, herramientas, datos, calibración, fases y decisiones pendientes |
 | [investigacion/01-marcos-teoricos.md](investigacion/01-marcos-teoricos.md) | Coombs, Benoit, Boin, Hood, Sandman, disculpas, framing, desinformación, confianza |
 | [investigacion/02-manuales-oficiales.md](investigacion/02-manuales-oficiales.md) | CDC CERC, FEMA, OMS/OPS, UK GCS, OCDE, Australia, Nueva Zelanda, España; protocolo hora 0 → semana 1 |

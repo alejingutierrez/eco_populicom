@@ -304,3 +304,182 @@ export function validateMemoPart(part: MemoPart, x: unknown): Obj | null {
   if (!keys.every((k) => k in x)) return null;
   return validateMemo({ ...MEMO_FILLER, ...x }) ? x : null;
 }
+
+// ---- Consejo (camino 3) · spec §8.3, §8.6 -----------------------------------------
+// Rondas 2 a 4 y contención. Mismos principios: JSON Schema para structured outputs
+// y validador en código (el servicio no valida todos los tipos).
+
+export const GROUPING_SCHEMA = {
+  type: 'object',
+  properties: {
+    caminos: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: str, nombre_verbo: str, descripcion: str, apoyado_por: strArr },
+        required: ['id', 'nombre_verbo', 'descripcion', 'apoyado_por'],
+        additionalProperties: false,
+      },
+    },
+    contraplan_construido: { type: 'boolean' },
+  },
+  required: ['caminos', 'contraplan_construido'],
+  additionalProperties: false,
+} as const;
+
+export const HEADLINE_SCHEMA = {
+  type: 'object',
+  properties: {
+    titulares: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { camino: { type: 'integer' }, titular: str, medio: str },
+        required: ['camino', 'titular', 'medio'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['titulares'],
+  additionalProperties: false,
+} as const;
+
+export const ATTACK_SCHEMA = {
+  type: 'object',
+  properties: {
+    ataques: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { camino: { type: 'integer' }, linea_de_ataque: str, quien_la_dice: str },
+        required: ['camino', 'linea_de_ataque', 'quien_la_dice'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['ataques'],
+  additionalProperties: false,
+} as const;
+
+export const REBUTTAL_SCHEMA = {
+  type: 'object',
+  properties: {
+    mantiene: { type: 'boolean' },
+    nuevo_camino: { type: ['integer', 'null'] },
+    evidencia_nueva: { type: ['string', 'null'] },
+    ajuste_rangos: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { metrica: str, horizonte_h: { type: 'integer' }, rango_min: { type: 'number' }, rango_max: { type: 'number' } },
+        required: ['metrica', 'horizonte_h', 'rango_min', 'rango_max'],
+        additionalProperties: false,
+      },
+    },
+    // Solo el asiento legal los llena: asocia cada veto a un camino (spec §8.3: un camino con
+    // veto sin resolver no puede recomendarse). Los demás asientos devuelven [].
+    vetos: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { camino: { type: 'integer' }, texto: str, estado: { type: 'string', enum: ['sin_resolver', 'resuelto'] } },
+        required: ['camino', 'texto', 'estado'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['mantiene', 'nuevo_camino', 'evidencia_nueva', 'ajuste_rangos', 'vetos'],
+  additionalProperties: false,
+} as const;
+
+/** Declaración de contención (M-21): las seis partes como campos, más el texto final. */
+export const HOLDING_SCHEMA = {
+  type: 'object',
+  properties: {
+    reconocer: str,
+    lo_que_se_sabe: str,
+    lo_que_no_se_sabe: str,
+    que_se_esta_haciendo: str,
+    que_puede_hacer_la_gente: str,
+    proxima_actualizacion: str,
+    texto_final: str,
+  },
+  required: ['reconocer', 'lo_que_se_sabe', 'lo_que_no_se_sabe', 'que_se_esta_haciendo', 'que_puede_hacer_la_gente', 'proxima_actualizacion', 'texto_final'],
+  additionalProperties: false,
+} as const;
+
+/** Filtro de inyección (spec §12.2): un veredicto por texto de tercero. */
+export const INJECTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    veredictos: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { id: str, injection_suspected: { type: 'boolean' }, motivo: str },
+        required: ['id', 'injection_suspected', 'motivo'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['veredictos'],
+  additionalProperties: false,
+} as const;
+
+const intIn = (x: unknown, lo: number, hi: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= lo && x <= hi;
+const isRango = (e: unknown) => isObj(e) && isStr(e.metrica) && isNum(e.horizonte_h) && isNum(e.rango_min) && isNum(e.rango_max);
+
+/**
+ * Agrupación. Reglas de esquema: 2 o 3 caminos, ids únicos y `apoyado_por` solo con etiquetas P1..Pn
+ * existentes. Que todas las posiciones queden cubiertas y la regla del contraplán las aplica council.ts.
+ */
+export function validateGrouping(x: unknown, nPositions: number): Obj | null {
+  if (!isObj(x) || !Array.isArray(x.caminos) || typeof x.contraplan_construido !== 'boolean') return null;
+  if (x.caminos.length < 2 || x.caminos.length > 3) return null;
+  const ids = new Set<string>();
+  for (const c of x.caminos) {
+    if (!isObj(c) || !isStr(c.id) || !isStr(c.nombre_verbo) || !isStr(c.descripcion) || !isStrArr(c.apoyado_por)) return null;
+    if (ids.has(c.id)) return null;
+    ids.add(c.id);
+    for (const p of c.apoyado_por) {
+      const m = /^P(\d+)$/.exec(p);
+      if (!m || !intIn(Number(m[1]), 1, nPositions)) return null;
+    }
+  }
+  return x;
+}
+
+export function validateHeadlines(x: unknown, nCaminos: number): Obj | null {
+  if (!isObj(x) || !Array.isArray(x.titulares)) return null;
+  const ok = x.titulares.length >= 1 && x.titulares.every((t) => isObj(t) && intIn(t.camino, 0, nCaminos - 1) && isStr(t.titular) && isStr(t.medio));
+  return ok ? x : null;
+}
+
+export function validateAttacks(x: unknown, nCaminos: number): Obj | null {
+  if (!isObj(x) || !Array.isArray(x.ataques)) return null;
+  const ok = x.ataques.length >= 1 && x.ataques.every((t) => isObj(t) && intIn(t.camino, 0, nCaminos - 1) && isStr(t.linea_de_ataque) && isStr(t.quien_la_dice));
+  return ok ? x : null;
+}
+
+export function validateRebuttal(x: unknown, nCaminos: number): Obj | null {
+  if (!isObj(x) || typeof x.mantiene !== 'boolean') return null;
+  if (!(x.nuevo_camino === null || intIn(x.nuevo_camino, 0, nCaminos - 1))) return null;
+  if (!(x.evidencia_nueva === null || isStr(x.evidencia_nueva))) return null;
+  if (!Array.isArray(x.ajuste_rangos) || !x.ajuste_rangos.every(isRango)) return null;
+  if (!Array.isArray(x.vetos) || !x.vetos.every((v) => isObj(v) && intIn(v.camino, 0, nCaminos - 1) && isStr(v.texto) && ['sin_resolver', 'resuelto'].includes(v.estado as string))) return null;
+  return x;
+}
+
+export function validateHolding(x: unknown): Obj | null {
+  if (!isObj(x)) return null;
+  const keys = ['reconocer', 'lo_que_se_sabe', 'lo_que_no_se_sabe', 'que_se_esta_haciendo', 'que_puede_hacer_la_gente', 'proxima_actualizacion', 'texto_final'];
+  return keys.every((k) => isStr(x[k]) && (x[k] as string).trim().length > 0) ? x : null;
+}
+
+export function validateInjectionVerdicts(x: unknown, ids: readonly string[]): Obj | null {
+  if (!isObj(x) || !Array.isArray(x.veredictos)) return null;
+  const ok = x.veredictos.every((v) => isObj(v) && isStr(v.id) && typeof v.injection_suspected === 'boolean' && isStr(v.motivo));
+  if (!ok) return null;
+  const got = new Set((x.veredictos as Array<{ id: string }>).map((v) => v.id));
+  return ids.every((i) => got.has(i)) ? x : null;
+}

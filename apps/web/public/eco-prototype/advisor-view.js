@@ -15,6 +15,8 @@
   const CAMINO_NOMBRE = { 1: 'Respuesta directa', 2: 'Panel de asesores', 3: 'Consejo completo' };
   const STATUS_TEXT = {
     queued: 'En cola…',
+    r0_running: 'Reuniendo los hechos…',
+    rounds_queued: 'Los hechos están listos; el consejo está por deliberar…',
     running: 'En curso…',
     done: 'Listo.',
     error: 'La corrida terminó con error.',
@@ -164,7 +166,7 @@
 
   /** Resume los eventos para la barra de progreso y las líneas por asiento. */
   function summarize(events) {
-    const s = { ronda: null, nombreRonda: null, rondasHechas: 0, asientos: [], estado: null, vetos: [], errores: [], review: null };
+    const s = { ronda: null, nombreRonda: null, rondasHechas: 0, asientos: [], estado: null, vetos: [], errores: [], review: null, holding: null };
     events.forEach((e) => {
       const p = e.payload || {};
       switch (e.type) {
@@ -173,6 +175,7 @@
         case 'seat_done': s.asientos.push(String(p.asiento || 'Asiento')); break;
         case 'status': if (p.texto) s.estado = p.texto; break;
         case 'veto': s.vetos.push(p); break;
+        case 'holding_statement': s.holding = p; break;
         case 'error': s.errores.push(p.message || p.code || 'Error'); break;
         case 'review': s.review = arr(p.puntos); break;
         default: break;
@@ -404,14 +407,31 @@
     return h('div', { style: { display: 'flex', flexDirection: 'column' } }, out);
   }
 
+  /**
+   * Borrador de contención (ronda C): llega en segundos, antes que el memorando. Siempre se marca
+   * como borrador: ninguna declaración se publica sin aprobación humana (spec §3.2).
+   */
+  function HoldingBlock(props) {
+    const hd = (props.holding && props.holding.holding) || {};
+    const rev = (props.holding && props.holding.revision) || {};
+    const kids = [
+      h('div', { key: 'b', style: CAPTION }, [h(Badge, { key: 'bd', tone: 'warn' }, 'Borrador'), ' Para aprobación humana. Complete lo que está entre llaves antes de usarlo.']),
+      h('div', { key: 't', style: Object.assign({ whiteSpace: 'pre-wrap' }, TEXT) }, rich(hd.texto_final || '', 'ht')),
+    ];
+    if (rev.alertas) kids.push(h('div', { key: 'r', style: CAPTION }, '⚠ ' + rev.alertas + ' alerta(s) de la revisión automática'));
+    return section('contencion', 'Borrador de contención', kids);
+  }
+
   /** Barra de avance por rondas y líneas por asiento. Sin porcentajes inventados. */
   function ProgressBlock(props) {
     const s = props.sum;
     const done = Math.min(s.rondasHechas, ROUNDS_TOTAL);
     const kids = [];
     if (s.ronda != null) {
+      // La ronda 0 (hechos) y la revisión (6) no entran en el conteo de 1 a 5.
       kids.push(h('div', { key: 'lb', style: CAPTION },
-        'Ronda ' + s.ronda + ' de ' + ROUNDS_TOTAL + (s.nombreRonda ? ' · ' + s.nombreRonda : '')));
+        (s.ronda >= 1 && s.ronda <= ROUNDS_TOTAL ? 'Ronda ' + s.ronda + ' de ' + ROUNDS_TOTAL : (s.ronda === 0 ? 'Hechos' : 'Revisión')) +
+        (s.nombreRonda && s.ronda >= 1 && s.ronda <= ROUNDS_TOTAL ? ' · ' + s.nombreRonda : '')));
       const segs = [];
       for (let i = 0; i < ROUNDS_TOTAL; i += 1) {
         segs.push(h('span', { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i < done ? 'var(--accent)' : 'var(--hairline)' } }));
@@ -446,6 +466,7 @@
       case 'memo': return 'Memorando listo';
       case 'review': return 'Revisión: ' + arr(p.puntos).length + ' puntos';
       case 'veto': return 'Veto de ' + (p.asiento || 'asiento') + ': ' + short(p.texto);
+      case 'holding_statement': return 'Borrador de contención listo';
       case 'error': return 'Error: ' + (p.message || p.code || '');
       case 'cancelled': return 'Corrida cancelada';
       case 'status': return short(p.texto);
@@ -494,6 +515,8 @@
     if (!running && status !== 'done') {
       kids.push(notice('st', STATUS_TEXT[status] || 'Corrida terminada.', status === 'cancelled' ? 'warn' : 'bad'));
     }
+
+    if (sum.holding) kids.push(h(HoldingBlock, { key: 'hold', holding: sum.holding }));
 
     if (!memo && sum.vetos.length) {
       kids.push(section('vetos-en-curso', 'Vetos pendientes del memorando', sum.vetos.map((v, i) => vetoCard({ asiento: v.asiento, texto: v.texto, estado: 'pendiente' }, i))));

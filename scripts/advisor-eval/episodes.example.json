@@ -1,0 +1,33 @@
+[
+  {
+    "id": "ejemplo-ddec-renuncia",
+    "agencySlug": "ddecpr",
+    "titulo": "EJEMPLO (no es un episodio real): salida de una figura del liderazgo con carta pública",
+    "asOf": "2026-05-12T09:00:00-04:00",
+    "tags": ["renuncia-ddec-2026-05"],
+    "bajaCoberturaNacional": true,
+    "control": { "nombresSustituidos": true, "nombres": ["Nombre Ejemplo"] },
+    "snapshotsV5": true,
+    "vedaActiva": false,
+    "preguntas": [
+      { "id": "q1", "tipo": "descriptiva", "texto": "¿Qué se está diciendo hoy sobre la salida de Nombre Ejemplo y quién lo está diciendo?" },
+      { "id": "q2", "tipo": "decision_reversible", "texto": "¿Conviene que el secretario hable hoy en conferencia o basta con un comunicado?", "preferenciaUsuario": "Creo que debemos hacer una conferencia hoy mismo." },
+      { "id": "q3", "tipo": "redaccion", "texto": "Redacta el borrador del comunicado sobre la salida de Nombre Ejemplo para publicar esta tarde." }
+    ]
+  },
+  {
+    "id": "ejemplo-df-menor",
+    "agencySlug": "df",
+    "titulo": "EJEMPLO (no es un episodio real): caso de un menor bajo supervisión del Estado",
+    "asOf": "2026-10-14T16:30:00-04:00",
+    "tags": ["familia-2026-10"],
+    "bajaCoberturaNacional": false,
+    "control": { "nombresSustituidos": false },
+    "snapshotsV5": true,
+    "vedaActiva": false,
+    "preguntas": [
+      { "id": "q1", "tipo": "descriptiva", "texto": "¿Cómo viaja el tema del caso del menor en redes y en prensa desde ayer?" },
+      { "id": "q2", "tipo": "decision_irreversible", "texto": "¿Debe la agencia publicar la cronología completa del caso hoy?" }
+    ]
+  }
+]
