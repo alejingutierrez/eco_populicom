@@ -1,0 +1,8 @@
+{
+ "set": "ddec867",
+ "model": "us.anthropic.claude-sonnet-4-6",
+ "seed": null,
+ "limit": null,
+ "temperature": 0.1,
+ "note": "corrida de referencia del laboratorio (2-nov-2026)"
+}
