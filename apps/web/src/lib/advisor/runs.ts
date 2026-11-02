@@ -44,13 +44,30 @@ export async function createRun(
   return rows[0].id;
 }
 
-/** Añade un evento con el siguiente seq. Una corrida tiene un solo escritor (el proceso que la ejecuta). */
+const APPEND_EVENT_RETRIES = 8;
+
+/**
+ * Añade un evento con el siguiente seq. Un mismo proceso puede emitir eventos en paralelo
+ * (varias herramientas en un turno): dos INSERT calculan el mismo MAX+1 y el segundo choca
+ * con la clave primaria (run_id, seq). Ese choque (23505) solo significa «ocupado»: se
+ * reintenta con el MAX nuevo. Cualquier otro error se propaga.
+ */
 export async function appendEvent(pool: Pool, runId: string, type: string, payload: unknown): Promise<void> {
-  await pool.query(
-    `INSERT INTO advisor_events (run_id, seq, type, payload)
-     SELECT $1::uuid, COALESCE(MAX(seq), 0) + 1, $2, $3::jsonb FROM advisor_events WHERE run_id = $1::uuid`,
-    [runId, type, JSON.stringify(payload)],
-  );
+  const body = JSON.stringify(payload);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await pool.query(
+        `INSERT INTO advisor_events (run_id, seq, type, payload)
+         SELECT $1::uuid, COALESCE(MAX(seq), 0) + 1, $2, $3::jsonb FROM advisor_events WHERE run_id = $1::uuid`,
+        [runId, type, body],
+      );
+      return;
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code !== '23505' || attempt >= APPEND_EVENT_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 20) * (attempt + 1)));
+    }
+  }
 }
 
 export async function setRunStatus(
