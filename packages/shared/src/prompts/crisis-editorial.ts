@@ -13,7 +13,8 @@
  * en texto plano.
  */
 import type { MentionSample } from './weekly-report-insights';
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { formatMentionSampleBody, formatMentionSampleTag, mentionSamplesLegend } from './weekly-report-insights';
+import { HTML_INLINE_RULE, buildSystemPrompt, resolveEditorialRules, type EditorialRulesVersion, type PromptLanguageOptions } from './constitution';
 import { formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 
 export interface CrisisEditorialInputs {
@@ -103,16 +104,23 @@ export interface CrisisEditorialOutput {
   closing: string;
 }
 
-export const CRISIS_EDITORIAL_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO escribiendo la alerta de crisis de una agencia pública. Un ejecutivo la abre en el teléfono y tiene 90 segundos para entender qué está pasando, quién lo está diciendo y hacia dónde va.`,
-  `
+/** System prompt del editorial de crisis en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildCrisisEditorialSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  const v2 = resolveEditorialRules(rules) === 'v2';
+  return buildSystemPrompt(
+    `Eres el analista de ECO escribiendo la alerta de crisis de una agencia pública. Un ejecutivo la abre en el teléfono y tiene 90 segundos para entender qué está pasando, quién lo está diciendo y hacia dónde va.`,
+    `
 - Los motivos que explican el episodio empiezan por el HECHO, nunca por el nombre
   del tópico. "El tópico Gestión / Administración concentra 5 de 11 menciones
   negativas" no le dice nada a nadie; "vacantes sin llenar y la reunión en La
   Fortaleza concentran casi la mitad de lo crítico del día" sí.
-- Distingue si el episodio ARRANCA o si es COLA de uno anterior. El lector
+${v2
+    ? `- Distingue si el episodio EMPIEZA o si CONTINÚA uno anterior. El lector
+  necesita saber si esto empieza o está bajando, y eso se ve en la diferencia
+  con el día previo y en el Crisis Score de hace 24 horas.`
+    : `- Distingue si el episodio ARRANCA o si es COLA de uno anterior. El lector
   necesita saber si esto empieza o se está apagando, y eso se ve en el salto
-  frente al día previo y en el Crisis Score de hace 24 horas.
+  frente al día previo y en el Crisis Score de hace 24 horas.`}
 - No amplifiques: reserva la palabra "crisis" para la banda Crisis. Si la banda
   es Elevado o Normal, el lenguaje es contenido.
 - Nada de verbos de prensa amarilla: "estallar", "explotar", "se desata", "arde".
@@ -123,14 +131,19 @@ export const CRISIS_EDITORIAL_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
   ciudadano privado.
 - ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const CRISIS_EDITORIAL_SYSTEM_PROMPT = /* @__PURE__ */ buildCrisisEditorialSystemPrompt();
 
 /**
  * Construye el prompt de usuario con todos los datos cuantitativos y la
  * muestra de menciones. El esquema del tool_use está separado (lo arma el
  * lambda) — aquí solo se da el contexto.
  */
-export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
+export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs, opts: PromptLanguageOptions = {}): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   // Todo se entrega en escala pública (%) para que el modelo NUNCA vea el
   // 0–1 interno — si lo viera, lo citaría ("0.557") y el correo mezclaría
   // escalas con las tarjetas, que muestran %.
@@ -171,7 +184,10 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs): string {
           const topic = s.topic ? ` (${s.topic})` : '';
           const text = (s.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 600);
           const day = s.createdAt ? ` (${formatPromptDayOfInstant(s.createdAt)})` : '';
-          return `${i + 1}.${day}${channel}${topic} ${text}`;
+          const tag = formatMentionSampleTag(s);
+          // Sin anotaciones: la línea de siempre, byte a byte.
+          if (!tag) return `${i + 1}.${day}${channel}${topic} ${text}`;
+          return `${i + 1}. ${tag}${day}${channel}${topic} ${formatMentionSampleBody(s, 600)}`;
         })
         .join('\n')
     : '(sin muestras textuales disponibles)';
@@ -198,21 +214,21 @@ ${negTopicsBlock}
 MUNICIPIOS CON MAYOR CONCENTRACIÓN NEGATIVA:
 ${negMuniBlock}
 
-MUESTRA DE MENCIONES NEGATIVAS (parafrasea, no copies literal extenso):
+${mentionSamplesLegend(inp.sampleMentions.slice(0, 20))}MUESTRA DE MENCIONES NEGATIVAS (parafrasea, no copies literal extenso):
 ${samplesBlock}
 
 TAREA:
 Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 - \`headline\`: titular ≤ 120 caracteres, factual.
 - \`lede\`: 1–2 oraciones (≤ 50 palabras) que abran como un párrafo de prensa serio. Si la banda es NORMAL, empieza con "Sin señales de crisis en el periodo."; si es ELEVADO, "Se observan señales elevadas en <tópico>".
-- \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primero cuenta QUÉ PASÓ — el hecho concreto, con el volumen y el salto frente al día previo como apoyo. El segundo cuenta QUÉ SE ESTÁ DICIENDO: el reclamo puntual, parafraseado de las menciones, y de quién viene (prensa, cargos públicos, o gente). El tercero dice HACIA DÓNDE VA: si el episodio se está inflando o desinflando, y qué lo sostiene. Sin recomendaciones.
+- \`bodyParagraphsHtml\`: 3–4 párrafos (≤ 70 palabras cada uno). Permite \`<strong>\`; ninguna otra etiqueta. El primero cuenta QUÉ PASÓ — el hecho concreto, con el volumen y el salto frente al día previo como apoyo. El segundo cuenta QUÉ SE ESTÁ DICIENDO: el reclamo puntual, parafraseado de las menciones, y de quién viene (prensa, cargos públicos, o gente). El tercero dice HACIA DÓNDE VA: ${v2 ? 'si el episodio está creciendo o bajando, y qué hechos lo explican' : 'si el episodio se está inflando o desinflando, y qué lo sostiene'}. Sin recomendaciones.
 - \`representativeVoices\`: arreglo de exactamente 3 voces representativas extraídas/parafraseadas de la muestra de menciones. Cada una con:
   - \`quote\`: paráfrasis ≤ 30 palabras, sin comillas dentro. NO copies literal extenso (riesgo legal con medios protegidos).
   - \`attribution\`: \`Tipo de canal o medio · día\` (ej. \`Comentario en Facebook · 18 may\`, \`Editorial en ElNuevoDia.com · 18 may\`, \`Reportaje en Notiuno · 18 may\`). **PROHIBIDO atribuir a un @handle personal o a un nombre de ciudadano privado.** Para autores individuales sin perfil público, usa "Comentario en Twitter", "Usuario en Facebook", "Comentario público". SÍ puedes usar nombres de medios y handles oficiales de medios. SÍ puedes usar cargos públicos ("el Secretario").
   - \`tone\`: \`negative\`, \`neutral\` o \`positive\`.
   Selecciona voces DIFERENTES entre sí — distintos tópicos o ángulos del enojo/elogio, no la misma queja repetida.
 - \`drivers\`: 3 objetos \`{label, description}\` — es el bloque "¿Qué está pasando?" y es lo que más se lee del correo.
-  \`label\`: ≤ 5 palabras nombrando EL HECHO, no la categoría del sistema. BIEN: "Vacantes y la reunión en Fortaleza", "Presión de la Legislatura", "El pico ya pasó". MAL: "Concentración negativa", "Gestión / Administración", "Pertinencia alta".
+  \`label\`: ≤ 5 palabras nombrando EL HECHO, no la categoría del sistema. BIEN: "Vacantes y la reunión en Fortaleza", ${v2 ? '"Pedidos de la Legislatura"' : '"Presión de la Legislatura"'}, "El pico ya pasó". MAL: "Concentración negativa", "Gestión / Administración", "Pertinencia alta".
   \`description\`: 1 oración que cuente qué se está diciendo en concreto, con su cifra de apoyo detrás. Empieza por el hecho, no por el conteo.
   Uno de los tres drivers debe decir si el episodio ARRANCA o va BAJANDO, comparando con el día previo y con el Crisis Score de hace 24 horas.
 - \`closing\`: 1 oración (≤ 30 palabras) que contextualice el momento sin recomendar acciones.
