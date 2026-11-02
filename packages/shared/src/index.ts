@@ -42,3 +42,7 @@ export * from './article-text';
 // no tiene esa dep — y rompe el build de Next.js incluso si nadie llama
 // invokeClaude desde el server route.
 export * from './narrative-signals';
+// Motor de redacción agéntico (spec interpretación v1, sección 10). Su
+// adaptador de Bedrock vive en `./composer/bedrock-llm` y tampoco se exporta
+// aquí, por la misma razón que `./bedrock`.
+export * from './composer';
