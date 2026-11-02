@@ -9,7 +9,7 @@
 import { composeSubject, toSendLogArchive, type ComposerArchiveSink, type Composition } from './archive';
 import { buildPromptContext } from './context';
 import { buildFactPackage, type FactPackage } from './facts';
-import { buildLintContext, fillDraft, hardDefects, lintDraft, type LintContext } from './lint';
+import { buildLintContext, codeLint, fillDraft, hardDefects, headlineLengthDefects, lintDraft, type LintContext } from './lint';
 import { getProfile, type ComposerProfile, type ComposerProfileId } from './profiles';
 import { COMPOSER_PROMPT_VERSION, COMPOSER_VERSION } from './prompts';
 import type { RoleCallRecord, RoleRuntime } from './roles/call';
@@ -175,11 +175,24 @@ export async function compose(
 
         // 5. Red de seguridad (nunca bloquea).
         t = Date.now();
+        const reverted: SafetyNetLogEntry[] = [];
+        if (draft2Raw) {
+          draft2 = fillDraft(draft2Raw, pkg.facts).filled;
+          // El corrector a veces alarga un titular que nadie señaló: si el corregido
+          // rompe el largo y el del redactor estaba limpio y sin defectos del QA, se conserva este.
+          const h2Long = headlineLengthDefects(draft2.headline, lintCtx);
+          const h1Clean = codeLint(draft1.headline, 'titular', lintCtx).length === 0
+            && headlineLengthDefects(draft1.headline, lintCtx).length === 0
+            && !qaAgent.some((d) => /titular/i.test(d.where));
+          if (h2Long.length && h1Clean && draft1.headline.trim()) {
+            reverted.push({ action: 'titular_revertido', where: 'titular', text: draft2.headline, reasons: h2Long });
+            chosenRaw = { ...chosenRaw, headline: draft1Raw.headline };
+          }
+        }
         const f2 = fillDraft(chosenRaw, pkg.facts, { keepInvalid: true });
-        draft2 = draft2Raw ? fillDraft(draft2Raw, pkg.facts).filled : null;
         const net = safetyNet(f2.filled, pkg, lintCtx, profile.scope);
         final = net.draft;
-        netLog = net.log;
+        netLog = [...reverted, ...net.log];
         stageSeconds.safety_net = secs(t);
       }
     }

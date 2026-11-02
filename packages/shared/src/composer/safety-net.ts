@@ -13,6 +13,7 @@ export type SafetyNetAction =
   | 'item_removido'
   | 'titular_reemplazado'
   | 'parrafo_reemplazado'
+  | 'titular_revertido'
   | 'aviso';
 
 export interface SafetyNetLogEntry {

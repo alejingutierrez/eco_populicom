@@ -98,6 +98,20 @@ test('la red nunca bloquea: si el corrector deja defectos, se quitan y el texto 
   assert.ok(r.composition.safetyNetLog.some((l) => l.action === 'frase_removida'));
 });
 
+test('si el corrector alarga un titular limpio que nadie señaló, se conserva el del redactor', async () => {
+  const long = 'Comentarios tardíos a la publicación del lunes 26 sobre la panadería siguen reclamando que no se indicó la ubicación del negocio';
+  const { llm } = mockLlm({
+    analyst: () => FINDINGS,
+    writer: () => CLEAN_DRAFT,
+    qa: () => ({ defects: [{ where: 'viñeta 1', quote: 'Un usuario', type: 'otro', why: 'y', fix: 'z' }] }),
+    corrector: () => ({ ...CLEAN_DRAFT, headline: long }),
+  });
+  const r = await compose('daily', fixtureInput(), { llm, ...fast });
+  assert.equal(r.final.headline, CLEAN_DRAFT.headline);
+  assert.ok(r.composition.safetyNetLog.some((l) => l.action === 'titular_revertido' && l.text === long));
+  assert.deepEqual(r.composition.warnings, []);
+});
+
 test('reintentos: el rol se reintenta y un truncamiento sube max_tokens', async () => {
   const seen: number[] = [];
   const { llm, calls } = mockLlm({

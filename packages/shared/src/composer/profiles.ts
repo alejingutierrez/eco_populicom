@@ -35,9 +35,9 @@ export interface ComposerProfile {
 
 const QA_TASK = `
 
-TAREA (rol QA): revisa cada oración contra las muestras, sus fechas y la lista de hechos. Busca: cifras que no coinciden; cuantificadores que las muestras no respaldan (muchos, la mayoría, casi todos, al menos N; «varios» pide 3 o más muestras, «muchos» 8 o más); atribuciones a quien no lo dijo; días o fechas mal puestos, sobre todo una reacción a una publicación vieja contada como noticia del día; novedades que no se demuestran; afirmaciones de AUSENCIA («no hubo», «sin críticas», «ningún medio») que ningún hecho respalda; verbos dramáticos, figuras o intención atribuida; contradicciones entre titular, párrafo, viñetas e insights. Si no hay defectos, devuelve lista vacía.`;
+TAREA (rol QA): revisa cada oración contra las muestras, sus fechas y la lista de hechos. Busca: cifras que no coinciden; cuantificadores que las muestras no respaldan (muchos, la mayoría, casi todos, al menos N; «varios» pide 3 o más muestras, «muchos» 8 o más); atribuciones a quien no lo dijo; días o fechas mal puestos, sobre todo una reacción a una publicación vieja contada como noticia del día; novedades que no se demuestran; afirmaciones de AUSENCIA («no hubo», «sin críticas», «ningún medio») o de EXCLUSIVIDAD («la única», «solo», «casi por completo», «la mayoría») que ningún hecho respalda; verbos dramáticos, figuras, intención atribuida o un titular que añade matices de juicio que la fuente no dijo; contradicciones entre titular, párrafo, viñetas e insights. Si no hay defectos, devuelve lista vacía.`;
 
-const CORRECTOR_TASK = '\n\nTAREA (rol CORRECTOR): devuelve el borrador completo con esos defectos corregidos (mismos campos, cifras solo con marcadores {{id}}). Si una frase no se puede respaldar, elimínala en lugar de suavizarla.';
+const CORRECTOR_TASK = '\n\nTAREA (rol CORRECTOR): devuelve el borrador completo con esos defectos corregidos (mismos campos, cifras solo con marcadores {{id}}). Si una frase no se puede respaldar, elimínala en lugar de suavizarla. El titular sigue en 16 palabras y 100 caracteres como máximo. No cambies fechas, autores ni cifras que no te señalaron; si al corregir mueves una afirmación, verifica su fecha contra el «escrito el» de las muestras.';
 
 const ANALYST_DAY = `
 
