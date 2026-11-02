@@ -7,7 +7,7 @@
  */
 
 import { formatMetric, bandWord, metricBand, type BandedMetricKey } from '../format/metrics-display';
-import { buildSystemPrompt } from './constitution';
+import { buildSystemPrompt, resolveEditorialRules, type EditorialRulesVersion, type PromptLanguageOptions } from './constitution';
 
 export type MetricKey = 'nss' | 'crisis' | 'volume' | 'bhi' | 'polarization';
 
@@ -45,14 +45,21 @@ export interface MetricInsightOutput {
   interpretation: string;
 }
 
-export const METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO explicando UNA métrica del dashboard. El usuario abrió este panel porque vio un número que le llamó la atención; lo que necesita saber es QUÉ ESTÁ PASANDO que lo produce, no qué mide el indicador.`,
-  `
+/** System prompt del insight de KPI del Scorecard en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildMetricInsightSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  const v2 = resolveEditorialRules(rules) === 'v2';
+  return buildSystemPrompt(
+    `Eres el analista de ECO explicando UNA métrica del dashboard. El usuario abrió este panel porque vio un número que le llamó la atención; lo que necesita saber es QUÉ ESTÁ PASANDO que lo produce, no qué mide el indicador.`,
+    `
 - Abre por el HECHO, no por la métrica. La métrica es la consecuencia, y va en
   la segunda mitad de la primera oración o en la segunda oración.
-  BIEN: "Un paro de la unión de empleados se montó sobre la crisis de agua y la
+  BIEN: ${v2
+    ? `"La unión de empleados convocó un paro durante la crisis de agua y las
+        críticas siguieron todos los días del periodo. Eso es lo que tiene el
+        riesgo de crisis en 73%."`
+    : `"Un paro de la unión de empleados se montó sobre la crisis de agua y la
         conversación no ha vuelto a bajar. Eso es lo que tiene el riesgo de
-        crisis en 73%."
+        crisis en 73%."`}
   MAL:  "El riesgo de crisis está en 73% porque casi la mitad de las menciones
         son negativas."
 - Nunca expliques la fórmula ni sus componentes. Nada de "se calcula como",
@@ -65,9 +72,14 @@ export const METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
   que la agencia suele andar por 65%.
 - 2 a 3 oraciones, máximo 70 palabras.
 `,
-);
+    rules,
+  );
+}
 
-export function buildMetricInsightPrompt(input: MetricInsightInput): string {
+export const METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildMetricInsightSystemPrompt();
+
+export function buildMetricInsightPrompt(input: MetricInsightInput, opts: PromptLanguageOptions = {}): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   const deltaStr = input.deltaVsPrev == null
     ? 'n/d'
     : (input.deltaVsPrev > 0 ? '+' : '') + Math.round(input.deltaVsPrev * 10) / 10;
@@ -106,7 +118,7 @@ export function buildMetricInsightPrompt(input: MetricInsightInput): string {
   // Qué es "bueno" o "malo" para cada métrica — sin fórmula, solo dirección.
   const direction: Record<MetricKey, string> = {
     nss: 'Más positivo (hacia +100) es mejor; más negativo (hacia −100) es peor.',
-    crisis: 'Más bajo (Normal) es mejor; más alto (Alerta/Crisis) es peor. Combina qué tan negativa es la conversación, cuánto más negativa que lo usual de la agencia y si las negativas se dispararon.',
+    crisis: `Más bajo (Normal) es mejor; más alto (Alerta/Crisis) es peor. Combina qué tan negativa es la conversación, cuánto más negativa que lo usual de la agencia y ${v2 ? 'si las negativas subieron de forma brusca' : 'si las negativas se dispararon'}.`,
     volume: 'Sin escala fija de bueno/malo — interpreta vs. su rango histórico P25/P75.',
     bhi: 'Más alto (hacia 10, Fuerte) es mejor; más bajo (hacia 1, Crítico) es peor.',
     polarization: 'Mide si hay DOS bandos: 0 = una sola postura (o todo neutral), 100 = mitad a favor y mitad en contra. Más alto significa una conversación partida, no necesariamente peor. Una conversación muy negativa sin defensores NO está polarizada.',

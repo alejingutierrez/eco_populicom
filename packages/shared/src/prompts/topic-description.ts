@@ -7,7 +7,7 @@
  * Salida esperada del modelo: JSON `{ "description": "<2-3 oraciones>" }`.
  */
 
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { HTML_INLINE_RULE, buildSystemPrompt, resolveEditorialRules, type EditorialRulesVersion, type PromptLanguageOptions } from './constitution';
 
 export interface TopicAggregateForDescription {
   agencyName: string;
@@ -33,21 +33,29 @@ export interface TopicMentionSample {
   author?: string | null;
 }
 
-export const TOPIC_DESCRIPTION_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO describiendo de qué hablan las menciones agrupadas bajo un tópico de una agencia pública. El lector hizo clic en el nombre del tópico porque quiere saber qué hay dentro.`,
-  `
+/** System prompt de la descripción de tópicos en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildTopicDescriptionSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    `Eres el analista de ECO describiendo de qué hablan las menciones agrupadas bajo un tópico de una agencia pública. El lector hizo clic en el nombre del tópico porque quiere saber qué hay dentro.`,
+    `
 - Di DE QUÉ SE HABLA en concreto: el reclamo, el anuncio, el evento. El nombre
   del tópico ya lo tiene en la pantalla; repetirlo no aporta.
 - Si dentro del tópico conviven dos conversaciones distintas, dilo: es el dato
   más útil que puede dar esta descripción.
 - De 3 a 5 oraciones. ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const TOPIC_DESCRIPTION_SYSTEM_PROMPT = /* @__PURE__ */ buildTopicDescriptionSystemPrompt();
 
 export function buildTopicDescriptionPrompt(
   agg: TopicAggregateForDescription,
   samples: TopicMentionSample[],
+  opts: PromptLanguageOptions = {},
 ): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   const subBlock = agg.topSubtopics.length > 0
     ? agg.topSubtopics.map((s) => `- ${s.name}: ${s.count} menciones`).join('\n')
     : '- (sin subtópicos clasificados)';
@@ -106,7 +114,7 @@ QUÉ SE ESTÁ HABLANDO en este tópico durante el periodo. Debe:
 4. Si y solo si la concentración geográfica es clara (un municipio > 25% del
    total), mencionarlo con número. Si no, no fuerces geografía.
 5. Si las muestras revelan un patrón que los agregados no muestran (una queja
-   repetida, un evento que disparó el volumen, una voz que concentra la
+   repetida, ${v2 ? 'un evento que hizo subir el volumen' : 'un evento que disparó el volumen'}, una voz que concentra la
    conversación), nómbralo con su evidencia.
 
 Apóyate en las MUESTRAS para el contenido y en los AGREGADOS para las cifras.

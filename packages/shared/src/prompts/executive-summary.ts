@@ -18,7 +18,7 @@
  *     no triplicar la latencia de Bedrock.
  */
 
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { HTML_INLINE_RULE, buildSystemPrompt, resolveEditorialRules, type EditorialRulesVersion, type PromptLanguageOptions } from './constitution';
 import { formatPromptDay } from '../format-period';
 
 export interface ExecutiveSummaryTopic {
@@ -62,9 +62,11 @@ export interface ExecutiveSummaryAggregates {
   samples: ExecutiveSummaryMentionSample[];
 }
 
-export const EXECUTIVE_SUMMARY_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO escribiendo el resumen ejecutivo que la jefatura de una agencia pública ve al entrar al dashboard. Cuentas, en prosa clara, QUÉ ESTÁ PASANDO en la conversación del periodo: de qué habla la gente, en qué términos y a raíz de qué.`,
-  `
+/** System prompt del resumen ejecutivo en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildExecutiveSummarySystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    `Eres el analista de ECO escribiendo el resumen ejecutivo que la jefatura de una agencia pública ve al entrar al dashboard. Cuentas, en prosa clara, QUÉ ESTÁ PASANDO en la conversación del periodo: de qué habla la gente, en qué términos y a raíz de qué.`,
+    `
 - Prosa narrativa, no un listado de indicadores. El lector quiere entender la
   conversación, no leer un tablero — las tarjetas de arriba ya son el tablero.
   BIEN: "El reclamo dominante es la falta de agua en sectores de Trujillo Alto,
@@ -81,71 +83,86 @@ export const EXECUTIVE_SUMMARY_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt
   rellenar.
 - ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
 
-export const EXECUTIVE_SUMMARY_TOOL_SCHEMA = {
-  type: 'object',
-  properties: {
-    signal_narrative: {
-      type: 'string',
-      minLength: 200,
-      maxLength: 1600,
-      description: 'De 4 a 6 oraciones (100-160 palabras) contando qué está pasando y de qué se habla en el periodo. Este es el texto principal del resumen ejecutivo.',
+export const EXECUTIVE_SUMMARY_SYSTEM_PROMPT = /* @__PURE__ */ buildExecutiveSummarySystemPrompt();
+
+/**
+ * Esquema del tool del resumen ejecutivo. Con reglas v2 cambia una descripción
+ * («el frente negativo» → «lo negativo»); con v1 es el de siempre.
+ */
+export function buildExecutiveSummaryToolSchema(rules?: EditorialRulesVersion | null) {
+  const v2 = resolveEditorialRules(rules) === 'v2';
+  return {
+    type: 'object',
+    properties: {
+      signal_narrative: {
+        type: 'string',
+        minLength: 200,
+        maxLength: 1600,
+        description: 'De 4 a 6 oraciones (100-160 palabras) contando qué está pasando y de qué se habla en el periodo. Este es el texto principal del resumen ejecutivo.',
+      },
+      signal_points: {
+        type: 'array',
+        items: { type: 'string', maxLength: 320 },
+        minItems: 2,
+        maxItems: 2,
+        description: 'Dos viñetas sobre lo que está pasando. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
+      },
+      signal_dominant: {
+        type: 'string',
+        maxLength: 90,
+        description: 'Etiqueta corta de la señal dominante: "<asunto> · <tono>". Sin punto final.',
+      },
+      signal_action: {
+        type: 'string',
+        maxLength: 70,
+        description: 'Siguiente paso de exploración, en imperativo y terminado en "→". Descriptivo, no prescriptivo: "Ver menciones de <asunto> →".',
+      },
+      emerging_narrative: {
+        type: 'string',
+        minLength: 120,
+        maxLength: 1200,
+        description: 'De 2 a 4 oraciones sobre lo que ESTÁ CRECIENDO en la segunda mitad del periodo respecto de la primera, con el contenido concreto de esa alza. Si nada crece de forma clara, dilo.',
+      },
+      emerging_points: {
+        type: 'array',
+        items: { type: 'string', maxLength: 320 },
+        minItems: 2,
+        maxItems: 2,
+        description: 'Dos viñetas. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
+      },
+      emerging_dominant: { type: 'string', maxLength: 90 },
+      emerging_action: { type: 'string', maxLength: 70 },
+      crisis_narrative: {
+        type: 'string',
+        minLength: 120,
+        maxLength: 1200,
+        description: v2
+          ? 'De 2 a 4 oraciones sobre lo negativo del periodo: de qué se queja la gente y con qué intensidad. Si no hay señal de crisis, dilo sin dramatizar.'
+          : 'De 2 a 4 oraciones sobre el frente negativo del periodo: de qué se queja la gente y con qué intensidad. Si no hay señal de crisis, dilo sin dramatizar.',
+      },
+      crisis_points: {
+        type: 'array',
+        items: { type: 'string', maxLength: 320 },
+        minItems: 2,
+        maxItems: 2,
+        description: 'Dos viñetas. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
+      },
+      crisis_dominant: { type: 'string', maxLength: 90 },
+      crisis_action: { type: 'string', maxLength: 70 },
     },
-    signal_points: {
-      type: 'array',
-      items: { type: 'string', maxLength: 320 },
-      minItems: 2,
-      maxItems: 2,
-      description: 'Dos viñetas sobre lo que está pasando. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
-    },
-    signal_dominant: {
-      type: 'string',
-      maxLength: 90,
-      description: 'Etiqueta corta de la señal dominante: "<asunto> · <tono>". Sin punto final.',
-    },
-    signal_action: {
-      type: 'string',
-      maxLength: 70,
-      description: 'Siguiente paso de exploración, en imperativo y terminado en "→". Descriptivo, no prescriptivo: "Ver menciones de <asunto> →".',
-    },
-    emerging_narrative: {
-      type: 'string',
-      minLength: 120,
-      maxLength: 1200,
-      description: 'De 2 a 4 oraciones sobre lo que ESTÁ CRECIENDO en la segunda mitad del periodo respecto de la primera, con el contenido concreto de esa alza. Si nada crece de forma clara, dilo.',
-    },
-    emerging_points: {
-      type: 'array',
-      items: { type: 'string', maxLength: 320 },
-      minItems: 2,
-      maxItems: 2,
-      description: 'Dos viñetas. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
-    },
-    emerging_dominant: { type: 'string', maxLength: 90 },
-    emerging_action: { type: 'string', maxLength: 70 },
-    crisis_narrative: {
-      type: 'string',
-      minLength: 120,
-      maxLength: 1200,
-      description: 'De 2 a 4 oraciones sobre el frente negativo del periodo: de qué se queja la gente y con qué intensidad. Si no hay señal de crisis, dilo sin dramatizar.',
-    },
-    crisis_points: {
-      type: 'array',
-      items: { type: 'string', maxLength: 320 },
-      minItems: 2,
-      maxItems: 2,
-      description: 'Dos viñetas. Cada una cuenta un hecho con su cifra de apoyo detrás, nunca una cifra con etiqueta.',
-    },
-    crisis_dominant: { type: 'string', maxLength: 90 },
-    crisis_action: { type: 'string', maxLength: 70 },
-  },
-  required: [
-    'signal_narrative', 'signal_points', 'signal_dominant', 'signal_action',
-    'emerging_narrative', 'emerging_points', 'emerging_dominant', 'emerging_action',
-    'crisis_narrative', 'crisis_points', 'crisis_dominant', 'crisis_action',
-  ],
-};
+    required: [
+      'signal_narrative', 'signal_points', 'signal_dominant', 'signal_action',
+      'emerging_narrative', 'emerging_points', 'emerging_dominant', 'emerging_action',
+      'crisis_narrative', 'crisis_points', 'crisis_dominant', 'crisis_action',
+    ],
+  };
+}
+
+export const EXECUTIVE_SUMMARY_TOOL_SCHEMA = /* @__PURE__ */ buildExecutiveSummaryToolSchema();
 
 export interface ExecutiveSummaryOutput {
   signal_narrative: string;
@@ -163,7 +180,8 @@ export interface ExecutiveSummaryOutput {
   crisis_action: string;
 }
 
-export function buildExecutiveSummaryPrompt(agg: ExecutiveSummaryAggregates): string {
+export function buildExecutiveSummaryPrompt(agg: ExecutiveSummaryAggregates, opts: PromptLanguageOptions = {}): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   const pct = (n: number) => (agg.totals.total > 0 ? Math.round((n / agg.totals.total) * 100) : 0);
   const deltaTotal = agg.prevTotals.total > 0
     ? Math.round(((agg.totals.total - agg.prevTotals.total) / agg.prevTotals.total) * 100)
@@ -233,9 +251,9 @@ ${sampleBlock}
 TAREA:
 Produce tres bloques para el resumen ejecutivo de esta agencia EN ESTE PERIODO. Cada bloque es un párrafo más dos viñetas.
 
-1. signal_narrative — el texto principal. De 4 a 6 oraciones (100-160 palabras) contando qué está pasando: el asunto o los asuntos de los que realmente se habla, en qué términos, a raíz de qué, y quién lo está impulsando si una voz concentra la conversación. Apóyate en las MUESTRAS. Máximo 2 cifras.
+1. signal_narrative — el texto principal. De 4 a 6 oraciones (100-160 palabras) contando qué está pasando: el asunto o los asuntos de los que realmente se habla, en qué términos, a raíz de qué, y ${v2 ? 'quién lo está diciendo' : 'quién lo está impulsando'} si una voz concentra la conversación. Apóyate en las MUESTRAS. Máximo 2 cifras.
    signal_points — DOS viñetas. Cada una cuenta algo que pasó, con su cifra detrás como apoyo. No repitas lo que ya dijo el párrafo: las viñetas son para lo que no cupo. Una sola oración cada una, de 20 a 40 palabras.
-   BIEN: "El reclamo se movió del servicio a la administración: vacantes sin llenar y la reunión en Fortaleza concentran casi la mitad de lo crítico."
+   BIEN: ${v2 ? '"Las críticas pasaron del servicio a la administración: vacantes sin llenar y la reunión en Fortaleza concentran casi la mitad de lo crítico."' : '"El reclamo se movió del servicio a la administración: vacantes sin llenar y la reunión en Fortaleza concentran casi la mitad de lo crítico."'}
    MAL:  "Negatividad: 54% del total."
    Más signal_dominant (etiqueta corta "<asunto> · <tono>") y signal_action ("Ver menciones de <asunto> →").
 
@@ -243,7 +261,7 @@ Produce tres bloques para el resumen ejecutivo de esta agencia EN ESTE PERIODO. 
    emerging_points — DOS viñetas con el mismo criterio. Si no hay nada emergente, que cuenten de qué sigue hablando la gente, sin presentarlo como emergente.
    Más emerging_dominant y emerging_action.
 
-3. crisis_narrative — de 2 a 4 oraciones sobre el frente negativo: de qué se queja la gente y con qué intensidad. Si no hay señal de crisis, dilo sin dramatizar.
+3. crisis_narrative — de 2 a 4 oraciones sobre ${v2 ? 'lo negativo del periodo' : 'el frente negativo'}: de qué se queja la gente y con qué intensidad. Si no hay señal de crisis, dilo sin dramatizar.
    crisis_points — DOS viñetas con el mismo criterio.
    Más crisis_dominant y crisis_action.
 

@@ -24,7 +24,7 @@ export interface EmergingTopic {
   deltaPct: number;
 }
 
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { HTML_INLINE_RULE, buildSystemPrompt, type EditorialRulesVersion } from './constitution';
 
 export interface EmergingBriefingAggregates {
   agencyName: string;
@@ -45,9 +45,11 @@ export interface EmergingBriefingAggregates {
   baseline7d?: BriefingBaseline | null;
 }
 
-export const EMERGING_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO. Este texto identifica qué está CRECIENDO en la conversación de una agencia pública: qué se habla ahora en la segunda mitad del periodo que no se hablaba en la primera.`,
-  `
+/** System prompt de «Emergente» en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildEmergingBriefingSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    `Eres el analista de ECO. Este texto identifica qué está CRECIENDO en la conversación de una agencia pública: qué se habla ahora en la segunda mitad del periodo que no se hablaba en la primera.`,
+    `
 - Tope de 110 palabras, dos ideas: qué creció, y de qué se trata ese crecimiento.
   Un tópico que sube no dice nada por sí solo — lo que importa es QUÉ conversación
   concreta lo hizo subir.
@@ -55,7 +57,11 @@ export const EMERGING_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt
   emergente es información, no un hueco que rellenar.
 - ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const EMERGING_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildEmergingBriefingSystemPrompt();
 
 export function buildEmergingBriefingPrompt(agg: EmergingBriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);

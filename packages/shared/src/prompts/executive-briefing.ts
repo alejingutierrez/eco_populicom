@@ -8,7 +8,7 @@
  */
 
 import { bandWord, nssBand } from '../format/metrics-display';
-import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt, type EditorialRulesVersion } from './constitution';
 
 /**
  * Nivel de base ("típico") para contextualizar el periodo corto (24h) contra el
@@ -96,9 +96,11 @@ export interface BriefingOutput {
   reach_label: string;
 }
 
-export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  ECO_ANALYST_ROLE,
-  `
+/** System prompt de la «Señal del día» en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildExecutiveBriefingSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    ECO_ANALYST_ROLE,
+    `
 - Este texto vive en una tarjeta del Scorecard, con los números ya impresos al
   lado. No los repitas: cuenta la historia que los números no cuentan.
 - El tope es de 110 palabras y caben DOS ideas: qué pasó, y la reacción o el
@@ -108,7 +110,11 @@ export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPromp
 - Mejor una idea bien contada que tres comprimidas. Si solo hay una, entrega una.
 - ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildExecutiveBriefingSystemPrompt();
 
 export function buildExecutiveBriefingPrompt(agg: BriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
