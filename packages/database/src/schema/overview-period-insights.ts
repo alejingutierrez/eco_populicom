@@ -1,4 +1,4 @@
-import { pgTable, uuid, date, text, timestamp, jsonb, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, date, text, timestamp, jsonb, unique, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 /**
@@ -33,6 +33,10 @@ export const overviewPeriodInsights = pgTable(
     // { headline, highlights[], peaks[{date,label,total,negative}], hero{url,caption}|null }.
     // NULL en filas generadas antes de 0008 — el endpoint las recalcula.
     lede: jsonb('lede'),
+    // Interpretación v1 (0013; spec 12.1): traza de la composición del motor.
+    // NULL en filas generadas por el camino legacy o antes de la migración.
+    composition: jsonb('composition').$type<Record<string, unknown>>(),
+    composerVersion: varchar('composer_version', { length: 24 }),
     generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
