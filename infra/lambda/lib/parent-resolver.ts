@@ -81,8 +81,13 @@ export function parseParentRef(m: MentionKindInput): ParentRef | null {
   return null;
 }
 
+// `url NOT LIKE '%#channels_comment%'`: el padre es un POST. Si Brandwatch
+// entregara una respuesta a comentario con GUID `<commentId>_<replyId>`, el
+// sufijo `_<commentId>` casaría con el comentario (`<postId>_<commentId>`) y
+// no con el post; así queda `not_found` en vez de un padre equivocado.
 export const PARENT_FB_SQL = `SELECT id, published_at FROM mentions
   WHERE agency_id = $1 AND bw_guid LIKE $2
+    AND (url IS NULL OR url NOT LIKE '%#channels\\_comment%')
     AND published_at BETWEEN $3::timestamptz - ($4::int * INTERVAL '1 day') AND $3::timestamptz + INTERVAL '1 day'
   ORDER BY published_at DESC LIMIT 1`;
 

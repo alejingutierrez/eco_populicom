@@ -4,7 +4,7 @@ import { TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, TOPIC_SLUGS_
 import { MUNICIPALITY_SLUGS } from '../../packages/shared/src/municipalities';
 import {
   LEGACY_PROMPT_VERSION, RUBRIC_V2_VERSION, buildClassificationPrompt, buildClassifyTool, mentionKindLine,
-  nlpEnumProblem, normalizeNlpResult, parseAgencyList, promptVersionFor, rubricModeFor, rubricV2Block,
+  nlpEnumProblem, normalizeNlpResult, parseAgencyList, promptVersionFor, reprocessPlanFor, rubricModeFor, rubricV2Block,
   type PromptMention,
 } from '../lambda/lib/classification-rubric';
 import { deriveMentionKind, type MentionKind } from '../lambda/lib/mention-kind';
@@ -195,5 +195,52 @@ describe('banderas', () => {
     expect(rubricModeFor('df', v2, shadow)).toBe('shadow');
     expect(rubricModeFor('gobernadora', v2, shadow)).toBe('legacy');
     expect(rubricModeFor('ddecpr', new Set(), new Set())).toBe('legacy');
+  });
+});
+
+describe('reproceso: la etiqueta de versión siempre describe el contenido (spec 12.2)', () => {
+  it('fila v2 de un backfill en agencia SIN bandera: el cron la reclasifica con v2 y re-estampa', () => {
+    // Caso de la revisión: reclassify v2 sobre una agencia fuera de
+    // RUBRIC_V2_AGENCIES y luego reprocess-unclassified con banderas apagadas.
+    expect(reprocessPlanFor(RUBRIC_V2_VERSION, 'legacy', false)).toEqual({ rubric: 'v2', stamp: true });
+    expect(reprocessPlanFor(RUBRIC_V2_VERSION, 'shadow', false)).toEqual({ rubric: 'v2', stamp: true });
+  });
+
+  it('rollback de RUBRIC_V2_AGENCIES: las filas v2 siguen v2 (no se mezcla legacy bajo la etiqueta v2)', () => {
+    const plan = reprocessPlanFor(RUBRIC_V2_VERSION, 'legacy', false);
+    expect(promptVersionFor(plan.rubric)).toBe(RUBRIC_V2_VERSION);
+    expect(plan.stamp).toBe(true);
+  });
+
+  it('fila con versión legacy explícita: legacy y se re-estampa', () => {
+    expect(reprocessPlanFor(LEGACY_PROMPT_VERSION, 'legacy', false)).toEqual({ rubric: 'legacy', stamp: true });
+  });
+
+  it('agencia v2: v2 y se estampa aunque la fila no tenga versión (placeholder de error)', () => {
+    expect(reprocessPlanFor(null, 'v2', false)).toEqual({ rubric: 'v2', stamp: true });
+    expect(reprocessPlanFor(LEGACY_PROMPT_VERSION, 'v2', false)).toEqual({ rubric: 'v2', stamp: true });
+  });
+
+  it('banderas apagadas y fila sin versión: legacy sin estampar (escritura de siempre)', () => {
+    expect(reprocessPlanFor(null, 'legacy', false)).toEqual({ rubric: 'legacy', stamp: false });
+    expect(reprocessPlanFor(undefined, 'shadow', false)).toEqual({ rubric: 'legacy', stamp: false });
+    expect(reprocessPlanFor('', 'legacy', false)).toEqual({ rubric: 'legacy', stamp: false });
+  });
+
+  it('enriquecimiento encendido: legacy estampado', () => {
+    expect(reprocessPlanFor(null, 'legacy', true)).toEqual({ rubric: 'legacy', stamp: true });
+  });
+
+  it('invariante: nunca contenido legacy con etiqueta previa sin re-estampar', () => {
+    for (const v of [null, '', LEGACY_PROMPT_VERSION, RUBRIC_V2_VERSION, 'rubric-v9.9']) {
+      for (const mode of ['legacy', 'v2', 'shadow'] as const) {
+        for (const enrich of [false, true]) {
+          const p = reprocessPlanFor(v, mode, enrich);
+          if (v) expect(p.stamp).toBe(true);
+          if (v === RUBRIC_V2_VERSION) expect(p.rubric).toBe('v2');
+          if (p.rubric === 'v2') expect(p.stamp).toBe(true);
+        }
+      }
+    }
   });
 });

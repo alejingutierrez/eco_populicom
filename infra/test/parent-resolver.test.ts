@@ -17,7 +17,7 @@ const fixture = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/interp-v1
   }>;
 };
 
-type Row = { id: string; agency_id: string; bw_guid: string; published_at: Date };
+type Row = { id: string; agency_id: string; bw_guid: string; published_at: Date; url?: string | null };
 
 /** Doble de pg: interpreta PARENT_FB_SQL / PARENT_IG_SQL sobre una tabla en memoria. */
 function fakePg(table: Row[]) {
@@ -33,6 +33,7 @@ function fakePg(table: Row[]) {
       if (sql === PARENT_FB_SQL) {
         expect(needle.startsWith('%\\_')).toBe(true);
         const suffix = '_' + needle.slice(3);
+        expect(sql).toMatch(/url NOT LIKE '%#channels\\_comment%'/);
         match = (g) => g.endsWith(suffix);
       } else if (sql === PARENT_IG_SQL) {
         match = (g) => g === needle;
@@ -41,6 +42,8 @@ function fakePg(table: Row[]) {
       }
       const rows = table
         .filter((r) => r.agency_id === agencyId && r.bw_guid && match(r.bw_guid))
+        // FB: el padre es un post, nunca otro comentario (guardia de PARENT_FB_SQL).
+        .filter((r) => sql !== PARENT_FB_SQL || !(r.url ?? '').includes('#channels_comment'))
         .filter((r) => r.published_at.getTime() >= lo && r.published_at.getTime() <= hi)
         .sort((a, b) => b.published_at.getTime() - a.published_at.getTime())
         .slice(0, 1)
@@ -123,6 +126,17 @@ describe('resolveParent — bordes', () => {
     const { pg } = fakePg([post('falso', '553558728043206_1111', '2026-10-30T10:00:00Z')]);
     const r = await resolveParent(pg, agencyId, { guid: '111_999', url: 'https://www.facebook.com/111#channels_comment_999', pubType: 'FACEBOOK', date: '2026-10-31T10:00:00Z' });
     expect(r.status).toBe('not_found');
+  });
+
+  it('FB: una respuesta a comentario no toma al comentario como padre', async () => {
+    // Comentario 111_999 (de post 111) y una respuesta hipotética 999_555: el
+    // sufijo `_999` casa con el GUID del comentario, que no es un post.
+    const { pg } = fakePg([{
+      ...post('comentario', '111_999', '2026-10-30T10:00:00Z'),
+      url: 'https://www.facebook.com/111#channels_comment_999',
+    }]);
+    const r = await resolveParent(pg, agencyId, { guid: '999_555', url: 'https://www.facebook.com/999#channels_comment_555', pubType: 'FACEBOOK', date: '2026-10-31T10:00:00Z' });
+    expect(r).toMatchObject({ status: 'not_found', parentMentionId: null });
   });
 
   it('sin GUID se usa la URL (FB e IG)', () => {

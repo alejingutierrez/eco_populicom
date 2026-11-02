@@ -10,7 +10,7 @@ import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embedd
 import { EXISTING_MENTIONS_SQL, MENTION_CONFLICT_TARGET, mentionKey, selectNewRecords, type BatchEntry } from '../lib/mention-keys';
 import {
   RUBRIC_V2_VERSION, buildClassificationPrompt, buildClassifyTool, nlpEnumProblem, normalizeNlpResult,
-  parseAgencyList, promptVersionFor, rubricModeFor, type NlpAnalysisV2, type RubricId, type RubricMode,
+  parseAgencyList, promptVersionFor, reprocessPlanFor, rubricModeFor, type NlpAnalysisV2, type RubricId, type RubricMode,
 } from '../lib/classification-rubric';
 import { deriveMentionKind, type MentionKind } from '../lib/mention-kind';
 import { resolveParent, type ParentResolution } from '../lib/parent-resolver';
@@ -90,9 +90,14 @@ const FULLTEXT_PAGE_TYPES = new Set(['news', 'blog', 'forum']);
  *                               sombra siempre se exige).
  *   RUBRIC_V2_SHADOW_MODEL_ID   modelo de la llamada de sombra (por defecto el
  *                               primario; sin fallback ni enfriamiento, para no
- *                               alterar la clasificación de producción).
+ *                               alterar la clasificación de producción). Si es
+ *                               el primario, la sombra se omite mientras este
+ *                               se enfría por throttling.
  *
- * Requiere la migración 0013 (WP-1) antes de encender cualquiera de ellas.
+ * Requiere la migración 0013 (WP-1) antes de encender cualquiera de ellas (sin
+ * las columnas, una agencia v2 cae a legacy: ver writeModeOf). Deben vivir en
+ * infra/lib/workers-stack.ts (WP-6): un update-function-configuration a mano
+ * se pierde con el siguiente `cdk deploy EcoWorkers`.
  */
 const truthy = (v: string | undefined) => /^(1|true|yes|on)$/i.test((v ?? '').trim());
 const RUBRIC_V2_AGENCIES = parseAgencyList(process.env.RUBRIC_V2_AGENCIES);
@@ -101,8 +106,20 @@ const MENTION_ENRICHMENT_ENABLED = truthy(process.env.MENTION_ENRICHMENT_ENABLED
 const NLP_STRICT_ENUMS = truthy(process.env.NLP_STRICT_ENUMS);
 const RUBRIC_V2_SHADOW_MODEL_ID = process.env.RUBRIC_V2_SHADOW_MODEL_ID || BEDROCK_MODEL_ID;
 
+/** Modo configurado de la agencia (solo banderas). */
 function rubricModeOf(slug: string): RubricMode {
   return rubricModeFor(slug, RUBRIC_V2_AGENCIES, RUBRIC_V2_SHADOW_AGENCIES);
+}
+
+/**
+ * Modo con el que de verdad se escribe en `mentions`: si las columnas de
+ * trazabilidad no existen (migración 0013 sin correr), una agencia v2 cae a
+ * legacy. Escribir semántica v2 sin poder etiquetarla con
+ * `nlp_prompt_version` la haría indistinguible de una fila legacy.
+ */
+function writeModeOf(slug: string): RubricMode {
+  const mode = rubricModeOf(slug);
+  return mode === 'v2' && Date.now() < traceColumnsMissingUntil ? 'legacy' : mode;
 }
 
 function isThrottlingError(err: unknown): boolean {
@@ -256,6 +273,13 @@ export const handler = async (event: ProcessorEvent, context?: Pick<Context, 'ge
     }
 
     const newRecords = selectNewRecords(entries, existingSet);
+
+    // Con agencias v2 configuradas, comprobar UNA vez por contenedor que las
+    // columnas de trazabilidad existen antes de escribir semántica v2 (ver
+    // writeModeOf). Sin banderas no hay consulta.
+    if (newRecords.length > 0 && RUBRIC_V2_AGENCIES.size > 0) {
+      await probeTraceColumns(client);
+    }
 
     const skipped = event.Records.length - newRecords.length;
     console.log(`Batch: ${event.Records.length} records — ${skipped} duplicates skipped, ${newRecords.length} new`);
@@ -429,16 +453,21 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   // El tipo de mención es puro (sin red); el padre es una consulta acotada por
   // agencia y fecha (~20–35 ms) que corre en paralelo con Bedrock, así que no
   // suma latencia al registro.
-  const mode = rubricModeOf(agency.slug);
+  const mode = writeModeOf(agency.slug);
   const kind = deriveMentionKind(mention, agency);
   const enrich = MENTION_ENRICHMENT_ENABLED || mode === 'v2';
   const parentPromise: Promise<ParentResolution | null> = enrich && kind === 'comment'
     ? resolveParent(pgClient, agency.id, mention)
     : Promise.resolve(null);
 
+  // La sombra no compite con producción por el primario: si el primario está
+  // enfriándose por throttling y la sombra usa ese mismo modelo, se omite.
+  const runShadow = mode === 'shadow'
+    && !(RUBRIC_V2_SHADOW_MODEL_ID === BEDROCK_MODEL_ID && Date.now() < primaryCooldownUntil);
+
   const classified = Promise.all([
     classifyMention(mention, agency, fullText, { rubric: mode === 'v2' ? 'v2' : 'legacy', kind }),
-    mode === 'shadow'
+    runShadow
       ? classifyMention(mention, agency, fullText, { rubric: 'v2', kind, models: [RUBRIC_V2_SHADOW_MODEL_ID], affectCooldown: false })
           .catch((err) => { console.warn(`[${agency.slug}] shadow v2 falló para ${resourceId}: ${(err as Error)?.message ?? err}`); return null; })
       : Promise.resolve(null),
@@ -540,9 +569,13 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   // Trazabilidad v1 en una UPDATE aparte (mismo motivo que el cuerpo de
   // abajo: no renumerar los 46 parámetros del INSERT) y tolerante a que la
   // migración 0013 aún no exista. Solo con la bandera o en agencias v2.
+  // Un resultado de error (placeholder neutral/media) NO lleva versión: no es
+  // una clasificación v2 y no debe contar en agregados filtrados por versión;
+  // `reprocess-nlp-errors` lo reclasifica y lo estampa entonces.
   if (enrich) {
     await stampNlpTrace(pgClient, agency.slug, mentionId, {
-      kind, parent, adverseFact: nlp.adverse_fact, promptVersion: primary.promptVersion, model: primary.model,
+      kind, parent, adverseFact: primary.ok ? nlp.adverse_fact : null,
+      promptVersion: primary.ok ? primary.promptVersion : null, model: primary.model,
     });
   }
   if (shadow) {
@@ -843,7 +876,7 @@ interface NlpTrace {
   kind: MentionKind;
   parent: ParentResolution | null;
   adverseFact: boolean | null;
-  promptVersion: string;
+  promptVersion: string | null;
   model: string | null;
 }
 
@@ -861,6 +894,42 @@ function isMissingSchemaError(err: unknown): boolean {
   return code === '42703' || code === '42P01';
 }
 
+function markTraceColumnsMissing(agencySlug: string, err: unknown): void {
+  traceColumnsMissingUntil = Date.now() + SCHEMA_RETRY_MS;
+  console.error(`[${agencySlug}] columnas de trazabilidad v1 ausentes (¿migración 0013?): ${(err as Error).message}`);
+}
+
+/** Comprobación barata (LIMIT 0) de las columnas de trazabilidad; una vez por contenedor y ventana. */
+let traceColumnsCheckedUntil = 0;
+async function probeTraceColumns(pgClient: any): Promise<void> {
+  if (Date.now() < traceColumnsCheckedUntil || Date.now() < traceColumnsMissingUntil) return;
+  try {
+    await pgClient.query('SELECT nlp_prompt_version, nlp_model, nlp_adverse_fact, mention_kind FROM mentions LIMIT 0');
+    traceColumnsCheckedUntil = Date.now() + SCHEMA_RETRY_MS;
+  } catch (err) {
+    if (isMissingSchemaError(err)) markTraceColumnsMissing('probe', err);
+    else console.warn(`[probe] comprobación de columnas de trazabilidad falló: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * `nlp_prompt_version` actual de las filas a reprocesar (consulta aparte para
+ * no romper el SELECT principal si la migración 0013 aún no corrió: sin
+ * columnas, todas cuentan como sin versión).
+ */
+async function currentPromptVersions(pgClient: any, ids: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (ids.length === 0 || Date.now() < traceColumnsMissingUntil) return out;
+  try {
+    const res = await pgClient.query('SELECT id, nlp_prompt_version FROM mentions WHERE id = ANY($1)', [ids]);
+    for (const r of res.rows as Array<{ id: string; nlp_prompt_version: string | null }>) out.set(r.id, r.nlp_prompt_version);
+  } catch (err) {
+    if (!isMissingSchemaError(err)) throw err;
+    markTraceColumnsMissing('reprocess', err);
+  }
+  return out;
+}
+
 async function stampNlpTrace(pgClient: any, agencySlug: string, mentionId: string, t: NlpTrace): Promise<void> {
   if (Date.now() < traceColumnsMissingUntil) return;
   try {
@@ -874,8 +943,7 @@ async function stampNlpTrace(pgClient: any, agencySlug: string, mentionId: strin
     );
   } catch (err) {
     if (isMissingSchemaError(err)) {
-      traceColumnsMissingUntil = Date.now() + SCHEMA_RETRY_MS;
-      console.error(`[${agencySlug}] columnas de trazabilidad v1 ausentes (¿migración 0013?): ${(err as Error).message}`);
+      markTraceColumnsMissing(agencySlug, err);
       return;
     }
     console.error(`[${agencySlug}] trazabilidad v1 falló para ${mentionId}: ${(err as Error).message}`);
@@ -945,6 +1013,11 @@ async function reprocessNlpErrors(
 
   console.log(`[${action}] Found ${errors.rows.length} mentions to retry (cap ${cap})`);
 
+  // La versión actual de cada fila decide rúbrica y estampado (ver
+  // reprocessPlanFor): una fila v2 de un backfill nunca se reescribe con
+  // legacy bajo la etiqueta `rubric-v2.0`, banderas encendidas o no.
+  const versions = await currentPromptVersions(pgClient, errors.rows.map((r: any) => r.id));
+
   const details: any[] = [];
   let reprocessed = 0;
   let failed = 0;
@@ -970,41 +1043,69 @@ async function reprocessNlpErrors(
       pubType: row.pub_type,
     } as BrandwatchMention;
 
-    // Agencias v2: se reclasifica con la rúbrica v2 (sus filas nuevas ya
-    // son v2). El resto, legacy como siempre. La sombra no aplica aquí.
-    const mode = rubricModeOf(agency.slug);
+    // Rúbrica: v2 si la fila ya es v2 o la agencia está en RUBRIC_V2_AGENCIES;
+    // si no, legacy como siempre (la sombra no aplica aquí). Se estampa la
+    // versión EN LA MISMA UPDATE que las columnas NLP, para que contenido y
+    // etiqueta no puedan divergir por un fallo intermedio.
     const kind = deriveMentionKind(mention, agency);
-    const enrich = MENTION_ENRICHMENT_ENABLED || mode === 'v2';
+    const plan = reprocessPlanFor(versions.get(row.id) ?? null, writeModeOf(agency.slug), MENTION_ENRICHMENT_ENABLED);
 
     try {
-      const outcome = await classifyMention(mention, agency, null, { rubric: mode === 'v2' ? 'v2' : 'legacy', kind });
+      const outcome = await classifyMention(mention, agency, null, { rubric: plan.rubric, kind });
       const nlp = outcome.nlp;
       if (nlp.summary === 'Error en análisis NLP') {
         throw new Error('Bedrock still returns error (tool-use fallback)');
       }
 
-      await pgClient.query(
-        `UPDATE mentions
-            SET nlp_sentiment = $1,
-                nlp_emotions = $2,
-                nlp_pertinence = $3,
-                nlp_summary = $4,
-                processed_at = NOW()
-          WHERE id = $5`,
-        [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
-      );
+      const nlpParams = [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id];
+      let traced = false;
+      if (plan.stamp && Date.now() >= traceColumnsMissingUntil) {
+        const parent = kind === 'comment' ? await resolveParent(pgClient, agency.id, mention) : null;
+        try {
+          await pgClient.query(
+            `UPDATE mentions
+                SET nlp_sentiment = $1,
+                    nlp_emotions = $2,
+                    nlp_pertinence = $3,
+                    nlp_summary = $4,
+                    processed_at = NOW(),
+                    nlp_adverse_fact = $6, nlp_prompt_version = $7, nlp_model = $8,
+                    mention_kind = $9, parent_mention_id = $10, parent_published_at = $11
+              WHERE id = $5`,
+            [...nlpParams, nlp.adverse_fact, outcome.promptVersion, outcome.model,
+             kind, parent?.parentMentionId ?? null, parent?.parentPublishedAt ?? null],
+          );
+          traced = true;
+        } catch (err) {
+          if (!isMissingSchemaError(err)) throw err;
+          markTraceColumnsMissing(agency.slug, err);
+        }
+      }
+      if (!traced) {
+        // Sin columnas de trazabilidad no se escribe semántica v2 sin
+        // etiqueta: la fila falla aquí y la próxima corrida la toma con legacy.
+        if (plan.rubric === 'v2') {
+          throw new Error('columnas de trazabilidad ausentes: no se escribe v2 sin nlp_prompt_version');
+        }
+        await pgClient.query(
+          `UPDATE mentions
+              SET nlp_sentiment = $1,
+                  nlp_emotions = $2,
+                  nlp_pertinence = $3,
+                  nlp_summary = $4,
+                  processed_at = NOW()
+            WHERE id = $5`,
+          nlpParams,
+        );
+      }
 
       await rewriteNlpAssociations(pgClient, row.id, row.agency_id, nlp);
 
-      if (enrich) {
-        const parent = kind === 'comment' ? await resolveParent(pgClient, agency.id, mention) : null;
-        await stampNlpTrace(pgClient, agency.slug, row.id, {
-          kind, parent, adverseFact: nlp.adverse_fact, promptVersion: outcome.promptVersion, model: outcome.model,
-        });
-      }
-
       reprocessed++;
-      details.push({ id: row.id, status: 'ok', sentiment: nlp.sentiment, pertinence: nlp.pertinence, topics: (nlp.topics ?? []).length });
+      details.push({
+        id: row.id, status: 'ok', sentiment: nlp.sentiment, pertinence: nlp.pertinence, topics: (nlp.topics ?? []).length,
+        promptVersion: traced ? outcome.promptVersion : null,
+      });
     } catch (err: any) {
       failed++;
       details.push({ id: row.id, status: 'failed', error: String(err?.message ?? err) });
@@ -1085,6 +1186,11 @@ const RECLASSIFY_MAX_RANGE_DAYS = 120;
  * Bedrock en paralelo y `retries` reintentos con espera exponencial; se
  * detiene antes del timeout y devuelve `remaining` para la siguiente tanda.
  * `dryRun` (por defecto) clasifica y reporta sin escribir nada.
+ *
+ * Sin cursor: el avance depende de `onlyPending` (por defecto), que excluye
+ * lo ya escrito en v2. Con `onlyPending: false` cada invocación vuelve a las
+ * mismas `limit` más recientes, y filas que fallan siempre se quedan arriba;
+ * para recorrer un rango grande, partirlo por `from`/`to`.
  */
 async function reclassify(
   pgClient: any,
@@ -1114,7 +1220,7 @@ async function reclassify(
 
   const warnings: string[] = [];
   if (mode === 'v2' && rubricModeOf(agency.slug) !== 'v2') {
-    warnings.push(`${agency.slug} no está en RUBRIC_V2_AGENCIES: las menciones que entren por SQS seguirán con legacy (usa nlp_prompt_version para no mezclar).`);
+    warnings.push(`${agency.slug} no está en RUBRIC_V2_AGENCIES: las menciones que entren por SQS seguirán con legacy (usa nlp_prompt_version para no mezclar); los reprocesos mantienen v2 en las filas que ya lo son.`);
   }
 
   const params: unknown[] = [agency.id, from.toISOString(), to.toISOString()];
@@ -1195,7 +1301,16 @@ async function reclassify(
         lastError = String((err as Error)?.message ?? err);
       }
       outcome = null;
-      if (attempt < retries) await sleep(2000 * 2 ** attempt);
+      if (attempt >= retries) break;
+      // La espera exponencial (2+4+8+16+32 s con 5 reintentos) puede comerse
+      // el margen de cierre: se corta antes de dormir si no queda tiempo.
+      const waitMs = 2000 * 2 ** attempt;
+      if (context && context.getRemainingTimeInMillis() - waitMs < RECLASSIFY_TIME_MARGIN_MS / 2) {
+        lastError = `${lastError} (sin tiempo para más reintentos)`;
+        stoppedEarly = true;
+        break;
+      }
+      await sleep(waitMs);
     }
     const parent = await parentPromise;
 
@@ -1238,7 +1353,11 @@ async function reclassify(
       `UPDATE mentions
           SET nlp_sentiment = $2, nlp_emotions = $3, nlp_pertinence = $4, nlp_summary = $5,
               nlp_adverse_fact = $6, nlp_prompt_version = $7, nlp_model = $8,
-              mention_kind = $9, parent_mention_id = $10, parent_published_at = $11
+              mention_kind = $9, parent_mention_id = $10, parent_published_at = $11,
+              -- Igual que el reproceso: arranca el enfriamiento de 3 días de
+              -- reprocess-unclassified, para que el cron diario no vuelva a
+              -- clasificar enseguida lo que el backfill acaba de escribir.
+              processed_at = NOW()
         WHERE id = $1`,
       [row.id, nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500),
        nlp.adverse_fact, outcome.promptVersion, outcome.model,

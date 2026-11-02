@@ -12,8 +12,9 @@
  *
  * El texto de la rúbrica vive aquí, junto al processor, y no en
  * packages/shared: es parte del pipeline de clasificación y se versiona con
- * `nlp_prompt_version`. Implementación de referencia probada en laboratorio:
- * scratchpad/work/K-rubrica-v2/v2.py (`rubric()` y `transform()`).
+ * `nlp_prompt_version`. Implementación de referencia probada en laboratorio
+ * (fuera del repo): K-rubrica-v2/v2.py, funciones `rubric()` y `transform()`;
+ * el Anexo A del spec es el texto normativo.
  *
  * Módulo puro: sin AWS, sin pg, sin imports de valores de @eco/shared (el
  * catálogo de tópicos se inyecta), para poder probarlo aislado.
@@ -63,6 +64,39 @@ export function rubricModeFor(slug: string, v2: Set<string>, shadow: Set<string>
   if (v2.has(s)) return 'v2';
   if (shadow.has(s)) return 'shadow';
   return 'legacy';
+}
+
+export interface ReprocessPlan {
+  rubric: RubricId;
+  /** Escribir `nlp_prompt_version`/`nlp_model` (y el resto de la traza) junto a las columnas NLP. */
+  stamp: boolean;
+}
+
+/**
+ * Rúbrica y estampado para RE-clasificar una fila ya guardada
+ * (`reprocess-nlp-errors`, `reprocess-unclassified`). Invariante: la etiqueta
+ * `nlp_prompt_version` describe SIEMPRE el contenido de las columnas NLP
+ * (spec 12.2: los agregados filtran por versión y nunca mezclan).
+ *
+ *   - Una fila que ya es v2 (p. ej. backfill de `reclassify` en una agencia
+ *     que aún no está en RUBRIC_V2_AGENCIES) se reclasifica con v2: degradarla
+ *     a legacy agujerearía la ventana v2 que el backfill completó.
+ *   - Si no, la rúbrica de la agencia (v2 solo si está en RUBRIC_V2_AGENCIES;
+ *     la sombra no toca las columnas actuales → legacy).
+ *   - Se estampa si la rúbrica es v2, si el enriquecimiento está encendido, o
+ *     si la fila ya tenía versión: sobrescribir el contenido sin reescribir la
+ *     etiqueta dejaría, p. ej., sentimiento legacy bajo `rubric-v2.0`.
+ *   - Fila sin versión, agencia legacy y banderas apagadas → sin estampar
+ *     (la escritura es la de siempre).
+ */
+export function reprocessPlanFor(
+  currentVersion: string | null | undefined,
+  agencyMode: RubricMode,
+  enrichmentEnabled: boolean,
+): ReprocessPlan {
+  const rubric: RubricId = currentVersion === RUBRIC_V2_VERSION || agencyMode === 'v2' ? 'v2' : 'legacy';
+  const stamp = rubric === 'v2' || enrichmentEnabled || (currentVersion != null && currentVersion !== '');
+  return { rubric, stamp };
 }
 
 // ---------------------------------------------------------------------------
