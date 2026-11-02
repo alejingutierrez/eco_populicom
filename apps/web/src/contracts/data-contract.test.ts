@@ -193,8 +193,11 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // /api/eco-geo; un solo predicado compartido (basePredicate).
     { file: 'apps/web/src/lib/geo/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Índices compartidos (V5): el agregado de ventana de @eco/shared/metrics,
-    // que usan el dashboard, los correos y los reportes.
-    { file: 'packages/shared/src/metrics.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // que usan el dashboard, los correos y los reportes. Desde WP-4 (nov-2026)
+    // el predicado ya no está escrito aquí: lo arma `universeFilterSql(opts)`
+    // de universe.ts (ver el tripwire «filtro de universo de @eco/shared»), así
+    // que los literales de este archivo son 0.
+    { file: 'packages/shared/src/metrics.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     // Página Narrativas (oct-2026): la serie, el tablero, el mapa y la
     // propagación cuentan sobre el universo pertinente (antes las rutas de
     // narrativas no filtraban pertinencia). overview: el CTE que elige las
@@ -234,11 +237,28 @@ describe('tripwire — predicados de universo por endpoint', () => {
   // el Overview usa cuando la ventana es de un solo día (chip 1D). Comparte el
   // MISMO pertinentSql y los MISMOS bordes AST que la serie diaria, así que la
   // suma de las 24 horas cuadra con el total del termómetro.
-  test('sentiment-report compartido: un pertinentSql por query (5) y tie-break canónico', () => {
+  // Desde WP-4 (nov-2026) cada query toma el filtro de `universeFilterSql(opts)`
+  // (universe.ts), la ÚNICA fuente del predicado: si alguien vuelve a escribir
+  // a mano `is_duplicate = false` o el filtro de pertinencia en una de las 5
+  // queries, este test falla.
+  test('sentiment-report compartido: un universeFilterSql por query (5) y tie-break canónico', () => {
     const src = read('packages/shared/src/aggregations/sentiment-report.ts');
-    expect(count(src, 'pertinentSql(opts')).toBe(5);
-    expect(count(src, 'is_duplicate = false')).toBe(5);
+    expect(count(src, 'universeFilterSql(opts')).toBe(5);
+    expect(count(src, PERT_SQL)).toBe(0);
+    expect(count(src, '\n        AND is_duplicate = false')).toBe(0);
     expect(src).toContain('confidence DESC NULLS LAST, topic_id ASC');
+  });
+
+  test('filtro de universo de @eco/shared: un solo lugar arma el predicado (universe.ts)', () => {
+    const universe = read('packages/shared/src/universe.ts');
+    // Universo histórico (default, bandera apagada) y universo estricto v1 (P1).
+    expect(count(universe, PERT_SQL)).toBe(1);
+    expect(universe).toContain("nlp_pertinence IN (");
+    // metrics.ts y los agregados no reescriben el predicado.
+    const metrics = read('packages/shared/src/metrics.ts');
+    expect(count(metrics, 'universeFilterSql(opts)')).toBe(1);
+    expect(count(metrics, PERT_SQL)).toBe(0);
+    expect(count(metrics, 'is_duplicate = false')).toBe(0);
   });
 });
 

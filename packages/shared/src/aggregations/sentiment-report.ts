@@ -25,6 +25,7 @@
 
 import { addDaysYmd } from '../dates';
 import { formatDayLabel } from '../format-period';
+import { universeFilterSql, type UniverseOptions } from '../universe';
 
 /**
  * Mínima interfaz del cliente PostgreSQL — la satisface tanto `pg.Client`
@@ -38,9 +39,9 @@ export interface PgClientLike {
  * Etiquetas internas del módulo en inglés (negative/neutral/positive) para
  * matchear el shape que ya usa WeeklyAggregates y el LLM. NO se confunde con
  * el `Sentiment` global del paquete (en español: negativo/neutral/positivo)
- * que viven en `types.ts`. No se exporta.
+ * que viven en `types.ts`.
  */
-type SentimentKey = 'negative' | 'neutral' | 'positive';
+export type SentimentKey = 'negative' | 'neutral' | 'positive';
 
 export interface SentimentTotals {
   negative: number;
@@ -115,31 +116,27 @@ export interface SentimentReport {
 
 const TOP_N_TOPICS = 7;
 
-export interface SentimentReportOptions {
-  /**
-   * Incluir menciones con nlp_pertinence = 'baja'. Default FALSE: el universo
-   * canónico de CONTEOS del producto es "menciones pertinentes" (decisión D2
-   * de la auditoría de consistencia 2026-08 — dashboard, modales y correos
-   * cuentan lo mismo). Desde V5 (oct-2026) las métricas compuestas
-   * (metrics.ts: NSS/BHI/crisis) se calculan sobre este mismo universo.
-   */
-  includeLowPertinence?: boolean;
-}
-
 /**
- * Fragmento WHERE del universo pertinente. `alias` es el prefijo de la tabla
- * mentions en la query (p.ej. 'm.'), vacío cuando la query no usa alias.
+ * Opciones del reporte. Extiende `UniverseOptions` (universe.ts), la ÚNICA
+ * definición del universo del producto:
+ *
+ *  - `strictUniverse` (default FALSE): universo estricto de v1
+ *    (`is_duplicate = false AND nlp_pertinence IN ('alta','media')`, NULL
+ *    fuera). Apagado = comportamiento histórico, idéntico al anterior a v1.
+ *  - `includeLowPertinence` (default FALSE): incluir 'baja'. El universo
+ *    canónico de CONTEOS del producto es «menciones pertinentes» (decisión D2
+ *    de la auditoría de consistencia 2026-08 — dashboard, modales y correos
+ *    cuentan lo mismo). Desde V5 (oct-2026) las métricas compuestas
+ *    (metrics.ts: NSS/BHI/crisis) se calculan sobre este mismo universo.
  */
-function pertinentSql(includeLow: boolean | undefined, alias = ''): string {
-  if (includeLow) return '';
-  return `AND (${alias}nlp_pertinence IS NULL OR ${alias}nlp_pertinence <> 'baja')`;
-}
+export interface SentimentReportOptions extends UniverseOptions {}
 
 // ============================================================
 // Helpers
 // ============================================================
 
-function normalizeSentiment(s: string | null): SentimentKey | null {
+/** Sentimiento crudo (`negativo`/`negative`/…) → llave interna; null si no se reconoce. */
+export function normalizeSentiment(s: string | null): SentimentKey | null {
   if (!s) return null;
   const v = s.toLowerCase();
   if (v.startsWith('neg')) return 'negative';
@@ -184,8 +181,7 @@ async function loadTotals(
     `SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND is_duplicate = false
-        ${pertinentSql(opts?.includeLowPertinence)}
+        ${universeFilterSql(opts)}
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1`,
@@ -226,8 +222,7 @@ async function loadDailySeries(
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND is_duplicate = false
-        ${pertinentSql(opts?.includeLowPertinence)}
+        ${universeFilterSql(opts)}
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1, 2
@@ -276,8 +271,7 @@ async function loadHourlySeries(
             COUNT(*)::int AS c
        FROM mentions
       WHERE agency_id = $1
-        AND is_duplicate = false
-        ${pertinentSql(opts?.includeLowPertinence)}
+        ${universeFilterSql(opts)}
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
         AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
       GROUP BY 1, 2
@@ -387,8 +381,7 @@ async function loadTopicsTable(
                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id
              FROM mentions m
             WHERE m.agency_id = $1
-              AND m.is_duplicate = false
-              ${pertinentSql(opts?.includeLowPertinence, 'm.')}
+              ${universeFilterSql(opts, 'm.')}
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
               AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
          ) pt
@@ -402,8 +395,7 @@ async function loadTopicsTable(
          FROM mention_topics mt
          JOIN mentions m ON m.id = mt.mention_id
         WHERE m.agency_id = $1
-          AND m.is_duplicate = false
-          ${pertinentSql(opts?.includeLowPertinence, 'm.')}
+          ${universeFilterSql(opts, 'm.')}
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
           AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
         GROUP BY mt.topic_id

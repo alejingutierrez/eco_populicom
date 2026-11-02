@@ -13,11 +13,12 @@
  * handler del web app (pool de Drizzle) que a un lambda (pg.Client) si algún
  * día el reporte se manda por correo.
  *
- * UNIVERSO: idéntico al de los conteos del producto — `is_duplicate = false` y
- * pertinencia distinta de 'baja' (decisión D2 de la auditoría de consistencia
- * 2026-08). Las métricas compuestas (NSS/BHI/crisis) NO se calculan aquí:
- * salen de `loadMetricsForWindow`, que desde V5 (oct-2026) usa este mismo
- * universo.
+ * UNIVERSO: el de `universe.ts` (única definición del producto). Por defecto
+ * el histórico — `is_duplicate = false` y pertinencia distinta de 'baja'
+ * (decisión D2 de la auditoría de consistencia 2026-08); con
+ * `{ strictUniverse: true }` el de v1: `alta`/`media`, NULL fuera. Las métricas
+ * compuestas (NSS/BHI/crisis) NO se calculan aquí: salen de
+ * `loadMetricsForWindow`, que desde V5 (oct-2026) usa este mismo universo.
  *
  * FECHAS: `startYmd`/`endYmd` son días calendario inclusivos en TZ Puerto Rico
  * (AST, UTC-4 sin DST), igual que en `buildSentimentReport`. El filtro es
@@ -28,6 +29,8 @@
 import type { PgClientLike } from './sentiment-report';
 import { sourceKey, sourceLabel } from '../sources';
 import { formatDayLabel } from '../format-period';
+import { universeFilterSql, type UniverseOptions } from '../universe';
+import { prWindowSql } from './pr-range';
 
 // ============================================================
 // Tipos
@@ -161,16 +164,6 @@ export interface ReportDetail {
 // ============================================================
 
 /**
- * Fragmento WHERE del universo pertinente. Copia deliberada del helper de
- * sentiment-report.ts (que es privado): si un día se unifican, que sea con un
- * único cambio y no con dos definiciones que puedan divergir en silencio.
- */
-function pertinentSql(alias = ''): string {
-  return `AND ${alias}is_duplicate = false
-          AND (${alias}nlp_pertinence IS NULL OR ${alias}nlp_pertinence <> 'baja')`;
-}
-
-/**
  * Ventana de fechas sobre published_at, con la mención como fecha de verdad.
  *
  * ⚠️ La comparación va sobre el DÍA CALENDARIO EN AST, no sobre el timestamp
@@ -187,8 +180,7 @@ function pertinentSql(alias = ''): string {
  * de consistencia 2026-08 (grupo G2 de contract-check-live).
  */
 function windowSql(alias = '', startParam = '$2', endParam = '$3'): string {
-  return `AND (${alias}published_at AT TIME ZONE 'America/Puerto_Rico')::date >= (${startParam}::date)
-          AND (${alias}published_at AT TIME ZONE 'America/Puerto_Rico')::date <= (${endParam}::date)`;
+  return prWindowSql(alias, startParam, endParam);
 }
 
 const ENGAGEMENT = `(COALESCE(likes,0) + COALESCE(comments,0) + COALESCE(shares,0))`;
@@ -224,8 +216,8 @@ interface ChannelRaw {
   reach: number | string;
 }
 
-async function loadChannels(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
+export async function loadChannels(
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, opts?: UniverseOptions,
 ): Promise<ChannelRow[]> {
   const r = await client.query<ChannelRaw>(
     `SELECT page_type,
@@ -236,7 +228,7 @@ async function loadChannels(
        FROM mentions
       WHERE agency_id = $1
         ${windowSql()}
-        ${pertinentSql()}
+        ${universeFilterSql(opts)}
       GROUP BY page_type, ${SENTIMENT}`,
     [agencyId, startYmd, endYmd],
   );
@@ -270,8 +262,8 @@ interface AuthorRaw {
   eng: number | string;
 }
 
-async function loadAuthors(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number,
+export async function loadAuthors(
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number, opts?: UniverseOptions,
 ): Promise<AuthorRow[]> {
   // COALESCE(author_fullname, author): el nombre mostrable primero; muchas
   // cuentas de prensa traen handle en `author` y nombre real en el fullname.
@@ -285,7 +277,7 @@ async function loadAuthors(
        FROM mentions
       WHERE agency_id = $1
         ${windowSql()}
-        ${pertinentSql()}
+        ${universeFilterSql(opts)}
         AND COALESCE(NULLIF(TRIM(author_fullname), ''), NULLIF(TRIM(author), '')) IS NOT NULL
       GROUP BY 1
       ORDER BY c DESC, eng DESC
@@ -303,7 +295,7 @@ async function loadAuthors(
 }
 
 async function loadDomains(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number,
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number, opts?: UniverseOptions,
 ): Promise<DomainRow[]> {
   const r = await client.query<{ domain: string | null; c: number | string; neg: number | string; eng: number | string }>(
     `SELECT NULLIF(TRIM(domain), '') AS domain,
@@ -313,7 +305,7 @@ async function loadDomains(
        FROM mentions
       WHERE agency_id = $1
         ${windowSql()}
-        ${pertinentSql()}
+        ${universeFilterSql(opts)}
         AND NULLIF(TRIM(domain), '') IS NOT NULL
       GROUP BY 1
       ORDER BY c DESC
@@ -328,8 +320,8 @@ async function loadDomains(
   }));
 }
 
-async function loadEmotions(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
+export async function loadEmotions(
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, opts?: UniverseOptions,
 ): Promise<{ rows: EmotionRow[]; tagged: number }> {
   // nlp_emotions es un jsonb array de strings; jsonb_array_elements lo aplana.
   // El trim de comillas convierte '"enojo"' → 'enojo'.
@@ -338,7 +330,7 @@ async function loadEmotions(
        FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = $1
         ${windowSql('m.')}
-        ${pertinentSql('m.')}
+        ${universeFilterSql(opts, 'm.')}
       GROUP BY 1
       ORDER BY c DESC
       LIMIT 12`,
@@ -353,8 +345,8 @@ async function loadEmotions(
   return { rows, tagged };
 }
 
-async function loadPlaces(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
+export async function loadPlaces(
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, opts?: UniverseOptions,
 ): Promise<{ municipalities: PlaceRow[]; regions: RegionRow[] }> {
   const r = await client.query<{
     name: string; region: string | null; s: string | null; c: number | string;
@@ -368,7 +360,7 @@ async function loadPlaces(
        JOIN municipalities mu ON mu.id = mm.municipality_id
       WHERE m.agency_id = $1
         ${windowSql('m.')}
-        ${pertinentSql('m.')}
+        ${universeFilterSql(opts, 'm.')}
       GROUP BY mu.name, mu.region, ${SENTIMENT_M}`,
     [agencyId, startYmd, endYmd],
   );
@@ -401,7 +393,7 @@ async function loadPlaces(
 }
 
 async function loadSubtopics(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number,
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, limit: number, opts?: UniverseOptions,
 ): Promise<SubtopicRow[]> {
   // Cada mención cuenta bajo su par (tópico, subtópico) de mayor confianza —
   // misma regla de dedup top-confidence que la tabla de tópicos del correo,
@@ -419,7 +411,7 @@ async function loadSubtopics(
          FROM mentions m
         WHERE m.agency_id = $1
           ${windowSql('m.')}
-          ${pertinentSql('m.')}
+          ${universeFilterSql(opts, 'm.')}
      )
      SELECT t.name AS topic,
             s.name AS subtopic,
@@ -483,9 +475,10 @@ function mapTopMention(row: TopMentionRaw): TopMentionRow {
 
 async function loadTopMentions(
   client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
-  opts: { onlyNegative: boolean; limit: number },
+  q: { onlyNegative: boolean; limit: number },
+  opts?: UniverseOptions,
 ): Promise<TopMentionRow[]> {
-  const negFilter = opts.onlyNegative ? `AND ${SENTIMENT_M} = 'negativo'` : '';
+  const negFilter = q.onlyNegative ? `AND ${SENTIMENT_M} = 'negativo'` : '';
   const r = await client.query<TopMentionRaw>(
     `SELECT m.id::text AS id,
             m.title, m.snippet, m.url, m.domain, m.page_type,
@@ -503,17 +496,17 @@ async function loadTopMentions(
        FROM mentions m
       WHERE m.agency_id = $1
         ${windowSql('m.')}
-        ${pertinentSql('m.')}
+        ${universeFilterSql(opts, 'm.')}
         ${negFilter}
       ORDER BY ${ENGAGEMENT_M} DESC, m.reach_estimate DESC NULLS LAST, m.published_at DESC
-      LIMIT ${opts.limit}`,
+      LIMIT ${q.limit}`,
     [agencyId, startYmd, endYmd],
   );
   return r.rows.map(mapTopMention);
 }
 
 async function loadTimeShape(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, opts?: UniverseOptions,
 ): Promise<{ byHour: number[]; byDow: number[] }> {
   const r = await client.query<{ h: number | string; dow: number | string; c: number | string }>(
     `SELECT EXTRACT(HOUR FROM (published_at AT TIME ZONE 'America/Puerto_Rico'))::int AS h,
@@ -522,7 +515,7 @@ async function loadTimeShape(
        FROM mentions
       WHERE agency_id = $1
         ${windowSql()}
-        ${pertinentSql()}
+        ${universeFilterSql(opts)}
       GROUP BY 1, 2`,
     [agencyId, startYmd, endYmd],
   );
@@ -537,7 +530,7 @@ async function loadTimeShape(
 }
 
 async function loadCoverage(
-  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string,
+  client: PgClientLike, agencyId: string, startYmd: string, endYmd: string, opts?: UniverseOptions,
 ): Promise<{ unclassified: number; withoutSentiment: number; reach: number; engagement: number; mentions: number }> {
   const r = await client.query<{
     unclassified: number | string; without_sentiment: number | string;
@@ -553,7 +546,7 @@ async function loadCoverage(
        FROM mentions m
       WHERE m.agency_id = $1
         ${windowSql('m.')}
-        ${pertinentSql('m.')}`,
+        ${universeFilterSql(opts, 'm.')}`,
     [agencyId, startYmd, endYmd],
   );
   const row = r.rows[0];
@@ -631,21 +624,22 @@ export async function buildReportDetail(
   startYmd: string,
   endYmd: string,
   dailySeries: Array<{ date: string; negative: number; neutral: number; positive: number }>,
+  opts?: UniverseOptions,
 ): Promise<ReportDetail> {
   const [
     channels, authors, domains, emotions, places, subtopics,
     topByEngagement, topNegative, timeShape, coverage,
   ] = await Promise.all([
-    loadChannels(client, agencyId, startYmd, endYmd),
-    loadAuthors(client, agencyId, startYmd, endYmd, 12),
-    loadDomains(client, agencyId, startYmd, endYmd, 10),
-    loadEmotions(client, agencyId, startYmd, endYmd),
-    loadPlaces(client, agencyId, startYmd, endYmd),
-    loadSubtopics(client, agencyId, startYmd, endYmd, 16),
-    loadTopMentions(client, agencyId, startYmd, endYmd, { onlyNegative: false, limit: 12 }),
-    loadTopMentions(client, agencyId, startYmd, endYmd, { onlyNegative: true, limit: 8 }),
-    loadTimeShape(client, agencyId, startYmd, endYmd),
-    loadCoverage(client, agencyId, startYmd, endYmd),
+    loadChannels(client, agencyId, startYmd, endYmd, opts),
+    loadAuthors(client, agencyId, startYmd, endYmd, 12, opts),
+    loadDomains(client, agencyId, startYmd, endYmd, 10, opts),
+    loadEmotions(client, agencyId, startYmd, endYmd, opts),
+    loadPlaces(client, agencyId, startYmd, endYmd, opts),
+    loadSubtopics(client, agencyId, startYmd, endYmd, 16, opts),
+    loadTopMentions(client, agencyId, startYmd, endYmd, { onlyNegative: false, limit: 12 }, opts),
+    loadTopMentions(client, agencyId, startYmd, endYmd, { onlyNegative: true, limit: 8 }, opts),
+    loadTimeShape(client, agencyId, startYmd, endYmd, opts),
+    loadCoverage(client, agencyId, startYmd, endYmd, opts),
   ]);
 
   return {
