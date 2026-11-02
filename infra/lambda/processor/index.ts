@@ -3,11 +3,17 @@ import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'crypto';
-import type { SQSEvent, SQSRecord } from 'aws-lambda';
-import type { BrandwatchMention, NlpAnalysis, Sentiment, Emotion } from '@eco/shared';
-import { TOPIC_SLUGS_BY_AGENCY, SUBTOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, mentionPlatformKey, type ArticleTextResult } from '@eco/shared';
+import type { Context, SQSEvent, SQSRecord } from 'aws-lambda';
+import type { BrandwatchMention, NlpAnalysis } from '@eco/shared';
+import { TOPIC_SLUGS_BY_AGENCY, TOPICS_BY_AGENCY, AGENCY_NLP_CONTEXT, TOPIC_ROUTING_RULES, MUNICIPALITY_SLUGS, extractMunicipalitiesFromText, scrapeImageForMention, fetchArticleText, isExpiringImageUrl, mirrorImage, mentionPlatformKey, type ArticleTextResult } from '@eco/shared';
 import { buildEmbeddingInput, embedText, toPgvectorLiteral } from '../lib/embeddings';
 import { EXISTING_MENTIONS_SQL, MENTION_CONFLICT_TARGET, mentionKey, selectNewRecords, type BatchEntry } from '../lib/mention-keys';
+import {
+  RUBRIC_V2_VERSION, buildClassificationPrompt, buildClassifyTool, nlpEnumProblem, normalizeNlpResult,
+  parseAgencyList, promptVersionFor, rubricModeFor, type NlpAnalysisV2, type RubricId, type RubricMode,
+} from '../lib/classification-rubric';
+import { deriveMentionKind, type MentionKind } from '../lib/mention-kind';
+import { resolveParent, type ParentResolution } from '../lib/parent-resolver';
 
 const bedrock = new BedrockRuntimeClient({});
 const sqs = new SQSClient({});
@@ -66,6 +72,39 @@ const NLP_TEXT_LIMIT = Number(process.env.NLP_TEXT_LIMIT ?? 8000);
 /** page_types donde vale la pena intentar el fetch del cuerpo. */
 const FULLTEXT_PAGE_TYPES = new Set(['news', 'blog', 'forum']);
 
+/**
+ * Banderas de la interpretación v1 (spec, secciones 6 y 13.4). Todas apagadas
+ * por defecto: sin variables, el processor clasifica y escribe igual que antes.
+ *
+ *   RUBRIC_V2_AGENCIES          slugs separados por coma: clasifican con la
+ *                               rúbrica v2 y escriben sus columnas de siempre
+ *                               (`nlp_sentiment` = postura hacia la agencia).
+ *   RUBRIC_V2_SHADOW_AGENCIES   slugs: además de la clasificación legacy, una
+ *                               segunda llamada con la v2 se guarda en
+ *                               `mention_nlp_shadow`; no toca `mentions`.
+ *   MENTION_ENRICHMENT_ENABLED  1/true: guarda mention_kind, el post padre,
+ *                               nlp_adverse_fact, nlp_prompt_version y
+ *                               nlp_model (siempre activo para las agencias v2).
+ *   NLP_STRICT_ENUMS            1/true: un sentiment/pertinence fuera de enum
+ *                               invalida la respuesta en legacy (en v2 y
+ *                               sombra siempre se exige).
+ *   RUBRIC_V2_SHADOW_MODEL_ID   modelo de la llamada de sombra (por defecto el
+ *                               primario; sin fallback ni enfriamiento, para no
+ *                               alterar la clasificación de producción).
+ *
+ * Requiere la migración 0013 (WP-1) antes de encender cualquiera de ellas.
+ */
+const truthy = (v: string | undefined) => /^(1|true|yes|on)$/i.test((v ?? '').trim());
+const RUBRIC_V2_AGENCIES = parseAgencyList(process.env.RUBRIC_V2_AGENCIES);
+const RUBRIC_V2_SHADOW_AGENCIES = parseAgencyList(process.env.RUBRIC_V2_SHADOW_AGENCIES);
+const MENTION_ENRICHMENT_ENABLED = truthy(process.env.MENTION_ENRICHMENT_ENABLED);
+const NLP_STRICT_ENUMS = truthy(process.env.NLP_STRICT_ENUMS);
+const RUBRIC_V2_SHADOW_MODEL_ID = process.env.RUBRIC_V2_SHADOW_MODEL_ID || BEDROCK_MODEL_ID;
+
+function rubricModeOf(slug: string): RubricMode {
+  return rubricModeFor(slug, RUBRIC_V2_AGENCIES, RUBRIC_V2_SHADOW_AGENCIES);
+}
+
 function isThrottlingError(err: unknown): boolean {
   const e = err as { name?: string; message?: string };
   if (!e) return false;
@@ -112,10 +151,39 @@ async function loadAgencyMap(dbUrl: string): Promise<Map<number, AgencyInfo>> {
 type ReprocessEvent = { action: 'reprocess-nlp-errors' | 'reprocess-unclassified'; limit?: number };
 /** Backfill de copias propias: menciones recientes cuya imagen aún no venció. */
 type MirrorMediaEvent = { action: 'mirror-media'; sinceHours?: number; limit?: number };
-type ProcessorEvent = SQSEvent | ReprocessEvent | MirrorMediaEvent;
+/**
+ * Reclasificación por agencia y rango de fechas (backfill de la rúbrica v2,
+ * WP-13). `dryRun` es true salvo que se pase `dryRun: false` explícito.
+ *   mode 'v2'      reescribe las columnas NLP de `mentions` (+ tópicos y
+ *                  municipios NLP) y estampa versión, modelo, tipo y padre.
+ *   mode 'shadow'  escribe solo `mention_nlp_shadow`.
+ *   countOnly      cuenta candidatas sin llamar a Bedrock.
+ */
+type ReclassifyEvent = {
+  action: 'reclassify';
+  agencySlug: string;
+  from: string;
+  to: string;
+  mode?: 'v2' | 'shadow';
+  dryRun?: boolean;
+  countOnly?: boolean;
+  concurrency?: number;
+  retries?: number;
+  limit?: number;
+  /** Salta las ya clasificadas con esta versión (default true). */
+  onlyPending?: boolean;
+  includeDuplicates?: boolean;
+  /** Fuerza un modelo (sin fallback); por defecto primario → fallback. */
+  modelId?: string;
+};
+type ProcessorEvent = SQSEvent | ReprocessEvent | MirrorMediaEvent | ReclassifyEvent;
 
 function isMirrorMediaEvent(e: ProcessorEvent): e is MirrorMediaEvent {
   return (e as MirrorMediaEvent).action === 'mirror-media';
+}
+
+function isReclassifyEvent(e: ProcessorEvent): e is ReclassifyEvent {
+  return (e as ReclassifyEvent).action === 'reclassify';
 }
 
 function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
@@ -123,7 +191,7 @@ function isReprocessEvent(e: ProcessorEvent): e is ReprocessEvent {
     && ['reprocess-nlp-errors', 'reprocess-unclassified'].includes((e as ReprocessEvent).action);
 }
 
-export const handler = async (event: ProcessorEvent): Promise<unknown> => {
+export const handler = async (event: ProcessorEvent, context?: Pick<Context, 'getRemainingTimeInMillis'>): Promise<unknown> => {
   if (!dbUrl) {
     dbUrl = await getDatabaseUrl();
   }
@@ -147,6 +215,14 @@ export const handler = async (event: ProcessorEvent): Promise<unknown> => {
   if (isReprocessEvent(event)) {
     try {
       return await reprocessNlpErrors(client, event.action, event.limit);
+    } finally {
+      await client.end();
+    }
+  }
+
+  if (isReclassifyEvent(event)) {
+    try {
+      return await reclassify(client, event, context);
     } finally {
       await client.end();
     }
@@ -348,7 +424,30 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
   }
   const fullText = article?.ok ? article.text : null;
 
-  const nlp: NlpAnalysis = await analyzeWithClaude(mention, agency, fullText);
+  // Interpretación v1 (banderas apagadas por defecto: modo 'legacy', sin
+  // enriquecimiento → la clasificación y las escrituras son las de siempre).
+  // El tipo de mención es puro (sin red); el padre es una consulta acotada por
+  // agencia y fecha (~20–35 ms) que corre en paralelo con Bedrock, así que no
+  // suma latencia al registro.
+  const mode = rubricModeOf(agency.slug);
+  const kind = deriveMentionKind(mention, agency);
+  const enrich = MENTION_ENRICHMENT_ENABLED || mode === 'v2';
+  const parentPromise: Promise<ParentResolution | null> = enrich && kind === 'comment'
+    ? resolveParent(pgClient, agency.id, mention)
+    : Promise.resolve(null);
+
+  const classified = Promise.all([
+    classifyMention(mention, agency, fullText, { rubric: mode === 'v2' ? 'v2' : 'legacy', kind }),
+    mode === 'shadow'
+      ? classifyMention(mention, agency, fullText, { rubric: 'v2', kind, models: [RUBRIC_V2_SHADOW_MODEL_ID], affectCooldown: false })
+          .catch((err) => { console.warn(`[${agency.slug}] shadow v2 falló para ${resourceId}: ${(err as Error)?.message ?? err}`); return null; })
+      : Promise.resolve(null),
+  ]);
+  // El padre se espera también si Bedrock lanza: su consulta va por el mismo
+  // pg.Client y no debe quedar en cola cuando el handler cierre la conexión.
+  const [primary, shadow] = await classified.catch(async (err) => { await parentPromise; throw err; });
+  const parent = await parentPromise;
+  const nlp: NlpAnalysisV2 = primary.nlp;
 
   // Reinforce municipality coverage with a deterministic regex pass over the
   // text Claude saw. Merges with Claude's output and dedupes. This alone took
@@ -437,6 +536,18 @@ async function processRecord(record: SQSRecord, pgClient: any): Promise<void> {
     return;
   }
   const mentionId = mentionResult.rows[0].id;
+
+  // Trazabilidad v1 en una UPDATE aparte (mismo motivo que el cuerpo de
+  // abajo: no renumerar los 46 parámetros del INSERT) y tolerante a que la
+  // migración 0013 aún no exista. Solo con la bandera o en agencias v2.
+  if (enrich) {
+    await stampNlpTrace(pgClient, agency.slug, mentionId, {
+      kind, parent, adverseFact: nlp.adverse_fact, promptVersion: primary.promptVersion, model: primary.model,
+    });
+  }
+  if (shadow) {
+    await writeShadow(pgClient, agency.slug, mentionId, shadow);
+  }
 
   // Persistencia del cuerpo en una UPDATE aparte, no en el INSERT: el INSERT
   // ya lleva 46 parámetros posicionales y renumerarlos por ocho columnas más
@@ -567,136 +678,96 @@ const LEGACY_ROUTING_RULES = `- Si el post anuncia el NÚMERO DE EMPLEOS como he
 - Críticas dirigidas a la PERSONA del Secretario (credibilidad, gestión, viajes): topic = gestion-secretario con sentiment=negativo; reserva criticas-controversias para críticas al PROYECTO o al MODELO económico, no a la persona.
 - FITUR: turismo-economia.fitur-y-promocion-internacional (NO comercio-exterior).`;
 
-async function analyzeWithClaude(
+/** Resultado de una clasificación, con lo necesario para la trazabilidad. */
+interface ClassifyOutcome {
+  nlp: NlpAnalysisV2;
+  /** Modelo que respondió; nulo si todos fallaron (resultado de error). */
+  model: string | null;
+  /** `legacy` o `rubric-v2.0`. */
+  promptVersion: string;
+  rubric: RubricId;
+  ok: boolean;
+}
+
+interface ClassifyOptions {
+  rubric?: RubricId;
+  kind?: MentionKind | null;
+  /** Rechaza sentiment/pertinence fuera de enum (default: v2 o NLP_STRICT_ENUMS). */
+  strict?: boolean;
+  /** Cadena de modelos explícita (sombra, reclasificación); default primario → fallback. */
+  models?: string[];
+  /** Si un throttle del primario activa el enfriamiento global (default true). */
+  affectCooldown?: boolean;
+}
+
+/** Resultado de error (mismo objeto de siempre): reprocess-nlp-errors lo recoge. */
+const NLP_ERROR_SUMMARY = 'Error en análisis NLP';
+function nlpErrorResult(): NlpAnalysisV2 {
+  return {
+    sentiment: 'neutral',
+    emotions: [],
+    pertinence: 'media',
+    topics: [],
+    municipalities: [],
+    summary: NLP_ERROR_SUMMARY,
+    adverse_fact: null,
+  };
+}
+
+/**
+ * Clasifica una mención con `classify_mention`. Con las opciones por defecto
+ * (rúbrica legacy, sin modo estricto) el prompt, la herramienta, la cadena de
+ * modelos y el resultado son los de siempre.
+ */
+async function classifyMention(
   mention: BrandwatchMention,
   agency: AgencyInfo,
   fullText: string | null = null,
-): Promise<NlpAnalysis> {
-  const agencyTopics = TOPICS_BY_AGENCY[agency.slug] ?? [];
-  const topicSlugs = agencyTopics.map((t) => t.slug).join(', ');
-  const subtopicSlugs = agencyTopics.flatMap((t) => t.subtopics.map((s) => s.slug)).join(', ');
-
-  // Construye el menú de subtopics anidado bajo cada topic padre, con sus
-  // descripciones cortas. Esto evita que Claude empareje un subtopic con un
-  // topic incorrecto (problema con la lista plana anterior).
-  const topicSubtopicMenu = agencyTopics
-    .map((t) => {
-      if (!t.subtopics.length) return `  • ${t.slug} — ${t.name}: (sin subtopics)`;
-      const subs = t.subtopics.map((s) => `      - ${s.slug} — ${s.description}`).join('\n');
-      return `  • ${t.slug} — ${t.name}:\n${subs}`;
-    })
-    .join('\n');
-
-  // Pass Brandwatch's own sentiment (positive/neutral/negative) as a hint so
-  // Claude has an anchor. Historically Claude was too positive — it rated
-  // 5,600 "bw=neutral" news items as "positivo". The rules below bias
-  // toward neutral for factual reporting and require overt language for a
-  // positivo call.
-  const bwSentimentHint = mention.sentiment
-    ? `\nSentimiento Brandwatch (referencia): ${mention.sentiment}`
-    : '';
-
-  // Cuando hay cuerpo del artículo, ese es el texto a analizar y el snippet
-  // sobra (es su prefijo). Se marca como recortado cuando se pasa del tope
-  // para que Claude sepa que el final falta y no lo interprete como un corte
-  // abrupto del autor.
-  const textoAnalizado = fullText
-    ? fullText.slice(0, NLP_TEXT_LIMIT) + (fullText.length > NLP_TEXT_LIMIT ? '\n[…texto recortado]' : '')
-    : (mention.snippet ?? '(sin texto)');
+  opts: ClassifyOptions = {},
+): Promise<ClassifyOutcome> {
+  const rubric: RubricId = opts.rubric ?? 'legacy';
+  const strict = opts.strict ?? (rubric === 'v2' || NLP_STRICT_ENUMS);
+  const affectCooldown = opts.affectCooldown ?? true;
+  const promptVersion = promptVersionFor(rubric);
 
   // Contexto y reglas de routing propios de la agencia (topics.ts). Sin
   // entrada, el prompt es el de siempre: el bloque de routing histórico
   // (escrito para DDEC) se conserva tal cual para no mover la clasificación
   // de las agencias que ya lo usan.
-  const agencyContext = AGENCY_NLP_CONTEXT[agency.slug] ? `\n\nCONTEXTO DE LA AGENCIA:\n${AGENCY_NLP_CONTEXT[agency.slug]}` : '';
-  const routingRules = TOPIC_ROUTING_RULES[agency.slug] ?? LEGACY_ROUTING_RULES;
+  const prompt = buildClassificationPrompt({
+    mention,
+    agency,
+    fullText,
+    textLimit: NLP_TEXT_LIMIT,
+    catalog: {
+      agencyTopics: TOPICS_BY_AGENCY[agency.slug] ?? [],
+      agencyContext: AGENCY_NLP_CONTEXT[agency.slug],
+      routingRules: TOPIC_ROUTING_RULES[agency.slug] ?? LEGACY_ROUTING_RULES,
+    },
+    rubric,
+    kind: opts.kind ?? null,
+  });
 
-  const prompt = `Eres un analista de social listening especializado en Puerto Rico.
-Analiza esta mención sobre ${agency.name}.${agencyContext}
-
-MENCIÓN:
-Título: ${mention.title ?? '(sin título)'}
-Texto: ${textoAnalizado}
-Fuente: ${mention.contentSourceName ?? mention.domain} (${mention.domain})
-Autor: ${mention.author ?? 'Desconocido'}
-Fecha: ${mention.date}${bwSentimentHint}
-
-Llama a la herramienta classify_mention con los campos correctos.
-
-REGLAS DE SENTIMIENTO (muy importantes — los datos actuales tienen sesgo positivo):
-- "positivo" EXCLUSIVAMENTE cuando el autor/medio expresa evaluación explícitamente favorable hacia ${agency.name}: elogios, logros celebrados por la ciudadanía, resolución de problemas agradecida, decisiones aplaudidas. Señales: "felicita", "excelente", "gracias a", "aplauden", "reconocimiento".
-- "negativo" cuando la mención expresa queja, crítica, denuncia, fallo operativo, escándalo, protesta, reclamo ciudadano, o el autor/medio usa lenguaje desfavorable. Señales: "denuncia", "protesta", "falla", "critica", "cuestiona", "sigue sin", "años sin", "exigen".
-- "neutral" por defecto para: reportajes informativos sin valoración, comunicados oficiales, anuncios institucionales sin reacción pública visible, datos, números de contacto, inauguraciones descritas sin entusiasmo evaluativo. Si el texto solo DESCRIBE sin evaluar, es neutral.
-- NO marques positivo solo porque se resuelva un problema o se inaugure algo. Solo cuando haya elogio explícito.
-- Si el Sentimiento Brandwatch dice "neutral", usa "neutral" salvo que el texto tenga señales inequívocas de positivo/negativo.
-
-PERTINENCIA:
-- "alta" si la mención TRATA sobre ${agency.name}. "media" si ${agency.name} es secundaria. "baja" si ${agency.name} se menciona de paso.
-
-EMOTIONS:
-- del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3. Omite el campo si el texto es meramente factual.
-
-TOPICS Y SUBTOPICS (menú jerárquico — el subtopic_slug DEBE pertenecer al topic_slug elegido):
-${topicSubtopicMenu}
-
-REGLAS DE TOPICS/SUBTOPICS:
-- topic_slug obligatorio. Usa SOLO uno de: ${topicSlugs}.
-- subtopic_slug opcional pero MUY recomendado. Debe ser uno de los listados bajo el topic_slug elegido. NUNCA mezcles un subtopic de un topic con otro topic.
-- Máximo 3 tópicos por mención. confidence: 0.0 a 1.0.
-
-REGLAS DE ROUTING CROSS-TOPIC (cuando la mención toca varios temas, elige UNO primario):
-${routingRules}
-
-MUNICIPALITIES:
-- Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).
-- Incluye TODO municipio mencionado por nombre, barrio (Santurce→san-juan, Río Piedras→san-juan, Levittown→toa-baja, Condado→san-juan) o contexto geográfico claro.
-- Si el texto menciona sólo "Puerto Rico" sin municipio, deja el array vacío.`;
-
-  const modelsToTry: string[] = [];
-  const now = Date.now();
-  if (now >= primaryCooldownUntil) {
-    modelsToTry.push(BEDROCK_MODEL_ID);
-  }
-  if (BEDROCK_FALLBACK_MODEL_ID && BEDROCK_FALLBACK_MODEL_ID !== BEDROCK_MODEL_ID) {
-    modelsToTry.push(BEDROCK_FALLBACK_MODEL_ID);
+  let modelsToTry: string[];
+  if (opts.models?.length) {
+    modelsToTry = opts.models;
+  } else {
+    modelsToTry = [];
+    const now = Date.now();
+    if (now >= primaryCooldownUntil) {
+      modelsToTry.push(BEDROCK_MODEL_ID);
+    }
+    if (BEDROCK_FALLBACK_MODEL_ID && BEDROCK_FALLBACK_MODEL_ID !== BEDROCK_MODEL_ID) {
+      modelsToTry.push(BEDROCK_FALLBACK_MODEL_ID);
+    }
   }
 
   // Bedrock tool-use con input_schema: garantiza un objeto estructurado y
   // elimina parse-errors de JSON crudo (rompe con `"`/`\n` mal escapados).
-  const classifyTool = {
-    name: 'classify_mention',
-    description: 'Registra la clasificación NLP de una mención de social listening sobre la agencia.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        sentiment: { type: 'string', enum: ['negativo', 'neutral', 'positivo'] },
-        emotions: {
-          type: 'array',
-          maxItems: 3,
-          items: { type: 'string', enum: ['frustración', 'enojo', 'alivio', 'gratitud', 'preocupación', 'sarcasmo', 'indiferencia'] },
-        },
-        pertinence: { type: 'string', enum: ['alta', 'media', 'baja'] },
-        topics: {
-          type: 'array',
-          maxItems: 3,
-          items: {
-            type: 'object',
-            properties: {
-              topic_slug: { type: 'string' },
-              subtopic_slug: { type: 'string' },
-              confidence: { type: 'number', minimum: 0, maximum: 1 },
-            },
-            required: ['topic_slug', 'confidence'],
-          },
-        },
-        municipalities: { type: 'array', items: { type: 'string' } },
-        summary: { type: 'string' },
-      },
-      required: ['sentiment', 'pertinence', 'summary'],
-    },
-  };
+  const classifyTool = buildClassifyTool(rubric);
 
-  let parsed: NlpAnalysis | null = null;
+  let parsed: (NlpAnalysis & { adverse_fact?: unknown }) | null = null;
+  let usedModel: string | null = null;
   let lastErr: unknown = null;
   for (const modelId of modelsToTry) {
     try {
@@ -722,13 +793,26 @@ MUNICIPALITIES:
         lastErr = new Error(`Bedrock returned no tool_use block (stop_reason=${responseBody.stop_reason})`);
         continue;
       }
-      parsed = toolUse.input as NlpAnalysis;
+      // Modo estricto: un enum fuera de lugar (p. ej. «negative» en inglés)
+      // invalida la respuesta y se prueba el siguiente modelo, en vez de
+      // contarlo en silencio como neutral.
+      const problem = strict ? nlpEnumProblem(toolUse.input) : null;
+      if (problem) {
+        lastErr = new Error(`${modelId}: ${problem}`);
+        console.warn(`[${agency.slug}] respuesta inválida de ${modelId} para ${mention.resourceId}: ${problem}`);
+        continue;
+      }
+      parsed = toolUse.input as NlpAnalysis & { adverse_fact?: unknown };
+      usedModel = modelId;
       break;
     } catch (err) {
       lastErr = err;
-      if (isThrottlingError(err) && modelId === BEDROCK_MODEL_ID) {
+      if (isThrottlingError(err) && modelId === BEDROCK_MODEL_ID && affectCooldown) {
         primaryCooldownUntil = Date.now() + PRIMARY_COOLDOWN_MS;
         console.warn(`[${agency.slug}] Primary model ${modelId} throttled; cooling down ${PRIMARY_COOLDOWN_MS / 1000}s, falling back`);
+        continue;
+      }
+      if (isThrottlingError(err) && !affectCooldown) {
         continue;
       }
       throw err;
@@ -737,63 +821,91 @@ MUNICIPALITIES:
 
   if (parsed === null) {
     console.error(`[${agency.slug}] Bedrock failed for ${mention.resourceId}:`, lastErr);
-    return {
-      sentiment: 'neutral',
-      emotions: [],
-      pertinence: 'media',
-      topics: [],
-      municipalities: [],
-      summary: 'Error en análisis NLP',
-    };
+    return { nlp: nlpErrorResult(), model: null, promptVersion, rubric, ok: false };
   }
 
-  return validateNlpResult(parsed, agency.slug);
+  return { nlp: validateNlpResult(parsed, agency.slug, rubric), model: usedModel, promptVersion, rubric, ok: true };
+}
+
+function validateNlpResult(raw: NlpAnalysis & { adverse_fact?: unknown }, agencySlug: string, rubric: RubricId = 'legacy'): NlpAnalysisV2 {
+  return normalizeNlpResult(raw, {
+    validTopics: TOPIC_SLUGS_BY_AGENCY[agencySlug] ?? [],
+    validMunicipalities: MUNICIPALITY_SLUGS,
+    rubric,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Trazabilidad v1: tipo, padre, hecho adverso, versión y modelo
+// ---------------------------------------------------------------------------
+
+interface NlpTrace {
+  kind: MentionKind;
+  parent: ParentResolution | null;
+  adverseFact: boolean | null;
+  promptVersion: string;
+  model: string | null;
 }
 
 /**
- * El tool-use de Bedrock no garantiza el TIPO de cada campo: a veces llega un
- * array como texto ("san-juan" o '["san-juan"]') y `.filter` revienta la
- * mención entera (pasó en la primera carga de DF, oct-2026). Se normaliza a
- * array; lo que no sea interpretable queda vacío.
+ * Si la migración 0013 aún no corrió, el UPDATE falla con 42703/42P01: se
+ * registra una vez y se deja de intentar por unos minutos en este contenedor
+ * (la mención ya quedó guardada con sus columnas de siempre).
  */
-function asArray<T>(v: unknown): T[] {
-  if (Array.isArray(v)) return v as T[];
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (!s) return [];
-    if (s.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) return parsed as T[];
-      } catch { /* cae al split */ }
-    }
-    return s.split(',').map((x) => x.trim()).filter(Boolean) as unknown as T[];
-  }
-  return [];
+const SCHEMA_RETRY_MS = 10 * 60 * 1000;
+let traceColumnsMissingUntil = 0;
+let shadowTableMissingUntil = 0;
+
+function isMissingSchemaError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return code === '42703' || code === '42P01';
 }
 
-function validateNlpResult(raw: NlpAnalysis, agencySlug: string): NlpAnalysis {
-  const validSentiments: Sentiment[] = ['negativo', 'neutral', 'positivo'];
-  const validEmotions: Emotion[] = [
-    'frustración', 'enojo', 'alivio', 'gratitud', 'preocupación', 'sarcasmo', 'indiferencia',
-  ];
-  const validPertinence = ['alta', 'media', 'baja'];
-  const validTopics = TOPIC_SLUGS_BY_AGENCY[agencySlug] ?? [];
+async function stampNlpTrace(pgClient: any, agencySlug: string, mentionId: string, t: NlpTrace): Promise<void> {
+  if (Date.now() < traceColumnsMissingUntil) return;
+  try {
+    await pgClient.query(
+      `UPDATE mentions
+          SET mention_kind = $2, parent_mention_id = $3, parent_published_at = $4,
+              nlp_adverse_fact = $5, nlp_prompt_version = $6, nlp_model = $7
+        WHERE id = $1`,
+      [mentionId, t.kind, t.parent?.parentMentionId ?? null, t.parent?.parentPublishedAt ?? null,
+       t.adverseFact, t.promptVersion, t.model],
+    );
+  } catch (err) {
+    if (isMissingSchemaError(err)) {
+      traceColumnsMissingUntil = Date.now() + SCHEMA_RETRY_MS;
+      console.error(`[${agencySlug}] columnas de trazabilidad v1 ausentes (¿migración 0013?): ${(err as Error).message}`);
+      return;
+    }
+    console.error(`[${agencySlug}] trazabilidad v1 falló para ${mentionId}: ${(err as Error).message}`);
+  }
+}
 
-  return {
-    sentiment: validSentiments.includes(raw.sentiment) ? raw.sentiment : 'neutral',
-    emotions: asArray<Emotion>(raw.emotions).filter((e) => validEmotions.includes(e)).slice(0, 3),
-    pertinence: validPertinence.includes(raw.pertinence) ? raw.pertinence : 'media',
-    topics: asArray<NlpAnalysis['topics'][number]>(raw.topics)
-      .filter((t) => t && typeof t === 'object' && validTopics.includes(t.topic_slug))
-      .slice(0, 3)
-      .map((t) => ({
-        ...t,
-        confidence: Math.max(0, Math.min(1, t.confidence ?? 0.5)),
-      })),
-    municipalities: asArray<string>(raw.municipalities).filter((m) => MUNICIPALITY_SLUGS.includes(m)),
-    summary: (raw.summary ?? '').slice(0, 500),
-  };
+/** Resultado de la v2 en sombra: no toca `mentions`. */
+async function writeShadow(pgClient: any, agencySlug: string, mentionId: string, out: ClassifyOutcome, replace = false): Promise<boolean> {
+  if (!out.ok) return false;
+  if (Date.now() < shadowTableMissingUntil) return false;
+  try {
+    if (replace) {
+      await pgClient.query('DELETE FROM mention_nlp_shadow WHERE mention_id = $1 AND prompt_version = $2', [mentionId, out.promptVersion]);
+    }
+    await pgClient.query(
+      `INSERT INTO mention_nlp_shadow (mention_id, prompt_version, model, sentiment, pertinence, adverse_fact, topics, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [mentionId, out.promptVersion, out.model, out.nlp.sentiment, out.nlp.pertinence, out.nlp.adverse_fact,
+       JSON.stringify(out.nlp.topics ?? [])],
+    );
+    return true;
+  } catch (err) {
+    if (isMissingSchemaError(err)) {
+      shadowTableMissingUntil = Date.now() + SCHEMA_RETRY_MS;
+      console.error(`[${agencySlug}] tabla mention_nlp_shadow ausente (¿migración 0013?): ${(err as Error).message}`);
+      return false;
+    }
+    console.error(`[${agencySlug}] escritura de sombra falló para ${mentionId}: ${(err as Error).message}`);
+    return false;
+  }
 }
 
 async function reprocessNlpErrors(
@@ -824,6 +936,7 @@ async function reprocessNlpErrors(
     SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
            m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
            m.author, m.published_at, m.bw_sentiment, m.language,
+           m.page_type, m.pub_type,
            m.agency_id, a.slug AS agency_slug, a.name AS agency_name
       FROM mentions m JOIN agencies a ON a.id = m.agency_id
      WHERE ${where}
@@ -853,10 +966,19 @@ async function reprocessNlpErrors(
       date: (row.published_at instanceof Date ? row.published_at.toISOString() : row.published_at),
       sentiment: row.bw_sentiment,
       language: row.language,
+      pageType: row.page_type,
+      pubType: row.pub_type,
     } as BrandwatchMention;
 
+    // Agencias v2: se reclasifica con la rúbrica v2 (sus filas nuevas ya
+    // son v2). El resto, legacy como siempre. La sombra no aplica aquí.
+    const mode = rubricModeOf(agency.slug);
+    const kind = deriveMentionKind(mention, agency);
+    const enrich = MENTION_ENRICHMENT_ENABLED || mode === 'v2';
+
     try {
-      const nlp = await analyzeWithClaude(mention, agency);
+      const outcome = await classifyMention(mention, agency, null, { rubric: mode === 'v2' ? 'v2' : 'legacy', kind });
+      const nlp = outcome.nlp;
       if (nlp.summary === 'Error en análisis NLP') {
         throw new Error('Bedrock still returns error (tool-use fallback)');
       }
@@ -872,38 +994,13 @@ async function reprocessNlpErrors(
         [nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500), row.id],
       );
 
-      await pgClient.query('DELETE FROM mention_topics WHERE mention_id = $1', [row.id]);
-      for (const t of nlp.topics ?? []) {
-        const topicRow = await pgClient.query(
-          'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
-          [t.topic_slug, row.agency_id],
-        );
-        if (topicRow.rows.length === 0) continue;
-        let subtopicId: number | null = null;
-        if (t.subtopic_slug) {
-          const subRow = await pgClient.query(
-            'SELECT id FROM subtopics WHERE slug = $1 AND topic_id = $2',
-            [t.subtopic_slug, topicRow.rows[0].id],
-          );
-          subtopicId = subRow.rows[0]?.id ?? null;
-        }
-        await pgClient.query(
-          `INSERT INTO mention_topics (mention_id, topic_id, subtopic_id, confidence)
-           VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-          [row.id, topicRow.rows[0].id, subtopicId, t.confidence],
-        );
-      }
+      await rewriteNlpAssociations(pgClient, row.id, row.agency_id, nlp);
 
-      await pgClient.query(`DELETE FROM mention_municipalities WHERE mention_id = $1 AND source = 'nlp'`, [row.id]);
-      for (const muniSlug of nlp.municipalities ?? []) {
-        const muniRow = await pgClient.query('SELECT id FROM municipalities WHERE slug = $1', [muniSlug]);
-        if (muniRow.rows.length > 0) {
-          await pgClient.query(
-            `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
-             VALUES ($1, $2, 'nlp') ON CONFLICT DO NOTHING`,
-            [row.id, muniRow.rows[0].id],
-          );
-        }
+      if (enrich) {
+        const parent = kind === 'comment' ? await resolveParent(pgClient, agency.id, mention) : null;
+        await stampNlpTrace(pgClient, agency.slug, row.id, {
+          kind, parent, adverseFact: nlp.adverse_fact, promptVersion: outcome.promptVersion, model: outcome.model,
+        });
       }
 
       reprocessed++;
@@ -928,6 +1025,253 @@ async function reprocessNlpErrors(
   const remaining = remainingRes.rows[0]?.n ?? 0;
   console.log(`[${action}] done: ok=${reprocessed} failed=${failed} remaining=${remaining}`);
   return { reprocessed, failed, remaining, details };
+}
+
+/**
+ * Reemplaza tópicos y municipios NLP de una mención ya guardada (las filas de
+ * Brandwatch en mention_municipalities no se tocan).
+ */
+async function rewriteNlpAssociations(pgClient: any, mentionId: string, agencyId: string, nlp: NlpAnalysis): Promise<void> {
+  await pgClient.query('DELETE FROM mention_topics WHERE mention_id = $1', [mentionId]);
+  for (const t of nlp.topics ?? []) {
+    const topicRow = await pgClient.query(
+      'SELECT id FROM topics WHERE slug = $1 AND agency_id = $2',
+      [t.topic_slug, agencyId],
+    );
+    if (topicRow.rows.length === 0) continue;
+    let subtopicId: number | null = null;
+    if (t.subtopic_slug) {
+      const subRow = await pgClient.query(
+        'SELECT id FROM subtopics WHERE slug = $1 AND topic_id = $2',
+        [t.subtopic_slug, topicRow.rows[0].id],
+      );
+      subtopicId = subRow.rows[0]?.id ?? null;
+    }
+    await pgClient.query(
+      `INSERT INTO mention_topics (mention_id, topic_id, subtopic_id, confidence)
+       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      [mentionId, topicRow.rows[0].id, subtopicId, t.confidence],
+    );
+  }
+
+  await pgClient.query(`DELETE FROM mention_municipalities WHERE mention_id = $1 AND source = 'nlp'`, [mentionId]);
+  for (const muniSlug of nlp.municipalities ?? []) {
+    const muniRow = await pgClient.query('SELECT id FROM municipalities WHERE slug = $1', [muniSlug]);
+    if (muniRow.rows.length > 0) {
+      await pgClient.query(
+        `INSERT INTO mention_municipalities (mention_id, municipality_id, source)
+         VALUES ($1, $2, 'nlp') ON CONFLICT DO NOTHING`,
+        [mentionId, muniRow.rows[0].id],
+      );
+    }
+  }
+}
+
+const clampInt = (v: unknown, lo: number, hi: number, dflt: number) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
+};
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const bump = (o: Record<string, number>, k: string | null | undefined) => { const key = k ?? 'null'; o[key] = (o[key] ?? 0) + 1; };
+
+/** Margen para cerrar antes del timeout del lambda (5 min). */
+const RECLASSIFY_TIME_MARGIN_MS = 60_000;
+const RECLASSIFY_MAX_RANGE_DAYS = 120;
+
+/**
+ * Reclasificación con la rúbrica v2 por agencia y rango de fechas (spec 12.2;
+ * WP-13 la ejecuta en tandas). Cada invocación procesa hasta `limit`
+ * menciones, de la más reciente a la más vieja, con `concurrency` llamadas a
+ * Bedrock en paralelo y `retries` reintentos con espera exponencial; se
+ * detiene antes del timeout y devuelve `remaining` para la siguiente tanda.
+ * `dryRun` (por defecto) clasifica y reporta sin escribir nada.
+ */
+async function reclassify(
+  pgClient: any,
+  ev: ReclassifyEvent,
+  context?: Pick<Context, 'getRemainingTimeInMillis'>,
+): Promise<unknown> {
+  const mode = ev.mode;
+  if (mode !== 'v2' && mode !== 'shadow') throw new Error("reclassify: mode debe ser 'v2' o 'shadow'");
+  const from = new Date(ev.from);
+  const to = new Date(ev.to);
+  if (!ev.agencySlug || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+    throw new Error('reclassify: agencySlug, from y to (ISO, from < to) son obligatorios');
+  }
+  if ((to.getTime() - from.getTime()) / 86_400_000 > RECLASSIFY_MAX_RANGE_DAYS) {
+    throw new Error(`reclassify: rango mayor a ${RECLASSIFY_MAX_RANGE_DAYS} días`);
+  }
+  const dryRun = ev.dryRun !== false;
+  const concurrency = clampInt(ev.concurrency, 1, 8, 4);
+  const retries = clampInt(ev.retries, 0, 5, 2);
+  const cap = clampInt(ev.limit, 1, 1000, 200);
+  const onlyPending = ev.onlyPending !== false;
+
+  const agencyRes = await pgClient.query('SELECT id, slug, name FROM agencies WHERE slug = $1', [ev.agencySlug]);
+  const a = agencyRes.rows[0];
+  if (!a) throw new Error(`reclassify: agencia ${ev.agencySlug} no existe`);
+  const agency: AgencyInfo = { id: a.id, slug: a.slug, name: a.name, mixedSources: false };
+
+  const warnings: string[] = [];
+  if (mode === 'v2' && rubricModeOf(agency.slug) !== 'v2') {
+    warnings.push(`${agency.slug} no está en RUBRIC_V2_AGENCIES: las menciones que entren por SQS seguirán con legacy (usa nlp_prompt_version para no mezclar).`);
+  }
+
+  const params: unknown[] = [agency.id, from.toISOString(), to.toISOString()];
+  let where = 'm.agency_id = $1 AND m.published_at >= $2 AND m.published_at < $3';
+  if (!ev.includeDuplicates) where += ' AND m.is_duplicate = false';
+  if (onlyPending) {
+    params.push(RUBRIC_V2_VERSION);
+    where += mode === 'v2'
+      ? ` AND m.nlp_prompt_version IS DISTINCT FROM $${params.length}`
+      : ` AND NOT EXISTS (SELECT 1 FROM mention_nlp_shadow s WHERE s.mention_id = m.id AND s.prompt_version = $${params.length})`;
+  }
+
+  const countRes = await pgClient.query(`SELECT count(*)::int AS n FROM mentions m WHERE ${where}`, params);
+  const candidates: number = countRes.rows[0]?.n ?? 0;
+  const base = { agency: agency.slug, mode, dryRun, from: from.toISOString(), to: to.toISOString(), onlyPending, candidates, warnings };
+  if (ev.countOnly) return base;
+
+  const rows = (await pgClient.query(
+    `SELECT m.id, m.bw_resource_id, m.bw_guid, m.bw_query_id, m.bw_query_name,
+            m.title, m.snippet, m.url, m.domain, m.content_source, m.content_source_name,
+            m.author, m.published_at, m.bw_sentiment, m.language, m.page_type, m.pub_type,
+            m.nlp_sentiment, m.nlp_pertinence,
+            left(m.full_text, ${NLP_TEXT_LIMIT + 1}) AS full_text
+       FROM mentions m
+      WHERE ${where}
+      ORDER BY m.published_at DESC
+      LIMIT ${cap}`,
+    params,
+  )).rows as any[];
+
+  const stats = {
+    processed: 0, ok: 0, failed: 0, written: 0,
+    sentimentBefore: {} as Record<string, number>,
+    sentimentAfter: {} as Record<string, number>,
+    pertinenceBefore: {} as Record<string, number>,
+    pertinenceAfter: {} as Record<string, number>,
+    sentimentChanged: 0,
+    adverseTrue: 0,
+    kinds: {} as Record<string, number>,
+    parents: {} as Record<string, number>,
+    models: {} as Record<string, number>,
+  };
+  const details: any[] = [];
+  let stoppedEarly = false;
+
+  const processRow = async (row: any): Promise<void> => {
+    const mention: BrandwatchMention = {
+      resourceId: row.bw_resource_id,
+      guid: row.bw_guid,
+      queryId: row.bw_query_id,
+      queryName: row.bw_query_name,
+      title: row.title,
+      snippet: row.snippet,
+      url: row.url,
+      domain: row.domain,
+      contentSource: row.content_source,
+      contentSourceName: row.content_source_name,
+      author: row.author,
+      date: (row.published_at instanceof Date ? row.published_at.toISOString() : row.published_at),
+      sentiment: row.bw_sentiment,
+      language: row.language,
+      pageType: row.page_type,
+      pubType: row.pub_type,
+    } as BrandwatchMention;
+    const kind = deriveMentionKind(mention, agency);
+    const parentPromise = kind === 'comment' ? resolveParent(pgClient, agency.id, mention) : Promise.resolve(null);
+
+    let outcome: ClassifyOutcome | null = null;
+    let lastError = '';
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        outcome = await classifyMention(mention, agency, row.full_text ?? null, {
+          rubric: 'v2', kind, models: ev.modelId ? [ev.modelId] : undefined, affectCooldown: false,
+        });
+        if (outcome.ok) break;
+        lastError = 'sin respuesta válida de Bedrock';
+      } catch (err) {
+        lastError = String((err as Error)?.message ?? err);
+      }
+      outcome = null;
+      if (attempt < retries) await sleep(2000 * 2 ** attempt);
+    }
+    const parent = await parentPromise;
+
+    stats.processed++;
+    bump(stats.kinds, kind);
+    if (parent) bump(stats.parents, `${parent.platform ?? 'desconocida'}:${parent.status}`);
+    bump(stats.sentimentBefore, row.nlp_sentiment);
+    bump(stats.pertinenceBefore, row.nlp_pertinence);
+    if (!outcome) {
+      stats.failed++;
+      if (details.length < 100) details.push({ id: row.id, kind, status: 'failed', error: lastError });
+      return;
+    }
+    const nlp = outcome.nlp;
+    // Igual que en la ingesta: refuerzo determinista de municipios.
+    const regexMunis = extractMunicipalitiesFromText(row.title, row.snippet, nlp.summary);
+    nlp.municipalities = Array.from(new Set([...(nlp.municipalities ?? []), ...regexMunis]))
+      .filter((m) => MUNICIPALITY_SLUGS.includes(m));
+
+    stats.ok++;
+    bump(stats.sentimentAfter, nlp.sentiment);
+    bump(stats.pertinenceAfter, nlp.pertinence);
+    bump(stats.models, outcome.model);
+    if (nlp.sentiment !== row.nlp_sentiment) stats.sentimentChanged++;
+    if (nlp.adverse_fact) stats.adverseTrue++;
+    if (details.length < 100) {
+      details.push({
+        id: row.id, kind, parent: parent?.status ?? null,
+        before: { sentiment: row.nlp_sentiment, pertinence: row.nlp_pertinence },
+        after: { sentiment: nlp.sentiment, pertinence: nlp.pertinence, adverse_fact: nlp.adverse_fact },
+      });
+    }
+    if (dryRun) return;
+
+    if (mode === 'shadow') {
+      if (await writeShadow(pgClient, agency.slug, row.id, outcome, true)) stats.written++;
+      return;
+    }
+    await pgClient.query(
+      `UPDATE mentions
+          SET nlp_sentiment = $2, nlp_emotions = $3, nlp_pertinence = $4, nlp_summary = $5,
+              nlp_adverse_fact = $6, nlp_prompt_version = $7, nlp_model = $8,
+              mention_kind = $9, parent_mention_id = $10, parent_published_at = $11
+        WHERE id = $1`,
+      [row.id, nlp.sentiment, JSON.stringify(nlp.emotions ?? []), nlp.pertinence, (nlp.summary ?? '').slice(0, 500),
+       nlp.adverse_fact, outcome.promptVersion, outcome.model,
+       kind, parent?.parentMentionId ?? null, parent?.parentPublishedAt ?? null],
+    );
+    await rewriteNlpAssociations(pgClient, row.id, agency.id, nlp);
+    stats.written++;
+  };
+
+  // Pool de `concurrency` trabajadores sobre la lista; pg.Client serializa las
+  // queries, Bedrock corre en paralelo.
+  let next = 0;
+  const worker = async () => {
+    while (next < rows.length) {
+      if (context && context.getRemainingTimeInMillis() < RECLASSIFY_TIME_MARGIN_MS) { stoppedEarly = true; return; }
+      const row = rows[next++];
+      try {
+        await processRow(row);
+      } catch (err) {
+        stats.failed++;
+        if (details.length < 100) details.push({ id: row.id, status: 'failed', error: String((err as Error)?.message ?? err) });
+        console.error(`[reclassify] ${row.id} falló:`, err);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, rows.length) }, worker));
+
+  let remaining: number | null = null;
+  if (!dryRun && onlyPending) {
+    remaining = (await pgClient.query(`SELECT count(*)::int AS n FROM mentions m WHERE ${where}`, params)).rows[0]?.n ?? 0;
+  }
+  console.log(`[reclassify] ${agency.slug} ${mode} dryRun=${dryRun}: ok=${stats.ok} failed=${stats.failed} written=${stats.written} remaining=${remaining}`);
+  return { ...base, ...stats, remaining, stoppedEarly, details };
 }
 
 function parsePublishedAt(m: BrandwatchMention): Date {
