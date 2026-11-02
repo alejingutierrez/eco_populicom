@@ -2,6 +2,9 @@ import { pgTable, uuid, varchar, text, boolean, integer, timestamp, jsonb, index
 import { agencies } from './agencies';
 import { users } from './users';
 
+/** Valores de `report_configs.composer_mode` (plan, sección 1, principio 2). */
+export type ComposerMode = 'legacy' | 'shadow' | 'agentic';
+
 /**
  * report_configs — configuración por agencia del envío automático de los
  * reportes por correo (diario y semanal). Una fila por agencia. La Lambda
@@ -28,6 +31,13 @@ export const reportConfigs = pgTable(
     weeklySendDow: integer('weekly_send_dow').notNull().default(5),
     /** Hora local (0–23) del semanal, independiente del diario. Default 15 = 3 PM. */
     weeklySendHourLocal: integer('weekly_send_hour_local').notNull().default(15),
+    /**
+     * Interpretación v1 (0013): motor de redacción de los correos por agencia.
+     * `legacy` = textos actuales; `shadow` = el motor corre y archiva sin
+     * enviar su salida; `agentic` = el motor redacta el correo enviado.
+     * Default `legacy`: sin cambio de comportamiento.
+     */
+    composerMode: varchar('composer_mode', { length: 10 }).notNull().$type<ComposerMode>().default('legacy'),
     recipients: jsonb('recipients').notNull().$type<string[]>().default([]),
     fromEmail: varchar('from_email', { length: 255 }).notNull().default('agutierrez@populicom.com'),
     fromName: varchar('from_name', { length: 255 }).notNull().default('Populicom Radar'),
@@ -60,6 +70,16 @@ export const reportSendLog = pgTable(
     /** Totales del reporte enviado (útil para la lista histórica). */
     stats: jsonb('stats').$type<{ negative: number; neutral: number; positive: number; total: number }>(),
     triggeredBy: uuid('triggered_by').references(() => users.id),
+    // Interpretación v1 (0013; spec 5.2): archivo de cada envío. NULL en los
+    // envíos del motor legacy y en los anteriores a la migración.
+    /** Asunto enviado, en texto plano. */
+    subject: text('subject'),
+    /** Titular del correo, en texto plano. */
+    headline: text('headline'),
+    /** Composición completa: hechos, hallazgos, borradores, defectos, texto final, modelos y tiempos. */
+    composition: jsonb('composition').$type<Record<string, unknown>>(),
+    /** Versión del motor de redacción que produjo `composition`. */
+    composerVersion: varchar('composer_version', { length: 24 }),
   },
   (t) => [
     index('idx_report_send_log_agency_id').on(t.agencyId),

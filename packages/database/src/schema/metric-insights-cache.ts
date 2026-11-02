@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, date, text, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, date, text, timestamp, jsonb, unique, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 /**
@@ -22,6 +22,10 @@ export const metricInsightsCache = pgTable(
     periodEndDate: date('period_end_date').notNull(),
     insightText: text('insight_text').notNull(),
     modelUsed: text('model_used').notNull(),
+    // Interpretación v1 (0013; spec 12.1): traza de la composición del motor.
+    // NULL en filas generadas por el camino legacy o antes de la migración.
+    composition: jsonb('composition').$type<Record<string, unknown>>(),
+    composerVersion: varchar('composer_version', { length: 24 }),
     generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
