@@ -57,6 +57,13 @@ describe('prefijos de caché (spec §5.5)', () => {
     expect(() => buildFamilyASystem({ constitution: 'C', manual: 'corrida 0f1e2d3c-1111-2222-3333-444455556666' })).toThrow(/UUID/);
   });
 
+  test('familia B: la hoja de hechos puede traer UUID de datos reales; constitución y manual no', () => {
+    const uuid = '6415e235-0430-4ede-8d9b-16b73535806c';
+    expect(() => buildFamilyBSystem({ constitution: 'C', manual: 'M', factSheet: `narrativa ${uuid}` })).not.toThrow();
+    expect(() => buildFamilyBSystem({ constitution: 'C', manual: `corrida ${uuid}`, factSheet: 'F' })).toThrow(/UUID/);
+    expect(() => buildFamilyBSystem({ constitution: `corrida ${uuid}`, manual: 'M', factSheet: 'F' })).toThrow(/UUID/);
+  });
+
   test('withTurnBreakpoint pone 5 min en el último bloque sin mutar el historial', () => {
     const msgs: AdvisorMessage[] = [
       { role: 'user', content: 'primera' },
