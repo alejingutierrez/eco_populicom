@@ -31,6 +31,7 @@
 
 import type { PgClientLike } from './aggregations/sentiment-report';
 import { loadAgencyCoverage } from './coverage';
+import { universeFilterSql, type UniverseOptions } from './universe';
 
 // ============================================================
 // Tipos
@@ -429,12 +430,17 @@ export function calculateMetrics(
  * TZ Puerto Rico) sumando sobre la tabla mentions. Misma semántica de fechas
  * que `buildSentimentReport` — el endpoint llama a `closedWindowYmdInTZ`
  * para obtener los bordes — y, desde V5, el mismo universo pertinente.
+ *
+ * `opts` (universe.ts): por defecto el universo histórico (`NULL o <> 'baja'`);
+ * `{ strictUniverse: true }` aplica el de v1 (`alta`/`media`). Las fórmulas de
+ * este módulo NO cambian: solo cambia qué filas entran a los conteos.
  */
 export async function loadAggregatesForWindow(
   client: PgClientLike,
   agencyId: string,
   startYmd: string,
   endYmd: string,
+  opts?: UniverseOptions,
 ): Promise<DailyAggregates> {
   const result = await client.query<{
     total_mentions: number | string;
@@ -467,8 +473,7 @@ export async function loadAggregatesForWindow(
        COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
      FROM mentions
      WHERE agency_id = $1
-       AND is_duplicate = false
-       AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja')
+       ${universeFilterSql(opts)}
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
        AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date`,
     [agencyId, startYmd, endYmd],
@@ -568,9 +573,10 @@ export async function loadMetricsForWindow(
   agencyId: string,
   startYmd: string,
   endYmd: string,
+  opts?: UniverseOptions,
 ): Promise<WindowMetrics> {
   const [agg, history] = await Promise.all([
-    loadAggregatesForWindow(client, agencyId, startYmd, endYmd),
+    loadAggregatesForWindow(client, agencyId, startYmd, endYmd, opts),
     loadHistoryBeforeWindow(client, agencyId, startYmd),
   ]);
   // Días inclusivos de la ventana, para normalizar la velocidad de crisis y el
