@@ -9,8 +9,15 @@
 import { ECO_ANALYST_ROLE, HTML_INLINE_RULE, buildSystemPrompt } from '../prompts/constitution';
 import { LITERAL_VERBS, VETOED_PHRASES } from './vetoed';
 
-/** Versión de los prompts del motor; se archiva con cada composición. */
-export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.0';
+/**
+ * Versión de los prompts del motor; se archiva con cada composición. Súbela
+ * en CADA cambio de un prompt (reglas, addenda, tareas de rol) para que las
+ * composiciones archivadas se distingan.
+ *   v1.0  paridad del laboratorio (corridas r1–r4).
+ *   v1.1  el semanal tiene su propio addendum (el correo llega el viernes por
+ *         la tarde, no a las 6 AM); el diario no cambia.
+ */
+export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.1';
 /** Versión del motor (columna `composer_version`, varchar(24)). */
 export const COMPOSER_VERSION = 'composer-1.0.0';
 
@@ -39,6 +46,14 @@ const EMAIL_ADDENDA = `
   cuentan lo mismo, uno de los dos sobra: entrega menos.
 `;
 
+const WEEKLY_EMAIL_ADDENDA = `
+- Estos textos van dentro del correo semanal, que el lector abre en el
+  teléfono el viernes por la tarde. Cada oración tiene que ganarse el espacio.
+- ${HTML_INLINE_RULE}
+- No repitas entre bloques el mismo hecho con otras palabras. Si dos bloques
+  cuentan lo mismo, uno de los dos sobra: entrega menos.
+`;
+
 const WEB_ADDENDA = `
 - Estos textos se leen en el dashboard de ECO, junto a los gráficos del mismo
   periodo. No repitas lo que el gráfico ya dice: explica qué pasó y quién lo dijo.
@@ -48,6 +63,8 @@ const WEB_ADDENDA = `
 
 /** Base del system prompt de los correos (hoy igual a INSIGHTS_SYSTEM_PROMPT). */
 export const COMPOSER_EMAIL_SYSTEM_BASE = /* @__PURE__ */ buildSystemPrompt(ECO_ANALYST_ROLE, EMAIL_ADDENDA);
+/** Base del system prompt del correo semanal (comparativo del viernes). */
+export const COMPOSER_WEEKLY_EMAIL_SYSTEM_BASE = /* @__PURE__ */ buildSystemPrompt(ECO_ANALYST_ROLE, WEEKLY_EMAIL_ADDENDA);
 /** Base del system prompt de las superficies web (Overview, Scorecard, KPI, tópicos). */
 export const COMPOSER_WEB_SYSTEM_BASE = /* @__PURE__ */ buildSystemPrompt(ECO_ANALYST_ROLE, WEB_ADDENDA);
 

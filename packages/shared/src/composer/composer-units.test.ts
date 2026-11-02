@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFactPackage, factsBlock, minBaseDelta, resolvePrevTotals } from './facts';
+import { buildFactPackage, factsBlock, factDelta, resolvePrevTotals } from './facts';
 import { buildLintContext, codeLint, fillDraft, fillPlaceholders, lintDraft } from './lint';
 import { safetyNet, deterministicHeadline } from './safety-net';
 import { annotateOne, annotateSamples, deriveSampleKind, sampleLine } from './samples';
@@ -43,10 +43,10 @@ test('hechos: composición de comentarios semana y previa', () => {
 });
 
 test('deltas con base mínima: sin porcentaje si la base previa es < 30', () => {
-  assert.deepEqual(minBaseDelta(14, 58), { abs: 44, pct: null });
-  assert.deepEqual(minBaseDelta(30, 45), { abs: 15, pct: 50 });
-  assert.deepEqual(minBaseDelta(null, 45), { abs: null, pct: null });
-  assert.deepEqual(minBaseDelta(0, 5), { abs: 5, pct: null });
+  assert.deepEqual(factDelta(14, 58), { abs: 44, pct: null });
+  assert.deepEqual(factDelta(30, 45), { abs: 15, pct: 50 });
+  assert.deepEqual(factDelta(null, 45), { abs: null, pct: null });
+  assert.deepEqual(factDelta(0, 5), { abs: 5, pct: null });
   const f = buildFactPackage(fixtureInput()).facts;
   // Negativas: base previa 14 → solo diferencia absoluta (nada de «+314 %»).
   assert.equal(f.week_neg_delta_pct, undefined);

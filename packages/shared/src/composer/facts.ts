@@ -11,7 +11,7 @@ import { formatLongDay } from '../format-period';
 import type { ComposerDailyPoint, ComposerInput, ComposerTotals, Fact } from './types';
 
 /** Un porcentaje de variación solo se ofrece si la base previa llega a esto (evita «+1400 %»). */
-export const MIN_DELTA_BASE = 30;
+export const FACT_MIN_DELTA_BASE = 30;
 
 export interface FactPackage {
   facts: Record<string, Fact>;
@@ -29,7 +29,7 @@ export interface FactPackage {
   prevTotalsSource: 'input' | 'estimated_from_delta' | 'none';
 }
 
-export interface BuildFactsOptions {
+export interface BuildFactPackageOptions {
   minBase?: number;
 }
 
@@ -66,17 +66,23 @@ export function resolvePrevTotals(input: ComposerInput): { prev: ComposerTotals 
 
 /**
  * Variación con base mínima: siempre la diferencia absoluta; el porcentaje
- * solo si la base previa es ≥ minBase. Exportada para pruebas y para el front.
+ * solo si la base previa es ≥ minBase. Exportada para pruebas.
+ *
+ * Nombre propio del composer a propósito: WP-4 exporta `minBaseDelta` /
+ * `MIN_DELTA_BASE` / `BuildFactsOptions` desde `../aggregations` con otra
+ * forma (pct sin redondear, `prev` obligatorio) y `export *` de los dos en
+ * `src/index.ts` chocaría (TS2308). Aquí el porcentaje sale redondeado para
+ * el marcador y `prev` puede faltar.
  */
-export function minBaseDelta(prev: number | null | undefined, cur: number, minBase = MIN_DELTA_BASE): { abs: number | null; pct: number | null } {
+export function factDelta(prev: number | null | undefined, cur: number, minBase = FACT_MIN_DELTA_BASE): { abs: number | null; pct: number | null } {
   if (prev === null || prev === undefined || !Number.isFinite(prev)) return { abs: null, pct: null };
   const abs = cur - prev;
   const p = prev >= minBase && prev > 0 ? Math.round((100 * abs) / prev) : null;
   return { abs, pct: p };
 }
 
-export function buildFactPackage(input: ComposerInput, opts: BuildFactsOptions = {}): FactPackage {
-  const minBase = opts.minBase ?? MIN_DELTA_BASE;
+export function buildFactPackage(input: ComposerInput, opts: BuildFactPackageOptions = {}): FactPackage {
+  const minBase = opts.minBase ?? FACT_MIN_DELTA_BASE;
   const f: Record<string, Fact> = {};
   const t = input.totals;
   const series = [...input.dailySeries].sort((a, b) => a.date.localeCompare(b.date));
@@ -107,7 +113,7 @@ export function buildFactPackage(input: ComposerInput, opts: BuildFactsOptions =
     if (prevDay) {
       const pt = dayTotal(prevDay);
       add(f, 'prev_day_total', pt, `${pt}`, `menciones del ${formatLongDay(prevDay.date)}`);
-      const d = minBaseDelta(pt, dt, minBase);
+      const d = factDelta(pt, dt, minBase);
       add(f, 'day_delta_abs', d.abs ?? 0, signed(d.abs ?? 0), 'variación absoluta contra el día anterior');
       if (d.pct !== null) add(f, 'day_delta_pct', d.pct, `${signed(d.pct)} %`, 'variación % contra el día anterior');
     }
@@ -134,7 +140,7 @@ export function buildFactPackage(input: ComposerInput, opts: BuildFactsOptions =
     ];
     for (const [k, short, lab] of keys) {
       if (k !== 'total') add(f, `prev_week_${short}`, prev[k], `${prev[k]}`, `${lab} del periodo previo`);
-      const d = minBaseDelta(prev[k], t[k], minBase);
+      const d = factDelta(prev[k], t[k], minBase);
       add(f, `week_${short}_delta_abs`, d.abs ?? 0, signed(d.abs ?? 0), `variación absoluta de ${lab} contra el periodo previo`);
       if (d.pct !== null) add(f, `week_${short}_delta_pct`, d.pct, `${signed(d.pct)} %`, `variación % de ${lab} contra el periodo previo`);
     }

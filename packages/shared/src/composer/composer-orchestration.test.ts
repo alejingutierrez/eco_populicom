@@ -153,6 +153,45 @@ test('nunca lanza: sin cliente LLM o con datos malformados', async () => {
   assert.ok(r2.final.headline.length > 0);
 });
 
+test('nunca lanza: perfil desconocido y options null', async () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r1 = await compose('Daily' as any, fixtureInput(), {});
+  assert.equal(r1.ok, false);
+  assert.equal(r1.degraded, true);
+  assert.equal(r1.composition.profile, 'daily');
+  assert.match(r1.composition.errors.join(' '), /perfil desconocido: Daily/);
+  assert.ok(r1.final.headline.length > 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r2 = await compose('daily', fixtureInput(), null as any);
+  assert.equal(r2.degraded, true);
+  assert.ok(r2.final.headline.length > 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r3 = await compose({ id: 'roto' } as any, null as any, null as any);
+  assert.ok(r3.final.headline.length > 0);
+});
+
+test('el asunto va en texto plano aunque el titular traiga HTML', async () => {
+  const { llm } = mockLlm({
+    analyst: () => FINDINGS,
+    writer: () => ({ ...CLEAN_DRAFT, headline: 'Comentarios <strong>tardíos</strong> a la publicación del lunes 26' }),
+    qa: () => ({ defects: [] }),
+  });
+  const r = await compose('daily', fixtureInput(), { llm, ...fast });
+  assert.match(r.final.headline, /<strong>/);
+  assert.equal(r.subject, '[Diario] DDEC · Comentarios tardíos a la publicación del lunes 26');
+});
+
+test('el semanal usa su propio addendum (viernes por la tarde); el diario conserva el de las 6 AM', async () => {
+  const mk = () => mockLlm({ analyst: () => FINDINGS, writer: () => ({ ...CLEAN_DRAFT, comparison: [] }), qa: () => ({ defects: [] }) });
+  const w = mk();
+  await compose('weekly', fixtureInput(), { llm: w.llm, ...fast });
+  assert.match(w.calls[0].system, /viernes por la tarde/);
+  assert.doesNotMatch(w.calls[0].system, /6 de la mañana/);
+  const d = mk();
+  await compose('daily', fixtureInput(), { llm: d.llm, ...fast });
+  assert.match(d.calls[0].system, /6 de la mañana/);
+});
+
 test('perfil ligero: redactor + QA código + una vuelta de corrector, sin analista ni QA agente', async () => {
   const { llm, calls } = mockLlm({
     writer: () => ({ headline: 'El NSS bajó el domingo', paragraph: 'Hubo {{day_total}} menciones y {{nope}} quejas.', highlights: [] }),

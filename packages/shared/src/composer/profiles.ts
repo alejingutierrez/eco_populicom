@@ -5,7 +5,7 @@
  * Las tareas de `daily` son las del prototipo (agents.py) sin cambios de
  * fondo; las de los demás perfiles siguen el mismo molde.
  */
-import { COMPOSER_EMAIL_SYSTEM_BASE, COMPOSER_WEB_SYSTEM_BASE } from './prompts';
+import { COMPOSER_EMAIL_SYSTEM_BASE, COMPOSER_WEB_SYSTEM_BASE, COMPOSER_WEEKLY_EMAIL_SYSTEM_BASE } from './prompts';
 import type { DraftShape } from './schemas';
 import type { ComposerRole } from './types';
 
@@ -123,7 +123,7 @@ export const COMPOSER_PROFILES: Record<ComposerProfileId, ComposerProfile> = {
     shape: { insights: true, comparison: true },
     stages: { analyst: true, qaAgent: true, corrector: true },
     includeTodaySamples: false,
-    systemBase: COMPOSER_EMAIL_SYSTEM_BASE,
+    systemBase: COMPOSER_WEEKLY_EMAIL_SYSTEM_BASE,
     analystTask: ANALYST_PERIOD, writerTask: WRITER_WEEKLY, qaTask: QA_TASK, correctorTask: CORRECTOR_TASK,
     maxTokens: { ...OPUS_TOKENS, writer: 5000, corrector: 5000 },
   },

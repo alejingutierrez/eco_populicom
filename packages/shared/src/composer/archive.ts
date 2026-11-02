@@ -5,6 +5,7 @@
  */
 import { buildSubject } from '../email/chrome';
 import type { FactPackage } from './facts';
+import { stripTags } from './lint';
 import type { RoleCallRecord } from './roles/call';
 import type { SafetyNetLogEntry } from './safety-net';
 import type { AnnotatedSampleSet, CodeDefect, ComposerInput, Draft, Fact, Findings, QaDefect, RoleModels } from './types';
@@ -57,12 +58,14 @@ export interface ComposerArchiveSink {
 /**
  * Asunto tipado: `[Diario] SIGLAS · <titular validado>` (spec 9.1 regla 7),
  * con el mismo `buildSubject` del chrome de correos. Null si el perfil no es
- * un correo.
+ * un correo. El titular puede traer HTML en línea (<strong>): el asunto va
+ * en texto plano.
  */
 export function composeSubject(tag: string | null, shortName: string | null | undefined, headline: string): string | null {
   if (!tag) return null;
   const sig = (shortName ?? '').trim();
-  return sig ? buildSubject(tag, sig, headline) : `[${tag}] ${headline}`;
+  const plain = stripTags(headline ?? '').replace(/\s+/g, ' ').trim();
+  return sig ? buildSubject(tag, sig, plain) : `[${tag}] ${plain}`;
 }
 
 export function toSendLogArchive(subject: string | null, composition: Composition): SendLogArchiveRow {

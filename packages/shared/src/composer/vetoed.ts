@@ -39,7 +39,7 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const VETOED_RES: ReadonlyArray<{ phrase: string; re: RegExp }> = VETOED_PHRASES.map((phrase) => ({
+const VETOED_RES: ReadonlyArray<{ phrase: string; re: RegExp }> = /* @__PURE__ */ VETOED_PHRASES.map((phrase) => ({
   phrase,
   re: new RegExp(
     `(?<![\\p{L}\\p{N}])${phrase.split(/\s+/).map(escapeRe).join('\\s+')}(?![\\p{L}\\p{N}])`,

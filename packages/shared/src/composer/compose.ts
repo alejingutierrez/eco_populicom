@@ -10,7 +10,7 @@ import { composeSubject, toSendLogArchive, type ComposerArchiveSink, type Compos
 import { buildPromptContext } from './context';
 import { buildFactPackage, type FactPackage } from './facts';
 import { buildLintContext, codeLint, fillDraft, hardDefects, headlineLengthDefects, lintDraft, type LintContext } from './lint';
-import { getProfile, type ComposerProfile, type ComposerProfileId } from './profiles';
+import { COMPOSER_PROFILES, getProfile, type ComposerProfile, type ComposerProfileId } from './profiles';
 import { COMPOSER_PROMPT_VERSION, COMPOSER_VERSION } from './prompts';
 import type { RoleCallRecord, RoleRuntime } from './roles/call';
 import { runAnalyst } from './roles/analyst';
@@ -69,13 +69,25 @@ function emptyDraft(profile: ComposerProfile, headline: string, paragraph: strin
   return d;
 }
 
+/** `getProfile` sin lanzar: null si el id no existe o el objeto no tiene forma de perfil. */
+function safeGetProfile(p: ComposerProfileId | ComposerProfile): ComposerProfile | null {
+  try {
+    const r = getProfile(p);
+    return r && typeof r === 'object' && r.shape && r.stages ? r : null;
+  } catch {
+    return null;
+  }
+}
+
 const secs = (t0: number) => Math.round((Date.now() - t0) / 100) / 10;
 
 export async function compose(
   profileRef: ComposerProfileId | ComposerProfile,
   input: ComposerInput,
-  options: ComposeOptions = {},
+  optionsIn: ComposeOptions = {},
 ): Promise<ComposeResult> {
+  // El contrato es «nunca lanza»: tolera `null` (p. ej. config leída de la DB).
+  const options: ComposeOptions = optionsIn ?? {};
   const now = options.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const tAll = Date.now();
@@ -83,7 +95,13 @@ export async function compose(
   const calls: RoleCallRecord[] = [];
   const stageSeconds: Record<string, number> = {};
   const models: RoleModels = { ...DEFAULT_ROLE_MODELS, ...(options.models ?? {}) };
-  const profile = getProfile(profileRef);
+  // Un id de perfil desconocido (WP-6 puede leerlo de config) no puede tumbar
+  // el envío: se usa `daily` y queda registrado como error.
+  let profile = safeGetProfile(profileRef);
+  if (!profile) {
+    errors.push(`perfil desconocido: ${String((profileRef as ComposerProfile)?.id ?? profileRef)}; se usa daily`);
+    profile = COMPOSER_PROFILES.daily;
+  }
   const dryRun = !!options.dryRun;
 
   let pkg: FactPackage | null = null;
@@ -100,7 +118,7 @@ export async function compose(
   let netLog: SafetyNetLogEntry[] = [];
   let residual: CodeDefect[] = [];
   let warnings: CodeDefect[] = [];
-  let degraded = false;
+  let degraded = errors.length > 0;
 
   try {
     // 0. Hechos y contexto (código).
@@ -213,7 +231,12 @@ export async function compose(
     }
   }
 
-  const subject = composeSubject(profile.subjectTag, input?.agency?.shortName, final.headline);
+  let subject: string | null = null;
+  try {
+    subject = composeSubject(profile.subjectTag, input?.agency?.shortName, final.headline);
+  } catch (err) {
+    errors.push(`asunto: ${(err as Error)?.message ?? String(err)}`);
+  }
   stageSeconds.total = secs(tAll);
   const composition: Composition = {
     composerVersion: COMPOSER_VERSION,
