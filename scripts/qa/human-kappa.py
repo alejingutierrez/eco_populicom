@@ -154,7 +154,9 @@ def main():
             labs = ['negativo', 'neutral', 'positivo']
             print(qc.table([''] + labs, [[x] + [cm.get((x, y), 0) for y in labs] for x in labs], ['l', 'r', 'r', 'r']))
         if len(S_h) == len(kid):
-            gates = [qg.make_gate('kappa', ks >= 0.6, f'κ = {ks:.2f} (S)', n_, 'DEMO sintética: no cuenta como revisión humana' if a.demo else '')]
+            # en --demo la compuerta queda N/D: κ sintético no es una revisión humana y no debe leerse como compuerta cerrada
+            gates = [qg.make_gate('kappa', None if a.demo else ks >= 0.6, f'κ = {ks:.2f} (S){" DEMO" if a.demo else ""}', n_,
+                                  'DEMO sintética: no cuenta como revisión humana' if a.demo else '')]
     if a.gates_out:
         qg.save_gates(gates, a.gates_out)
     print()

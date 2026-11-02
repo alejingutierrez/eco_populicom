@@ -78,7 +78,9 @@ Un subconjunto (`--limit`, menos ventanas) marca su estado con `*`: es indicativ
 
 - **Semillas fijas**: `--seed` (default 20261102) fija las submuestras; el mismo `--limit` y `--seed` eligen siempre los
   mismos ids. Los modelos corren con `temperature` 0.1 (clasificación, como en el laboratorio) y 0 (jueces); aun así el
-  modelo no es determinista: la compuerta de estabilidad existe para medirlo.
+  modelo no es determinista: la compuerta de estabilidad existe para medirlo. **La semilla fija la muestra, no las
+  etiquetas**: dos corridas con la misma semilla clasifican los mismos ids pero pueden dar porcentajes distintos (p. ej. 55 % vs
+  60 % de acuerdo de tono en n = 20); no compares corridas pequeñas entre sí.
 - **Tope duro**: `--max-calls` (default 700 rápido, 6000 completo) reparte un presupuesto de llamadas entre los pasos; al
   agotarse, el paso aborta y las compuertas que dependían de él quedan `N/D`.
 - **Costo** (cada llamada de clasificación ≈ 3.5 a 6 mil tokens de entrada; medido el 2-nov): el perfil rápido con Sonnet

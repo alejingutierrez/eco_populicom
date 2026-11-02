@@ -65,7 +65,11 @@ ORG_RE = re.compile(
     re.I)
 
 EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
-PHONE_RE = re.compile(r'(?<!\d)(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}(?!\d)')
+# Teléfono: con separadores (787-555-0123, (787) 555 0123, +1 787.555.0123) O corrido de 10 dígitos sin separadores (cualquier
+# código de área 2-9xx, con 1 inicial opcional). El corrido exige que no lo rodeen dígitos ni letras/'_' (evita ids y hashes).
+PHONE_RE = re.compile(
+    r'(?<![\w])(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}|[2-9]\d{2}[2-9]\d{6})(?![\w])')
+URL_RE = re.compile(r'https?://\S+')
 SECRET_RE = re.compile(r'(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._\-]{20,})')
 SOCIAL_HOSTS = ('instagram.com', 'twitter.com', 'x.com', 'tiktok.com', 'linkedin.com', 'bsky.app', 'youtube.com')
 
@@ -111,9 +115,15 @@ class Scrubber:
         if self.rx:
             s = self.rx.sub(lambda m: m.group(1) + self.names[m.group(2)], s)
         s = EMAIL_RE.sub('[correo]', s)
-        s = PHONE_RE.sub('[teléfono]', s)
         s = SECRET_RE.sub('[secreto]', s)
-        return s
+        # los teléfonos se enmascaran fuera de las URL (los ids numéricos de las URL no son teléfonos)
+        out, last = [], 0
+        for m in URL_RE.finditer(s):
+            out.append(PHONE_RE.sub('[teléfono]', s[last:m.start()]))
+            out.append(m.group(0))
+            last = m.end()
+        out.append(PHONE_RE.sub('[teléfono]', s[last:]))
+        return ''.join(out)
 
     def url(self, u, page_type=None):
         if not isinstance(u, str):

@@ -61,7 +61,16 @@ else
 fi
 for s in $(echo "$SKIP" | tr ',' ' '); do STEPS="$(echo " $STEPS " | sed "s/ $s / /g")"; done
 [ "$CACHED" = 1 ] && STEPS="eval texts kappa"
-[ "$CACHED" = 1 ] && [ -n "$ONLY" ] && STEPS="$(echo "$ONLY" | tr ',' ' ')"
+if [ "$CACHED" = 1 ] && [ -n "$ONLY" ]; then
+  # --cached promete cero llamadas: solo se admiten los pasos que leen referencias (eval, texts, kappa)
+  STEPS=""
+  for s in $(echo "$ONLY" | tr ',' ' '); do
+    case "$s" in
+      eval|texts|kappa) STEPS="$STEPS $s";;
+      *) echo "aviso: el paso '$s' llama a Bedrock o a la base y no corre con --cached (solo eval, texts, kappa)" >&2;;
+    esac
+  done
+fi
 
 if [ "$FULL" = 1 ]; then WINDOWS=""; else WINDOWS="--windows ddecpr_20261101,df_20261030"; fi
 KAPPA_ARGS=""
@@ -93,7 +102,11 @@ PYEOF
 }
 run() {  # run <paso> <comando...>: registra fallos sin abortar y reparte el tope de llamadas
   local name="$1"; shift
-  local left=$(( MAXCALLS - $(calls_used) )); [ $left -lt 1 ] && left=1
+  local left=$(( MAXCALLS - $(calls_used) ))
+  if [ $left -lt 1 ] && [ "$DRY" != 1 ]; then  # tope duro: sin presupuesto, el paso no corre (ninguna llamada de más)
+    echo "--- [$name] omitido: se agotó el tope de $MAXCALLS llamadas (--max-calls)"; echo
+    FAILED="$FAILED $name(sin-presupuesto)"; return
+  fi
   echo "--- [$name] $*" | sed "s#$HERE/#scripts/qa/#g"
   ECO_QA_MAX_CALLS="$left" ECO_QA_USAGE_OUT="$OUT/usage.$name.json" "$@"
   local rc=$?

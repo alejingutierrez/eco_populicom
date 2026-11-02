@@ -220,12 +220,13 @@ la conclusión útil es cualitativa (¿ve la persona más defecto que el juez, c
   ```bash
   cd scripts/qa
   grep -rEoi '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[a-z]{2,}' .                                              # correos
-  grep -rEo '\(?[0-9]{3}\)?[ .-][0-9]{3}[ .-][0-9]{4}' fixtures                                           # teléfonos
+  grep -rEo '\(?[0-9]{3}\)?[ .-][0-9]{3}[ .-][0-9]{4}' fixtures                                           # teléfonos con separadores
+  grep -rEo '(^|[^0-9A-Za-z_/=])1?[2-9][0-9]{2}[2-9][0-9]{6}([^0-9A-Za-z_]|$)' .                                                  # teléfonos corridos (10 dígitos)
   grep -rEo 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]+|aws_secret|BEGIN [A-Z ]*PRIVATE KEY' .                     # llaves
   ```
 
 - Límites: la sal es pública, es seudonimización y no anonimización; los nombres de terceros dentro del texto de un comentario (una
-  etiqueta a un amigo) no se detectan; las notas de prensa del DF mencionan funcionarios públicos por nombre y se conservan.
+  etiqueta a un amigo) no se detectan (el repo es público: decide antes de integrar si se seudonimizan las secuencias de 2 a 3 palabras capitalizadas al inicio de los comentarios de Facebook/Instagram); las figuras públicas se pueden reconocer por su seudónimo con un diccionario, y las URL de páginas de Facebook con id numérico se conservan; las notas de prensa del DF mencionan funcionarios públicos por nombre y se conservan.
 - Regenerar o ampliar: `python3 scripts/qa/tools/build-fixtures.py --src <directorio del laboratorio>`.
 - El arnés nunca imprime ni guarda el `.env`. Las consultas a producción son solo `SELECT` vía `lib/q.py`, que además rechaza palabras
   de escritura. **Acota siempre con `LIMIT` y rango de fechas**: una lectura larga sobre `mentions` bloqueó un `ALTER` en el

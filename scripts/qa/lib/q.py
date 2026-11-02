@@ -12,6 +12,9 @@ Reglas (del validador del lambda y de la memoria del proyecto):
   - una sola sentencia; este script rechaza además cualquier palabra de escritura (INSERT, UPDATE, DELETE, DROP, ALTER, ...).
   - SIEMPRE acota: LIMIT y rango de fechas. Una lectura larga sobre `mentions` bloqueó un ALTER en el incidente de la
     investigación (riesgo R5 del spec). Esta herramienta no impone el límite: eres tú.
+  - No hay `statement_timeout` del lado del servidor: el lambda eco-migration solo acepta UNA sentencia que empiece con SELECT,
+    así que no se puede anteponer `SET statement_timeout`. Lo único que acota es el tiempo de espera del cliente (120 s por
+    defecto, `timeout=` en select()); la consulta puede seguir corriendo en la base tras ese corte. Por eso: LIMIT + rango de fechas.
 Credenciales: las del .env (REPO_ENV o <repo>/.env o el del checkout principal); nunca se imprimen.
 """
 import argparse
@@ -38,7 +41,7 @@ def check_select_only(sql):
         raise SystemExit(f'consulta rechazada: contiene «{m.group(1)}»; este arnés solo lee')
 
 
-def select(sql, timeout=600):
+def select(sql, timeout=120):
     """Ejecuta un SELECT y devuelve la lista de filas (dicts). Lanza SystemExit con el motivo si falla."""
     sql = sql.strip().rstrip(';')
     if not re.match(r'^\s*select\b', sql, re.I):

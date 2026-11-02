@@ -44,6 +44,9 @@ def run_agency(slug, end, days, lookback, max_comments):
     posts = q.select(
         f"SELECT bw_guid, pub_type FROM mentions WHERE agency_id = {aid} AND {rng(pstart, end)} AND pub_type IN ('FACEBOOK','INSTAGRAM_GRAPH_BUSINESS') "
         f"AND NOT ({COMMENT_FB}) AND NOT {COMMENT_IG} AND bw_guid IS NOT NULL ORDER BY published_at DESC LIMIT 30000")
+    if len(posts) >= 30000:
+        print(f'  aviso: {slug}: las publicaciones propias llegaron al tope de 30000 (LIMIT); los padres más viejos pueden faltar y '
+              'subestimar la resolución. Acorta --lookback.', file=sys.stderr)
     # los shortcodes de Instagram pueden contener «_», así que se separan por pub_type y no por la forma del GUID
     fb_post_ids = {p['bw_guid'].split('_', 1)[1] for p in posts if p['pub_type'] == 'FACEBOOK' and '_' in (p['bw_guid'] or '')}
     ig_codes = {p['bw_guid'] for p in posts if p['pub_type'] == 'INSTAGRAM_GRAPH_BUSINESS'}

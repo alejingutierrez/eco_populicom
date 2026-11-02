@@ -185,7 +185,10 @@ def run_ledger(a):
     qc.load_env()
     rows = []
     for correo, items in groups.items():
-        w = next(v for k, v in wmap.items() if correo.startswith(k))
+        w = next((v for k, v in wmap.items() if correo.startswith(k)), None)
+        if w is None:
+            raise SystemExit(f"--ledger: el correo «{correo}» del libro no empieza con ninguna de las claves conocidas {sorted(wmap)}; "
+                             "agrégalo a wmap (y su ventana a fixtures/windows)")
         ctx, samples_txt, _, _ = window_context(w)
         listing = '\n'.join(f"[{c['id']}] ({c['seccion']}) {c['afirmacion']}" for c in items)
         prompt = (ctx + samples_txt + '\n\nAFIRMACIONES DE UN CORREO A VERIFICAR:\n' + listing +
@@ -266,7 +269,10 @@ def main():
                 return {'job': job, 'error': 'sin veredicto en caché para este candidato'}
             j = qc.load_json(cp)
         else:
-            j = judge_text(a.model, ctx, samples_txt, dr)
+            try:
+                j = judge_text(a.model, ctx, samples_txt, dr)
+            except (Exception, SystemExit) as e:  # un error de Bedrock o el tope de llamadas no tumba el paso: se guardan los parciales
+                return {'job': job, 'error': f'{type(e).__name__}: {str(e)[:160]}'}
         names = {n for s in samples for n in (s.get('author'), s.get('source'), s.get('parent_author')) if n and any(ch.isdigit() for ch in n)}
         lint = lint_draft(dr, facts, names)
         s = summarize(j)
