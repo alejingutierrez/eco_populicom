@@ -1,0 +1,5916 @@
+{
+ "_about": "Casos reales de producción (DDEC, DF, Gobernadora, AAA; 22-oct a 1-nov-2026) para WP-2. Autores de personas pseudonimizados; ids de comentarios y de usuarios reemplazados por dígitos/hash deterministas; ids de mención reemplazados (post-N). expectedParent = lo que devolvió la consulta del resolver en producción (2-nov-2026).",
+ "agencies": {
+  "ddecpr": {
+   "id": "agency-ddecpr",
+   "slug": "ddecpr",
+   "name": "Departamento de Desarrollo Económico y Comercio"
+  },
+  "df": {
+   "id": "agency-df",
+   "slug": "df",
+   "name": "Departamento de la Familia"
+  },
+  "gobernadora": {
+   "id": "agency-gobernadora",
+   "slug": "gobernadora",
+   "name": "Gobernadora de Puerto Rico"
+  },
+  "aaa": {
+   "id": "agency-aaa",
+   "slug": "aaa",
+   "name": "Autoridad de Acueductos y Alcantarillados"
+  },
+  "sgpr": {
+   "id": "agency-sgpr",
+   "slug": "sgpr",
+   "name": "Secretaría de la Gobernación"
+  }
+ },
+ "kindCases": [
+  {
+   "agency": "aaa",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/181921170385745/posts/1031137105265193#channels",
+   "guid": "2a2e058b97e7ef06c39b09ca43ac0862",
+   "author": "autor-1",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "aaa",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elvocero.com/nivel-de-la-plata-contin-a-disminuyendo-saldr-de-ajustes-operacionales/article_d400754b-8747-4280-ba23-5f82089dfe91.html",
+   "guid": "e10!wipu!2026102212!e10c3e88-03f0-4f30-81b3-f891ac33c1e2",
+   "author": "autor-2",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://sincomillas.com/conceden-incentivos-a-empresas-manufactureras-de-chocolate/?utm_source=rss&utm_medium=rss&utm_campaign=conceden-incentivos-a-empresas-manufactureras-de-chocolate",
+   "guid": null,
+   "author": "autor-3",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1528381442649516#channels",
+   "guid": "553558728043206_1528381442649516",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1484462937041367#channels",
+   "guid": "553558728043206_1484462937041367",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1534474072040253#channels",
+   "guid": "553558728043206_1534474072040253",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1541145048039822#channels",
+   "guid": "553558728043206_1541145048039822",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1544956477658679#channels",
+   "guid": "553558728043206_1544956477658679",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1539803581507302#channels",
+   "guid": "553558728043206_1539803581507302",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1548940643926929#channels",
+   "guid": "553558728043206_1548940643926929",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1500599125427748#channels",
+   "guid": "553558728043206_1500599125427748",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1537722131715447#channels",
+   "guid": "553558728043206_1537722131715447",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1547916120696048#channels",
+   "guid": "553558728043206_1547916120696048",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1547611080726552#channels",
+   "guid": "553558728043206_1547611080726552",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1543088244512169#channels",
+   "guid": "553558728043206_1543088244512169",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1553601260127534#channels",
+   "guid": "553558728043206_1553601260127534",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1548955137258813#channels",
+   "guid": "553558728043206_1548955137258813",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1529448982542762#channels",
+   "guid": "553558728043206_1529448982542762",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1556918759795784#channels",
+   "guid": "553558728043206_1556918759795784",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1526067229547604#channels",
+   "guid": "553558728043206_1526067229547604",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1482789920542002#channels",
+   "guid": "553558728043206_1482789920542002",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1521877466633247#channels",
+   "guid": "553558728043206_1521877466633247",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1504903298330664#channels",
+   "guid": "553558728043206_1504903298330664",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1542238574597136#channels",
+   "guid": "553558728043206_1542238574597136",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1496396552514672#channels",
+   "guid": "553558728043206_1496396552514672",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1548905087263818#channels",
+   "guid": "553558728043206_1548905087263818",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1540900794730914#channels",
+   "guid": "553558728043206_1540900794730914",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/553558728043206/posts/1530392022448458#channels",
+   "guid": "553558728043206_1530392022448458",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1905036513510659",
+   "guid": "1553736176780709_1905036513510659",
+   "author": "autor-4",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1087300664101803",
+   "guid": "1553736176780709_1087300664101803",
+   "author": "autor-5",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1534522288531024",
+   "guid": "1553736176780709_1534522288531024",
+   "author": "autor-6",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1555172723303721#channels_comment_1431160539347788",
+   "guid": "1555172723303721_1431160539347788",
+   "author": "autor-7",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1275641212132658",
+   "guid": "1553736176780709_1275641212132658",
+   "author": "autor-8",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1534474072040253#channels_comment_1223014202411782",
+   "guid": "1534474072040253_1223014202411782",
+   "author": "autor-9",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1244600040694610",
+   "guid": "1553736176780709_1244600040694610",
+   "author": "autor-10",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1559543619264246",
+   "guid": "1553736176780709_1559543619264246",
+   "author": "autor-11",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1551133807040946#channels_comment_1495473141044336",
+   "guid": "1551133807040946_1495473141044336",
+   "author": "autor-12",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_155372634221121",
+   "guid": "1553736176780709_155372634221121",
+   "author": "autor-13",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1403240494494053",
+   "guid": "1553736176780709_1403240494494053",
+   "author": "autor-14",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1030015194410312",
+   "guid": "1553736176780709_1030015194410312",
+   "author": "autor-15",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1534474072040253#channels_comment_1375286233252214",
+   "guid": "1534474072040253_1375286233252214",
+   "author": "autor-16",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1321310155420007",
+   "guid": "1553736176780709_1321310155420007",
+   "author": "autor-17",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1453955356622420",
+   "guid": "1553736176780709_1453955356622420",
+   "author": "autor-18",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1542238574597136#channels_comment_1316173235307659",
+   "guid": "1542238574597136_1316173235307659",
+   "author": "autor-19",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1254084210085541",
+   "guid": "1553736176780709_1254084210085541",
+   "author": "autor-20",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1044230657504024",
+   "guid": "1553736176780709_1044230657504024",
+   "author": "autor-21",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1003873584611625",
+   "guid": "1553736176780709_1003873584611625",
+   "author": "autor-22",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1434588438025251",
+   "guid": "1553736176780709_1434588438025251",
+   "author": "autor-23",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1351225655655852",
+   "guid": "1553736176780709_1351225655655852",
+   "author": "autor-24",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553601260127534#channels_comment_1304183814243767",
+   "guid": "1553601260127534_1304183814243767",
+   "author": "autor-25",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1554964403324553#channels_comment_1913012384835251",
+   "guid": "1554964403324553_1913012384835251",
+   "author": "autor-26",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1714760014454462",
+   "guid": "1553736176780709_1714760014454462",
+   "author": "autor-27",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1593938724308085",
+   "guid": "1553736176780709_1593938724308085",
+   "author": "autor-28",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/157102253601810/posts/1740112857852001#channels",
+   "guid": "5501b8fcd38fc64e3bab9c0109cc0e5c",
+   "author": "autor-29",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/120559238152/posts/1051073740030357#channels",
+   "guid": "ecdd2231184cb27ae5d3ba38b21e2",
+   "author": "autor-30",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/163353590130543/posts/1160577321786155#channels",
+   "guid": "8ae2fcd7a89823fb7172b212524697ae",
+   "author": "autor-31",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/152354875990253/posts/193134024675973613#channels",
+   "guid": "293653d1f1414f0f58010e050ae12309f0",
+   "author": "autor-32",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/120685006440333/posts/1590293297081123#channels",
+   "guid": "d3ed511f11e801ee305c834a0b70cca4",
+   "author": "autor-33",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/135714181850243/posts/1235302613554929#channels",
+   "guid": "35e07b9fa32b9e5e86ebbc31f5455619",
+   "author": "autor-34",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/157102253601810/posts/1835529707204156#channels",
+   "guid": "c1bed411dc3e64c058fb0f600ecdd1e2",
+   "author": "autor-29",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/152354875990253/posts/144810063651990454#channels",
+   "guid": "0bb5a22d5dfaa84b6f247d272d84d6c639",
+   "author": "autor-32",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1382458652622434/posts/1742345129728135#channels",
+   "guid": "4f1880d92e0a9daf56a326e32e6ea2e15",
+   "author": "autor-35",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/134064985115354/posts/1164044075491610#channels",
+   "guid": "9409ae484d8284e0dd324086cb187366",
+   "author": "autor-36",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/137552602324259/posts/1854613523424942#channels",
+   "guid": "39fa64612a96c4eff1b75c481e2284f0",
+   "author": "autor-37",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/194063245581151/posts/1810563511133007#channels",
+   "guid": "672764137b8f957e42eed37aa00f884d",
+   "author": "autor-38",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/De2T-pOjHlf/",
+   "guid": "De2T-pOjHlf",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfHo7rfEUWO/",
+   "guid": "DfHo7rfEUWO",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfQIaQuidSt/",
+   "guid": "DfQIaQuidSt",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DdH0QeKmwI0/",
+   "guid": "DdH0QeKmwI0",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/Dd7kdoiNrsD/",
+   "guid": "Dd7kdoiNrsD",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DeKfWRDRkOV/",
+   "guid": "DeKfWRDRkOV",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfDdIHuCSPj/",
+   "guid": "DfDdIHuCSPj",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DdHOTw5oG8U/",
+   "guid": "DdHOTw5oG8U",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DemlplVIAUO/",
+   "guid": "DemlplVIAUO",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DeAFGmCmthS/",
+   "guid": "DeAFGmCmthS",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/Dd88wTkFqTo/",
+   "guid": "Dd88wTkFqTo",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DeII73bm6dz/",
+   "guid": "DeII73bm6dz",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/Ddt22Idjs5J/",
+   "guid": "Ddt22Idjs5J",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DeRumO-DgIb/",
+   "guid": "DeRumO-DgIb",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DeKP2g0ltO_/",
+   "guid": "DeKP2g0ltO_",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/Dee0tRnm8AG/",
+   "guid": "Dee0tRnm8AG",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DdXJzIFgbUh/",
+   "guid": "DdXJzIFgbUh",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfAwLl_muCH/",
+   "guid": "DfAwLl_muCH",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DekQDxwxrKh/",
+   "guid": "DekQDxwxrKh",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DeAPrk_muAH/",
+   "guid": "DeAPrk_muAH",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/",
+   "guid": "DfFcvuHR-h4",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/Dd6oeabDp6a/",
+   "guid": "Dd6oeabDp6a",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/Decz1jnCPwu/",
+   "guid": "Decz1jnCPwu",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfFtWZMiYtU/",
+   "guid": "DfFtWZMiYtU",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DecPZ-KmZdq/",
+   "guid": "DecPZ-KmZdq",
+   "author": "desarrollopr",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#19335849110937185",
+   "guid": "De9aPgiRU_d#19335849110937185",
+   "author": "autor-39",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#14495130023424915",
+   "guid": "De9aPgiRU_d#14495130023424915",
+   "author": "autor-40",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#15450554533457721",
+   "guid": "De9aPgiRU_d#15450554533457721",
+   "author": "autor-41",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#12553515243144058",
+   "guid": "De9aPgiRU_d#12553515243144058",
+   "author": "autor-42",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#13450713241301346",
+   "guid": "DfFcvuHR-h4#13450713241301346",
+   "author": "autor-43",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#19016644241548315",
+   "guid": "De9aPgiRU_d#19016644241548315",
+   "author": "autor-44",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#18320453243421302",
+   "guid": "De9aPgiRU_d#18320453243421302",
+   "author": "autor-45",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#12890016452415183",
+   "guid": "De9aPgiRU_d#12890016452415183",
+   "author": "autor-46",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#13532949451582490",
+   "guid": "De9aPgiRU_d#13532949451582490",
+   "author": "autor-47",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#10119405902120423",
+   "guid": "De9aPgiRU_d#10119405902120423",
+   "author": "autor-48",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#15413481510236550",
+   "guid": "De9aPgiRU_d#15413481510236550",
+   "author": "autor-49",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#17272007118985245",
+   "guid": "De9aPgiRU_d#17272007118985245",
+   "author": "autor-50",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#11560216144298120",
+   "guid": "De9aPgiRU_d#11560216144298120",
+   "author": "autor-51",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#11674191651153254",
+   "guid": "DfFcvuHR-h4#11674191651153254",
+   "author": "autor-52",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#18315133978701010",
+   "guid": "De9aPgiRU_d#18315133978701010",
+   "author": "autor-53",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#17130945183942460",
+   "guid": "DfFcvuHR-h4#17130945183942460",
+   "author": "autor-54",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#12229213352412356",
+   "guid": "De9aPgiRU_d#12229213352412356",
+   "author": "autor-55",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#12421510140498915",
+   "guid": "De9aPgiRU_d#12421510140498915",
+   "author": "autor-56",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#10552294874598910",
+   "guid": "De9aPgiRU_d#10552294874598910",
+   "author": "autor-57",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#15533733280625205",
+   "guid": "De9aPgiRU_d#15533733280625205",
+   "author": "autor-58",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#15555678313406932",
+   "guid": "De9aPgiRU_d#15555678313406932",
+   "author": "autor-59",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfIcTjJRUh1/#10325311431217097",
+   "guid": "DfIcTjJRUh1#10325311431217097",
+   "author": "autor-60",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#14211744431876560",
+   "guid": "De9aPgiRU_d#14211744431876560",
+   "author": "autor-61",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#10570322401411521",
+   "guid": "De9aPgiRU_d#10570322401411521",
+   "author": "autor-62",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#19140421082610900",
+   "guid": "De9aPgiRU_d#19140421082610900",
+   "author": "autor-63",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/62c3037bb60/",
+   "guid": "62c3037bb60",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/7ad8a653fcc/",
+   "guid": "7ad8a653fcc",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/9091fc947d7/",
+   "guid": "9091fc947d7",
+   "author": "autor-65",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/30a3fb1c741/",
+   "guid": "30a3fb1c741",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/8b6c8cf5440/",
+   "guid": "8b6c8cf5440",
+   "author": "autor-66",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/1e08f8d5f39/",
+   "guid": "1e08f8d5f39",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/35189935cad/",
+   "guid": "35189935cad",
+   "author": "autor-67",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/e5d1ddde457/",
+   "guid": "e5d1ddde457",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/3848b73b258/",
+   "guid": "3848b73b258",
+   "author": "autor-68",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/e5585c13d56/",
+   "guid": "e5585c13d56",
+   "author": "autor-69",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/d787f67b906/",
+   "guid": "d787f67b906",
+   "author": "autor-70",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/21cab85d92a/",
+   "guid": "21cab85d92a",
+   "author": "autor-64",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/bc5af36f08d/#10852947322952159",
+   "guid": "bc5af36f08d#10852947322952159",
+   "author": "autor-71",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/8df8e9105ad/#13023924230882531",
+   "guid": "8df8e9105ad#13023924230882531",
+   "author": "autor-72",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/f126258c58e/#13912048525749208",
+   "guid": "f126258c58e#13912048525749208",
+   "author": "autor-73",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/8df8e9105ad/#13023924230882531",
+   "guid": "8df8e9105ad#13023924230882531",
+   "author": "autor-72",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/bc5af36f08d/#10852947322952159",
+   "guid": "bc5af36f08d#10852947322952159",
+   "author": "autor-71",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/54e15f6a5cd/",
+   "guid": "54e15f6a5cd",
+   "author": "autor-74",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/395a625c026/",
+   "guid": "395a625c026",
+   "author": "autor-75",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/552f0ec0e34/",
+   "guid": "552f0ec0e34",
+   "author": "autor-76",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/819804fdc65/",
+   "guid": "819804fdc65",
+   "author": "autor-77",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/97ca3fdfaa9/",
+   "guid": "97ca3fdfaa9",
+   "author": "autor-68",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/ee51f70338c/",
+   "guid": "ee51f70338c",
+   "author": "autor-75",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7512982440790134784",
+   "guid": "41d9485f-ae03-fff5-5f1d-844ac7f38cdb",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:share:7518652533498621953",
+   "guid": "aacf3d29-a271-ea03-0dd4-3a29d4269906",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7492949687465947136",
+   "guid": "a85da802-1bfc-2096-5bac-3d5d446e69db",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7499189015124836353",
+   "guid": "d6ae6eb7-6adc-d6eb-2fba-930ac3d40468",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7520925522747482112",
+   "guid": "08d86d6a-4c08-87a7-12c0-88781e407808",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656",
+   "guid": "358df698-1876-1216-6e31-611e97ffed44",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7521973543845265409",
+   "guid": "94fd9b16-0529-3006-05c3-442930edbead",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7517268149092630528",
+   "guid": "502bcb7e-7abe-6902-919f-b4d0a63b7f84",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7501690882685919232",
+   "guid": "733cb1e4-f4af-5b66-ecc2-38d493f459b4",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7517964343452532737",
+   "guid": "616d7936-85f5-4f38-d6f6-b1662b6b5cc6",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7490187767415615488",
+   "guid": "c113ca8f-d31c-4d34-095e-a067718831ca",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7508973680585043968",
+   "guid": "278e51ee-97fb-f957-5feb-d2a436feaa78",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7514331748282011648",
+   "guid": "1397a92a-6a49-5dcd-dcf9-216aa9610703",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7515787915063422976",
+   "guid": "a5565020-3a95-1d16-72f2-4f2b4f001087",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7503555501402591233",
+   "guid": "9ac56ed5-5090-2717-a452-c13e71d2a8a2",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7496919921315074048",
+   "guid": "b5cdaffa-db00-8e68-4fb5-f4198b2926c0",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7490157425799544833",
+   "guid": "2b4ad88d-be94-5e13-ec41-8fde82bf546d",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7486125935419699201",
+   "guid": "81666729-4d5c-33ef-ec60-035ab7db3068",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7513671658923171842",
+   "guid": "a71781c5-4fab-b2c0-1201-01f4c8052abd",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:share:7492959761680801793",
+   "guid": "668591c6-a7c7-66ee-5fd8-4ca04f73e66c",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7505966536822530048",
+   "guid": "f4d02a2e-10aa-b84f-b4ce-91ac87aa8bd6",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7511086188577968130",
+   "guid": "68101f29-fdd6-f946-e956-5d278d66b29e",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7496628213100646401",
+   "guid": "0f472fc7-12b0-47df-2db5-7dc53ad4a64e",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7490142370919854080",
+   "guid": "c6f81a96-2dc2-3462-dd80-6356b44e4410",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7513944329548185604",
+   "guid": "f09cbd09-bfb8-85dd-63ce-da0015b289f2",
+   "author": "Departamento de Desarrollo Económico y Comercio",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7488554679207878656%2C1659012503021030421%29",
+   "guid": "059d7a52-3bb1-61d6-058d-144d70c7e06a",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7519345508344041473?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7519345508344041473%2C1223495513778571420%29",
+   "guid": "06919b7a-3c22-943d-9cb2-069d2c76d985",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7493791648406126592?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7493791648406126592%2C1113818850812525100%29",
+   "guid": "63c0dc55-9fbd-83d9-7498-273540a4169e",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7495812991624568833?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7495812991624568833%2C1549426191473565556%29",
+   "guid": "9553d82f-4045-d8cc-cf5f-ddb84f40c3c4",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7509285196500783104?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7509285196500783104%2C1949928643163085206%29",
+   "guid": "6f8ff995-8bb1-ba07-c4b5-e596574f332c",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7506412118129197057?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7506412118129197057%2C1581772922558401120%29",
+   "guid": "be77a28a-97c4-a86f-f350-fadce8427568",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7490187767415615488?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7490187767415615488%2C1350522092482515252%29",
+   "guid": "e534d21e-7f0f-9bed-0f7a-af4d6642a0a3",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7503846517972115456?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7503846517972115456%2C1095694408147424125%29",
+   "guid": "e5978426-804f-a213-8d3e-6bf42177c100",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7521317713521197056?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7521317713521197056%2C1624044410992962578%29",
+   "guid": "716744e8-124f-b703-eb4a-fcab420908c6",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7492668086370676736?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7492668086370676736%2C1430555954292202944%29",
+   "guid": "eec2f5a8-38d0-189c-0cf9-95ab885be27e",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7487987389425061888?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7487987389425061888%2C1342422489001677911%29",
+   "guid": "805ef622-bacb-96da-242a-bcef35213b48",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7490187767415615488?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7490187767415615488%2C1313518040245254060%29",
+   "guid": "e6c19b8e-73f2-fa18-1672-09d1412f7001",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7498831384489140224?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7498831384489140224%2C1573184184905721027%29",
+   "guid": "40da089e-78c7-cced-654a-8c3acf972a54",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7505357629204914176?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7505357629204914176%2C1322038182330322732%29",
+   "guid": "5868b744-2a1d-f160-488d-8c56e317d136",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7498845142498406400?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7498845142498406400%2C1510241941252430435%29",
+   "guid": "184307ab-95d8-816e-a4eb-40a2b21e060a",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7498831384489140224?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7498831384489140224%2C1000001311695914121%29",
+   "guid": "2d5626a5-a696-c17e-cccc-56febbde9881",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7520950783048273920?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7520950783048273920%2C1023087251950394227%29",
+   "guid": "1a4539ec-733b-53d5-fded-02cd0d81ce74",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7439392646521020416?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7439392646521020416%2C1382221433014104240%29",
+   "guid": "e9f98069-63c7-2fbe-5ffe-e144836d856e",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7488554679207878656%2C1411115464179046942%29",
+   "guid": "a6f54c6f-bbaf-be18-0705-3187427b1e62",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7472422261304758272?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7472422261304758272%2C1443011561320075251%29",
+   "guid": "e84635e8-1c03-60fc-d355-58a25c6ad857",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7501249642404392960?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7501249642404392960%2C1912547008492370654%29",
+   "guid": "4c91fe9b-8a65-2f2e-11e8-07558b60bf03",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7501249642404392960?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7501249642404392960%2C1720600098230508151%29",
+   "guid": "2790fb83-8ccc-1d3d-55ab-4f724849cb26",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7503863546275901441?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7503863546275901441%2C1235328136130793394%29",
+   "guid": "dfc6f87d-7367-227d-4e75-e07753677650",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7513698293109936132?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7513698293109936132%2C1375153245010705530%29",
+   "guid": "7b2ea474-397f-06a9-1507-35abb754122f",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7492668086370676736?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7492668086370676736%2C1959643300172135049%29",
+   "guid": "ec813ff6-37df-b80b-58a2-cbbe1a3876ee",
+   "author": "",
+   "expected": "comment"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "REDDIT_V4_TOPIC",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/8bac073b2ff42fc22e/comments/00283ae/",
+   "guid": "00283ae",
+   "author": "autor-78",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_CLA",
+   "pageType": "news",
+   "url": "https://newsismybusiness.com/prak-industries-invests-1-2m-in-aibonito-expansion/",
+   "guid": "111!wicl!2026102809!1113b117-d90e-4b08-b62a-2b019f350abd",
+   "author": "autor-79",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.notiuno.com/noticias/gobierno-y-politica/gobierno-no-usar-fondo-de-emergencia-para-aliviar-costo-de-luz/article_a73e3544-4fc5-48a7-8ec6-7ada5f9da3ea.html",
+   "guid": "bbd!wipu!2026102720!bbd1cc19-b6c4-4c67-aef0-d96095a93ad2",
+   "author": "autor-80",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://foronoticioso.com/por-todo-lo-alto-celebraran-el-3re-aniversario-del-centro-empresarial-de-carolina-presenta-cumbre-pymes-2026-conferencias-sobre-negocios-y-la-inteligencia-artificial-sonido/",
+   "guid": "2e4!wipu!2026102611!2e40f33d-2fd6-4ca1-93f7-c190793f1629",
+   "author": "autor-81",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://radioisla.tv/anuncian-asistencia-federal-para-comerciantes-afectados-por-la-sequia1/",
+   "guid": "073!wipu!2026102221!073aabd1-4ed3-46b9-a6a0-c1c79e200768",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://teleonce.com/noticias/locales/industriales-trazan-ruta-para-fortalecer-la-manufactura-en-puerto-rico-hacia-2036/",
+   "guid": "df7!wipu!2026102219!df7a43ba-e95f-4801-a76c-d494e056413a",
+   "author": "autor-82",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://eyboricua.com/prak-industries-inversion-empleos-aibonito-2026/",
+   "guid": "245!wipu!2026102721!245eb9c3-9c13-4099-9716-16abdb499de9",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.placerespr.com/gobierno-anuncia-disponibilidad-de-prestamos-por-efectos-sequia/",
+   "guid": "91a!wipu!2026102823!91aca3f6-9717-44cc-9293-8565571d72a1",
+   "author": "autor-83",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.puertoricobusinesstribune.com/article/951855287-governor-advances-temporary-sales-tax-exemption-and-new-relief-measures-amid-rising-energy-costs",
+   "guid": "273!wipu!2026102401!27336705-4aab-44cf-bc8b-b1966ebb2968",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.primerahora.com/noticias/gobierno-politica/notas/representante-propone-paquete-de-ayudas-para-poder-pagar-la-factura-de-la-luz/",
+   "guid": "468!wipu!2026102317!4680dd35-0a87-4a72-af39-6540ef0aa525",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://magazine-pr.com/daco-y-las-cadenas-de-tiendas-celebran-diez-anos-de-acuerdos-para-comprar-con-confianza/",
+   "guid": "159!wipu!2026103117!159519f6-ebf6-46fe-99ee-e73047fe6c0f",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elvocero.com/gobierno/bajo-evaluaci-n-qui-n-sustituir-a-suzanne-roig-en-departamento-de-la-familia/article_d481e427-0f2f-417d-94dd-77d0b40648eb.html",
+   "guid": "35f!wipu!2026102310!35f42a84-dc35-4de9-ab01-562253116ee4",
+   "author": "autor-84",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elvocero.com/gobierno/fortaleza/no-decretar-n-duelo-por-la-muerte-del-exactivista-f-lix-plaud/article_e64cd71c-2b08-4f0e-97ac-fe0512ecd6fb.html",
+   "guid": "03d!wipu!2026102519!03db7c10-958e-42a8-8151-3aefa352d56c",
+   "author": "autor-85",
+   "expected": "article"
+  },
+  {
+   "agency": "ddecpr",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.metro.pr/noticias/2026/10/27/anuncian-prestamos-de-hasta-2-millones-para-negocios-afectados-por-la-sequia/",
+   "guid": "417!wipu!2026102721!417661de-67b2-4f09-860b-c7115d977e37",
+   "author": "autor-86",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:60107992c2797b6e7f2f84a8/post/41b0dff08d1b8",
+   "guid": "did:plc:60107992c2797b6e7f2f84a8#41b0dff08d1b8",
+   "author": "autor-87",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:adc206e9ad2434e0e2e92013/post/17aa3dd97690b",
+   "guid": "did:plc:adc206e9ad2434e0e2e92013#17aa3dd97690b",
+   "author": "autor-88",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c6f41b1348dcd7da8b914297/post/6f10067f84682",
+   "guid": "did:plc:c6f41b1348dcd7da8b914297#6f10067f84682",
+   "author": "autor-89",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:863be07832d071666b41e925/post/5280b1e1595ad",
+   "guid": "did:plc:863be07832d071666b41e925#5280b1e1595ad",
+   "author": "autor-90",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c261eae7027bedf42199a132/post/fb8d52bba82ba",
+   "guid": "did:plc:c261eae7027bedf42199a132#fb8d52bba82ba",
+   "author": "autor-91",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:4f7490d3c215c4e676584597/post/1c3e6a73603e5",
+   "guid": "did:plc:4f7490d3c215c4e676584597#1c3e6a73603e5",
+   "author": "autor-92",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:8bee9852094afd3ee9888b2f/post/67b4f41dc253e",
+   "guid": "did:plc:8bee9852094afd3ee9888b2f#67b4f41dc253e",
+   "author": "autor-93",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:adc206e9ad2434e0e2e92013/post/4d0581a969168",
+   "guid": "did:plc:adc206e9ad2434e0e2e92013#4d0581a969168",
+   "author": "autor-88",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:adc206e9ad2434e0e2e92013/post/af613006bdd46",
+   "guid": "did:plc:adc206e9ad2434e0e2e92013#af613006bdd46",
+   "author": "autor-88",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c261eae7027bedf42199a132/post/b5bd6538fadaa",
+   "guid": "did:plc:c261eae7027bedf42199a132#b5bd6538fadaa",
+   "author": "autor-91",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:863be07832d071666b41e925/post/734c30f806fcc",
+   "guid": "did:plc:863be07832d071666b41e925#734c30f806fcc",
+   "author": "autor-90",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c261eae7027bedf42199a132/post/e90c5e3223283",
+   "guid": "did:plc:c261eae7027bedf42199a132#e90c5e3223283",
+   "author": "autor-91",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy_01859209778.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy_0151878500.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy-lunes_02049534379.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy_02146468443.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy_01136059399.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://presenciapr.com/gobernadora-propone-eliminar-ivu-a-alimentos-preparados-en-noviembre-y-diciembre-si-la-junta-fiscal-aprueba/",
+   "guid": null,
+   "author": "autor-95",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://crimenenpuertorico.blogspot.com/2026/10/muerte-de-menor-de-4-anos-bajo-custodia.html",
+   "guid": null,
+   "author": "autor-96",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "http://enblancoynegromedia.blogspot.com/2026/10/sandra-me-dijo-titulares-para-hoy_0987008103.html",
+   "guid": null,
+   "author": "autor-94",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1588832696614370#channels",
+   "guid": "1249939358445675_1588832696614370",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1597385452425761#channels",
+   "guid": "1249939358445675_1597385452425761",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1596150709215902#channels",
+   "guid": "1249939358445675_1596150709215902",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1594070476090592#channels",
+   "guid": "1249939358445675_1594070476090592",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1588765369954436#channels",
+   "guid": "1249939358445675_1588765369954436",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1588853499945623#channels",
+   "guid": "1249939358445675_1588853499945623",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1595926525904987#channels",
+   "guid": "1249939358445675_1595926525904987",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1596413282522978#channels",
+   "guid": "1249939358445675_1596413282522978",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1595111232653183#channels",
+   "guid": "1249939358445675_1595111232653183",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1594993535998286#channels",
+   "guid": "1249939358445675_1594993535998286",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1589730019857971#channels",
+   "guid": "1249939358445675_1589730019857971",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1249939358445675/posts/1593673199463653#channels",
+   "guid": "1249939358445675_1593673199463653",
+   "author": "Departamento de la Familia",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/165830115160414/posts/1225082474905233#channels",
+   "guid": "3a62b10a9699669b65e6d1a0d618c39c",
+   "author": "autor-81",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/159003392140214/posts/1943334532426015#channels",
+   "guid": "44f0ec30b0075e398c11b83bdac9bf5e",
+   "author": "autor-97",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/141326156171221/posts/1925944010151312#channels",
+   "guid": "47f5a092b9d1e78a98cbca111758d69c",
+   "author": "autor-98",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1801819066/posts/1257819072206683#channels",
+   "guid": "a9e2256d67e0e3ed77c58f78a0f",
+   "author": "autor-99",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/157102253601810/posts/1073667654388506#channels",
+   "guid": "074180856314afa16f3f28b08d3fb03e",
+   "author": "autor-29",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/165830115160414/posts/1015629404023481#channels",
+   "guid": "7d142276d45456f427360e4827095f86",
+   "author": "autor-81",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/166293432335392/posts/1544250930803221#channels",
+   "guid": "f414b46aeb0ca4cbce215fd070b15596",
+   "author": "autor-100",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/137552602324259/posts/1200249671410245#channels",
+   "guid": "6816dcf7c3b6dd35a0a1f3825ac3e3fc",
+   "author": "autor-37",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1243038403042922/posts/1042255558133432#channels",
+   "guid": "87ec4c1dbc4227e60656deaa9868e311e",
+   "author": "autor-101",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1801819066/posts/1470042108269320#channels",
+   "guid": "b0e617ccf403edf936135bd3679",
+   "author": "autor-99",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/150332396173284/posts/1438025313367615#channels",
+   "guid": "00bedbf4c756d565fadb0f0cd605d7ec",
+   "author": "autor-102",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/118523017966832/posts/1182773136602616#channels",
+   "guid": "c0e9c487c06af33f991ad301546e8eaf",
+   "author": "autor-103",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "FORUMSB",
+   "pageType": "forum",
+   "url": "https://foros.acb.com/forum/index.php?thread/522152-accidente-tren-cordoba/&postID=34813616#post34813616##d8cd6aced400e85cf36a6c02d51d33a0",
+   "guid": null,
+   "author": "autor-104",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/c6a17e71b6a/",
+   "guid": "c6a17e71b6a",
+   "author": "autor-105",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/da089699aa0/",
+   "guid": "da089699aa0",
+   "author": "autor-76",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/27e62948957/",
+   "guid": "27e62948957",
+   "author": "autor-106",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/1124bfcaa51/",
+   "guid": "1124bfcaa51",
+   "author": "autor-107",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/3f8527673b6/",
+   "guid": "3f8527673b6",
+   "author": "autor-74",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/324eb3595a9/",
+   "guid": "324eb3595a9",
+   "author": "autor-76",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/72e344571b8/",
+   "guid": null,
+   "author": "autor-74",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/d028f77d6ae/",
+   "guid": "d028f77d6ae",
+   "author": "autor-108",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/c53ea9208d9/",
+   "guid": "c53ea9208d9",
+   "author": "autor-109",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/335dadedf33/",
+   "guid": "335dadedf33",
+   "author": "autor-106",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/c03d4005fbc/",
+   "guid": "c03d4005fbc",
+   "author": "autor-109",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/096331eb720/",
+   "guid": "096331eb720",
+   "author": "autor-110",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/9d84683359a5/comments/60f687c/comment/9d72e423f1393/",
+   "guid": "9d72e423f1393",
+   "author": "autor-111",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/8cca36acaf/comments/4c98951/comment/6d446b2b5d933/",
+   "guid": "6d446b2b5d933",
+   "author": "autor-112",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/8cca36acaf/comments/5056ef0/comment/9c5c74ab46d37/",
+   "guid": "9c5c74ab46d37",
+   "author": "autor-113",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=6a9362de904&lc=0b1a71138a5930f07cd51aaefa",
+   "guid": null,
+   "author": "autor-114",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "VIDEO",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=8a9423d44d7",
+   "guid": null,
+   "author": "autor-115",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://teleonce.com/noticias/locales/juan-oscar-morales-insiste-en-que-suzanne-roig-debe-renunciar/",
+   "guid": "eab!wipu!2026102320!eab92053-faea-4b3a-851c-f41db01eef23",
+   "author": "autor-82",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elnuevodia.com/english/opinion/story/suzanne-roig-must-step-down-for-the-sake-of-puerto-rico/",
+   "guid": "c48!wipu!2026110121!c48741a5-02f9-4f86-85a8-e4edec40f92f",
+   "author": "autor-99",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://puertoricotribune.com/rivera-schatz-responsabiliza-a-la-gobernadora-por-mantener-a-suzanne-roig-en-familia/",
+   "guid": "6ed!wipu!2026102920!6ed977bf-e22b-4ffd-bf85-f8adfdb6ef9c",
+   "author": "autor-116",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.metro.pr/tv/comercios-bajo-presion-por-el-costo-de-la-luz-y-crece-la-controversia-en-familia-494f00bc-0ce1-422b-9d5f-bf699cdf780f",
+   "guid": "792!wipu!2026102321!79217936-b86c-4e46-8c75-d8b13aadbbde",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elvocero.com/gobierno/fema-aprueba-cerca-de-82-millones-para-reparar-infraestructura-y-prevenir-desastres-en-la-isla/article_a7b19d62-4ab3-428a-9ac6-6dbe2ff32613.html",
+   "guid": "09d!wipu!2026102220!09d9ee68-1136-4b84-a8ef-f3473bf6e36f",
+   "author": "autor-2",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elvocero.com/noticia_rotary/article_d481e427-0f2f-417d-94dd-77d0b40648eb.html",
+   "guid": "c16!wipu!2026102308!c1670fab-9265-409f-8075-a009a95e6b62",
+   "author": "autor-84",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.telemundopr.com/noticias/puerto-rico/perito-concluye-que-menor-imputado-de-asesinar-a-su-abuela-no-es-procesable/2855618/",
+   "guid": "7e6!wipu!2026102722!7e6da693-1712-4e4b-b7fa-d3617e91eae4",
+   "author": "autor-117",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.primerahora.com/noticias/gobierno-politica/notas/senado-le-da-48-horas-a-secretaria-de-la-familia-para-entregar-informacion-o-la-acusarian-de-desacato/",
+   "guid": "a3b!wipu!2026102300!a3bea4d3-9fe4-4c2e-8f5c-90d8f2dbca3c",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.telemundopr.com/video/primera-pregunta/primera-pregunta-senado-le-da-48-horas-mas-a-suzanne-roig-para-entregar-documentos/2854422/",
+   "guid": "e91!wipu!2026102300!e915f4f2-8abe-44fb-a986-188dfdf5cbe8",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://wapa.tv/noticias/locales/apelativo-rechaza-desahucio-de-mar-a-magdalena-y-contin-a-sin-un-hogar-seguro/article_f1357b08-f34e-4a99-b0b3-ff7036aab74a.html",
+   "guid": "28a!wipu!2026102305!28a43971-7f42-4321-84e6-1149a4b55e03",
+   "author": "autor-118",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elnuevodia.com/opinion/las-cosas-por-su-nombre/la-secretaria-y-la-lechuga/",
+   "guid": "f3c!wipu!2026102508!f3c42146-6a42-4de4-883c-864ad4b54c04",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "df",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://claridadpuertorico.com/cuando-el-cine-brinda-miradas-alternas-al-mundo-que-vivimos-digger-y-the-social-reckoning/",
+   "guid": "279!wipu!2026102812!27930ad8-f66e-4090-8fbc-fb4bfc818ad7",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c6f41b1348dcd7da8b914297/post/e9f4f04462fdf",
+   "guid": "did:plc:c6f41b1348dcd7da8b914297#e9f4f04462fdf",
+   "author": "autor-89",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c6f41b1348dcd7da8b914297/post/b76794b474c47",
+   "guid": "did:plc:c6f41b1348dcd7da8b914297#b76794b474c47",
+   "author": "autor-89",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:f32e301deb982bcefddbb5ee/post/b3b04467fa5a0",
+   "guid": "did:plc:f32e301deb982bcefddbb5ee#b3b04467fa5a0",
+   "author": "autor-119",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c2ca0d1f994bd3ab27164591/post/518a0f42f19c9",
+   "guid": "did:plc:c2ca0d1f994bd3ab27164591#518a0f42f19c9",
+   "author": "autor-120",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c6f41b1348dcd7da8b914297/post/d79f4620d8c1a",
+   "guid": "did:plc:c6f41b1348dcd7da8b914297#d79f4620d8c1a",
+   "author": "autor-89",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:f32e301deb982bcefddbb5ee/post/f3b9a0d6bb9b6",
+   "guid": "did:plc:f32e301deb982bcefddbb5ee#f3b9a0d6bb9b6",
+   "author": "autor-119",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:f32e301deb982bcefddbb5ee/post/b723248be6175",
+   "guid": "did:plc:f32e301deb982bcefddbb5ee#b723248be6175",
+   "author": "autor-119",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:46f710872ccf37c710efeba3/post/9df1325a0c6ae",
+   "guid": "did:plc:46f710872ccf37c710efeba3#9df1325a0c6ae",
+   "author": "autor-121",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:863be07832d071666b41e925/post/9452ccc3b486c",
+   "guid": "did:plc:863be07832d071666b41e925#9452ccc3b486c",
+   "author": "autor-90",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:dc4da2efbe12581b10d8c9f8/post/c94a05e1fcd41",
+   "guid": "did:plc:dc4da2efbe12581b10d8c9f8#c94a05e1fcd41",
+   "author": "autor-122",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:06784a863a3c6f06710523f7/post/73e26678d8693",
+   "guid": "did:plc:06784a863a3c6f06710523f7#73e26678d8693",
+   "author": "autor-123",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_POST",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c6f41b1348dcd7da8b914297/post/f8f9fb8473a29",
+   "guid": "did:plc:c6f41b1348dcd7da8b914297#f8f9fb8473a29",
+   "author": "autor-89",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:29e04d3d43eb3eb40aa792d3/post/8033b3d2e4b0c",
+   "guid": "did:plc:29e04d3d43eb3eb40aa792d3#8033b3d2e4b0c",
+   "author": "autor-124",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:6a5ed73550dc97ff1c00916a/post/9997805357564",
+   "guid": "did:plc:6a5ed73550dc97ff1c00916a#9997805357564",
+   "author": "autor-125",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:7ba397b0dd67028e28c3e6af/post/c8c4191999938",
+   "guid": "did:plc:7ba397b0dd67028e28c3e6af#c8c4191999938",
+   "author": "autor-126",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:d2156cf3d2c481e261945453/post/069842683bb7c",
+   "guid": "did:plc:d2156cf3d2c481e261945453#069842683bb7c",
+   "author": "autor-127",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:3ae1867f2bc3d66039c1933d/post/76f73fbcc94e4",
+   "guid": "did:plc:3ae1867f2bc3d66039c1933d#76f73fbcc94e4",
+   "author": "autor-128",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:c9366d5d5a350d606a9e97f1/post/ed0d8989692c1",
+   "guid": "did:plc:c9366d5d5a350d606a9e97f1#ed0d8989692c1",
+   "author": "autor-129",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:51bf781cd2e520c8bca5f70b/post/f43be519464d7",
+   "guid": "did:plc:51bf781cd2e520c8bca5f70b#f43be519464d7",
+   "author": "autor-130",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:6a5ed73550dc97ff1c00916a/post/22e08a2a8b667",
+   "guid": "did:plc:6a5ed73550dc97ff1c00916a#22e08a2a8b667",
+   "author": "autor-125",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BLUESKY_REPLY",
+   "pageType": "bluesky",
+   "url": "https://bsky.app/profile/did:plc:f418fe0946e8c805d2e1ce1f/post/338483eaf3ef6",
+   "guid": "did:plc:f418fe0946e8c805d2e1ce1f#338483eaf3ef6",
+   "author": "autor-131",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://sincomillas.com/gobierno-evalua-convertir-a-puerto-rico-en-sede-de-ensayos-clinicos-con-psicodelicos/?utm_source=rss&utm_medium=rss&utm_campaign=gobierno-evalua-convertir-a-puerto-rico-en-sede-de-ensayos-clinicos-con-psicodelicos",
+   "guid": null,
+   "author": "autor-132",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://www.dworkinsubstack.com/p/i-followed-the-money-behind-a-heckler",
+   "guid": null,
+   "author": "autor-133",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://www.mediaite.com/politics/trump-condemns-ex-lawyer-alina-habba-mildon-over-alleged-50-million-pardon-deal-totally-obnoxious/",
+   "guid": null,
+   "author": "autor-134",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://dianeravitch.net/2026/10/22/adam-kinzinger-corruption-graft-and-grifting-in-d-c/",
+   "guid": null,
+   "author": "autor-135",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://sincomillas.com/olas-de-calor-provocadas-por-el-cambio-climatico-causan-millones-de-muertes/?utm_source=rss&utm_medium=rss&utm_campaign=olas-de-calor-provocadas-por-el-cambio-climatico-causan-millones-de-muertes",
+   "guid": null,
+   "author": "autor-132",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://periodismoinvestigativo.com/2026/10/psicodelicos-salud-mental-adiccion-veteranos-puerto-rico/",
+   "guid": null,
+   "author": "autor-136",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "BOARDREADER_BLOGS",
+   "pageType": "blog",
+   "url": "https://www.theunpopulist.net/p/the-state-department-is-basing-promotions",
+   "guid": null,
+   "author": "autor-137",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1707325534090934#channels",
+   "guid": "212467835513438_1707325534090934",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1707680784055409#channels",
+   "guid": "212467835513438_1707680784055409",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1702272591262895#channels",
+   "guid": "212467835513438_1702272591262895",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1704528744370613#channels",
+   "guid": "212467835513438_1704528744370613",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1707617150728439#channels",
+   "guid": "212467835513438_1707617150728439",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1707707527386068#channels",
+   "guid": "212467835513438_1707707527386068",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1705325137624307#channels",
+   "guid": "212467835513438_1705325137624307",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1707534834070004#channels",
+   "guid": "212467835513438_1707534834070004",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/176236296247573/posts/1706543614169126#channels",
+   "guid": "176236296247573_1706543614169126",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/139411502915/posts/1560295696133674#channels",
+   "guid": "139411502915_1560295696133674",
+   "author": "La Fortaleza de PR",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/139411502915/posts/1706570824166405#channels",
+   "guid": "139411502915_1706570824166405",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/212467835513438/posts/1699591301531024#channels",
+   "guid": "212467835513438_1699591301531024",
+   "author": "Jenniffer González Colón",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1375115320690151/posts/1037033254906651#channels",
+   "guid": "914fbe8a3e5035b7d559b9f468b169ffb",
+   "author": "autor-138",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/120559238152/posts/1153291327343790#channels",
+   "guid": "1df37b0fde1d49f87852d71699410",
+   "author": "autor-30",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/150332396173284/posts/1244410732822343#channels",
+   "guid": "87f1333d4d92dcc74f0fcd0af046f911",
+   "author": "autor-102",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1375115320690151/posts/1438249942043449#channels",
+   "guid": "e33e26737a37a5a904928eb73ef7e136f",
+   "author": "autor-138",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1268982017860268/posts/1046989444514545#channels",
+   "guid": "2fc6abd106cf3a8b3ba5575c3ab1b4cd9",
+   "author": "autor-139",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/195125060956011/posts/1555955641055403#channels",
+   "guid": "daf038610c859ecef163f35fe6a1619a",
+   "author": "autor-140",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/165830115160414/posts/1033373069005991#channels",
+   "guid": "80e2aa3f7163b476d5aaca0cbfc472a1",
+   "author": "autor-81",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/137552602324259/posts/1360046411582730#channels",
+   "guid": "b9a64386aa3df63233868b61d85b1204",
+   "author": "autor-37",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/1245282145144424/posts/1521311501230234#channels",
+   "guid": "2986bb6872ba3a78720405d7dd8bd2152",
+   "author": "autor-141",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/121548012546812/posts/1336210544700205#channels",
+   "guid": "a2cd5614cef827b439d9665bfa6d1af3",
+   "author": "autor-142",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/106147508656403/posts/1715015185045323#channels",
+   "guid": "f9121f9b83c0890b3ae494d5e4a5af23",
+   "author": "autor-143",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FACEBOOK_PUBLIC",
+   "pageType": "facebook_public",
+   "url": "https://www.facebook.com/137552602324259/posts/1491708373303326#channels",
+   "guid": "7c129452846bd4f5dc9d0edcb5a22475",
+   "author": "autor-37",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FORUMSB",
+   "pageType": "forum",
+   "url": "https://lihkg.com/thread/4174526/page/2#36#d64c314666abd719893a5ccfbac8c491",
+   "guid": null,
+   "author": "autor-144",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "FORUMSB",
+   "pageType": "forum",
+   "url": "https://freerepublic.com/focus/f-bloggers/4401362/posts?q=1&;page=21#26#8f37215a4ff9b7830f49a5bcae62a64d",
+   "guid": null,
+   "author": "autor-145",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_CAPTION",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/df438e4cdff/",
+   "guid": "df438e4cdff",
+   "author": "autor-146",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_MENTION_COMMENT",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/88950fa9aac/#10123862427466460",
+   "guid": "88950fa9aac#10123862427466460",
+   "author": "autor-147",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/4bbb88ac384/",
+   "guid": "4bbb88ac384",
+   "author": "autor-106",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/9f1008cd23c/",
+   "guid": "9f1008cd23c",
+   "author": "autor-109",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/13b0885dc06/",
+   "guid": "13b0885dc06",
+   "author": "autor-74",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/73c0f60e710/",
+   "guid": "73c0f60e710",
+   "author": "autor-76",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/4d7fb26d02a/",
+   "guid": "4d7fb26d02a",
+   "author": "autor-148",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/6ef9108c01c/",
+   "guid": "6ef9108c01c",
+   "author": "autor-148",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/14bfc197ed6/",
+   "guid": "14bfc197ed6",
+   "author": "autor-149",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/a8a4606f5a3/",
+   "guid": "a8a4606f5a3",
+   "author": "autor-150",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/087e361f88a/",
+   "guid": "087e361f88a",
+   "author": "autor-148",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/6fbce9dd602/",
+   "guid": "6fbce9dd602",
+   "author": "autor-106",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/p/7e27d265fbb/",
+   "guid": "7e27d265fbb",
+   "author": "autor-74",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_PUBLIC",
+   "pageType": "instagram_public",
+   "url": "https://www.instagram.com/reel/3b9a49d484d/",
+   "guid": "3b9a49d484d",
+   "author": "autor-76",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "INSTAGRAM_GRAPH_TAGGED",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/De2ZlXZAVi0/",
+   "guid": "De2ZlXZAVi0",
+   "author": "jenniffergonzalezcolon",
+   "expected": "agency_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/420a65/comments/02f4a60/comment/4c079c40eb031/",
+   "guid": "4c079c40eb031",
+   "author": "autor-151",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/aa889c2/comments/481993a/comment/be2358ca0ec84/",
+   "guid": "be2358ca0ec84",
+   "author": "autor-152",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/c106371359fe99/comments/482c65a/comment/330ea391eed69/",
+   "guid": "330ea391eed69",
+   "author": "autor-153",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/474b6c507d6943d0b807/comments/29f9d0f/comment/c4ff65fe6945e/",
+   "guid": "c4ff65fe6945e",
+   "author": "autor-154",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/266fd3d9955bef/comments/b7a888d/comment/336d06fd00e01/",
+   "guid": "336d06fd00e01",
+   "author": "autor-155",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/8cca36acaf/comments/2df3d10/comment/4400d7ceb65e1/",
+   "guid": "4400d7ceb65e1",
+   "author": "autor-156",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_REPLY",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/474b6c507d6943d0b807/comments/29f9d0f/comment/7fc0a8361f94c/",
+   "guid": "7fc0a8361f94c",
+   "author": "autor-157",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_TOPIC",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/129227fa09/comments/6524075/",
+   "guid": "6524075",
+   "author": "autor-158",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_TOPIC",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/8cca36acaf/comments/2df3d10/",
+   "guid": "2df3d10",
+   "author": "autor-159",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "REDDIT_V4_TOPIC",
+   "pageType": "reddit",
+   "url": "http://www.reddit.com/r/b14a2234c2f8be235c/comments/62cf9f0/",
+   "guid": "62cf9f0",
+   "author": "autor-159",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TOPICB",
+   "pageType": "forum",
+   "url": "https://aus-city.com/ubbthreads/ubbthreads.php/topics/940633/trump-beware-us-voters-are-concerned-about-government-corruption#Post940633#827a90b608f4d2b8a8a7d79566fef074",
+   "guid": null,
+   "author": "autor-160",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/112050122323064853",
+   "guid": "112050122323064853",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/142114926951257340",
+   "guid": "142114926951257340",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/106034348262245461",
+   "guid": "106034348262245461",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/100552033573311870",
+   "guid": "100552033573311870",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/132529946686983100",
+   "guid": "132529946686983100",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/165143014463201086",
+   "guid": "165143014463201086",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/154186777681535605",
+   "guid": "154186777681535605",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/131826220455413048",
+   "guid": "131826220455413048",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/105352074058392390",
+   "guid": "105352074058392390",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/136237700323227174",
+   "guid": "136237700323227174",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/167810755885105059",
+   "guid": "167810755885105059",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "TUMBLR_VIDEO",
+   "pageType": "tumblr",
+   "url": "http://corrupcionenpr.tumblr.com/post/137863780416040330",
+   "guid": "137863780416040330",
+   "author": "autor-161",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=6095654261e&lc=89777b23ebc63181ad58d14fc0",
+   "guid": null,
+   "author": "autor-162",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=ae1cd04ed6d&lc=9a43b40c25dade5e421c28375c",
+   "guid": null,
+   "author": "autor-163",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=55509e3b840&lc=e1cba7722a8124aa5107747ca8",
+   "guid": null,
+   "author": "autor-164",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=dba249a2123&lc=faa72b80eb0554e349ce464f83",
+   "guid": null,
+   "author": "autor-165",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "VCOMMENT",
+   "pageType": "youtube",
+   "url": "https://www.youtube.com/watch?v=8b4c5d8bb09&lc=4ba78896ec72bd90fda1c48317",
+   "guid": null,
+   "author": "autor-166",
+   "expected": "third_party_post"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_NLA",
+   "pageType": "news",
+   "url": "https://www.theguardian.com/us-news/2026/oct/31/trump-government-corruption-midterms-voters",
+   "guid": "c73!winl!2026103110!c734bb58-84b3-49d3-acb1-acfec8a4d80f",
+   "author": "autor-167",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.newsy-today.com/governor-vetoes-rivera-schatz-bill-for-veterans/",
+   "guid": "dcd!wipu!2026102916!dcd8bde6-66fe-4b01-af8c-386fbcdd4568",
+   "author": "autor-168",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://foronoticioso.com/vivienda-confirma-asignacion-de-hogar-para-dona-maria-magdalena-ortiz-junto-a-sus-mascotas/",
+   "guid": "6cd!wipu!2026102818!6cd30a10-276f-4740-943f-a8247d903cb5",
+   "author": "autor-81",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://eyboricua.com/felixavier-mendez-soto-salida-comisionado-electoral-alterno-pnp/",
+   "guid": "e35!wipu!2026103022!e3533db9-bb32-4f55-8c76-76636873380e",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://radioisla.tv/vivienda-alerta-sobre-fraude-por-correo-electronico/",
+   "guid": "528!wipu!2026102219!528703ae-74bc-4537-92a1-e55cc7d6fe1b",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.msn.com/en-us/news/other/trump-beware-us-voters-are-concerned-about-government-corruption/ar-AA2gtjJ0",
+   "guid": "ee6!wipu!2026103122!ee6756b6-6519-411f-b9e4-ae1038d01935",
+   "author": "autor-167",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://whowhatwhy.org/politics/us-politics/snipers-for-trump/",
+   "guid": "43c!wipu!2026102611!43ce3cf8-fe9e-46c9-b7e4-d6191c627ca3",
+   "author": "autor-169",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://eyboricua.com/olas-calor-cambio-climatico-millones-muertes-cpi/",
+   "guid": "e86!wipu!2026102815!e86c30dc-4216-4d67-8dea-9b69e27b8803",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.newsbreak.com/the-money-overview-380442759/4964680300400-low-income-medicare-drug-plan-enrollees-in-puerto-rico-and-the-territories-would-get-extra-help-subsidies-under-a-house-bill-introduced-october-22",
+   "guid": "99c!wipu!2026102613!99c4a143-6c2c-45b1-a5ef-1d684623df0f",
+   "author": "autor-170",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.wkaq580.com/noticias/fallece-el-exlegislador-eudaldo-b-ez-galib-a-sus-87-a-os/article_188ef50d-02ee-48af-9043-90374092404d.html",
+   "guid": "811!wipu!2026102923!8113d4a2-237c-4585-8427-372c3c1c14fc",
+   "author": "autor-171",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://noticel.com/noticias/legislatura/20261026/solicitan-131-millones-del-fondo-de-emergencia-para-mitigar-el-alza-en-la-tarifa-de-energia/",
+   "guid": "5d0!wipu!2026102700!5d01a3a1-480e-4aac-a60f-6d162a72e177",
+   "author": "autor-172",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://eyboricua.com/nola-niega-donativos-politicos-puertorriquenos-responde-ada-alvarez/",
+   "guid": "893!wipu!2026110111!893c9ac6-81b0-4d71-ac85-0661f24c8613",
+   "author": "",
+   "expected": "article"
+  },
+  {
+   "agency": "gobernadora",
+   "pubType": "WISE_NEWS_PUBLIC",
+   "pageType": "news",
+   "url": "https://www.elcalce.com/jarana/2026/10/27/georgie-explica-medida-que-te-obligara-a-identificarte-en-paginas-frescas/",
+   "guid": "3d0!wipu!2026102802!3d05a456-a954-4293-a8d4-07ff96408f01",
+   "author": "autor-173",
+   "expected": "article"
+  }
+ ],
+ "parentPosts": [
+  {
+   "id": "post-1",
+   "agency": "ddecpr",
+   "guid": "DeriDcHjRja",
+   "publishedAt": "2026-10-19T15:01:26.000Z"
+  },
+  {
+   "id": "post-2",
+   "agency": "ddecpr",
+   "guid": "Deev_lsILMw",
+   "publishedAt": "2026-10-14T15:53:07.000Z"
+  },
+  {
+   "id": "post-3",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1542006871286973",
+   "publishedAt": "2026-10-14T16:34:14.000Z"
+  },
+  {
+   "id": "post-4",
+   "agency": "ddecpr",
+   "guid": "DeRumO-DgIb",
+   "publishedAt": "2026-10-09T14:30:47.000Z"
+  },
+  {
+   "id": "post-5",
+   "agency": "ddecpr",
+   "guid": "De9nxw2j4ZO",
+   "publishedAt": "2026-10-26T15:37:46.000Z"
+  },
+  {
+   "id": "post-6",
+   "agency": "ddecpr",
+   "guid": "DdmIxs4jrM8",
+   "publishedAt": "2026-09-22T16:12:58.000Z"
+  },
+  {
+   "id": "post-7",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1520157023471958",
+   "publishedAt": "2026-09-22T16:12:55.000Z"
+  },
+  {
+   "id": "post-8",
+   "agency": "ddecpr",
+   "guid": "DeSKNGhIN8x",
+   "publishedAt": "2026-10-09T18:32:01.000Z"
+  },
+  {
+   "id": "post-9",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1542238574597136",
+   "publishedAt": "2026-10-14T22:00:03.000Z"
+  },
+  {
+   "id": "post-10",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1520906853396975",
+   "publishedAt": "2026-09-23T12:30:03.000Z"
+  },
+  {
+   "id": "post-11",
+   "agency": "ddecpr",
+   "guid": "DdoUEaAjD-B",
+   "publishedAt": "2026-09-23T12:30:07.000Z"
+  },
+  {
+   "id": "post-12",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1522224143265246",
+   "publishedAt": "2026-09-24T19:50:10.000Z"
+  },
+  {
+   "id": "post-13",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1521103876710606",
+   "publishedAt": "2026-09-23T16:54:22.000Z"
+  },
+  {
+   "id": "post-14",
+   "agency": "ddecpr",
+   "guid": "DdoyUeqoFg4",
+   "publishedAt": "2026-09-23T16:54:27.000Z"
+  },
+  {
+   "id": "post-15",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1521204183367242",
+   "publishedAt": "2026-09-23T19:04:30.000Z"
+  },
+  {
+   "id": "post-16",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1536951118459215",
+   "publishedAt": "2026-10-09T14:30:42.000Z"
+  },
+  {
+   "id": "post-17",
+   "agency": "ddecpr",
+   "guid": "DekQDxwxrKh",
+   "publishedAt": "2026-10-16T19:14:12.000Z"
+  },
+  {
+   "id": "post-18",
+   "agency": "ddecpr",
+   "guid": "DeT7V7hDTbM",
+   "publishedAt": "2026-10-10T11:00:38.000Z"
+  },
+  {
+   "id": "post-19",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1521877466633247",
+   "publishedAt": "2026-09-24T12:44:51.000Z"
+  },
+  {
+   "id": "post-20",
+   "agency": "ddecpr",
+   "guid": "DdrZY-IidTr",
+   "publishedAt": "2026-09-24T17:14:20.000Z"
+  },
+  {
+   "id": "post-21",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1522153516605642",
+   "publishedAt": "2026-09-24T18:12:01.000Z"
+  },
+  {
+   "id": "post-22",
+   "agency": "ddecpr",
+   "guid": "DdrgABNCbqm",
+   "publishedAt": "2026-09-24T18:12:05.000Z"
+  },
+  {
+   "id": "post-23",
+   "agency": "ddecpr",
+   "guid": "Ddq6kBkIGPW",
+   "publishedAt": "2026-09-24T12:44:57.000Z"
+  },
+  {
+   "id": "post-24",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1540189781468682",
+   "publishedAt": "2026-10-12T22:00:04.000Z"
+  },
+  {
+   "id": "post-25",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1523095559844771",
+   "publishedAt": "2026-09-25T16:13:20.000Z"
+  },
+  {
+   "id": "post-26",
+   "agency": "ddecpr",
+   "guid": "DduRRRzCY9T",
+   "publishedAt": "2026-09-25T20:01:35.000Z"
+  },
+  {
+   "id": "post-27",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1541971954623798",
+   "publishedAt": "2026-10-14T15:53:02.000Z"
+  },
+  {
+   "id": "post-28",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1548905087263818",
+   "publishedAt": "2026-10-21T14:31:25.000Z"
+  },
+  {
+   "id": "post-29",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1548940643926929",
+   "publishedAt": "2026-10-21T15:15:06.000Z"
+  },
+  {
+   "id": "post-30",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1549033127251014",
+   "publishedAt": "2026-10-21T17:16:43.000Z"
+  },
+  {
+   "id": "post-31",
+   "agency": "ddecpr",
+   "guid": "DexPACgGvzY",
+   "publishedAt": "2026-10-21T20:10:23.000Z"
+  },
+  {
+   "id": "post-32",
+   "agency": "ddecpr",
+   "guid": "DecF2ViRq8I",
+   "publishedAt": "2026-10-13T15:06:41.000Z"
+  },
+  {
+   "id": "post-33",
+   "agency": "ddecpr",
+   "guid": "DecPZ-KmZdq",
+   "publishedAt": "2026-10-13T16:29:52.000Z"
+  },
+  {
+   "id": "post-34",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1526126189541708",
+   "publishedAt": "2026-09-28T15:59:09.000Z"
+  },
+  {
+   "id": "post-35",
+   "agency": "ddecpr",
+   "guid": "Dd1j-D_oA15",
+   "publishedAt": "2026-09-28T15:59:12.000Z"
+  },
+  {
+   "id": "post-36",
+   "agency": "ddecpr",
+   "guid": "Dd1bj_xjqhp",
+   "publishedAt": "2026-09-28T14:45:44.000Z"
+  },
+  {
+   "id": "post-37",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1503098935177767",
+   "publishedAt": "2026-09-03T12:00:46.000Z"
+  },
+  {
+   "id": "post-38",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1553736176780709",
+   "publishedAt": "2026-10-26T13:52:33.000Z"
+  },
+  {
+   "id": "post-39",
+   "agency": "ddecpr",
+   "guid": "De9H0RzRKBJ",
+   "publishedAt": "2026-10-26T10:59:06.000Z"
+  },
+  {
+   "id": "post-40",
+   "agency": "ddecpr",
+   "guid": "De9aPgiRU_d",
+   "publishedAt": "2026-10-26T13:41:57.000Z"
+  },
+  {
+   "id": "post-41",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1526067229547604",
+   "publishedAt": "2026-09-28T14:45:41.000Z"
+  },
+  {
+   "id": "post-42",
+   "agency": "ddecpr",
+   "guid": "DeclD7exoQN",
+   "publishedAt": "2026-10-13T19:43:17.000Z"
+  },
+  {
+   "id": "post-43",
+   "agency": "ddecpr",
+   "guid": "DfM60kTRsmP",
+   "publishedAt": "2026-11-01T14:28:10.000Z"
+  },
+  {
+   "id": "post-44",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1526470489507278",
+   "publishedAt": "2026-09-29T00:39:55.000Z"
+  },
+  {
+   "id": "post-45",
+   "agency": "ddecpr",
+   "guid": "DdujbidDnJr",
+   "publishedAt": "2026-09-25T22:39:48.000Z"
+  },
+  {
+   "id": "post-46",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1523354313152229",
+   "publishedAt": "2026-09-25T22:37:31.000Z"
+  },
+  {
+   "id": "post-47",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1523332729821054",
+   "publishedAt": "2026-09-25T22:00:29.000Z"
+  },
+  {
+   "id": "post-48",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1523261949828132",
+   "publishedAt": "2026-09-25T20:01:22.000Z"
+  },
+  {
+   "id": "post-49",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1500599125427748",
+   "publishedAt": "2026-08-31T15:32:24.000Z"
+  },
+  {
+   "id": "post-50",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1513255134162147",
+   "publishedAt": "2026-09-14T19:55:04.000Z"
+  },
+  {
+   "id": "post-51",
+   "agency": "ddecpr",
+   "guid": "DcWB1rvlAjY",
+   "publishedAt": "2026-08-22T13:33:35.000Z"
+  },
+  {
+   "id": "post-52",
+   "agency": "ddecpr",
+   "guid": "DcV3W6bjTUd",
+   "publishedAt": "2026-08-22T12:01:31.000Z"
+  },
+  {
+   "id": "post-53",
+   "agency": "ddecpr",
+   "guid": "Ddt22Idjs5J",
+   "publishedAt": "2026-09-25T16:10:12.000Z"
+  },
+  {
+   "id": "post-54",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1522881856532808",
+   "publishedAt": "2026-09-25T12:04:38.000Z"
+  },
+  {
+   "id": "post-55",
+   "agency": "ddecpr",
+   "guid": "DdtawL4DjZV",
+   "publishedAt": "2026-09-25T12:04:43.000Z"
+  },
+  {
+   "id": "post-56",
+   "agency": "ddecpr",
+   "guid": "DfC2Pp6lpDg",
+   "publishedAt": "2026-10-28T16:20:23.000Z"
+  },
+  {
+   "id": "post-57",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1527284646092529",
+   "publishedAt": "2026-09-29T19:09:17.000Z"
+  },
+  {
+   "id": "post-58",
+   "agency": "ddecpr",
+   "guid": "Dd4ehwQDq-k",
+   "publishedAt": "2026-09-29T19:09:21.000Z"
+  },
+  {
+   "id": "post-59",
+   "agency": "ddecpr",
+   "guid": "Dd5B14dDr9w",
+   "publishedAt": "2026-09-30T00:17:56.000Z"
+  },
+  {
+   "id": "post-60",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1527464639407863",
+   "publishedAt": "2026-09-30T00:17:50.000Z"
+  },
+  {
+   "id": "post-61",
+   "agency": "ddecpr",
+   "guid": "DezlqiJlqGc",
+   "publishedAt": "2026-10-22T18:06:55.000Z"
+  },
+  {
+   "id": "post-62",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1551658596988467",
+   "publishedAt": "2026-10-24T12:00:09.000Z"
+  },
+  {
+   "id": "post-63",
+   "agency": "ddecpr",
+   "guid": "De7S8uGx9uB",
+   "publishedAt": "2026-10-25T18:10:11.000Z"
+  },
+  {
+   "id": "post-64",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1552943586859968",
+   "publishedAt": "2026-10-25T18:18:56.000Z"
+  },
+  {
+   "id": "post-65",
+   "agency": "ddecpr",
+   "guid": "De4FTDnAHBt",
+   "publishedAt": "2026-10-24T12:00:17.000Z"
+  },
+  {
+   "id": "post-66",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1528115312676129",
+   "publishedAt": "2026-09-30T15:14:41.000Z"
+  },
+  {
+   "id": "post-67",
+   "agency": "ddecpr",
+   "guid": "Dd6oeabDp6a",
+   "publishedAt": "2026-09-30T15:14:45.000Z"
+  },
+  {
+   "id": "post-68",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1528134022674258",
+   "publishedAt": "2026-09-30T15:34:19.000Z"
+  },
+  {
+   "id": "post-69",
+   "agency": "ddecpr",
+   "guid": "DfFcvuHR-h4",
+   "publishedAt": "2026-10-29T16:39:27.000Z"
+  },
+  {
+   "id": "post-70",
+   "agency": "ddecpr",
+   "guid": "Dd6quSpDgxc",
+   "publishedAt": "2026-09-30T15:34:24.000Z"
+  },
+  {
+   "id": "post-71",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1529043219250005",
+   "publishedAt": "2026-10-01T12:49:12.000Z"
+  },
+  {
+   "id": "post-72",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1528280115992982",
+   "publishedAt": "2026-09-30T18:32:30.000Z"
+  },
+  {
+   "id": "post-73",
+   "agency": "ddecpr",
+   "guid": "Dd6_G_LlpBh",
+   "publishedAt": "2026-09-30T18:32:33.000Z"
+  },
+  {
+   "id": "post-74",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1528381442649516",
+   "publishedAt": "2026-09-30T20:44:41.000Z"
+  },
+  {
+   "id": "post-75",
+   "agency": "ddecpr",
+   "guid": "Dd7OPp7Gje6",
+   "publishedAt": "2026-09-30T20:44:47.000Z"
+  },
+  {
+   "id": "post-76",
+   "agency": "ddecpr",
+   "guid": "Dd7k04Fticc",
+   "publishedAt": "2026-10-01T00:02:21.000Z"
+  },
+  {
+   "id": "post-77",
+   "agency": "ddecpr",
+   "guid": "Dd7kdoiNrsD",
+   "publishedAt": "2026-10-01T00:01:27.000Z"
+  },
+  {
+   "id": "post-78",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1528493885971605",
+   "publishedAt": "2026-09-30T23:54:11.000Z"
+  },
+  {
+   "id": "post-79",
+   "agency": "ddecpr",
+   "guid": "Dd88wTkFqTo",
+   "publishedAt": "2026-10-01T12:50:26.000Z"
+  },
+  {
+   "id": "post-80",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1536395038514823",
+   "publishedAt": "2026-10-09T00:02:28.000Z"
+  },
+  {
+   "id": "post-81",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1536395095181484",
+   "publishedAt": "2026-10-09T00:02:34.000Z"
+  },
+  {
+   "id": "post-82",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1536056835215310",
+   "publishedAt": "2026-10-08T15:09:43.000Z"
+  },
+  {
+   "id": "post-83",
+   "agency": "ddecpr",
+   "guid": "Dd92f7DgsjR",
+   "publishedAt": "2026-10-01T21:15:42.000Z"
+  },
+  {
+   "id": "post-84",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1529448982542762",
+   "publishedAt": "2026-10-01T21:15:59.000Z"
+  },
+  {
+   "id": "post-85",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1529544152533245",
+   "publishedAt": "2026-10-01T23:59:25.000Z"
+  },
+  {
+   "id": "post-86",
+   "agency": "ddecpr",
+   "guid": "Dd-JUhCoAwD",
+   "publishedAt": "2026-10-01T23:59:29.000Z"
+  },
+  {
+   "id": "post-87",
+   "agency": "ddecpr",
+   "guid": "DeAFGmCmthS",
+   "publishedAt": "2026-10-02T18:01:07.000Z"
+  },
+  {
+   "id": "post-88",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1530392022448458",
+   "publishedAt": "2026-10-02T18:01:03.000Z"
+  },
+  {
+   "id": "post-89",
+   "agency": "ddecpr",
+   "guid": "DeAPrk_muAH",
+   "publishedAt": "2026-10-02T19:33:32.000Z"
+  },
+  {
+   "id": "post-90",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1530459695775024",
+   "publishedAt": "2026-10-02T19:33:29.000Z"
+  },
+  {
+   "id": "post-91",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1550872313733762",
+   "publishedAt": "2026-10-23T15:39:08.000Z"
+  },
+  {
+   "id": "post-92",
+   "agency": "ddecpr",
+   "guid": "DeMTFQKxq9K",
+   "publishedAt": "2026-10-07T11:55:13.000Z"
+  },
+  {
+   "id": "post-93",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1541917887962538",
+   "publishedAt": "2026-10-14T14:57:13.000Z"
+  },
+  {
+   "id": "post-94",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1550857717068555",
+   "publishedAt": "2026-10-23T15:22:15.000Z"
+  },
+  {
+   "id": "post-95",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1534908051996855",
+   "publishedAt": "2026-10-07T11:57:41.000Z"
+  },
+  {
+   "id": "post-96",
+   "agency": "ddecpr",
+   "guid": "De15jRbluT6",
+   "publishedAt": "2026-10-23T15:39:10.000Z"
+  },
+  {
+   "id": "post-97",
+   "agency": "ddecpr",
+   "guid": "DeMi0kdgiTn",
+   "publishedAt": "2026-10-07T14:12:55.000Z"
+  },
+  {
+   "id": "post-98",
+   "agency": "ddecpr",
+   "guid": "DeO-S37jjaG",
+   "publishedAt": "2026-10-08T12:50:14.000Z"
+  },
+  {
+   "id": "post-99",
+   "agency": "ddecpr",
+   "guid": "DeCZdmcIO2c",
+   "publishedAt": "2026-10-03T15:37:30.000Z"
+  },
+  {
+   "id": "post-100",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1531296139024713",
+   "publishedAt": "2026-10-03T15:37:23.000Z"
+  },
+  {
+   "id": "post-101",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535014068652920",
+   "publishedAt": "2026-10-07T14:10:41.000Z"
+  },
+  {
+   "id": "post-102",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1533085835512410",
+   "publishedAt": "2026-10-05T13:32:42.000Z"
+  },
+  {
+   "id": "post-103",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535247751962885",
+   "publishedAt": "2026-10-07T18:44:52.000Z"
+  },
+  {
+   "id": "post-104",
+   "agency": "ddecpr",
+   "guid": "DeHUx-lFeL_",
+   "publishedAt": "2026-10-05T13:32:47.000Z"
+  },
+  {
+   "id": "post-105",
+   "agency": "ddecpr",
+   "guid": "DeNArSJxeV9",
+   "publishedAt": "2026-10-07T18:38:45.000Z"
+  },
+  {
+   "id": "post-106",
+   "agency": "ddecpr",
+   "guid": "DeNOk1eFVAQ",
+   "publishedAt": "2026-10-07T20:34:00.000Z"
+  },
+  {
+   "id": "post-107",
+   "agency": "ddecpr",
+   "guid": "DeII73bm6dz",
+   "publishedAt": "2026-10-05T21:08:31.000Z"
+  },
+  {
+   "id": "post-108",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1533427215478272",
+   "publishedAt": "2026-10-05T21:08:27.000Z"
+  },
+  {
+   "id": "post-109",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535339471953713",
+   "publishedAt": "2026-10-07T20:33:56.000Z"
+  },
+  {
+   "id": "post-110",
+   "agency": "ddecpr",
+   "guid": "DePN9wRRs4l",
+   "publishedAt": "2026-10-08T15:07:50.000Z"
+  },
+  {
+   "id": "post-111",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535385708615756",
+   "publishedAt": "2026-10-07T21:43:44.000Z"
+  },
+  {
+   "id": "post-112",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1537175481770112",
+   "publishedAt": "2026-10-09T19:32:28.000Z"
+  },
+  {
+   "id": "post-113",
+   "agency": "ddecpr",
+   "guid": "DeNYc2ejvyB",
+   "publishedAt": "2026-10-07T22:00:19.000Z"
+  },
+  {
+   "id": "post-114",
+   "agency": "ddecpr",
+   "guid": "DeNWj9Tm_K1",
+   "publishedAt": "2026-10-07T21:43:48.000Z"
+  },
+  {
+   "id": "post-115",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535395198614807",
+   "publishedAt": "2026-10-07T22:00:20.000Z"
+  },
+  {
+   "id": "post-116",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1534199352067725",
+   "publishedAt": "2026-10-06T16:47:22.000Z"
+  },
+  {
+   "id": "post-117",
+   "agency": "ddecpr",
+   "guid": "DeKP2g0ltO_",
+   "publishedAt": "2026-10-06T16:47:26.000Z"
+  },
+  {
+   "id": "post-118",
+   "agency": "ddecpr",
+   "guid": "DeKfWRDRkOV",
+   "publishedAt": "2026-10-06T19:10:32.000Z"
+  },
+  {
+   "id": "post-119",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1534328658721461",
+   "publishedAt": "2026-10-06T19:44:08.000Z"
+  },
+  {
+   "id": "post-120",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1535930361894624",
+   "publishedAt": "2026-10-08T12:32:42.000Z"
+  },
+  {
+   "id": "post-121",
+   "agency": "ddecpr",
+   "guid": "DeLEQ5sDVrZ",
+   "publishedAt": "2026-10-07T00:25:25.000Z"
+  },
+  {
+   "id": "post-122",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1534474072040253",
+   "publishedAt": "2026-10-07T00:24:14.000Z"
+  },
+  {
+   "id": "post-123",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1483056117182049",
+   "publishedAt": "2026-08-11T22:34:05.000Z"
+  },
+  {
+   "id": "post-124",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1496396552514672",
+   "publishedAt": "2026-08-26T20:39:31.000Z"
+  },
+  {
+   "id": "post-125",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1504246838396310",
+   "publishedAt": "2026-09-04T17:20:15.000Z"
+  },
+  {
+   "id": "post-126",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1487312143423113",
+   "publishedAt": "2026-08-16T16:20:29.000Z"
+  },
+  {
+   "id": "post-127",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1478715577616103",
+   "publishedAt": "2026-08-06T22:15:57.000Z"
+  },
+  {
+   "id": "post-128",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1473177138169947",
+   "publishedAt": "2026-07-31T21:21:56.000Z"
+  },
+  {
+   "id": "post-129",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1491263719694622",
+   "publishedAt": "2026-08-21T01:29:32.000Z"
+  },
+  {
+   "id": "post-130",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1484743950346599",
+   "publishedAt": "2026-08-13T20:03:30.000Z"
+  },
+  {
+   "id": "post-131",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1482632537224407",
+   "publishedAt": "2026-08-11T12:05:31.000Z"
+  },
+  {
+   "id": "post-132",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1482789920542002",
+   "publishedAt": "2026-08-11T16:01:12.000Z"
+  },
+  {
+   "id": "post-133",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1502197881934539",
+   "publishedAt": "2026-09-02T12:00:53.000Z"
+  },
+  {
+   "id": "post-134",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1483701350450859",
+   "publishedAt": "2026-08-12T16:34:58.000Z"
+  },
+  {
+   "id": "post-135",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1509589274528733",
+   "publishedAt": "2026-09-10T17:14:03.000Z"
+  },
+  {
+   "id": "post-136",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1492545292899798",
+   "publishedAt": "2026-08-22T13:22:13.000Z"
+  },
+  {
+   "id": "post-137",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1484462937041367",
+   "publishedAt": "2026-08-13T13:23:49.000Z"
+  },
+  {
+   "id": "post-138",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1504903298330664",
+   "publishedAt": "2026-09-05T12:00:30.000Z"
+  },
+  {
+   "id": "post-139",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1482714043882923",
+   "publishedAt": "2026-08-11T14:00:35.000Z"
+  },
+  {
+   "id": "post-140",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1466039708883690",
+   "publishedAt": "2026-07-23T17:50:07.000Z"
+  },
+  {
+   "id": "post-141",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1502623721891955",
+   "publishedAt": "2026-09-02T22:50:53.000Z"
+  },
+  {
+   "id": "post-142",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1512918577529136",
+   "publishedAt": "2026-09-14T12:22:49.000Z"
+  },
+  {
+   "id": "post-143",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1502332481921079",
+   "publishedAt": "2026-09-02T15:07:06.000Z"
+  },
+  {
+   "id": "post-144",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1509746114513049",
+   "publishedAt": "2026-09-10T21:36:21.000Z"
+  },
+  {
+   "id": "post-145",
+   "agency": "ddecpr",
+   "guid": "Dc_cL7GoHNq",
+   "publishedAt": "2026-09-07T15:32:12.000Z"
+  },
+  {
+   "id": "post-146",
+   "agency": "ddecpr",
+   "guid": "DdCRvloRZuo",
+   "publishedAt": "2026-09-08T18:00:15.000Z"
+  },
+  {
+   "id": "post-147",
+   "agency": "ddecpr",
+   "guid": "DcWFMzUk7on",
+   "publishedAt": "2026-08-22T14:02:29.000Z"
+  },
+  {
+   "id": "post-148",
+   "agency": "ddecpr",
+   "guid": "DcWAmwvG1TO",
+   "publishedAt": "2026-08-22T13:22:19.000Z"
+  },
+  {
+   "id": "post-149",
+   "agency": "ddecpr",
+   "guid": "DdTtw7HCk2O",
+   "publishedAt": "2026-09-15T12:30:37.000Z"
+  },
+  {
+   "id": "post-150",
+   "agency": "ddecpr",
+   "guid": "DdHWPTboDMg",
+   "publishedAt": "2026-09-10T17:14:08.000Z"
+  },
+  {
+   "id": "post-151",
+   "agency": "ddecpr",
+   "guid": "DdWShZWIKc9",
+   "publishedAt": "2026-09-16T12:30:16.000Z"
+  },
+  {
+   "id": "post-152",
+   "agency": "ddecpr",
+   "guid": "Ddjab3fR_91",
+   "publishedAt": "2026-09-21T14:50:20.000Z"
+  },
+  {
+   "id": "post-153",
+   "agency": "ddecpr",
+   "guid": "DdUiIz1oKl3",
+   "publishedAt": "2026-09-15T20:08:15.000Z"
+  },
+  {
+   "id": "post-154",
+   "agency": "ddecpr",
+   "guid": "DdXJzIFgbUh",
+   "publishedAt": "2026-09-16T20:33:55.000Z"
+  },
+  {
+   "id": "post-155",
+   "agency": "ddecpr",
+   "guid": "DdUHeXRICjK",
+   "publishedAt": "2026-09-15T16:15:15.000Z"
+  },
+  {
+   "id": "post-156",
+   "agency": "ddecpr",
+   "guid": "DdJyIpGjeq1",
+   "publishedAt": "2026-09-11T15:56:23.000Z"
+  },
+  {
+   "id": "post-157",
+   "agency": "ddecpr",
+   "guid": "DdH0QeKmwI0",
+   "publishedAt": "2026-09-10T21:36:26.000Z"
+  },
+  {
+   "id": "post-158",
+   "agency": "ddecpr",
+   "guid": "DdHOTw5oG8U",
+   "publishedAt": "2026-09-10T16:04:50.000Z"
+  },
+  {
+   "id": "post-159",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1519429980211329",
+   "publishedAt": "2026-09-21T20:16:29.000Z"
+  },
+  {
+   "id": "post-160",
+   "agency": "ddecpr",
+   "guid": "Ddj_2sPCT1I",
+   "publishedAt": "2026-09-21T20:16:31.000Z"
+  },
+  {
+   "id": "post-161",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1537132011774459",
+   "publishedAt": "2026-10-09T18:31:57.000Z"
+  },
+  {
+   "id": "post-162",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1536395271848133",
+   "publishedAt": "2026-10-09T00:02:50.000Z"
+  },
+  {
+   "id": "post-163",
+   "agency": "ddecpr",
+   "guid": "DeSRIhcGecr",
+   "publishedAt": "2026-10-09T19:32:34.000Z"
+  },
+  {
+   "id": "post-164",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1537722131715447",
+   "publishedAt": "2026-10-10T11:01:06.000Z"
+  },
+  {
+   "id": "post-165",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1539803581507302",
+   "publishedAt": "2026-10-12T13:39:47.000Z"
+  },
+  {
+   "id": "post-166",
+   "agency": "ddecpr",
+   "guid": "DeaQZ5zDE4w",
+   "publishedAt": "2026-10-12T22:00:07.000Z"
+  },
+  {
+   "id": "post-167",
+   "agency": "ddecpr",
+   "guid": "DebyATnG7kv",
+   "publishedAt": "2026-10-13T12:12:58.000Z"
+  },
+  {
+   "id": "post-168",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1540900794730914",
+   "publishedAt": "2026-10-13T14:57:49.000Z"
+  },
+  {
+   "id": "post-169",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1540982574722736",
+   "publishedAt": "2026-10-13T16:29:47.000Z"
+  },
+  {
+   "id": "post-170",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1541145048039822",
+   "publishedAt": "2026-10-13T20:30:05.000Z"
+  },
+  {
+   "id": "post-171",
+   "agency": "ddecpr",
+   "guid": "Decz1jnCPwu",
+   "publishedAt": "2026-10-13T21:48:14.000Z"
+  },
+  {
+   "id": "post-172",
+   "agency": "ddecpr",
+   "guid": "DeepF63lh5b",
+   "publishedAt": "2026-10-14T14:52:48.000Z"
+  },
+  {
+   "id": "post-173",
+   "agency": "ddecpr",
+   "guid": "Dee0tRnm8AG",
+   "publishedAt": "2026-10-14T16:34:18.000Z"
+  },
+  {
+   "id": "post-174",
+   "agency": "ddecpr",
+   "guid": "DefZ_4jiESi",
+   "publishedAt": "2026-10-14T22:00:11.000Z"
+  },
+  {
+   "id": "post-175",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1556242059863454",
+   "publishedAt": "2026-10-28T22:00:05.000Z"
+  },
+  {
+   "id": "post-176",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1543088244512169",
+   "publishedAt": "2026-10-15T18:47:07.000Z"
+  },
+  {
+   "id": "post-177",
+   "agency": "ddecpr",
+   "guid": "DehotUoCREU",
+   "publishedAt": "2026-10-15T18:47:10.000Z"
+  },
+  {
+   "id": "post-178",
+   "agency": "ddecpr",
+   "guid": "DfGGzc5mzfs",
+   "publishedAt": "2026-10-29T22:42:49.000Z"
+  },
+  {
+   "id": "post-179",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1544082037746123",
+   "publishedAt": "2026-10-16T19:19:04.000Z"
+  },
+  {
+   "id": "post-180",
+   "agency": "ddecpr",
+   "guid": "DfDXKRxGtHh",
+   "publishedAt": "2026-10-28T21:08:01.000Z"
+  },
+  {
+   "id": "post-181",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1550023780485282",
+   "publishedAt": "2026-10-22T18:06:53.000Z"
+  },
+  {
+   "id": "post-182",
+   "agency": "ddecpr",
+   "guid": "DfAwLl_muCH",
+   "publishedAt": "2026-10-27T20:48:56.000Z"
+  },
+  {
+   "id": "post-183",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1555100073310986",
+   "publishedAt": "2026-10-27T20:52:43.000Z"
+  },
+  {
+   "id": "post-184",
+   "agency": "ddecpr",
+   "guid": "DfA71tkReRJ",
+   "publishedAt": "2026-10-27T22:41:09.000Z"
+  },
+  {
+   "id": "post-185",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1555172723303721",
+   "publishedAt": "2026-10-27T22:48:59.000Z"
+  },
+  {
+   "id": "post-186",
+   "agency": "ddecpr",
+   "guid": "DfPioZWDHeo",
+   "publishedAt": "2026-11-02T14:39:08.000Z"
+  },
+  {
+   "id": "post-187",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1551043200383340",
+   "publishedAt": "2026-10-23T19:30:02.000Z"
+  },
+  {
+   "id": "post-188",
+   "agency": "ddecpr",
+   "guid": "De2T-pOjHlf",
+   "publishedAt": "2026-10-23T19:30:06.000Z"
+  },
+  {
+   "id": "post-189",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1544712271016433",
+   "publishedAt": "2026-10-17T12:00:10.000Z"
+  },
+  {
+   "id": "post-190",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1551133807040946",
+   "publishedAt": "2026-10-23T22:02:03.000Z"
+  },
+  {
+   "id": "post-191",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1554096053411388",
+   "publishedAt": "2026-10-26T22:00:05.000Z"
+  },
+  {
+   "id": "post-192",
+   "agency": "ddecpr",
+   "guid": "De2lYToCksV",
+   "publishedAt": "2026-10-23T22:02:11.000Z"
+  },
+  {
+   "id": "post-193",
+   "agency": "ddecpr",
+   "guid": "DemlplVIAUO",
+   "publishedAt": "2026-10-17T16:56:39.000Z"
+  },
+  {
+   "id": "post-194",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1550632123757781",
+   "publishedAt": "2026-10-23T10:33:52.000Z"
+  },
+  {
+   "id": "post-195",
+   "agency": "ddecpr",
+   "guid": "DemDu96CWqx",
+   "publishedAt": "2026-10-17T12:00:17.000Z"
+  },
+  {
+   "id": "post-196",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1544956477658679",
+   "publishedAt": "2026-10-17T16:56:35.000Z"
+  },
+  {
+   "id": "post-197",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1550696953751298",
+   "publishedAt": "2026-10-23T12:03:28.000Z"
+  },
+  {
+   "id": "post-198",
+   "agency": "ddecpr",
+   "guid": "De1Wn3VGzfA",
+   "publishedAt": "2026-10-23T10:33:57.000Z"
+  },
+  {
+   "id": "post-199",
+   "agency": "ddecpr",
+   "guid": "De1g2CnxMla",
+   "publishedAt": "2026-10-23T12:03:19.000Z"
+  },
+  {
+   "id": "post-200",
+   "agency": "ddecpr",
+   "guid": "DerOgV3ICbK",
+   "publishedAt": "2026-10-19T12:10:37.000Z"
+  },
+  {
+   "id": "post-201",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1546688727485454",
+   "publishedAt": "2026-10-19T12:10:32.000Z"
+  },
+  {
+   "id": "post-202",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1546842804136713",
+   "publishedAt": "2026-10-19T15:01:20.000Z"
+  },
+  {
+   "id": "post-203",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1547139404107053",
+   "publishedAt": "2026-10-19T22:00:07.000Z"
+  },
+  {
+   "id": "post-204",
+   "agency": "ddecpr",
+   "guid": "DesR-cej6Y8",
+   "publishedAt": "2026-10-19T22:00:11.000Z"
+  },
+  {
+   "id": "post-205",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1547611080726552",
+   "publishedAt": "2026-10-20T10:57:59.000Z"
+  },
+  {
+   "id": "post-206",
+   "agency": "ddecpr",
+   "guid": "DetqyELx4Fc",
+   "publishedAt": "2026-10-20T10:56:43.000Z"
+  },
+  {
+   "id": "post-207",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1554964403324553",
+   "publishedAt": "2026-10-27T17:38:36.000Z"
+  },
+  {
+   "id": "post-208",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1547916120696048",
+   "publishedAt": "2026-10-20T17:16:29.000Z"
+  },
+  {
+   "id": "post-209",
+   "agency": "ddecpr",
+   "guid": "DeuWT_NmuUG",
+   "publishedAt": "2026-10-20T17:16:33.000Z"
+  },
+  {
+   "id": "post-210",
+   "agency": "ddecpr",
+   "guid": "DeuxY73RNeq",
+   "publishedAt": "2026-10-20T21:15:41.000Z"
+  },
+  {
+   "id": "post-211",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1548214403999553",
+   "publishedAt": "2026-10-20T21:19:42.000Z"
+  },
+  {
+   "id": "post-212",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1548814437272883",
+   "publishedAt": "2026-10-21T12:38:41.000Z"
+  },
+  {
+   "id": "post-213",
+   "agency": "ddecpr",
+   "guid": "DewbUBpoBhr",
+   "publishedAt": "2026-10-21T12:38:45.000Z"
+  },
+  {
+   "id": "post-214",
+   "agency": "ddecpr",
+   "guid": "DewoN6qoKoS",
+   "publishedAt": "2026-10-21T14:31:29.000Z"
+  },
+  {
+   "id": "post-215",
+   "agency": "ddecpr",
+   "guid": "DewvSP6jgFn",
+   "publishedAt": "2026-10-21T15:33:15.000Z"
+  },
+  {
+   "id": "post-216",
+   "agency": "ddecpr",
+   "guid": "DexWASWxHqI",
+   "publishedAt": "2026-10-21T21:12:05.000Z"
+  },
+  {
+   "id": "post-217",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1548955137258813",
+   "publishedAt": "2026-10-21T15:33:11.000Z"
+  },
+  {
+   "id": "post-218",
+   "agency": "ddecpr",
+   "guid": "DewtgyqlmY9",
+   "publishedAt": "2026-10-21T15:17:45.000Z"
+  },
+  {
+   "id": "post-219",
+   "agency": "ddecpr",
+   "guid": "DewvkOQFr4I",
+   "publishedAt": "2026-10-21T15:35:42.000Z"
+  },
+  {
+   "id": "post-220",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1549146500573010",
+   "publishedAt": "2026-10-21T20:09:12.000Z"
+  },
+  {
+   "id": "post-221",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1549181660569494",
+   "publishedAt": "2026-10-21T21:13:41.000Z"
+  },
+  {
+   "id": "post-222",
+   "agency": "ddecpr",
+   "guid": "DexbjsHFjiY",
+   "publishedAt": "2026-10-21T22:00:07.000Z"
+  },
+  {
+   "id": "post-223",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1549208170566843",
+   "publishedAt": "2026-10-21T22:00:05.000Z"
+  },
+  {
+   "id": "post-224",
+   "agency": "ddecpr",
+   "guid": "De13oEcmwh0",
+   "publishedAt": "2026-10-23T15:22:20.000Z"
+  },
+  {
+   "id": "post-225",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1553601260127534",
+   "publishedAt": "2026-10-26T11:06:59.000Z"
+  },
+  {
+   "id": "post-226",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1553821690105491",
+   "publishedAt": "2026-10-26T15:37:42.000Z"
+  },
+  {
+   "id": "post-227",
+   "agency": "ddecpr",
+   "guid": "De-TiWhjZGD",
+   "publishedAt": "2026-10-26T22:00:09.000Z"
+  },
+  {
+   "id": "post-228",
+   "agency": "ddecpr",
+   "guid": "DfAaUSGmt8C",
+   "publishedAt": "2026-10-27T17:37:52.000Z"
+  },
+  {
+   "id": "post-229",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1555033979984262",
+   "publishedAt": "2026-10-27T19:11:24.000Z"
+  },
+  {
+   "id": "post-230",
+   "agency": "ddecpr",
+   "guid": "DfAksaJGoj2",
+   "publishedAt": "2026-10-27T19:08:33.000Z"
+  },
+  {
+   "id": "post-231",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1555988406555486",
+   "publishedAt": "2026-10-28T16:22:45.000Z"
+  },
+  {
+   "id": "post-232",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1556143686539958",
+   "publishedAt": "2026-10-28T19:38:20.000Z"
+  },
+  {
+   "id": "post-233",
+   "agency": "ddecpr",
+   "guid": "DfDMrVuGqcL",
+   "publishedAt": "2026-10-28T19:36:25.000Z"
+  },
+  {
+   "id": "post-234",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1556208116533515",
+   "publishedAt": "2026-10-28T21:10:27.000Z"
+  },
+  {
+   "id": "post-235",
+   "agency": "ddecpr",
+   "guid": "DfDdIHuCSPj",
+   "publishedAt": "2026-10-28T22:00:09.000Z"
+  },
+  {
+   "id": "post-236",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1556249006529426",
+   "publishedAt": "2026-10-28T22:09:51.000Z"
+  },
+  {
+   "id": "post-237",
+   "agency": "ddecpr",
+   "guid": "DfDd9IAmsu_",
+   "publishedAt": "2026-10-28T22:07:23.000Z"
+  },
+  {
+   "id": "post-238",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1556918759795784",
+   "publishedAt": "2026-10-29T13:43:27.000Z"
+  },
+  {
+   "id": "post-239",
+   "agency": "ddecpr",
+   "guid": "DfFJFYfDibN",
+   "publishedAt": "2026-10-29T13:43:30.000Z"
+  },
+  {
+   "id": "post-240",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1557081029779557",
+   "publishedAt": "2026-10-29T16:42:27.000Z"
+  },
+  {
+   "id": "post-241",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1557190059768654",
+   "publishedAt": "2026-10-29T19:00:06.000Z"
+  },
+  {
+   "id": "post-242",
+   "agency": "ddecpr",
+   "guid": "DfFtWZMiYtU",
+   "publishedAt": "2026-10-29T19:00:24.000Z"
+  },
+  {
+   "id": "post-243",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1557336726420654",
+   "publishedAt": "2026-10-29T22:42:44.000Z"
+  },
+  {
+   "id": "post-244",
+   "agency": "ddecpr",
+   "guid": "DfIAtLVGx0i",
+   "publishedAt": "2026-10-30T16:28:00.000Z"
+  },
+  {
+   "id": "post-245",
+   "agency": "ddecpr",
+   "guid": "DfHo7rfEUWO",
+   "publishedAt": "2026-10-30T13:00:17.000Z"
+  },
+  {
+   "id": "post-246",
+   "agency": "ddecpr",
+   "guid": "DfHkOfVldPP",
+   "publishedAt": "2026-10-30T12:19:09.000Z"
+  },
+  {
+   "id": "post-247",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1557932676361059",
+   "publishedAt": "2026-10-30T13:00:10.000Z"
+  },
+  {
+   "id": "post-248",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1557899289697731",
+   "publishedAt": "2026-10-30T12:19:05.000Z"
+  },
+  {
+   "id": "post-249",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1558115696342757",
+   "publishedAt": "2026-10-30T16:27:56.000Z"
+  },
+  {
+   "id": "post-250",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1558302799657380",
+   "publishedAt": "2026-10-30T20:46:38.000Z"
+  },
+  {
+   "id": "post-251",
+   "agency": "ddecpr",
+   "guid": "DfIcTjJRUh1",
+   "publishedAt": "2026-10-30T20:40:31.000Z"
+  },
+  {
+   "id": "post-252",
+   "agency": "ddecpr",
+   "guid": "DfKOTPLFhaC",
+   "publishedAt": "2026-10-31T13:05:17.000Z"
+  },
+  {
+   "id": "post-253",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1558994169588243",
+   "publishedAt": "2026-10-31T13:07:04.000Z"
+  },
+  {
+   "id": "post-254",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1560129182808075",
+   "publishedAt": "2026-11-01T14:32:28.000Z"
+  },
+  {
+   "id": "post-255",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1561158949371765",
+   "publishedAt": "2026-11-02T14:39:04.000Z"
+  },
+  {
+   "id": "post-256",
+   "agency": "ddecpr",
+   "guid": "553558728043206_1561556815998645",
+   "publishedAt": "2026-11-02T20:09:11.000Z"
+  },
+  {
+   "id": "post-257",
+   "agency": "ddecpr",
+   "guid": "DfQIaQuidSt",
+   "publishedAt": "2026-11-02T20:09:15.000Z"
+  }
+ ],
+ "parentComments": [
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1558115696342757#channels_comment_1435449833337148",
+   "guid": "1558115696342757_1435449833337148",
+   "date": "2026-10-31T12:06:37.000Z",
+   "expectedParent": "post-249",
+   "expectedParentPublishedAt": "2026-10-30T16:27:56.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1550872313733762#channels_comment_1121251290257048",
+   "guid": "1550872313733762_1121251290257048",
+   "date": "2026-10-26T23:19:18.000Z",
+   "expectedParent": "post-91",
+   "expectedParentPublishedAt": "2026-10-23T15:39:08.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#13450713241301346",
+   "guid": "DfFcvuHR-h4#13450713241301346",
+   "date": "2026-10-29T18:14:10.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#17130945183942460",
+   "guid": "DfFcvuHR-h4#17130945183942460",
+   "date": "2026-10-29T19:51:08.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfIAtLVGx0i/#12880498920335463",
+   "guid": "DfIAtLVGx0i#12880498920335463",
+   "date": "2026-10-31T18:24:17.000Z",
+   "expectedParent": "post-244",
+   "expectedParentPublishedAt": "2026-10-30T16:28:00.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#17505014337457292",
+   "guid": "De9aPgiRU_d#17505014337457292",
+   "date": "2026-10-26T23:30:46.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1557081029779557#channels_comment_16103461225470043",
+   "guid": "1557081029779557_16103461225470043",
+   "date": "2026-10-29T21:54:32.000Z",
+   "expectedParent": "post-240",
+   "expectedParentPublishedAt": "2026-10-29T16:42:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1154974512243258",
+   "guid": "1553736176780709_1154974512243258",
+   "date": "2026-10-27T18:43:43.000Z",
+   "expectedParent": "post-38",
+   "expectedParentPublishedAt": "2026-10-26T13:52:33.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfAwLl_muCH/#12341421252520425",
+   "guid": "DfAwLl_muCH#12341421252520425",
+   "date": "2026-10-27T22:36:06.000Z",
+   "expectedParent": "post-182",
+   "expectedParentPublishedAt": "2026-10-27T20:48:56.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#12444936226625303",
+   "guid": "DfFcvuHR-h4#12444936226625303",
+   "date": "2026-11-01T14:52:24.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#11296734753309003",
+   "guid": "De9aPgiRU_d#11296734753309003",
+   "date": "2026-10-26T20:41:55.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1556208116533515#channels_comment_12440521626057544",
+   "guid": "1556208116533515_12440521626057544",
+   "date": "2026-10-28T21:36:44.000Z",
+   "expectedParent": "post-234",
+   "expectedParentPublishedAt": "2026-10-28T21:10:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#13128000653749454",
+   "guid": "De9aPgiRU_d#13128000653749454",
+   "date": "2026-10-26T23:48:55.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553601260127534#channels_comment_1249700230603100",
+   "guid": "1553601260127534_1249700230603100",
+   "date": "2026-10-27T12:14:52.000Z",
+   "expectedParent": "post-225",
+   "expectedParentPublishedAt": "2026-10-26T11:06:59.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1555172723303721#channels_comment_1570347163638655",
+   "guid": "1555172723303721_1570347163638655",
+   "date": "2026-10-28T14:44:16.000Z",
+   "expectedParent": "post-185",
+   "expectedParentPublishedAt": "2026-10-27T22:48:59.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#12532224155630101",
+   "guid": "De9aPgiRU_d#12532224155630101",
+   "date": "2026-10-26T23:48:10.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1560129182808075#channels_comment_1692407220960092",
+   "guid": "1560129182808075_1692407220960092",
+   "date": "2026-11-01T22:51:31.000Z",
+   "expectedParent": "post-254",
+   "expectedParentPublishedAt": "2026-11-01T14:32:28.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1534474072040253#channels_comment_1307534790230424",
+   "guid": "1534474072040253_1307534790230424",
+   "date": "2026-10-29T16:16:58.000Z",
+   "expectedParent": "post-122",
+   "expectedParentPublishedAt": "2026-10-07T00:24:14.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1535395198614807#channels_comment_1582438778301265",
+   "guid": "1535395198614807_1582438778301265",
+   "date": "2026-10-26T23:25:56.000Z",
+   "expectedParent": "post-115",
+   "expectedParentPublishedAt": "2026-10-07T22:00:20.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9H0RzRKBJ/#13908355838449190",
+   "guid": "De9H0RzRKBJ#13908355838449190",
+   "date": "2026-10-26T23:13:07.000Z",
+   "expectedParent": "post-39",
+   "expectedParentPublishedAt": "2026-10-26T10:59:06.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#17272007118985245",
+   "guid": "De9aPgiRU_d#17272007118985245",
+   "date": "2026-10-27T00:10:10.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1555100073310986#channels_comment_11892322850403905",
+   "guid": "1555100073310986_11892322850403905",
+   "date": "2026-10-27T22:40:52.000Z",
+   "expectedParent": "post-183",
+   "expectedParentPublishedAt": "2026-10-27T20:52:43.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1542238574597136#channels_comment_1315351004322322",
+   "guid": "1542238574597136_1315351004322322",
+   "date": "2026-10-28T20:32:53.000Z",
+   "expectedParent": "post-9",
+   "expectedParentPublishedAt": "2026-10-14T22:00:03.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfM60kTRsmP/#13743524411823812",
+   "guid": "DfM60kTRsmP#13743524411823812",
+   "date": "2026-11-01T14:49:20.000Z",
+   "expectedParent": "post-43",
+   "expectedParentPublishedAt": "2026-11-01T14:28:10.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#11674191651153254",
+   "guid": "DfFcvuHR-h4#11674191651153254",
+   "date": "2026-10-30T01:02:17.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfIAtLVGx0i/#14301128151198100",
+   "guid": "DfIAtLVGx0i#14301128151198100",
+   "date": "2026-10-30T22:26:55.000Z",
+   "expectedParent": "post-244",
+   "expectedParentPublishedAt": "2026-10-30T16:28:00.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1534474072040253#channels_comment_1148094010028441",
+   "guid": "1534474072040253_1148094010028441",
+   "date": "2026-10-30T09:00:28.000Z",
+   "expectedParent": "post-122",
+   "expectedParentPublishedAt": "2026-10-07T00:24:14.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1552943586859968#channels_comment_1024560690858023",
+   "guid": "1552943586859968_1024560690858023",
+   "date": "2026-10-28T13:15:22.000Z",
+   "expectedParent": "post-64",
+   "expectedParentPublishedAt": "2026-10-25T18:18:56.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1550989187055408#channels_comment_1312345017853754",
+   "guid": "1550989187055408_1312345017853754",
+   "date": "2026-10-27T04:51:27.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "not_found"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/p/DfAaUSGmt8C/#10242069481504991",
+   "guid": "DfAaUSGmt8C#10242069481504991",
+   "date": "2026-10-27T18:32:07.000Z",
+   "expectedParent": "post-228",
+   "expectedParentPublishedAt": "2026-10-27T17:37:52.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#10969642018030801",
+   "guid": "De9aPgiRU_d#10969642018030801",
+   "date": "2026-10-26T23:28:19.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1540189781468682#channels_comment_1088014234119802",
+   "guid": "1540189781468682_1088014234119802",
+   "date": "2026-10-26T23:24:51.000Z",
+   "expectedParent": "post-24",
+   "expectedParentPublishedAt": "2026-10-12T22:00:04.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1557081029779557#channels_comment_1344804842043222",
+   "guid": "1557081029779557_1344804842043222",
+   "date": "2026-10-30T13:23:47.000Z",
+   "expectedParent": "post-240",
+   "expectedParentPublishedAt": "2026-10-29T16:42:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1554964403324553#channels_comment_1913012384835251",
+   "guid": "1554964403324553_1913012384835251",
+   "date": "2026-10-27T21:21:52.000Z",
+   "expectedParent": "post-207",
+   "expectedParentPublishedAt": "2026-10-27T17:38:36.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#14525127211201051",
+   "guid": "De9aPgiRU_d#14525127211201051",
+   "date": "2026-10-28T15:39:27.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#18581855548120403",
+   "guid": "DfFcvuHR-h4#18581855548120403",
+   "date": "2026-10-30T14:01:15.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#13440261253318464",
+   "guid": "DfFcvuHR-h4#13440261253318464",
+   "date": "2026-10-29T20:49:51.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1560129182808075#channels_comment_1525329699171152",
+   "guid": "1560129182808075_1525329699171152",
+   "date": "2026-11-01T18:57:12.000Z",
+   "expectedParent": "post-254",
+   "expectedParentPublishedAt": "2026-11-01T14:32:28.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#14917349424255504",
+   "guid": "De9aPgiRU_d#14917349424255504",
+   "date": "2026-10-26T23:27:31.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1551133807040946#channels_comment_1495473141044336",
+   "guid": "1551133807040946_1495473141044336",
+   "date": "2026-10-29T00:41:46.000Z",
+   "expectedParent": "post-190",
+   "expectedParentPublishedAt": "2026-10-23T22:02:03.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfIcTjJRUh1/#10325311431217097",
+   "guid": "DfIcTjJRUh1#10325311431217097",
+   "date": "2026-10-31T02:08:05.000Z",
+   "expectedParent": "post-251",
+   "expectedParentPublishedAt": "2026-10-30T20:40:31.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1558115696342757#channels_comment_1922262734023030",
+   "guid": "1558115696342757_1922262734023030",
+   "date": "2026-10-30T16:44:04.000Z",
+   "expectedParent": "post-249",
+   "expectedParentPublishedAt": "2026-10-30T16:27:56.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#10014292488550542",
+   "guid": "DfFcvuHR-h4#10014292488550542",
+   "date": "2026-10-30T01:52:12.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1552943586859968#channels_comment_1554002404011901",
+   "guid": "1552943586859968_1554002404011901",
+   "date": "2026-10-31T12:58:43.000Z",
+   "expectedParent": "post-64",
+   "expectedParentPublishedAt": "2026-10-25T18:18:56.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1555988406555486#channels_comment_1555534735024234",
+   "guid": "1555988406555486_1555534735024234",
+   "date": "2026-10-30T16:32:44.000Z",
+   "expectedParent": "post-231",
+   "expectedParentPublishedAt": "2026-10-28T16:22:45.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/De9aPgiRU_d/#15533733280625205",
+   "guid": "De9aPgiRU_d#15533733280625205",
+   "date": "2026-10-27T08:30:16.000Z",
+   "expectedParent": "post-40",
+   "expectedParentPublishedAt": "2026-10-26T13:41:57.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DeKfWRDRkOV/#13055740802386883",
+   "guid": "DeKfWRDRkOV#13055740802386883",
+   "date": "2026-10-29T05:04:37.000Z",
+   "expectedParent": "post-118",
+   "expectedParentPublishedAt": "2026-10-06T19:10:32.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "instagram",
+   "agency": "ddecpr",
+   "pubType": "INSTAGRAM_GRAPH_BUSINESS",
+   "pageType": "instagram",
+   "url": "https://www.instagram.com/reel/DfFcvuHR-h4/#14305506663056579",
+   "guid": "DfFcvuHR-h4#14305506663056579",
+   "date": "2026-10-30T07:04:01.000Z",
+   "expectedParent": "post-69",
+   "expectedParentPublishedAt": "2026-10-29T16:39:27.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1553736176780709#channels_comment_1735356485629192",
+   "guid": "1553736176780709_1735356485629192",
+   "date": "2026-10-29T06:27:20.000Z",
+   "expectedParent": "post-38",
+   "expectedParentPublishedAt": "2026-10-26T13:52:33.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "facebook",
+   "agency": "ddecpr",
+   "pubType": "FACEBOOK",
+   "pageType": "facebook",
+   "url": "https://www.facebook.com/1549208170566843#channels_comment_1095233549976033",
+   "guid": "1549208170566843_1095233549976033",
+   "date": "2026-10-27T02:15:38.000Z",
+   "expectedParent": "post-223",
+   "expectedParentPublishedAt": "2026-10-21T22:00:05.000Z",
+   "expectedStatus": "resolved"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7439392646521020416?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7439392646521020416%2C1382221433014104240%29",
+   "guid": "e9f98069-63c7-2fbe-5ffe-e144836d856e",
+   "date": "2026-09-02T14:41:50.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7521317713521197056?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7521317713521197056%2C1624044410992962578%29",
+   "guid": "716744e8-124f-b703-eb4a-fcab420908c6",
+   "date": "2026-10-29T03:34:40.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7505357629204914176?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7505357629204914176%2C1249234454335020633%29",
+   "guid": "448d15a6-b789-544d-b8a2-1f5d3bb53ff2",
+   "date": "2026-09-22T23:36:32.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7485842748252590080?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7485842748252590080%2C1135516044905673495%29",
+   "guid": "9cab6031-f428-4273-1598-119fbebc8edb",
+   "date": "2026-07-24T11:40:12.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7505357629204914176?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7505357629204914176%2C1322038182330322732%29",
+   "guid": "5868b744-2a1d-f160-488d-8c56e317d136",
+   "date": "2026-09-14T21:16:42.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7500948519524954112?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7500948519524954112%2C1072137553714002744%29",
+   "guid": "ed1559a8-4d5f-d815-54c5-8302d67a8518",
+   "date": "2026-09-11T07:44:20.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7513716097989197825?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7513716097989197825%2C1117480605011301034%29",
+   "guid": "0541fb35-63fc-1fc2-014f-081c583e4e6b",
+   "date": "2026-10-13T03:06:52.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7514392401130512384?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7514392401130512384%2C1513501647504092451%29",
+   "guid": "d6837714-cd39-89c8-0713-43e7bd8c45d2",
+   "date": "2026-10-13T03:25:54.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7472422261304758272?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7472422261304758272%2C1443011561320075251%29",
+   "guid": "e84635e8-1c03-60fc-d355-58a25c6ad857",
+   "date": "2026-08-06T20:19:07.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7495613810930798592?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7495613810930798592%2C1053555287502070033%29",
+   "guid": "8f9d5cf2-ebff-ec1e-5638-b4b9fd822d48",
+   "date": "2026-08-19T04:28:39.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7483984334597701632?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7483984334597701632%2C1030147272870641443%29",
+   "guid": "9c48dd89-829e-5f34-cde6-541d37852b47",
+   "date": "2026-07-28T20:55:35.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7501249642404392960?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7501249642404392960%2C1720600098230508151%29",
+   "guid": "2790fb83-8ccc-1d3d-55ab-4f724849cb26",
+   "date": "2026-09-03T12:34:19.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7495812991624568833?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7495812991624568833%2C1549426191473565556%29",
+   "guid": "9553d82f-4045-d8cc-cf5f-ddb84f40c3c4",
+   "date": "2026-08-20T22:01:31.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7509285196500783104?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7509285196500783104%2C1949928643163085206%29",
+   "guid": "6f8ff995-8bb1-ba07-c4b5-e596574f332c",
+   "date": "2026-09-27T23:47:42.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7486125935419699201?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7486125935419699201%2C1644369315972090425%29",
+   "guid": "7ecf376e-60fe-30b3-2f5e-d3733a4ec488",
+   "date": "2026-07-30T12:00:00.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7488554679207878656%2C1659012503021030421%29",
+   "guid": "059d7a52-3bb1-61d6-058d-144d70c7e06a",
+   "date": "2026-07-30T11:34:05.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7488554679207878656%2C1231251036163749591%29",
+   "guid": "e59b9b71-eda5-0b86-7de4-531c5bf7bb40",
+   "date": "2026-07-30T14:37:34.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7488554679207878656?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7488554679207878656%2C1411115464179046942%29",
+   "guid": "a6f54c6f-bbaf-be18-0705-3187427b1e62",
+   "date": "2026-07-30T12:57:30.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7487987389425061888?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7487987389425061888%2C1342422489001677911%29",
+   "guid": "805ef622-bacb-96da-242a-bcef35213b48",
+   "date": "2026-07-29T19:11:41.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:activity:7492959762641231872?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3Aactivity%3A7492959762641231872%2C1033296427120420104%29",
+   "guid": "4c475b81-e044-b9d4-7eba-e6414c4c3077",
+   "date": "2026-08-16T14:16:04.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7493791648406126592?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7493791648406126592%2C1113818850812525100%29",
+   "guid": "63c0dc55-9fbd-83d9-7498-273540a4169e",
+   "date": "2026-08-14T09:39:37.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  },
+  {
+   "platform": "linkedin",
+   "agency": "ddecpr",
+   "pubType": "LINKEDIN",
+   "pageType": "linkedin",
+   "url": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7501249642404392960?commentUrn=urn%3Ali%3Acomment%3A%28urn%3Ali%3AugcPost%3A7501249642404392960%2C1912547008492370654%29",
+   "guid": "4c91fe9b-8a65-2f2e-11e8-07558b60bf03",
+   "date": "2026-09-05T17:39:14.000Z",
+   "expectedParent": null,
+   "expectedParentPublishedAt": null,
+   "expectedStatus": "parent_unknown"
+  }
+ ]
+}
