@@ -10,7 +10,8 @@
  */
 
 import type { MentionSample, WeeklyAggregates } from './weekly-report-insights';
-import { HTML_INLINE_RULE } from './constitution';
+import { formatMentionSampleBody, formatMentionSampleTag, mentionSamplesLegend } from './weekly-report-insights';
+import { HTML_INLINE_RULE, resolveEditorialRules, type PromptLanguageOptions } from './constitution';
 import { formatPromptDay, formatPromptDayOfInstant } from '../format-period';
 
 export interface WeeklyComparisonInputs {
@@ -56,10 +57,71 @@ function formatSample(i: number, m: MentionSample): string {
     m.pageType ? `tipo=${m.pageType}` : null,
     typeof m.engagement === 'number' ? `eng=${m.engagement}` : null,
   ].filter(Boolean).join(' ');
-  return `${i}. (${dateShort} | ${meta}) "${clean}"`;
+  const tag = formatMentionSampleTag(m);
+  // Sin anotaciones: la línea de siempre, byte a byte.
+  if (!tag) return `${i}. (${dateShort} | ${meta}) "${clean}"`;
+  return `${i}. ${tag} (${dateShort} | ${meta}) ${formatMentionSampleBody(m, 500)}`;
 }
 
-export function buildWeeklySummaryPrompt(inputs: WeeklyComparisonInputs): string {
+/** Las tres piezas del semanal con las reglas v1 (texto congelado). */
+const weeklyPiecesV1 = (inputs: WeeklyComparisonInputs): string => `1) "headline" — el titular de la semana. UNA oración de 8 a 18 palabras que nombre el cambio central. Sujeto y verbo, sin cifras, sin punto final.
+   BIEN: "La semana en que la Secretaría cambió de titular y de conversación"
+   BIEN: "Se enfría la crisis de agua y vuelve a pesar la gestión"
+   MAL:  "Resumen semanal" · "+531% en volumen" · "Nombramientos / Designaciones"
+
+2) "summary" — el párrafo. De 3 a 5 oraciones (80 a 130 palabras) que expliquen el cambio: qué lo produjo, en qué orden pasaron las cosas si hubo una secuencia, y quién empujó la conversación. Arranca por el cambio o por el hecho que lo causó, nunca por un conteo ni por "La conversación estuvo marcada por". Máximo dos cifras.
+
+3) "highlights" — de 2 a 4 viñetas: qué cambió. Cada una cuenta UN CAMBIO CONCRETO, con los números de las dos semanas como apoyo, no como sujeto. Ángulos que suelen dar señal:
+   - una conversación que apareció y antes no existía, o una que desapareció;
+   - un tema que se disparó o se apagó, y el hecho que lo explica;
+   - algo que NO cambió pese a todo lo demás — lo que la agencia arrastra semana tras semana;
+   - un indicador que se movió y qué lo movió (usa el valor tal cual viene: "50%", "3.8 / 10").
+   Cada viñeta: una sola oración de 25 a 45 palabras, con al menos un medio, cargo público u organización nombrado.
+   BIEN: "Apareció una conversación que no existía: la relación con la Legislatura pasó de cero a 51 menciones tras la reunión en el Capitolio."
+   MAL:  "Relación con la Legislatura: 51 menciones esta semana vs 0 la anterior (+nuevo)."
+
+REGLAS PROPIAS DE ESTE CORREO:
+- Di QUÉ conversación concreta subió o bajó, no solo el nombre del tema con un conteo. "Permisos bajó de 152 a 84" solo vale si a continuación dices qué discusión se apagó.
+- Si una variación es "nuevo" (la semana anterior no registraba), dilo así en lugar de inventar un porcentaje.
+- Cuando el volumen se dispare pero el tono casi no se mueva, dilo: es la señal más fácil de perder y la más útil.
+- Habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}). Nunca "hoy" ni "ayer".
+- Si no hay señal para 4 viñetas, entrega menos (mínimo 1). Mejor pocas y verdaderas.
+
+`;
+
+/** Las tres piezas del semanal con las reglas v2 (spec 9.1–9.2 y 10.3). */
+const weeklyPiecesV2 = (inputs: WeeklyComparisonInputs): string => `1) "headline" — el titular de la semana. UNA oración de 8 a 18 palabras y no más de 110 caracteres que nombre el cambio central: quién dijo o hizo qué, con su sujeto y un verbo literal (dijo, pidió, exigió, informó, anunció, publicó, respondió, entregó, aprobó, criticó…). Sin cifras (una fecha sí), sin punto final, sin verbos de fuerza, figuras ni intenciones (ley 08). No puede contradecir el párrafo ni las viñetas.
+   BIEN: "La Secretaría cambió de titular y la conversación pasó del nombramiento a la gestión"
+   BIEN: "Bajaron las quejas por el servicio de agua y volvieron las críticas a la gestión"
+   MAL:  "Resumen semanal" · "+531% en volumen" · "Nombramientos / Designaciones"
+
+2) "summary" — el párrafo. De 3 a 5 oraciones (80 a 130 palabras) que expliquen el cambio: qué lo produjo, en qué orden pasaron las cosas si hubo una secuencia, y quién habló. Arranca por el cambio o por el hecho que lo causó, nunca por un conteo ni por "La conversación estuvo marcada por". Máximo dos cifras. Cada opinión va con su autor o su página; un comentario a una publicación de otra semana se cuenta como reacción a esa publicación, con su fecha.
+
+3) "highlights" — de 2 a 4 viñetas: qué cambió. Cada una cuenta UN CAMBIO CONCRETO, con los números de las dos semanas como apoyo, no como sujeto. Ángulos que suelen dar señal:
+   - una conversación que apareció y antes no existía, o una que desapareció, SOLO si los conteos de las dos semanas lo muestran;
+   - un tema que subió o bajó mucho, y el hecho que lo explica;
+   - algo que NO cambió pese a todo lo demás — lo que sigue apareciendo semana tras semana;
+   - un indicador que se movió y qué lo movió (usa el valor tal cual viene: "50%", "3.8 / 10").
+   Cada viñeta: una sola oración de 25 a 45 palabras, con al menos un medio, cargo público u organización nombrado.
+   BIEN: "Apareció una conversación que no existía: la relación con la Legislatura pasó de cero a 51 menciones tras la reunión en el Capitolio."
+   MAL:  "Relación con la Legislatura: 51 menciones esta semana vs 0 la anterior (+nuevo)."
+
+REGLAS PROPIAS DE ESTE CORREO:
+- Di QUÉ conversación concreta subió o bajó, no solo el nombre del tema con un conteo. "Permisos bajó de 152 a 84" solo vale si a continuación dices de qué se dejó de hablar.
+- Si una variación es "nuevo" (la semana anterior no registraba), dilo así en lugar de inventar un porcentaje.
+- Cuando el volumen suba mucho pero el tono casi no se mueva, dilo: es la señal más fácil de perder y la más útil.
+- Habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}). Nunca "hoy" ni "ayer".
+- Si no hay señal para 4 viñetas, entrega menos (mínimo 1). Mejor pocas y verdaderas.
+
+`;
+
+/**
+ * Prompt del resumen semanal comparativo. `opts.rules` (opcional) elige la
+ * versión de las reglas de redacción; sin él manda `ECO_EDITORIAL_RULES` y, si
+ * no está, `v1` (texto de antes de WP-5).
+ */
+export function buildWeeklySummaryPrompt(inputs: WeeklyComparisonInputs, opts: PromptLanguageOptions = {}): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   const { current, prevTotals, prevByTopic, indicatorLines, samples } = inputs;
   const { totals } = current;
 
@@ -129,7 +191,7 @@ ${muniBlock}
 EMOCIONES AGREGADAS DE LA SEMANA ACTUAL:
 ${emotionBlock}
 
-MUESTRAS DE MENCIONES DE LA SEMANA ACTUAL (pre-filtradas a pertinencia alta/media, ORDENADAS POR ENGAGEMENT — las primeras son las de mayor resonancia; úsalas para anclar los hechos concretos):
+${mentionSamplesLegend([...samples.negative.slice(0, 12), ...samples.neutral.slice(0, 8), ...samples.positive.slice(0, 8)])}MUESTRAS DE MENCIONES DE LA SEMANA ACTUAL (pre-filtradas a pertinencia alta/media, ORDENADAS POR ENGAGEMENT — las primeras son las de mayor resonancia; úsalas para anclar los hechos concretos):
 --- NEGATIVAS (${samples.negative.length}) ---
 ${samples.negative.slice(0, 12).map((m, i) => formatSample(i + 1, m)).join('\n') || '- (sin muestras)'}
 --- NEUTRALES (${samples.neutral.length}) ---
@@ -139,30 +201,7 @@ ${samples.positive.slice(0, 8).map((m, i) => formatSample(i + 1, m)).join('\n') 
 
 TAREA — TRES PIEZAS. Todo se afirma en clave de CAMBIO: qué es distinto respecto a la semana anterior.
 
-1) "headline" — el titular de la semana. UNA oración de 8 a 18 palabras que nombre el cambio central. Sujeto y verbo, sin cifras, sin punto final.
-   BIEN: "La semana en que la Secretaría cambió de titular y de conversación"
-   BIEN: "Se enfría la crisis de agua y vuelve a pesar la gestión"
-   MAL:  "Resumen semanal" · "+531% en volumen" · "Nombramientos / Designaciones"
-
-2) "summary" — el párrafo. De 3 a 5 oraciones (80 a 130 palabras) que expliquen el cambio: qué lo produjo, en qué orden pasaron las cosas si hubo una secuencia, y quién empujó la conversación. Arranca por el cambio o por el hecho que lo causó, nunca por un conteo ni por "La conversación estuvo marcada por". Máximo dos cifras.
-
-3) "highlights" — de 2 a 4 viñetas: qué cambió. Cada una cuenta UN CAMBIO CONCRETO, con los números de las dos semanas como apoyo, no como sujeto. Ángulos que suelen dar señal:
-   - una conversación que apareció y antes no existía, o una que desapareció;
-   - un tema que se disparó o se apagó, y el hecho que lo explica;
-   - algo que NO cambió pese a todo lo demás — lo que la agencia arrastra semana tras semana;
-   - un indicador que se movió y qué lo movió (usa el valor tal cual viene: "50%", "3.8 / 10").
-   Cada viñeta: una sola oración de 25 a 45 palabras, con al menos un medio, cargo público u organización nombrado.
-   BIEN: "Apareció una conversación que no existía: la relación con la Legislatura pasó de cero a 51 menciones tras la reunión en el Capitolio."
-   MAL:  "Relación con la Legislatura: 51 menciones esta semana vs 0 la anterior (+nuevo)."
-
-REGLAS PROPIAS DE ESTE CORREO:
-- Di QUÉ conversación concreta subió o bajó, no solo el nombre del tema con un conteo. "Permisos bajó de 152 a 84" solo vale si a continuación dices qué discusión se apagó.
-- Si una variación es "nuevo" (la semana anterior no registraba), dilo así en lugar de inventar un porcentaje.
-- Cuando el volumen se dispare pero el tono casi no se mueva, dilo: es la señal más fácil de perder y la más útil.
-- Habla de "esta semana" (${inputs.weekLabel}) y "la semana anterior" (${inputs.prevWeekLabel}). Nunca "hoy" ni "ayer".
-- Si no hay señal para 4 viñetas, entrega menos (mínimo 1). Mejor pocas y verdaderas.
-
-${HTML_INLINE_RULE}
+${v2 ? weeklyPiecesV2(inputs) : weeklyPiecesV1(inputs)}${HTML_INLINE_RULE}
 
 SALIDA: llama la herramienta con los tres campos — headline, summary, highlights.
 `.trim();

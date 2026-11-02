@@ -14,7 +14,7 @@
 
 import type { MetricKey } from './metric-insight';
 import { formatMetric, type DisplayMetricKey } from '../format/metrics-display';
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { HTML_INLINE_RULE, buildSystemPrompt, resolveEditorialRules, type EditorialRulesVersion, type PromptLanguageOptions } from './constitution';
 
 export interface MetricSnapshotSubcomponents {
   // Para crisis: severity, velocity, confidence, negShare, baselineNegShare
@@ -46,9 +46,11 @@ export interface CachedMetricInsightInput {
   totalMentionsDelta: number; // porcentaje
 }
 
-export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO explicando POR QUÉ una métrica sintética (riesgo de crisis, polarización, sentimiento neto, salud de marca o volumen) está donde está para una agencia pública en un periodo dado.`,
-  `
+/** System prompt del insight cacheado de métricas en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildCachedMetricInsightSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    `Eres el analista de ECO explicando POR QUÉ una métrica sintética (riesgo de crisis, polarización, sentimiento neto, salud de marca o volumen) está donde está para una agencia pública en un periodo dado.`,
+    `
 - Abre por el HECHO que produce el valor, no por la métrica. La métrica es la
   consecuencia.
 - Nunca expliques la fórmula ni sus componentes. El lector quiere el porqué del
@@ -69,7 +71,11 @@ export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPr
   rapidez". Describes el presente; lo que venga después no está en el dato.
 - Un párrafo de 3 a 4 oraciones, máximo 110 palabras. ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const CACHED_METRIC_INSIGHT_SYSTEM_PROMPT = /* @__PURE__ */ buildCachedMetricInsightSystemPrompt();
 
 /**
  * Los subcomponentes llegan en la escala interna 0–1. Se muestran en % porque
@@ -146,7 +152,8 @@ function metricInterpretation(m: MetricKey, value: number | null): string {
   return '';
 }
 
-export function buildCachedMetricInsightPrompt(input: CachedMetricInsightInput): string {
+export function buildCachedMetricInsightPrompt(input: CachedMetricInsightInput, opts: PromptLanguageOptions = {}): string {
+  const v2 = resolveEditorialRules(opts.rules) === 'v2';
   const interp = metricInterpretation(input.metric, input.value);
   // Escala PÚBLICA — la misma que el usuario tiene en la tarjeta (formatMetric es
   // la única fuente). Antes se pasaba el crudo 0–1 y el modelo lo citaba literal
@@ -187,10 +194,12 @@ Explica en UN párrafo de 3 a 4 oraciones POR QUÉ ${metricLabel(input.metric)} 
 1. ABRE POR EL HECHO, no por la métrica. Qué está pasando en la conversación: el reclamo, el evento, la cobertura o el conflicto concreto que produce este valor. Sale de los tópicos, autores y municipios de arriba.
 2. La métrica es la CONSECUENCIA, y aparece después: "eso es lo que tiene el ${metricLabel(input.metric)} en ${valueLabel}".
 3. Di si ese valor es alto o bajo PARA ESTA AGENCIA, comparándolo con la ventana previa (${signedDelta}%) o con su rango habitual. Un número suelto no le dice nada a nadie.
-4. Si hay dos cosas distintas empujando el valor, dilo: eso es más útil que enumerar cinco tópicos.
+4. ${v2 ? 'Si hay dos hechos distintos detrás del valor' : 'Si hay dos cosas distintas empujando el valor'}, dilo: eso es más útil que enumerar cinco tópicos.
 
 MAL: "El riesgo de crisis está en alerta porque el tópico Gestión concentra 128 menciones con 63% negativas."
-BIEN: "Un paro de la unión de empleados se montó sobre la crisis de agua que ya venía, y la conversación no ha vuelto a bajar desde entonces. Eso es lo que tiene el riesgo de crisis en alerta, por encima de lo habitual de la agencia."
+BIEN: ${v2
+    ? '"La unión de empleados convocó un paro durante la crisis de agua que ya venía, y las críticas siguieron todos los días desde entonces. Eso es lo que tiene el riesgo de crisis en alerta, por encima de lo habitual de la agencia."'
+    : '"Un paro de la unión de empleados se montó sobre la crisis de agua que ya venía, y la conversación no ha vuelto a bajar desde entonces. Eso es lo que tiene el riesgo de crisis en alerta, por encima de lo habitual de la agencia."'}
 
 Nunca expliques la fórmula ni sus componentes.
 

@@ -13,7 +13,7 @@
 
 import type { BriefingOutput } from './executive-briefing';
 import { crisisBand, bandWord } from '../format/metrics-display';
-import { HTML_INLINE_RULE, buildSystemPrompt } from './constitution';
+import { HTML_INLINE_RULE, buildSystemPrompt, type EditorialRulesVersion } from './constitution';
 
 export interface CrisisBriefingAggregates {
   agencyName: string;
@@ -56,9 +56,11 @@ export interface CrisisBriefingAggregates {
   totalReach: number;
 }
 
-export const CRISIS_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
-  `Eres el analista de ECO vigilando el riesgo de crisis de una agencia pública. Describes las señales que hay, sin alarmismo y sin complacencia.`,
-  `
+/** System prompt del briefing de crisis en la versión de reglas pedida (ver `EditorialRulesVersion`). */
+export function buildCrisisBriefingSystemPrompt(rules?: EditorialRulesVersion | null): string {
+  return buildSystemPrompt(
+    `Eres el analista de ECO vigilando el riesgo de crisis de una agencia pública. Describes las señales que hay, sin alarmismo y sin complacencia.`,
+    `
 - Tope de 110 palabras, dos ideas: de qué se está quejando la gente en concreto,
   y qué tan fuerte es esa señal comparada con lo normal de la agencia.
 - Abre con la LECTURA de la banda (Normal, Elevado, Alerta o Crisis — la misma
@@ -71,7 +73,11 @@ export const CRISIS_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildSystemPrompt(
 - Los números van en escala pública (%), nunca en la interna 0–1.
 - ${HTML_INLINE_RULE}
 `,
-);
+    rules,
+  );
+}
+
+export const CRISIS_BRIEFING_SYSTEM_PROMPT = /* @__PURE__ */ buildCrisisBriefingSystemPrompt();
 
 export function buildCrisisBriefingPrompt(agg: CrisisBriefingAggregates): string {
   const pct = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
