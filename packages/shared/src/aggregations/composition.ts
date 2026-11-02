@@ -15,7 +15,6 @@
  */
 
 import { universeFilterSql, type UniverseOptions } from '../universe';
-import { sourceKey } from '../sources';
 import { prWindowSql } from './pr-range';
 import type { PgClientLike } from './sentiment-report';
 
@@ -48,7 +47,7 @@ export function isCommentMention(m: CommentMentionLike): boolean {
   if (m.url && m.url.includes('#channels_comment')) return true;
   const guid = m.bw_guid ?? m.bwGuid ?? null;
   const pageType = m.page_type ?? m.pageType ?? null;
-  return !!guid && guid.includes('#') && sourceKey(pageType) === 'instagram';
+  return !!guid && guid.includes('#') && /instagram/i.test(pageType ?? '');
 }
 
 /**
@@ -95,7 +94,7 @@ export async function commentShare(
             COUNT(*) FILTER (WHERE ${commentMentionSql('m.')})::int AS comments
        FROM mentions m
       WHERE m.agency_id = $1
-        ${universeFilterSql({ strictUniverse: true, ...opts }, 'm.')}
+        ${universeFilterSql({ ...opts, strictUniverse: opts?.strictUniverse ?? true }, 'm.')}
         ${prWindowSql('m.')}`,
     [agencyId, window.startYmd, window.endYmd],
   );
