@@ -11,7 +11,7 @@ export function toolsFingerprint(tools: AdvisorTool[]): string {
   return createHash('sha256').update(JSON.stringify(tools)).digest('hex');
 }
 
-/** Falla si el texto del prefijo trae un UUID (proxy de ID de corrida). */
+/** Falla si el texto del prefijo de 1 h trae un UUID (proxy de ID de corrida). */
 function assertStable(label: string, text: string): void {
   if (UUID.test(text)) throw new Error(`advisor: ${label} contiene un UUID; no va en el prefijo cacheado`);
 }
@@ -38,7 +38,9 @@ export function buildFamilyASystem(opts: { constitution: string; manual: string 
 export function buildFamilyBSystem(opts: { constitution: string; manual: string; factSheet: string }): AdvisorContentBlock[] {
   assertStable('constitución', opts.constitution);
   assertStable('manual', opts.manual);
-  assertStable('hoja de hechos', opts.factSheet);
+  // La hoja de hechos NO pasa por assertStable: es por corrida por diseño (BP2 de 5 min) y
+  // trae IDs reales de los datos (narrativas, menciones) que son UUID. Solo constitución y
+  // manual forman el prefijo de 1 h que debe ser idéntico entre corridas.
   return [
     { type: 'text', text: opts.constitution },
     { type: 'text', text: opts.manual, cache_control: { type: 'ephemeral', ttl: '1h' } },

@@ -324,7 +324,8 @@ async function executePanel(a: {
   } catch (err) {
     const e = err as { code?: string };
     const code = err instanceof AdvisorBudgetError ? 'error_budget' : (e.code ?? 'error');
-    log.error('advisor', 'panel.failed', { runId: a.runId, code });
+    const message = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
+    log.error('advisor', 'panel.failed', { runId: a.runId, code, message });
     await appendEvent(a.pool, a.runId, 'error', { code, message: 'El panel no pudo terminar. Puedes intentar de nuevo.' }).catch(() => undefined);
     await setRunStatus(a.pool, a.runId, code === 'error_budget' ? 'error_budget' : 'error', { errorCode: code, durationMs: Date.now() - a.startedAt }).catch(() => undefined);
   }
