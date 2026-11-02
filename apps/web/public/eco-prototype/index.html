@@ -1463,7 +1463,7 @@
     // Babel-in-browser cost). Sequential to preserve global dependency order
     // (data -> icons -> charts -> shell -> screens -> app).
     const base = '/eco-prototype/dist';
-    const files = ['data.js', 'icons.js', 'charts.js', 'terms-cloud.js', 'shell.js', 'screens.js', 'chat-drawer.js', 'app.js'];
+    const files = ['data.js', 'icons.js', 'charts.js', 'terms-cloud.js', 'shell.js', 'screens.js', 'advisor-view.js', 'chat-drawer.js', 'app.js'];
     for (const f of files) {
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');

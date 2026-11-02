@@ -16,3 +16,4 @@ export * from './metric-insights-cache';
 export * from './topic-descriptions-cache';
 export * from './narratives';
 export * from './chat';
+export * from './advisor';

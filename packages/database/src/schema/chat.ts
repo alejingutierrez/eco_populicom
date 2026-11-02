@@ -50,6 +50,10 @@ export const chatMessages = pgTable(
       period?: string;
       screen?: string;
       filters?: Record<string, unknown> | null;
+      /** Mensajes del asesor de crisis (spec §10.2). */
+      mode?: 'advisor';
+      runId?: string;
+      camino?: number;
     }>(),
     model: varchar('model', { length: 64 }),
     tokensIn: integer('tokens_in'),

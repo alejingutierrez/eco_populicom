@@ -1,0 +1,2252 @@
+[
+ {
+  "id": "H2-001",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones de la agencia hubo en el fin de semana?",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-002",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué temas se hablaron más sobre la extensión del horario escolar?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-003",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Resume lo que dijeron los medios sobre el proyecto de carreteras esta semana.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-004",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿El sentimiento hacia el programa de becas mejoró contra el mes pasado?",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-005",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué municipios mencionaron más el problema de los bomberos voluntarios?",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-006",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántos posts hubo sobre la feria de salud de Caguas el martes?",
+  "contexto": {
+   "indiceHoy": 0.06,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-007",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué narrativas nuevas aparecieron sobre el transporte escolar?",
+  "contexto": {
+   "indiceHoy": 0.27,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-008",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dame el porcentaje de menciones negativas de la última semana cerrada.",
+  "contexto": {
+   "indiceHoy": 0.24,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-009",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué palabras subieron más en las conversaciones sobre el banco de alimentos?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-010",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hubo menciones de la agencia en la prensa digital ayer?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-011",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Quiénes son los principales voceros que hablan del programa de vivienda?",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-012",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué cambió en el volumen de menciones sobre pensiones desde el lunes?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-013",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo se ve la conversación sobre la licencia de conducir en las redes?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-014",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué subtemas se repiten en las menciones sobre el centro de cuidado de ancianos?",
+  "contexto": {
+   "indiceHoy": 0.31,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-015",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones tuvo el anuncio de la beca universitaria?",
+  "contexto": {
+   "indiceHoy": 0.08,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-016",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué fuentes publican más sobre el programa de empleo de verano?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-017",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Subió o bajó la negatividad sobre el tema del Acueducto en los últimos siete días?",
+  "contexto": {
+   "indiceHoy": 0.26,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-018",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "What were the top sources talking about the vaccine drive this week?",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-019",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué pasó con la conversación sobre el parque de Vieques después del fin de semana?",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-020",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuál es la tendencia del tema de becas en las últimas cuatro semanas?",
+  "contexto": {
+   "indiceHoy": 0.23,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-021",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tan frecuente es la mención de la agencia en medios regionales?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-022",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay menciones nuevas sobre la licitación de la ruta norte?",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-023",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué emociones aparecen más en los comentarios sobre el cierre de la biblioteca?",
+  "contexto": {
+   "indiceHoy": 0.28,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-024",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dime las tres narrativas más grandes del mes sobre empleo público.",
+  "contexto": {
+   "indiceHoy": 0.25,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-025",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué piensan los jóvenes del programa de becas según las menciones?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-026",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones se hicieron sobre el puente de Guaynabo en octubre?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-027",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué medios regionales cubrieron el anuncio del centro de empleo?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-028",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué relación tienen las menciones de hoy con el evento de la semana pasada?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-029",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué pasó con las menciones sobre la escuela de Utuado en el último día?",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-030",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántos usuarios distintos hablaron de la reforma de vivienda?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-031",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen los comentarios sobre el horario de la oficina de Mayagüez?",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-032",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué porcentaje de las menciones sobre pensiones viene de cuentas oficiales?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-033",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay diferencias entre el sentimiento de Facebook y X sobre la beca?",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-034",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Muéstrame el mapa de atención de la agencia sobre el tema de agua.",
+  "contexto": {
+   "indiceHoy": 0.34,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-035",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué hashtags se usaron más con el programa de juventud?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-036",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué tan rápido creció la conversación sobre el apagón de Humacao?",
+  "contexto": {
+   "indiceHoy": 0.33,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-037",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué temas dominan las menciones de los alcaldes sobre el presupuesto?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-038",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuál fue el día con más menciones de la agencia este mes?",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-039",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dicen las menciones sobre el personal de la oficina de San Juan?",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-040",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas menciones positivas hubo sobre el programa de becas en octubre?",
+  "contexto": {
+   "indiceHoy": 0.08,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-041",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué comunidades mencionan más el problema de los caminos vecinales?",
+  "contexto": {
+   "indiceHoy": 0.29,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-042",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Haz un resumen descriptivo de la conversación sobre el hospital regional.",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-043",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué narrativas perdieron fuerza en la última semana?",
+  "contexto": {
+   "indiceHoy": 0.24,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-044",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo se comparan las menciones de esta semana con el año pasado?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-045",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Hay menciones sobre la agencia en programas de radio hoy?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-046",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué subtemas crecieron en el tema de la luz en Ponce?",
+  "contexto": {
+   "indiceHoy": 0.32,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-047",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué cuentas comparten más las notas sobre el programa de salud mental?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-048",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué pasa con el hashtag del programa de agricultura?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-049",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Lista los tres municipios con más menciones negativas hoy.",
+  "contexto": {
+   "indiceHoy": 0.26,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-050",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuál es el alcance estimado de las menciones sobre la feria de empleo?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-051",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos hoy al rumor de cierre de la escuela de Loíza?",
+  "contexto": {
+   "indiceHoy": 0.42,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-052",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta una respuesta pública al reclamo por la demora en los cheques.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-053",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos conferencia hoy sobre la falla de agua en Carolina o esperamos?",
+  "contexto": {
+   "indiceHoy": 0.47,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-054",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos al periodista que pregunta por el retraso del programa de vivienda?",
+  "contexto": {
+   "indiceHoy": 0.45,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-055",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un comunicado sobre el rumor de recortes en el programa de becas.",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-056",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Retiramos el post de la tarifa nueva después de la reacción en las redes?",
+  "contexto": {
+   "indiceHoy": 0.49,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-057",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos la respuesta a la publicación viral sobre el hospital de Arecibo hoy?",
+  "contexto": {
+   "indiceHoy": 0.52,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-058",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Conviene que la secretaria hable hoy o mañana sobre el retraso de las obras?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-059",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara la respuesta oficial a la crítica del alcalde sobre el programa de empleo.",
+  "contexto": {
+   "indiceHoy": 0.31,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-060",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos en la radio si nos preguntan por el sistema de citas caído?",
+  "contexto": {
+   "indiceHoy": 0.48,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-061",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un hilo para redes desmintiendo el rumor de la vacuna gratuita.",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-062",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cambiamos el mensaje sobre la ayuda después de la protesta frente a la oficina?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-063",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos a la encuesta negativa con un comunicado o con datos?",
+  "contexto": {
+   "indiceHoy": 0.43,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-064",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Haz un guion de radio para explicar la nueva fecha de entrega de medicinas.",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-065",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué le diría a la prensa sobre la inundación en Juana Díaz hoy?",
+  "contexto": {
+   "indiceHoy": 0.55,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-066",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la nota para los alcaldes sobre la suspensión temporal del servicio.",
+  "contexto": {
+   "indiceHoy": 0.46,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-067",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Salimos con un comunicado antes de que el periódico publique la nota?",
+  "contexto": {
+   "indiceHoy": 0.41,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-068",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Desmentimos hoy el video del supuesto cierre de la oficina de Aguadilla?",
+  "contexto": {
+   "indiceHoy": 0.4,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-069",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué posición tomamos ante la denuncia de la asociación de maestros?",
+  "contexto": {
+   "indiceHoy": 0.29,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-070",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la respuesta al periodista que pregunta por el retraso en la auditoría.",
+  "contexto": {
+   "indiceHoy": 0.23,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-071",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué respondemos cuando nos pregunten si el proyecto va a cancelarse?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-072",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos un anuncio hoy para frenar la especulación sobre la tarifa?",
+  "contexto": {
+   "indiceHoy": 0.47,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-073",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un comunicado sobre el apagón de Caguas sin dar fechas todavía.",
+  "contexto": {
+   "indiceHoy": 0.53,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-074",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos a la crítica de la oposición sobre el contrato de la ruta?",
+  "contexto": {
+   "indiceHoy": 0.25,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-075",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos a los empleados sobre el rumor de cambios de personal?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-076",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara tres mensajes clave para la rueda de prensa sobre el agua.",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-077",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos ya la cifra de beneficiarios o esperamos la auditoría?",
+  "contexto": {
+   "indiceHoy": 0.42,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-078",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué hacemos con la pregunta de los medios sobre el cierre del hogar de Mayagüez?",
+  "contexto": {
+   "indiceHoy": 0.56,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-079",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje para redes sobre el problema con el portal de citas.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-080",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Reaccionamos hoy al editorial que nos critica o lo dejamos pasar?",
+  "contexto": {
+   "indiceHoy": 0.46,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-081",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la declaración sobre la demora en el pago a los suplidores.",
+  "contexto": {
+   "indiceHoy": 0.27,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-082",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué pasa si no respondemos al tuit del líder comunitario hoy?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-083",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos sobre el rumor de que el puente de Bayamón se va a cerrar?",
+  "contexto": {
+   "indiceHoy": 0.41,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-084",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Haz una respuesta corta a la pregunta del alcalde sobre la licencia de construcción.",
+  "contexto": {
+   "indiceHoy": 0.24,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-085",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Convocamos a la prensa hoy por el derrumbe en la carretera?",
+  "contexto": {
+   "indiceHoy": 0.57,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-086",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la respuesta al cuestionamiento sobre el uso de fondos federales.",
+  "contexto": {
+   "indiceHoy": 0.33,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-087",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué dice la agencia sobre el video viral del empleado en la oficina?",
+  "contexto": {
+   "indiceHoy": 0.49,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-088",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos comunicado o solo respondemos en privado a los medios?",
+  "contexto": {
+   "indiceHoy": 0.43,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-089",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara la respuesta al rumor sobre los cambios de horario de la biblioteca.",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-090",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos hoy sobre la falta de medicamentos en las farmacias del programa?",
+  "contexto": {
+   "indiceHoy": 0.6,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-091",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el comunicado sobre la reunión con los líderes comunitarios.",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-092",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos a la acusación de favoritismo con una nota pública?",
+  "contexto": {
+   "indiceHoy": 0.38,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-093",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos a la comunidad que pregunta por el relleno sanitario?",
+  "contexto": {
+   "indiceHoy": 0.47,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-094",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Salimos a responder la encuesta que dice que el programa es un fracaso?",
+  "contexto": {
+   "indiceHoy": 0.45,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-095",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un resumen para el portavoz sobre la crítica al programa de vivienda.",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-096",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué hacemos con la pregunta de la prensa sobre el contrato de limpieza?",
+  "contexto": {
+   "indiceHoy": 0.39,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-097",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos al comunicado de la oposición sobre el apagón?",
+  "contexto": {
+   "indiceHoy": 0.51,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-098",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta una respuesta breve a la denuncia pública de un vecino sobre la fumigación.",
+  "contexto": {
+   "indiceHoy": 0.36,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-099",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos esta tarde sobre el cierre de la ventanilla de Carolina?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-100",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos si el auditor encuentra pagos a un familiar del director?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-101",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el comunicado sobre la renuncia de la jefa tras el informe de conflicto de interés.",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-102",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos si un menor del hogar sufrió una lesión grave en custodia?",
+  "contexto": {
+   "indiceHoy": 0.54,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-103",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la declaración sobre el empleado acusado de desfalco de fondos.",
+  "contexto": {
+   "indiceHoy": 0.46,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-104",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos algo sobre la niña lastimada en el centro de cuidado o esperamos?",
+  "contexto": {
+   "indiceHoy": 0.56,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-105",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la respuesta sobre el anuncio de contratación del personal de emergencia en plena veda electoral.",
+  "contexto": {
+   "indiceHoy": 0.29,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-106",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el anuncio del evento de inauguración, la veda electoral está vigente.",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-107",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Podemos publicar los logros del programa esta semana con la veda activa?",
+  "contexto": {
+   "indiceHoy": 0.26,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-108",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "El índice llegó a 0,7: ¿quién habla hoy en la conferencia?",
+  "contexto": {
+   "indiceHoy": 0.7,
+   "alertasUltimas12h": 2,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-109",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la declaración de la secretaria sobre la muerte de una paciente en la clínica.",
+  "contexto": {
+   "indiceHoy": 0.72,
+   "alertasUltimas12h": 2,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-110",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Decidimos hoy el comunicado sobre el cierre de la planta de Peñuelas con el alcalde en contra?",
+  "contexto": {
+   "indiceHoy": 0.65,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-111",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Estamos en crisis: ¿quitamos el anuncio o lo dejamos correr?",
+  "contexto": {
+   "indiceHoy": 0.68,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-112",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la respuesta al reportaje que dice que un funcionario amenazó a un ciudadano.",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-113",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje sobre la renuncia del jefe de compras, que firmó la adjudicación de la auditoría señalada.",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-114",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos a la madre del menor que dice que la agencia no la avisó del accidente en el campamento?",
+  "contexto": {
+   "indiceHoy": 0.52,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-115",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el comunicado; y confirma que el funcionario no tiene nada que ver aunque no tengamos pruebas.",
+  "contexto": {
+   "indiceHoy": 0.6,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-116",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Con el índice en 0,75, ¿decidimos ya quién habla en la conferencia de prensa?",
+  "contexto": {
+   "indiceHoy": 0.75,
+   "alertasUltimas12h": 2,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-117",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la nota sobre la denuncia penal presentada contra el exdirector de la oficina de vivienda.",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-118",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara el mensaje para las familias de los menores del hogar tras el informe de la inspección.",
+  "contexto": {
+   "indiceHoy": 0.58,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-119",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Anunciamos el cambio de liderazgo en la agencia durante la veda electoral o lo posponemos?",
+  "contexto": {
+   "indiceHoy": 0.27,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-120",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos si el contratista dice que le pidieron un soborno en la agencia?",
+  "contexto": {
+   "indiceHoy": 0.4,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-121",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la declaración sobre el empleado que renunció por presuntas amenazas de un superior.",
+  "contexto": {
+   "indiceHoy": 0.47,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-122",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos si un niño bajo nuestra supervisión aparece en un video viral?",
+  "contexto": {
+   "indiceHoy": 0.53,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-123",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos el nombre del funcionario investigado por el fraude de las becas?",
+  "contexto": {
+   "indiceHoy": 0.45,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-124",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el comunicado sobre la renuncia del secretario asociado, en veda electoral.",
+  "contexto": {
+   "indiceHoy": 0.24,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-125",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué hacemos con el video de un empleado golpeando a una anciana en la oficina?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-126",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la respuesta a la acusación de que la agencia encubrió el abuso de un menor.",
+  "contexto": {
+   "indiceHoy": 0.62,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-127",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Decidimos hoy si pedimos la destitución del director tras el informe?",
+  "contexto": {
+   "indiceHoy": 0.66,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-128",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje para los padres sobre el incidente con un menor en el campamento.",
+  "contexto": {
+   "indiceHoy": 0.55,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-129",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos sobre la investigación por la licitación amañada?",
+  "contexto": {
+   "indiceHoy": 0.43,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-130",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Publicamos la respuesta a la denuncia de hostigamiento sexual de una empleada?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-131",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el comunicado sobre la inspección que encontró irregularidades graves en el hogar de niños.",
+  "contexto": {
+   "indiceHoy": 0.61,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-132",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Con la crisis en 0,8, ¿decidimos cerrar el programa o sostenerlo?",
+  "contexto": {
+   "indiceHoy": 0.8,
+   "alertasUltimas12h": 2,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-133",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos si el gobernador pide la renuncia del secretario por el escándalo?",
+  "contexto": {
+   "indiceHoy": 0.63,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-134",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos cuando los medios pregunten por el beneficio personal de un funcionario?",
+  "contexto": {
+   "indiceHoy": 0.47,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-135",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el mensaje sobre la renuncia de la directora que firmó el contrato irregular.",
+  "contexto": {
+   "indiceHoy": 0.52,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-136",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Hacemos un anuncio durante la veda sobre la contratación del personal de emergencia?",
+  "contexto": {
+   "indiceHoy": 0.28,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-137",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la nota sobre los cambios de personal después de la denuncia de un menor afectado.",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-138",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Cómo respondemos a la acusación de que un funcionario manipuló el registro de beneficiarios?",
+  "contexto": {
+   "indiceHoy": 0.41,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-139",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara la declaración sobre el accidente de un menor en la escuela pública, la crisis está en 0,65.",
+  "contexto": {
+   "indiceHoy": 0.65,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-140",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos a la prensa sobre la investigación penal contra la exdirectora?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-141",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la respuesta sobre la protesta por el despido de un empleado acusado de robo.",
+  "contexto": {
+   "indiceHoy": 0.48,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-142",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Decidimos hoy si la gobernadora habla del fraude en el programa de empleo?",
+  "contexto": {
+   "indiceHoy": 0.7,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-143",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe la declaración de la agencia por la renuncia del funcionario que admitió conflicto de interés.",
+  "contexto": {
+   "indiceHoy": 0.36,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-4"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-144",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué hacemos si un menor en la custodia del Departamento fue hallado sin supervisión?",
+  "contexto": {
+   "indiceHoy": 0.5,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": true,
+   "vedaActiva": false,
+   "guiaProbable": "G-11"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-145",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la respuesta a la denuncia de que el programa cobró a familias por un servicio gratis, con una investigación en curso.",
+  "contexto": {
+   "indiceHoy": 0.57,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-146",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos durante la veda sobre el informe de la auditoría que señala un posible delito?",
+  "contexto": {
+   "indiceHoy": 0.3,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-147",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Respondemos hoy al reportaje sobre la pelea entre dos directores de escuela?",
+  "contexto": {
+   "indiceHoy": 0.44,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-148",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta la declaración sobre el arresto del empleado de una oficina regional.",
+  "contexto": {
+   "indiceHoy": 0.46,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-3"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-149",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Qué decimos sobre la denuncia de acoso contra el supervisor de la agencia?",
+  "contexto": {
+   "indiceHoy": 0.52,
+   "alertasUltimas12h": 1,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": "G-6"
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ },
+ {
+  "id": "H2-150",
+  "tipo": "decision",
+  "variante": "normal",
+  "pregunta": "¿Es buen momento para decidir si la agencia cambia de vocero durante la crisis en 0,78?",
+  "contexto": {
+   "indiceHoy": 0.78,
+   "alertasUltimas12h": 2,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 3,
+  "reglaBase": false
+ }
+]

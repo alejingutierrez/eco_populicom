@@ -1,0 +1,482 @@
+[
+ {
+  "id": "D-001",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un agradecimiento a los maestros que ayudaron con la matrícula de verano en Arecibo.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-002",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un post felicitando a las bomberas de Ponce por el rescate de ayer.",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-003",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Prepara un mensaje de gracias a los líderes comunitarios que acompañaron la entrega de toldos.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-004",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe una felicitación a los estudiantes de Mayagüez que ganaron la feria de ciencias.",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-005",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta el anuncio de que la oficina de Humacao fue reconocida por su servicio al ciudadano.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-006",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa mi tuit de gracias a la comunidad de Loíza por participar en el censo de salud.",
+  "contexto": {
+   "indiceHoy": 0.08,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-007",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Mira este mensaje de felicitación a los trabajadores sociales por su día y dime si cambiarías algo.",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-008",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un texto de agradecimiento para los participantes del taller de emprendimiento.",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-009",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un post celebrando que se vacunaron 5.000 niños en la campaña de la región este.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-010",
+  "tipo": "redaccion",
+  "variante": "spanglish",
+  "pregunta": "Draft a thank-you note for the volunteers at the community garden in Santurce.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-011",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un agradecimiento por la paciencia de los usuarios tras las críticas por las filas de esta semana.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-012",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe un post celebrando el nuevo portal, para contrarrestar las quejas de los últimos días.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-013",
+  "tipo": "revision_borrador",
+  "variante": "normal",
+  "pregunta": "Revisa este mensaje de gracias que sale justo después del reportaje que criticaba el programa.",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-014",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Felicita al equipo de la oficina de Caguas y de paso responde a la denuncia que circula en redes.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-015",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Escribe el agradecimiento a los vecinos; la semana pasada hubo un rumor de que cerrábamos el centro y queremos aclararlo.",
+  "contexto": {
+   "indiceHoy": 0.09,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-016",
+  "tipo": "redaccion",
+  "variante": "normal",
+  "pregunta": "Redacta un mensaje de felicitación al personal que sale durante la veda electoral.",
+  "contexto": {
+   "indiceHoy": 0.11,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": true,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-017",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Una señora escribió que la fila estuvo larga en la oficina de Yauco. ¿Hay algún otro comentario así hoy?",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-018",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un usuario se quejó del baño de la oficina de Cidra. ¿Cuántos comentarios hay sobre eso?",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-019",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué dice el comentario negativo que dejaron en el post de la feria de empleo?",
+  "contexto": {
+   "indiceHoy": 0.16,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-020",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Alguien criticó el color del nuevo logo en un comentario. ¿Es solo esa persona?",
+  "contexto": {
+   "indiceHoy": 0.07,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-021",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cuántas quejas por demora recibió la línea de atención ayer?",
+  "contexto": {
+   "indiceHoy": 0.2,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-022",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué temas negativos aparecen en las reseñas de la oficina de Aguada?",
+  "contexto": {
+   "indiceHoy": 0.18,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-023",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Dame las menciones negativas de hoy sobre el programa de becas.",
+  "contexto": {
+   "indiceHoy": 0.22,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-024",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Un vecino dijo que la guagua tardó mucho. ¿Alguien más lo comentó?",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-025",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Cómo estuvo el tono de los comentarios en el post de ayer? Hubo un par de quejas.",
+  "contexto": {
+   "indiceHoy": 0.19,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-026",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "Hay una reseña con una estrella sobre la oficina de Carolina. ¿Cuántas más hay en el mes?",
+  "contexto": {
+   "indiceHoy": 0.13,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-027",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Qué se dijo en Facebook sobre el cambio de turnos de la oficina de Ponce?",
+  "contexto": {
+   "indiceHoy": 0.17,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-028",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿De qué se queja la gente del estacionamiento de la oficina de Gurabo hoy?",
+  "contexto": {
+   "indiceHoy": 0.21,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 1,
+  "reglaBase": false
+ },
+ {
+  "id": "D-029",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Está creciendo la queja por la fila de la oficina de Yauco? Quiero saber si ya llegó a la prensa.",
+  "contexto": {
+   "indiceHoy": 0.14,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-030",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Se está regando la crítica al nuevo logo o se quedó en un par de comentarios? Me preocupa que explote.",
+  "contexto": {
+   "indiceHoy": 0.1,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-031",
+  "tipo": "descriptiva",
+  "variante": "spanglish",
+  "pregunta": "Is the complaint about the app getting bigger? I'm worried it ends up in the news.",
+  "contexto": {
+   "indiceHoy": 0.12,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ },
+ {
+  "id": "D-032",
+  "tipo": "descriptiva",
+  "variante": "normal",
+  "pregunta": "¿Ya tiene prensa la queja por el cierre del parque? ¿Va en aumento?",
+  "contexto": {
+   "indiceHoy": 0.15,
+   "alertasUltimas12h": 0,
+   "riesgoPersonas": false,
+   "vedaActiva": false,
+   "guiaProbable": null
+  },
+  "caminoMinimo": 2,
+  "reglaBase": false
+ }
+]
