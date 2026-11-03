@@ -139,6 +139,32 @@ export interface WeeklySummaryRenderData {
 
   /** Deeplink al Overview del dashboard — lo usan los 3 CTAs (se omiten si falta). */
   dashboardUrl?: string | null;
+
+  /**
+   * Interpretación v1 (WP-7, spec 11.2). Solo lo manda el lambda cuando el
+   * correo lleva el texto del motor (`composer_mode = agentic`). Ausente, el
+   * correo sale exactamente como siempre (legacy y shadow). Con ella,
+   * `highlights` («Qué cambió») trae la comparación contra la semana previa.
+   */
+  interpretation?: WeeklyInterpretation;
+}
+
+export interface WeeklyInterpretation {
+  /** Rótulo de la semana en las secciones del texto del motor («26 oct – 1 nov 2026»). */
+  windowLabel?: string;
+  /** Rótulo de la semana de comparación («19 – 25 oct 2026»). */
+  prevWindowLabel?: string;
+  /** Viñetas de hechos de la semana (van bajo el párrafo, en «La semana en un vistazo»). */
+  weekHighlights?: string[];
+  /** 1 o 2 insights por sentimiento sobre la semana. Sin ítems, no hay sección. */
+  insights?: { negative: string[]; neutral: string[]; positive: string[] } | null;
+  /**
+   * Chip de composición: qué parte de las menciones son comentarios de
+   * usuarios en publicaciones de redes de la agencia, esta semana y la previa.
+   */
+  composition?: { weekPct: number; prevWeekPct: number | null } | null;
+  /** Nota de metodología al pie del contenido (texto plano). */
+  methodologyNote?: string | null;
 }
 
 // ------------------------------------------------------------
@@ -202,11 +228,36 @@ function renderGlance(data: WeeklySummaryRenderData, sec: string): string {
     ? `<h2 class="force-text-dark" style="margin:0 0 14px 0;font-family:${FONT_SANS};font-size:20px;font-weight:600;line-height:1.3;color:${T.ink};">${esc(headline)}</h2>`
     : '';
   const img = heroImage(data.heroImage ? { ...data.heroImage, alt: data.heroImage.alt ?? headline } : null);
+  const it = data.interpretation;
+  if (it) {
+    // Texto del motor: rótulo con la semana y las viñetas de hechos bajo el párrafo.
+    const win = it.windowLabel?.trim();
+    const list = numberedList(it.weekHighlights ?? [], { marginTop: 14 });
+    return sectionRow(`
+              ${sectionLabel(win ? `${sec} · La semana en un vistazo · ${win}` : `${sec} · La semana en un vistazo`)}
+              ${h2}
+              ${img}
+              <p style="margin:0;font-size:15px;line-height:1.6;color:${T.ink2};">${data.weeklySummary}</p>${list ? `
+              ${list}` : ''}`);
+  }
   return sectionRow(`
               ${sectionLabel(`${sec} · La semana en un vistazo`)}
               ${h2}
               ${img}
               <p style="margin:0;font-size:15px;line-height:1.6;color:${T.ink2};">${data.weeklySummary}</p>`);
+}
+
+/**
+ * Chip de composición (interpretación v1): parte de las menciones que son
+ * comentarios de usuarios en publicaciones de redes de la agencia, esta semana
+ * y la anterior. Vacío sin `interpretation.composition` (legacy).
+ */
+function compositionChip(data: WeeklySummaryRenderData): string {
+  const c = data.interpretation?.composition;
+  if (!c || !Number.isFinite(c.weekPct)) return '';
+  const prev = c.prevWeekPct != null && Number.isFinite(c.prevWeekPct) ? ` · semana anterior: ${Math.round(c.prevWeekPct)}%` : '';
+  return `
+              <div style="margin-top:12px;padding:6px 10px;border:1px solid ${T.line};font-family:${FONT_MONO};font-size:12px;line-height:1.5;color:${T.ink2};">${esc(`${Math.round(c.weekPct)}% de las menciones de la semana son comentarios de usuarios en publicaciones de redes de la agencia${prev}`)}</div>`;
 }
 
 function renderWeekVsWeek(data: WeeklySummaryRenderData, sec: string): string {
@@ -224,7 +275,7 @@ function renderWeekVsWeek(data: WeeklySummaryRenderData, sec: string): string {
                     changeHtml: deltaOrDash(data.sentimentDelta[s.key], s.key !== 'neutral'),
                   })),
                 ],
-              })}`);
+              })}${compositionChip(data)}`);
 }
 
 function renderRhythm(data: WeeklySummaryRenderData, sec: string): string {
@@ -242,12 +293,65 @@ function renderRhythm(data: WeeklySummaryRenderData, sec: string): string {
               ${pairedColumnChart(days, { height: 120, barWidth: 18, alt })}`);
 }
 
-function renderHighlights(items: string[], sec: string): string {
+function renderHighlights(items: string[], sec: string, prevWindowLabel?: string): string {
   const list = numberedList(items);
   if (!list) return '';
+  const prev = prevWindowLabel?.trim();
   return sectionRow(`
-              ${sectionLabel(`${sec} · Qué cambió`)}
+              ${sectionLabel(prev ? `${sec} · Qué cambió · contra ${prev}` : `${sec} · Qué cambió`)}
               ${list}`);
+}
+
+/** Insights de la semana (solo con el motor): un bloque por sentimiento con ítems. */
+function weeklyInsightBlocks(data: WeeklySummaryRenderData) {
+  const ins = data.interpretation?.insights;
+  if (!ins) return [];
+  return SENTIMENTS
+    .map((s) => ({ ...s, items: (ins[s.key] ?? []).filter((x) => x && x.trim().length > 0) }))
+    .filter((b) => b.items.length > 0);
+}
+
+function renderWeeklyInsights(data: WeeklySummaryRenderData, sec: string): string {
+  const blocks = weeklyInsightBlocks(data);
+  if (!blocks.length) return '';
+  const { totals } = data;
+  const win = data.interpretation?.windowLabel?.trim();
+  const body = blocks.map((b, bi) => `
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${bi > 0 ? 'margin-top:18px;' : ''}">
+                <tr>
+                  <td align="left" style="padding:0 0 6px 0;border-bottom:1px solid ${T.line};font-size:13px;font-weight:600;color:${T.ink};">${swatch(b.color)}${esc(b.label)}</td>
+                  <td align="right" style="padding:0 0 6px 0;border-bottom:1px solid ${T.line};font-family:${FONT_MONO};font-size:12px;color:${T.text2};">${share(totals[b.key], totals.total)}% del total</td>
+                </tr>
+                ${b.items.map((x) => `<tr><td colspan="2" class="force-text-dark" style="padding:8px 0 0 0;font-size:14px;line-height:1.55;color:${T.ink};">${x}</td></tr>`).join('')}
+              </table>`).join('');
+  return sectionRow(`
+              ${sectionLabel(win ? `${sec} · Insights · ${win}` : `${sec} · Insights`)}
+              ${body}`);
+}
+
+/**
+ * Nota de metodología (interpretación v1): universo, ventanas, composición y
+ * base mínima de los porcentajes. Vacía sin `interpretation.methodologyNote`.
+ */
+function renderMethodology(data: WeeklySummaryRenderData): string {
+  const note = data.interpretation?.methodologyNote?.trim();
+  if (!note) return '';
+  return sectionRow(`
+              ${sectionLabel('Cómo se lee este correo')}
+              <p style="margin:0;font-size:12px;line-height:1.55;color:${T.text2};">${esc(note)}</p>`, { padding: '20px 32px' });
+}
+
+/**
+ * Texto de la nota de metodología del semanal con el motor. Sin cifras propias
+ * (solo las ventanas y la base mínima de los porcentajes).
+ */
+export function buildWeeklyMethodologyNote(opts: { weekLabel: string; prevWeekLabel: string; minDeltaBase: number }): string {
+  return [
+    `Las cifras de menciones y sentimiento cuentan menciones pertinentes (se excluye la pertinencia baja) de la semana cerrada (${opts.weekLabel}) contra la anterior (${opts.prevWeekLabel}), en días de Puerto Rico; es la misma base que el dashboard. La tabla de tópicos cuenta cada mención en su tópico principal.`,
+    'Un comentario cuenta el día en que se escribió; si responde a una publicación de más de 2 días, se presenta como reacción tardía con la fecha de esa publicación.',
+    'Si el peso de los comentarios en redes de la agencia cambia mucho entre semanas, los totales no comparan el mismo tipo de conversación.',
+    `Las variaciones en porcentaje se muestran solo si la base previa llega a ${opts.minDeltaBase} menciones; con menos, se muestra la diferencia en menciones.`,
+  ].join(' ');
 }
 
 function renderTopics(data: WeeklySummaryRenderData, sec: string): string {
@@ -339,10 +443,16 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
     renderWeekVsWeek(data, next()),
   ];
   const rhythm = (data.dailyCompare ?? []).length ? renderRhythm(data, next()) : '';
-  const highlights = data.highlights.some((s) => s && s.trim()) ? renderHighlights(data.highlights, next()) : '';
+  const highlights = data.highlights.some((s) => s && s.trim()) ? renderHighlights(data.highlights, next(), data.interpretation?.prevWindowLabel) : '';
+  // Solo con el motor (interpretation): insights de la semana tras «Qué cambió».
+  const insights = weeklyInsightBlocks(data).length ? renderWeeklyInsights(data, next()) : '';
   const topics = renderTopics(data, next());
   const mentions = (data.topMentions ?? []).length ? renderTopMentions(data, next()) : '';
-  sections.push(rhythm, highlights, topics, mentions);
+  sections.push(rhythm, highlights);
+  if (insights) sections.push(insights);
+  sections.push(topics, mentions);
+  const methodology = renderMethodology(data);
+  if (methodology) sections.push(methodology);
   if (data.dashboardUrl) sections.push(actionRow(data.dashboardUrl, 'Abrir la semana en el dashboard'));
 
   return instrumentDocument({
