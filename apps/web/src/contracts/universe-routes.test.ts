@@ -26,7 +26,9 @@ import * as path from 'node:path';
 const GOLDEN = path.join(__dirname, '__golden__', 'universe-legacy-sql.json');
 // El SQL de Drizzle cita las columnas ("mentions"."nlp_pertinence"); el crudo no.
 const LEGACY_PERT = /nlp_pertinence"?\s+IS NULL OR/;
-const STRICT_PERT = /nlp_pertinence"?\s+IN \('alta','media'/;
+// Predicado estricto de universe.ts: duplicados + alta/media juntos (los FILTER
+// del Scorecard también dicen IN ('alta','media') sin que eso sea el universo).
+const STRICT_PERT = /is_duplicate"? = false AND \S*nlp_pertinence"? IN \('alta','media'/;
 
 interface Q { sql: string; params: unknown[] }
 
@@ -150,10 +152,16 @@ async function run(env: string | undefined): Promise<Record<string, Q[]>> {
   }
 }
 
-/** Consultas ADITIVAS de WP-9a que el golden previo no puede contener. */
-const isAdditive = (q: Q) =>
-  /#channels_comment/.test(q.sql) // commentShare (composición)
-  || /FROM mentions WHERE id = ANY/.test(q.sql); // padres de los comentarios del feed
+/**
+ * Consultas ADITIVAS de WP-9a que el golden previo no puede contener, o que
+ * cambian solo por columnas nuevas:
+ *   - commentShare (composición de Overview/eco-data);
+ *   - la página del feed de eco-mentions: ahora también pide mention_kind,
+ *     bw_guid, pub_type, parent_mention_id y nlp_adverse_fact (campos nuevos).
+ *     Se prueba aparte («la página del feed conserva todas sus columnas»).
+ */
+const FEED_PAGE = /^select "id", "title", "snippet", "domain", "page_type"/;
+const isAdditive = (q: Q) => /#channels_comment/.test(q.sql) || FEED_PAGE.test(q.sql);
 
 beforeAll(() => {
   jest.useFakeTimers({
@@ -176,8 +184,25 @@ describe('universo — SQL de cada ruta de datos', () => {
     const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')) as Record<string, Q[]>;
     for (const sc of SCENARIOS) {
       // Una ruta a la vez: el mensaje de fallo dice cuál diverge.
-      expect({ route: sc.name, queries: plain[sc.name] }).toEqual({ route: sc.name, queries: golden[sc.name] });
+      expect({ route: sc.name, queries: plain[sc.name] })
+        .toEqual({ route: sc.name, queries: golden[sc.name].filter((q) => !isAdditive(q)) });
     }
+  });
+
+  test('bandera VACÍA: la página del feed conserva todas sus columnas y suma las nuevas', async () => {
+    const got = await run(undefined);
+    const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')) as Record<string, Q[]>;
+    const before = golden.ecoMentions.find((q) => FEED_PAGE.test(q.sql))!;
+    const after = got.ecoMentions.find((q) => FEED_PAGE.test(q.sql))!;
+    const cols = (sqlText: string) => sqlText.slice('select '.length, sqlText.indexOf(' from ')).split(', ');
+    const [oldCols, newCols] = [cols(before.sql), cols(after.sql)];
+    // Todas las columnas anteriores, en el mismo orden, y el resto del SQL idéntico.
+    expect(newCols.slice(0, oldCols.length)).toEqual(oldCols);
+    expect(newCols.slice(oldCols.length)).toEqual(
+      ['"bw_guid"', '"pub_type"', '"mention_kind"', '"parent_mention_id"', '"nlp_adverse_fact"'],
+    );
+    expect(after.sql.slice(after.sql.indexOf(' from '))).toEqual(before.sql.slice(before.sql.indexOf(' from ')));
+    expect(after.params).toEqual(before.params);
   });
 
   test('bandera VACÍA: ninguna ruta pierde el predicado histórico', async () => {
