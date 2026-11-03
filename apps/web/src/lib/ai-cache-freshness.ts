@@ -20,7 +20,7 @@
  * no tiene texto) está vieja en cuanto llegó algo y el total vivo ya alcanza
  * el mínimo (DF 19-oct: 81 menciones, 74 llegadas después).
  */
-import type { PgClientLike } from '@eco/shared';
+import { COMPOSER_VERSION, type PgClientLike } from '@eco/shared';
 
 /** Mínimo de menciones con el que eco-ai-tasks / las rutas generan texto. */
 export const AI_MIN_MENTIONS = 10;
@@ -108,4 +108,63 @@ export function claimAiTrigger(key: string, now: number = Date.now(), ttlMs: num
 /** Libera la clave si la invocación misma falló (para no esperar 3 min). */
 export function releaseAiTrigger(key: string): void {
   lastTriggerAt.delete(key);
+}
+
+// ============================================================
+// Motor de redacción (WP-8): bandera por agencia y versión del caché
+// ============================================================
+
+/**
+ * Bandera `COMPOSER_WEB_AGENCIES`: slugs separados por coma (`*` = todas).
+ * Vacía = el camino de siempre, byte a byte (ninguna consulta extra).
+ */
+export function parseComposerWebAgencies(raw: string | null | undefined): Set<string> {
+  return new Set(String(raw ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+
+/** ¿Hay alguna agencia con motor? Evita resolver el slug cuando la bandera está vacía. */
+export function composerWebActive(env: string | null | undefined = process.env.COMPOSER_WEB_AGENCIES): boolean {
+  return parseComposerWebAgencies(env).size > 0;
+}
+
+/**
+ * Ventana máxima con motor (mismo valor que eco-ai-tasks,
+ * `MAX_COMPOSER_WINDOW_DAYS`): el paquete de hechos lista 3 cifras por día de
+ * la serie; con 1A serían ~1,100 líneas por llamada. Las ventanas más largas
+ * siguen por el camino actual.
+ */
+export const MAX_COMPOSER_WINDOW_DAYS = 92;
+
+function windowDays(startYmd: string, endYmd: string): number {
+  return Math.round((Date.parse(`${endYmd}T00:00:00Z`) - Date.parse(`${startYmd}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** ¿Esta agencia y esta ventana van por el motor? */
+export function isComposerWebEnabled(
+  slug: string | null | undefined,
+  window?: { startYmd: string; endYmd: string } | null,
+  env: string | null | undefined = process.env.COMPOSER_WEB_AGENCIES,
+): boolean {
+  const set = parseComposerWebAgencies(env);
+  if (set.size === 0 || !slug) return false;
+  if (!set.has('*') && !set.has(slug.toLowerCase())) return false;
+  return !window || windowDays(window.startYmd, window.endYmd) <= MAX_COMPOSER_WINDOW_DAYS;
+}
+
+/** Versión del motor que debe tener una fila de caché: null = texto legacy. */
+export function expectedComposerVersion(
+  slug: string | null | undefined,
+  window?: { startYmd: string; endYmd: string } | null,
+  env: string | null | undefined = process.env.COMPOSER_WEB_AGENCIES,
+): string | null {
+  return isComposerWebEnabled(slug, window, env) ? COMPOSER_VERSION : null;
+}
+
+/**
+ * ¿La fila es de otra versión del motor? Encender o apagar la bandera, o
+ * subir `COMPOSER_VERSION`, invalida el caché (se regenera una vez). Con la
+ * bandera vacía y filas legacy (versión NULL) nunca es true.
+ */
+export function isComposerVersionStale(rowVersion: string | null | undefined, expected: string | null): boolean {
+  return (rowVersion ?? null) !== (expected ?? null);
 }

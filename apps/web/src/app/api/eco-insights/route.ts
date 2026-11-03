@@ -14,6 +14,12 @@
  *     era una fila «sin señal» y hoy ya hay señal → 202 + recalc async
  *   - No existe → 202 {status:'computing'} + invoca lambda async
  * Los disparos se deduplican por ventana (claimAiTrigger, 3 min).
+ *
+ * Motor de redacción (WP-8): la fila declara `composer_version` (NULL =
+ * texto legacy). Si no coincide con la que pide `COMPOSER_WEB_AGENCIES` para
+ * esta agencia y ventana, se sirve y se recalcula una vez en segundo plano
+ * (como un lede viejo), y el disparo le dice al lambda qué camino usar. Con
+ * la bandera vacía y filas legacy nada de esto cambia la respuesta.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, overviewPeriodInsights } from '@eco/database';
@@ -21,7 +27,10 @@ import { sql, and, eq, desc } from 'drizzle-orm';
 import { dashboardPresetWindowYmdInTZ, ymdInTimeZone, PERIOD_DAYS, type PgClientLike } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
-import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger } from '@/lib/ai-cache-freshness';
+import {
+  loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger,
+  composerWebActive, expectedComposerVersion, isComposerVersionStale,
+} from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
@@ -52,6 +61,8 @@ function getLambdaClient(): LambdaClient {
 }
 
 async function triggerLambdaAsync(agencySlug: string, periodStart: string, periodEnd: string): Promise<void> {
+  // La clave no incluye la versión: un cambio de bandera dentro de los 3 min
+  // de dedup espera a la siguiente ventana, como cualquier otro recálculo.
   // Una generación por ventana cada 3 min: el SPA consulta cada 2 s mientras
   // recibe 202 y cada consulta disparaba OTRA corrida Opus (~10 por vista).
   const key = `period-insights:${agencySlug}:${periodStart}:${periodEnd}`;
@@ -66,15 +77,21 @@ async function triggerLambdaAsync(agencySlug: string, periodStart: string, perio
 
 async function sendInvoke(agencySlug: string, periodStart: string, periodEnd: string): Promise<void> {
   // InvocationType: 'Event' devuelve 202 inmediato; el lambda corre en background.
+  // `composer` solo viaja con la bandera definida: así web y lambda esperan la
+  // misma versión de la fila (sin bandera el payload es el de siempre).
+  const payload: Record<string, unknown> = {
+    action: 'period-insights',
+    agencySlug,
+    periodStart,
+    periodEnd,
+  };
+  if (composerWebActive()) {
+    payload.composer = expectedComposerVersion(agencySlug, { startYmd: periodStart, endYmd: periodEnd }) != null;
+  }
   await getLambdaClient().send(new InvokeCommand({
     FunctionName: AI_TASKS_FUNCTION_NAME,
     InvocationType: 'Event',
-    Payload: Buffer.from(JSON.stringify({
-      action: 'period-insights',
-      agencySlug,
-      periodStart,
-      periodEnd,
-    })),
+    Payload: Buffer.from(JSON.stringify(payload)),
   }));
 }
 
@@ -151,6 +168,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // recalculan UNA vez en segundo plano, también las históricas.
       const ledeVersion = Number((row.lede as { v?: number } | null)?.v ?? 1);
       const missingLede = row.dailySummary != null && (row.lede == null || ledeVersion < LEDE_VERSION);
+      // Otra versión del motor (o legacy vs motor): se recalcula una vez.
+      const composerStale = isComposerVersionStale(
+        (row as { composerVersion?: string | null }).composerVersion,
+        expectedComposerVersion(agencySlug, { startYmd, endYmd }),
+      );
       const rollingStale = !isHistorical && ageMs > STALE_MS;
       // Vieja = llegaron menciones a la ventana después de generarla (QA
       // 23-oct: DF 15→21 decía «720» con 1,037 en la base). Aplica también a
@@ -158,12 +180,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // con 81/199 menciones hoy). Solo se consulta si no va a recalcular ya
       // (salvo las «sin señal», que deben pasar a 202 aunque sean rolling).
       const wasEmpty = row.dailySummary == null;
-      const outdated = !missingLede && (wasEmpty || !rollingStale) && generatedAt != null
+      const outdated = !missingLede && !composerStale && (wasEmpty || !rollingStale) && generatedAt != null
         && isAiCacheOutdated(
           await loadWindowFreshness(pool as unknown as PgClientLike, { agencyId, startYmd, endYmd, generatedAt }),
           { wasEmpty },
         );
-      if (outdated && wasEmpty) {
+      if ((outdated || composerStale) && wasEmpty) {
         // La fila vieja no tiene texto que mostrar: 202 para que el SPA siga
         // consultando hasta que llegue la nueva.
         await triggerLambdaAsync(agencySlug, startYmd, endYmd);
@@ -186,12 +208,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         dailySummary: row.dailySummary,
         lede: row.lede ?? null,
         generatedAt: row.generatedAt,
-        stale: missingLede || rollingStale || outdated,
+        stale: missingLede || rollingStale || outdated || composerStale,
         outdated,
       };
       // Background recalc si stale y es ventana rolling (incluye hoy/ayer),
-      // si a la fila le falta el lede o si quedó vieja.
-      if (missingLede || rollingStale || outdated) {
+      // si a la fila le falta el lede, si quedó vieja o si es de otra versión
+      // del motor.
+      if (missingLede || rollingStale || outdated || composerStale) {
         // No await — fire and forget.
         triggerLambdaAsync(agencySlug, startYmd, endYmd).catch((e) => {
           log.warn('eco-insights', 'background recalc failed to invoke', { err: (e as Error).message });

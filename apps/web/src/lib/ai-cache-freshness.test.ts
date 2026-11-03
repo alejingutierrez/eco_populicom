@@ -1,4 +1,9 @@
-import { isAiCacheOutdated, claimAiTrigger, releaseAiTrigger, loadWindowFreshness, AI_TRIGGER_DEDUP_MS } from './ai-cache-freshness';
+import {
+  isAiCacheOutdated, claimAiTrigger, releaseAiTrigger, loadWindowFreshness, AI_TRIGGER_DEDUP_MS,
+  parseComposerWebAgencies, composerWebActive, isComposerWebEnabled, expectedComposerVersion, isComposerVersionStale,
+  MAX_COMPOSER_WINDOW_DAYS,
+} from './ai-cache-freshness';
+import { COMPOSER_VERSION } from '@eco/shared';
 
 describe('isAiCacheOutdated', () => {
   // Casos reales del QA 23-oct-2026 (total vivo, llegadas después de generar).
@@ -52,5 +57,46 @@ describe('loadWindowFreshness', () => {
     await loadWindowFreshness(pool, { agencyId: 'a', startYmd: '2026-10-15', endYmd: '2026-10-21', generatedAt: g, topicId: 7 });
     expect(calls[1].params[4]).toBe(7);
     expect(calls[1].sql).toContain('ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC');
+  });
+});
+
+describe('motor de redacción: bandera y versión del caché (WP-8)', () => {
+  const w7 = { startYmd: '2026-10-26', endYmd: '2026-11-01' };
+
+  it('bandera vacía o ausente = sin motor para nadie', () => {
+    for (const env of [undefined, null, '', ' , ']) {
+      expect(parseComposerWebAgencies(env).size).toBe(0);
+      expect(composerWebActive(env)).toBe(false);
+      expect(isComposerWebEnabled('ddecpr', w7, env)).toBe(false);
+      expect(expectedComposerVersion('ddecpr', w7, env)).toBeNull();
+    }
+  });
+
+  it('slugs separados por coma, sin mayúsculas ni espacios; * = todas', () => {
+    expect([...parseComposerWebAgencies(' DDECPR, df ,')]).toEqual(['ddecpr', 'df']);
+    expect(isComposerWebEnabled('ddecpr', w7, 'ddecpr,df')).toBe(true);
+    expect(isComposerWebEnabled('gobernadora', w7, 'ddecpr,df')).toBe(false);
+    expect(isComposerWebEnabled('gobernadora', w7, '*')).toBe(true);
+    expect(isComposerWebEnabled(null, w7, '*')).toBe(false);
+  });
+
+  it('ventanas largas siguen en legacy', () => {
+    const long = { startYmd: '2025-11-02', endYmd: '2026-11-01' };
+    const edge = { startYmd: '2026-08-02', endYmd: '2026-11-01' }; // 92 días
+    expect(isComposerWebEnabled('ddecpr', long, 'ddecpr')).toBe(false);
+    expect(isComposerWebEnabled('ddecpr', edge, 'ddecpr')).toBe(MAX_COMPOSER_WINDOW_DAYS >= 92);
+  });
+
+  it('la versión esperada es la del motor o null', () => {
+    expect(expectedComposerVersion('ddecpr', w7, 'ddecpr')).toBe(COMPOSER_VERSION);
+  });
+
+  it('cambiar de versión (o encender/apagar) invalida; legacy con bandera vacía nunca', () => {
+    expect(isComposerVersionStale(null, null)).toBe(false);
+    expect(isComposerVersionStale(undefined, null)).toBe(false);
+    expect(isComposerVersionStale(null, COMPOSER_VERSION)).toBe(true);
+    expect(isComposerVersionStale(COMPOSER_VERSION, null)).toBe(true);
+    expect(isComposerVersionStale('composer-0.9.0', COMPOSER_VERSION)).toBe(true);
+    expect(isComposerVersionStale(COMPOSER_VERSION, COMPOSER_VERSION)).toBe(false);
   });
 });
