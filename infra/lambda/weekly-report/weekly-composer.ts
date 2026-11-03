@@ -115,17 +115,21 @@ function fact(id: string, value: number, display: string, label: string): Fact {
 
 /**
  * Hechos propios del semanal (van como `extraFacts`; el paquete base del
- * motor ya trae week_*, prev_week_*, week_*_delta_* con signo, la serie,
- * topic_1..5, fuentes, municipios, emociones y la composición).
+ * motor ya trae week_*, prev_week_*, la serie, topic_1..5, fuentes,
+ * municipios, emociones y la composición).
  *
- *   - Variaciones SIN signo (week_*_delta_abs_unsigned / _pct_unsigned), con
- *     la dirección en la etiqueta, para escribir «subió» o «bajó» sin «bajó
- *     -12». El porcentaje solo con base previa ≥ minBase.
- *   - Indicadores compuestos (ind_*): valor de la semana, de la previa y
- *     delta, con el MISMO texto que las lecturas del correo. El valor numérico
- *     es el que aparece en el texto, para que el lint lo reconozca.
+ *   - Variaciones de la semana SIN signo: se REEMPLAZAN los week_*_delta_abs
+ *     y week_*_delta_pct del paquete base (un extraFact con el mismo id gana)
+ *     por su magnitud, con la dirección en la etiqueta. El correo dice
+ *     «bajó 61 %», nunca «bajó -61 %» (doble signo visto en el diario). El
+ *     porcentaje, como en el paquete base, solo con base previa ≥ minBase.
+ *   - % de cada sentimiento en la semana previa (prev_week_*_pct).
+ *   - Indicadores compuestos (ind_*): valor de la semana y de la previa con
+ *     el MISMO texto que las lecturas del correo, y la variación sin signo con
+ *     la dirección en la etiqueta. El valor numérico es el que aparece en el
+ *     texto, para que el lint lo reconozca.
  *   - Tópicos: semana previa de topic_1..5 y movimientos (topic_up_*,
- *     topic_down_*, topic_new_*, topic_gone_*).
+ *     topic_down_*, topic_new_*, topic_gone_*), también sin signo.
  */
 export function buildWeeklyExtraFacts(opts: {
   totals: { negative: number; neutral: number; positive: number; total: number };
@@ -147,12 +151,21 @@ export function buildWeeklyExtraFacts(opts: {
     const cur = opts.totals[k];
     const prev = opts.prevTotals[k];
     const diff = cur - prev;
-    const dir = diff > 0 ? 'más' : diff < 0 ? 'menos' : 'sin cambio';
-    out.push(fact(`week_${short}_delta_abs_unsigned`, Math.abs(diff), `${Math.abs(diff)}`,
-      diff === 0 ? `${lab}: misma cifra que el periodo previo` : `${lab} de ${dir} que el periodo previo (sin signo)`));
-    if (prev >= minBase && prev > 0 && diff !== 0) {
+    const verb = diff > 0 ? 'di «subió», «más» o «aumentó»' : 'di «bajó», «menos» o «cayó»';
+    out.push(fact(`week_${short}_delta_abs`, Math.abs(diff), `${Math.abs(diff)}`,
+      diff === 0
+        ? `${lab}: la misma cifra que el periodo previo`
+        : `${lab} de ${diff > 0 ? 'MÁS' : 'MENOS'} que el periodo previo (sin signo; ${verb})`));
+    if (prev >= minBase && prev > 0) {
       const p = Math.abs(Math.round((100 * diff) / prev));
-      out.push(fact(`week_${short}_delta_pct_unsigned`, p, `${p} %`, `% de ${diff > 0 ? 'aumento' : 'caída'} de ${lab} contra el periodo previo (sin signo)`));
+      out.push(fact(`week_${short}_delta_pct`, p, `${p} %`,
+        p === 0
+          ? `variación % de ${lab} contra el periodo previo: sin cambio`
+          : `% de ${diff > 0 ? 'AUMENTO' : 'CAÍDA'} de ${lab} contra el periodo previo (sin signo; ${verb})`));
+    }
+    if (k !== 'total' && opts.prevTotals.total > 0) {
+      const p = pctRound(prev, opts.prevTotals.total);
+      out.push(fact(`prev_week_${short}_pct`, p, `${p} %`, `% de ${lab} sobre el total del periodo previo`));
     }
   }
 
@@ -165,9 +178,8 @@ export function buildWeeklyExtraFacts(opts: {
     const d = ind.delta;
     const dv = numberFromDisplay(d?.value ?? null);
     if (d && d.hasBaseline && d.value && dv !== null) {
-      out.push(fact(`${id}_delta`, dv, d.value, `variación de ${ind.label} contra la semana previa (con signo)`));
-      const dir = dv > 0 ? 'subió' : dv < 0 ? 'bajó' : 'no cambió';
-      out.push(fact(`${id}_delta_unsigned`, Math.abs(dv), unsignedDisplay(d.value), `cuánto ${dir} ${ind.label} contra la semana previa (sin signo)`));
+      out.push(fact(`${id}_delta`, Math.abs(dv), unsignedDisplay(d.value),
+        dv === 0 ? `${ind.label}: sin cambio contra la semana previa` : `cuánto ${dv > 0 ? 'SUBIÓ' : 'BAJÓ'} ${ind.label} contra la semana previa (sin signo)`));
     }
     // «6.4 / 10»: el 10 de la escala no es una cifra sin fuente.
     if (ind.key === 'bhi' && (ind.cur || ind.prev)) out.push(fact('ind_bhi_scale', 10, '10', 'máximo de la escala de Salud de marca'));
@@ -209,15 +221,26 @@ export function buildWeeklyExtraFacts(opts: {
   return out;
 }
 
+const COUNT_WORDS = ['ninguno', 'uno', 'dos', 'tres'];
+
+/** «topic_up_1 «A», topic_up_2 «B»» para el contexto (sin cifras propias). */
+function movesLine(prefix: string, list: TopicMove[], idOf: (i: number) => string): string {
+  return list.map((m, i) => `${idOf(i)} «${m.topic}»`).join(', ') || prefix;
+}
+
 /** Contexto en texto para el motor (sin cifras propias: las cifras van por marcador). */
-export function weeklyExtraContext(opts: { hasComments: boolean; hasMoves: boolean }): string {
+export function weeklyExtraContext(opts: { hasComments: boolean; moves: TopicMoves }): string {
+  const m = opts.moves;
   const lines = [
     'Correo SEMANAL comparativo: la semana cerrada contra la semana previa (las dos de siete días calendario).',
-    'INDICADORES COMPUESTOS: cítalos solo con sus marcadores ind_* (son números en la escala del correo: Riesgo de crisis y Polarización en %, Sentimiento neto con signo, Salud de marca sobre diez). No uses palabras de nivel como alerta, sano, crítico o débil: el correo muestra números. Si un indicador cambió poco, no lo presentes como un cambio.',
-    'VARIACIONES: los marcadores *_delta_abs, *_delta_pct e ind_*_delta llevan signo y se usan solos («{{week_total_delta_pct}} contra la semana previa»). Con «subió», «bajó», «aumentó» o «cayó» usa los marcadores *_unsigned, *_rise o *_drop, que no llevan signo.',
+    'INDICADORES COMPUESTOS: cítalos solo con sus marcadores ind_* (son números en la escala del correo: Riesgo de crisis y Polarización en %, Sentimiento neto con signo, Salud de marca sobre diez). No uses palabras de nivel como alerta, sano, crítico o débil: el correo muestra números. Si un indicador cambió poco o nada, no lo presentes como un cambio. No expliques por qué cambió un indicador ni digas que un cambio «refleja» algo, salvo que un hecho lo diga.',
+    'VARIACIONES: week_*_delta_abs, week_*_delta_pct, ind_*_delta, *_rise y *_drop NO llevan signo: la dirección está en su etiqueta y la dice el verbo («bajó {{week_total_delta_pct}}», «{{week_neg_delta_abs}} negativas más»). Nunca pongas un signo + o − delante de un marcador.',
     'TÓPICOS: la tabla del correo cuenta cada mención (también las de pertinencia baja) en su tópico principal, así que los tópicos no suman los totales de menciones. Un tópico de topic_new_* no tuvo menciones la semana previa: es nuevo SOLO en esta comparación de dos semanas, no digas que «apareció por primera vez».',
+    `Tópicos que SUBEN al menos tres menciones (${COUNT_WORDS[m.up.length] ?? m.up.length}): ${movesLine('ninguno', m.up, (i) => `topic_up_${i + 1}`)}.`,
+    `Tópicos que BAJAN al menos tres menciones (${COUNT_WORDS[m.down.length] ?? m.down.length}): ${movesLine('ninguno', m.down, (i) => `topic_down_${i + 1}`)}.`,
+    `Tópicos SIN menciones la semana previa: ${movesLine('ninguno', m.fresh, (i) => `topic_new_${i + 1}`)}. Tópicos SIN menciones esta semana: ${movesLine('ninguno', m.gone, (i) => `topic_gone_${i + 1}_prev`)}.`,
+    'Con varias subidas o bajadas, no digas que un tópico fue «el único» en subir o bajar; las listas están limitadas a las tres más grandes.',
   ];
-  if (!opts.hasMoves) lines.push('Ningún tópico cambió lo suficiente para contarlo como subida, bajada o tópico nuevo.');
   if (opts.hasComments) {
     lines.push('COMPOSICIÓN: comment_share_week y comment_share_prev_week dicen qué parte de las menciones son comentarios de usuarios en publicaciones de redes de la agencia. Si cambió mucho, dilo en la comparación: los totales no comparan el mismo tipo de conversación.');
   } else {
@@ -313,7 +336,7 @@ export async function buildWeeklyComposerInput(
     composition: share,
     samples,
     extraFacts: buildWeeklyExtraFacts({ totals: cur.totals, prevTotals: prev.totals, indicators: data.indicators, topics: data.topics, prevTopics: data.prevTopics }),
-    extraContext: weeklyExtraContext({ hasComments, hasMoves: moves.up.length + moves.down.length + moves.fresh.length > 0 }),
+    extraContext: weeklyExtraContext({ hasComments, moves }),
     nameWhitelist: Array.from(new Set([...names, ...data.topics.map((t) => t.topic), ...data.prevTopics.map((t) => t.topic)].filter((n) => /\d/.test(n)))),
   };
   return { input, parentStats, contextError, share, hasComments };

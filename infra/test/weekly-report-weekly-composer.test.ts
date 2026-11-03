@@ -96,11 +96,15 @@ describe('tópicos que suben, bajan, nuevos y sin menciones', () => {
     expect(by.topic_new_1.label).toMatch(/«C».*no tuvo menciones la semana previa/);
     expect(by.topic_gone_1_prev).toMatchObject({ value: 12 });
     expect(by.topic_1_prev).toMatchObject({ value: 30 }); // A (primer tópico de la semana)
-    // Variaciones de la semana sin signo, con la dirección en la etiqueta.
-    expect(by.week_total_delta_abs_unsigned).toMatchObject({ value: 20, display: '20' });
-    expect(by.week_total_delta_abs_unsigned.label).toMatch(/menos/);
-    expect(by.week_total_delta_pct_unsigned).toMatchObject({ value: 17, display: '17 %' });
-    expect(by.week_neg_delta_pct_unsigned).toBeUndefined(); // base previa 4
+    // Variaciones de la semana sin signo (reemplazan las del paquete base), con la dirección en la etiqueta.
+    expect(by.week_total_delta_abs).toMatchObject({ value: 20, display: '20' });
+    expect(by.week_total_delta_abs.label).toMatch(/MENOS/);
+    expect(by.week_total_delta_pct).toMatchObject({ value: 17, display: '17 %' });
+    expect(by.week_total_delta_pct.label).toMatch(/CAÍDA/);
+    expect(by.week_neg_delta_pct).toBeUndefined(); // base previa 4
+    expect(by.week_neg_delta_abs).toMatchObject({ value: 1 });
+    expect(by.week_neg_delta_abs.label).toMatch(/MÁS/);
+    expect(by.prev_week_neu_pct).toMatchObject({ value: 83, display: '83 %' });
   });
 });
 
@@ -125,23 +129,27 @@ describe('indicadores compuestos en escala pública', () => {
     input.extraFacts = buildWeeklyExtraFacts({ totals: input.totals, prevTotals: input.prevTotals!, indicators, topics: [], prevTopics: [] });
     const pkg = buildFactPackage(input);
     expect(pkg.facts.ind_crisis).toMatchObject({ display: '12%', value: 12 });
-    expect(pkg.facts.ind_crisis_delta).toMatchObject({ display: '−3 pts', value: -3 });
-    expect(pkg.facts.ind_crisis_delta_unsigned).toMatchObject({ display: '3 pts', value: 3 });
-    expect(pkg.facts.ind_crisis_delta_unsigned.label).toMatch(/bajó/);
+    expect(pkg.facts.ind_crisis_delta).toMatchObject({ display: '3 pts', value: 3 });
+    expect(pkg.facts.ind_crisis_delta.label).toMatch(/BAJÓ/);
+    // El paquete base trae week_total_delta_pct con signo; el semanal lo reemplaza sin signo.
+    expect(pkg.facts.week_total_delta_pct.display).not.toMatch(/^[+\-−]/);
     expect(pkg.facts.ind_nss).toMatchObject({ display: '−3.1', value: -3.1 });
     expect(pkg.facts.ind_bhi).toMatchObject({ display: '6.4 / 10', value: 6.4 });
     expect(pkg.facts.ind_polarization).toBeUndefined();
     const ctx = buildLintContext(pkg, input.samples);
-    const text = fillPlaceholders('El riesgo de crisis bajó {{ind_crisis_delta_unsigned}} a {{ind_crisis}}; la Salud de marca quedó en {{ind_bhi}} y el sentimiento neto en {{ind_nss}} ({{ind_nss_delta}}).', pkg.facts);
-    expect(text).toBe('El riesgo de crisis bajó 3 pts a 12%; la Salud de marca quedó en 6.4 / 10 y el sentimiento neto en −3.1 (−12.1).');
+    const text = fillPlaceholders('El riesgo de crisis bajó {{ind_crisis_delta}} a {{ind_crisis}}; la Salud de marca quedó en {{ind_bhi}} y el sentimiento neto bajó {{ind_nss_delta}}, a {{ind_nss}}.', pkg.facts);
+    expect(text).toBe('El riesgo de crisis bajó 3 pts a 12%; la Salud de marca quedó en 6.4 / 10 y el sentimiento neto bajó 12.1, a −3.1.');
     expect(codeLint(text, 'párrafo', ctx)).toEqual([]);
   });
 
   test('el contexto no trae cifras y avisa si no hay comentarios en redes propias', () => {
-    const c = weeklyExtraContext({ hasComments: false, hasMoves: true });
-    expect(c.replace(/\{\{[^}]+\}\}/g, '')).not.toMatch(/\d/);
+    const moves = topicMoves([{ topic: 'A', total: 50, negative: 0 }, { topic: 'B', total: 40, negative: 0 }], [{ topic: 'A', total: 30, negative: 0 }, { topic: 'B', total: 20, negative: 0 }]);
+    const c = weeklyExtraContext({ hasComments: false, moves });
+    expect(c.replace(/\{\{[^}]+\}\}/g, '').replace(/topic_[a-z]+_\d(_prev)?/g, '')).not.toMatch(/\d/);
     expect(c).toMatch(/no hubo comentarios/);
-    expect(weeklyExtraContext({ hasComments: true, hasMoves: false })).toMatch(/comment_share_prev_week/);
+    expect(c).toMatch(/SUBEN al menos tres menciones \(dos\): topic_up_1 «A», topic_up_2 «B»/);
+    expect(c).toMatch(/BAJAN al menos tres menciones \(ninguno\): ninguno/);
+    expect(weeklyExtraContext({ hasComments: true, moves })).toMatch(/comment_share_prev_week/);
   });
 
   test('chip: solo si alguna semana redondea a más de 0 %', () => {
@@ -159,7 +167,7 @@ const FINDINGS = {
 };
 const DRAFT = {
   headline: 'Usuarios preguntaron por la panadería que el DDEC destacó el lunes 26',
-  paragraph: 'La semana tuvo {{week_total}} menciones, {{week_total_delta_abs_unsigned}} más que la previa.',
+  paragraph: 'La semana tuvo {{week_total}} menciones, {{week_total_delta_abs}} más que la previa.',
   highlights: ['Un usuario preguntó la dirección.'],
   insights: { negative: [], neutral: ['La serie del Mes de la Manufactura concentró la semana.'], positive: [] },
   comparison: ['Las menciones pasaron de {{prev_week_total}} a {{week_total}}.'],
@@ -199,7 +207,7 @@ describe('perfil weekly con plazo', () => {
     expect(calls.map((x) => x.role)).toEqual(['analyst', 'writer', 'qa']);
     // El perfil semanal no manda las muestras del día al prompt.
     expect(calls[0].user).not.toMatch(/MENCIONES MÁS RECIENTES DEL DÍA RESUMIDO/);
-    expect(calls[0].user).toMatch(/\{\{week_total_delta_abs_unsigned\}\}/);
+    expect(calls[0].user).toMatch(/\{\{week_total_delta_abs\}\} = \d+  \(menciones de (MÁS|MENOS) que el periodo previo/);
     expect(t.result!.subject).toMatch(/^\[Semanal\] /);
     const text = draftToWeeklyText(t.result!.final);
     expect(text.comparison).toHaveLength(1);
