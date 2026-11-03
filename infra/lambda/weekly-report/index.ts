@@ -24,10 +24,21 @@
  *
  * Cada envío (o skip/fail) se registra en report_send_log; el semanal se
  * distingue por template_key = 'weekly-comparison-v1'.
+ *
+ * Motor de redacción (interpretación v1, WP-6): `report_configs.composer_mode`
+ * por agencia (legacy | shadow | agentic; ver composer-mode.ts). Con `legacy`
+ * (default) el correo sale exactamente como antes. Con los otros modos:
+ *  - el barrido horario, 2 h antes de `send_hour_local`, invoca este mismo
+ *    lambda de forma ASÍNCRONA con `{action:'compose', agencySlug}` por
+ *    agencia; esa corrida compone y guarda en `report_compositions`;
+ *  - el envío lee la composición guardada del periodo; si falta y quedan más
+ *    de 420 s de ejecución, compone en el momento; si no, sale el legacy.
+ *    Nunca se retiene un correo.
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import {
   INSIGHTS_SYSTEM_PROMPT,
   buildSentimentInsightsPrompt,
@@ -70,11 +81,44 @@ import {
   type PgClientLike,
   type SentimentReport,
   type WindowMetrics,
+  buildDailyMethodologyNote,
+  FACT_MIN_DELTA_BASE,
+  type Composition,
+  type ComposerLlm,
+  type DailyInterpretation,
 } from '@eco/shared';
+import { createBedrockComposerLlm } from '@eco/shared/src/composer/bedrock-llm';
+import {
+  composeDeadlineMs,
+  isComposeAheadDue,
+  normalizeComposerMode,
+  planDailyText,
+  resolveComposerMode,
+  type ComposerMode,
+} from './composer-mode';
+import {
+  buildDailyComposerInput,
+  composeWithDeadline,
+  draftToDailyText,
+  evaluateStoredComposition,
+  isSendableComposition,
+  type DailyComposerInputResult,
+  type DeliveryRecord,
+  type StoredEvaluation,
+} from './daily-composer';
+import { compositionStatus, loadStoredComposition, saveComposition, type StoredComposition } from './compositions-store';
 
 const bedrock = new BedrockRuntimeClient({});
 const sm = new SecretsManagerClient({});
 const ses = new SESClient({});
+const lambdaClient = new LambdaClient({});
+
+/** Cliente LLM del motor (mismo cliente Bedrock del lambda; modelos por rol en el motor). */
+let composerLlm: ComposerLlm | null = null;
+function getComposerLlm(): ComposerLlm {
+  if (!composerLlm) composerLlm = createBedrockComposerLlm(bedrock);
+  return composerLlm;
+}
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
@@ -99,6 +143,20 @@ const REPORT_TIMEZONE = 'America/Puerto_Rico';
 let dbUrl: string | null = null;
 let schemaEnsured = false;
 
+/** Timeout del lambda (CDK: 900 s). Solo se usa si la invocación no trae `context`. */
+const DEFAULT_TIMEOUT_MS = 900_000;
+
+/** Lo que el handler sabe del tiempo de ejecución que le queda. */
+interface RunClock {
+  remainingMs: () => number;
+}
+
+/** Contexto mínimo de Lambda que usa el handler. */
+interface LambdaContextLike {
+  functionName?: string;
+  getRemainingTimeInMillis?: () => number;
+}
+
 type ReportType = 'daily' | 'weekly' | 'appointment';
 
 interface InvokePayload {
@@ -120,21 +178,44 @@ interface InvokePayload {
   trigger?: 'scheduled' | 'manual' | 'test';
   /** uuid del usuario que disparó (solo manual/test). */
   triggeredBy?: string;
+  /**
+   * `compose`: solo compone el diario de `agencySlug` y lo guarda en
+   * report_compositions (la dispara el barrido 2 h antes del envío; también
+   * manual). Sin `action`: el comportamiento de siempre.
+   */
+  action?: 'compose';
+  /** Fuerza el modo del motor. SOLO con dryRun (un envío real usa report_configs). */
+  composerMode?: ComposerMode;
+  /** Instante «ahora» (ISO) para vistas previas. SOLO con dryRun. */
+  asOf?: string;
 }
 
 interface RunResult {
   ok: boolean;
   agency?: string;
   reportType?: ReportType;
-  status?: 'sent' | 'skipped' | 'failed' | 'no_recipients' | 'no_data';
+  status?: 'sent' | 'skipped' | 'failed' | 'no_recipients' | 'no_data' | 'compose_dispatched';
   sent?: number;
   messageId?: string;
   html?: string;
   subject?: string;
   error?: string;
+  /** Motor de redacción (solo modos distintos de legacy). */
+  composerMode?: ComposerMode;
+  /** dryRun con motor: composición completa (con el bloque `delivery`). */
+  composition?: Record<string, unknown> | null;
 }
 
-export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean; runs?: RunResult[]; results?: RunResult[] } | RunResult> => {
+export const handler = async (
+  event: InvokePayload = {},
+  context?: LambdaContextLike,
+): Promise<{ ok: boolean; runs?: RunResult[]; results?: RunResult[] } | RunResult | ComposeActionResult> => {
+  const startedAt = Date.now();
+  const clock: RunClock = {
+    remainingMs: () => (typeof context?.getRemainingTimeInMillis === 'function'
+      ? context.getRemainingTimeInMillis()
+      : DEFAULT_TIMEOUT_MS - (Date.now() - startedAt)),
+  };
   if (!dbUrl) dbUrl = await getDatabaseUrl();
 
   const pg = await import('pg');
@@ -147,10 +228,16 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
       schemaEnsured = true;
     }
 
+    // Modo: composición anticipada (la dispara el barrido horario, asíncrona).
+    if (event.action === 'compose') {
+      console.log(`[weekly-report] compose · agency=${event.agencySlug ?? '—'} · type=${event.reportType ?? 'daily'} · dryRun=${event.dryRun === true}`);
+      return await runComposeAction(client, event, clock);
+    }
+
     // Modo: invocación dirigida (manual/send-test desde UI)
     if (event.agencySlug) {
       console.log(`[weekly-report] targeted run · agency=${event.agencySlug} · type=${event.reportType ?? 'daily'} · dryRun=${event.dryRun === true}`);
-      const result = await runForAgencyBySlug(client, event);
+      const result = await runForAgencyBySlug(client, event, clock);
       return result;
     }
 
@@ -171,11 +258,23 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
           AND a.is_active = true`,
     );
     console.log(`[weekly-report] ${configs.rows.length} active configs`);
+    // Modo del motor por agencia: consulta aparte para que una base sin la
+    // columna (o cualquier fallo) deje a todas en legacy sin tumbar el barrido.
+    const composerModes = await loadComposerModes(client);
 
     const runs: RunResult[] = [];
     for (const cfg of configs.rows) {
       const localHour = hourInTimeZone(nowUtc, cfg.timezone);
       const localDow = dowInTimeZone(nowUtc, cfg.timezone);
+      const composerMode = composerModes.get(cfg.agency_id) ?? 'legacy';
+
+      // Composición anticipada del diario: 2 h antes de send_hour_local, solo
+      // con el motor encendido. Se dispara asíncrona (un lambda por agencia)
+      // para no consumir el tiempo de este barrido.
+      if (isComposeAheadDue(localHour, cfg.send_hour_local, composerMode)
+        && Array.isArray(cfg.recipients) && cfg.recipients.length > 0) {
+        runs.push(await dispatchComposeAhead(client, cfg, context));
+      }
 
       // Diario: todos los días a send_hour_local. Semanal: SOLO el día
       // configurado (default viernes) a SU propia hora (default 15 = 3 PM),
@@ -225,7 +324,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
           runs.push({ ok: true, agency: cfg.slug, reportType: type, status: 'skipped' });
           continue;
         }
-        runs.push(await runForAgency(client, inputs, type));
+        runs.push(await runForAgency(client, inputs, type, null, { mode: type === 'daily' ? composerMode : 'legacy', dryRun: false, clock }));
       }
     }
 
@@ -244,7 +343,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ ok: boolean;
 // Targeted run (manual from UI)
 // ============================================================
 
-async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<RunResult> {
+async function runForAgencyBySlug(client: any, event: InvokePayload, clock: RunClock): Promise<RunResult> {
   const agencyRow = await client.query(
     `SELECT a.id, a.slug, a.name,
             rc.recipients, rc.from_email, rc.from_name, rc.template_key
@@ -286,9 +385,29 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
   const templateKey = a.template_key ?? 'daily-sentiment-summary';
   const trigger = event.trigger ?? 'manual';
 
-  if (event.dryRun === true) {
-    const built = await buildEmail(client, { id: a.id, slug: a.slug, name: a.name }, reportType, appointment);
-    return { ok: true, agency: a.slug, reportType, html: built.html, subject: built.subject, status: 'sent' };
+  // Motor de redacción: solo el diario. El modo sale de report_configs; en
+  // dryRun el payload puede forzarlo (`composerMode`) sin tocar la base.
+  const dryRun = event.dryRun === true;
+  const composerMode: ComposerMode = reportType === 'daily'
+    ? resolveComposerMode(await loadComposerMode(client, a.id), event.composerMode, dryRun)
+    : 'legacy';
+  const asOf = dryRun && event.asOf ? new Date(event.asOf) : null;
+  const daily: DailyBuildOptions = {
+    mode: composerMode,
+    dryRun,
+    clock,
+    nowUtc: asOf && !Number.isNaN(asOf.getTime()) ? asOf : undefined,
+  };
+
+  if (dryRun) {
+    const built = await buildEmail(client, { id: a.id, slug: a.slug, name: a.name }, reportType, appointment, daily);
+    if (composerMode === 'legacy') {
+      return { ok: true, agency: a.slug, reportType, html: built.html, subject: built.subject, status: 'sent' };
+    }
+    return {
+      ok: true, agency: a.slug, reportType, html: built.html, subject: built.subject, status: 'sent',
+      composerMode, composition: built.archive?.composition ?? null,
+    };
   }
 
   if (recipients.length === 0) {
@@ -309,7 +428,150 @@ async function runForAgencyBySlug(client: any, event: InvokePayload): Promise<Ru
     templateKey,
     trigger,
     triggeredBy: event.triggeredBy ?? null,
-  }, reportType, appointment);
+  }, reportType, appointment, daily);
+}
+
+// ============================================================
+// Motor de redacción: modo por agencia y composición anticipada
+// ============================================================
+
+/** `composer_mode` de una agencia. Cualquier fallo (columna ausente, sin fila) → legacy. */
+async function loadComposerMode(client: any, agencyId: string): Promise<ComposerMode> {
+  try {
+    const r = await client.query(`SELECT composer_mode FROM report_configs WHERE agency_id = $1 LIMIT 1`, [agencyId]);
+    return normalizeComposerMode(r.rows[0]?.composer_mode);
+  } catch (err) {
+    console.warn('[weekly-report] composer_mode no disponible; se usa legacy:', (err as Error)?.message ?? err);
+    return 'legacy';
+  }
+}
+
+/** `composer_mode` de todas las configs activas (agency_id → modo). Fallo → mapa vacío (todas legacy). */
+async function loadComposerModes(client: any): Promise<Map<string, ComposerMode>> {
+  const out = new Map<string, ComposerMode>();
+  try {
+    const r = await client.query(`SELECT agency_id, composer_mode FROM report_configs WHERE is_active = true`);
+    for (const row of r.rows) out.set(row.agency_id, normalizeComposerMode(row.composer_mode));
+  } catch (err) {
+    console.warn('[weekly-report] composer_mode no disponible; todas las agencias en legacy:', (err as Error)?.message ?? err);
+  }
+  return out;
+}
+
+/**
+ * Invoca ESTE lambda de forma asíncrona (InvocationType Event) para componer
+ * el diario de una agencia. Nunca lanza.
+ */
+async function invokeComposeAsync(agencySlug: string, functionName?: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await lambdaClient.send(new InvokeCommand({
+      FunctionName: functionName || process.env.AWS_LAMBDA_FUNCTION_NAME || 'eco-weekly-report',
+      InvocationType: 'Event',
+      Payload: new TextEncoder().encode(JSON.stringify({ action: 'compose', agencySlug, reportType: 'daily', trigger: 'scheduled' })),
+    }));
+    return { ok: true };
+  } catch (err) {
+    const error = String((err as Error)?.message ?? err);
+    console.warn(`[weekly-report] no se pudo invocar la composición de ${agencySlug}: ${error}`);
+    return { ok: false, error };
+  }
+}
+
+/**
+ * Composición anticipada desde el barrido: una invocación asíncrona por
+ * agencia. Una agencia por exportes (DF) sin exporte nuevo no tendrá envío,
+ * así que no se compone.
+ */
+async function dispatchComposeAhead(client: any, cfg: any, context?: LambdaContextLike): Promise<RunResult> {
+  try {
+    const coverage = await loadAgencyCoverage(client as PgClientLike, cfg.agency_id);
+    if (coverage.importFed && !(await hasImportSinceLastSend(client, cfg.agency_id, cfg.template_key, coverage))) {
+      console.log(`[weekly-report] compose ${cfg.slug} · sin exporte nuevo: no se compone`);
+      return { ok: true, agency: cfg.slug, reportType: 'daily', status: 'skipped', error: 'compose: sin exporte nuevo desde el último envío' };
+    }
+  } catch (err) {
+    console.warn(`[weekly-report] compose ${cfg.slug} · cobertura no disponible, se compone igual:`, (err as Error)?.message ?? err);
+  }
+  const r = await invokeComposeAsync(cfg.slug, context?.functionName);
+  console.log(`[weekly-report] compose ${cfg.slug} · ${r.ok ? 'invocación asíncrona enviada' : `falló: ${r.error}`}`);
+  return { ok: r.ok, agency: cfg.slug, reportType: 'daily', status: r.ok ? 'compose_dispatched' : 'failed', ...(r.error ? { error: r.error } : {}) };
+}
+
+interface ComposeActionResult {
+  ok: boolean;
+  action: 'compose';
+  agency?: string;
+  reportType?: ReportType;
+  status: 'composed' | 'degraded' | 'timeout' | 'no_data' | 'failed' | 'unsupported';
+  periodEnd?: string;
+  saved?: boolean;
+  seconds?: number;
+  /** Llamadas al modelo (intentos incluidos) por rol. */
+  bedrockCalls?: number;
+  headline?: string;
+  error?: string;
+  /** Solo en dryRun: la composición completa. */
+  composition?: Composition;
+}
+
+/**
+ * Acción `compose`: compone el diario de una agencia para la ventana que
+ * enviaría ahora y lo guarda en report_compositions (dryRun: no guarda y
+ * devuelve la composición). NUNCA lanza: una invocación asíncrona que falla
+ * se reintenta sola (2 veces) y cada reintento gastaría el motor otra vez.
+ */
+async function runComposeAction(client: any, event: InvokePayload, clock: RunClock): Promise<ComposeActionResult> {
+  const reportType: ReportType = event.reportType ?? 'daily';
+  if (reportType !== 'daily') {
+    return { ok: false, action: 'compose', reportType, status: 'unsupported', error: 'la composición anticipada existe solo para el diario (el semanal llega con WP-7)' };
+  }
+  if (!event.agencySlug) return { ok: false, action: 'compose', reportType, status: 'failed', error: 'agencySlug requerido' };
+  const dryRun = event.dryRun === true;
+  try {
+    const r = await client.query(`SELECT id, slug, name FROM agencies WHERE slug = $1 AND is_active = true LIMIT 1`, [event.agencySlug]);
+    const a = r.rows[0];
+    if (!a) return { ok: false, action: 'compose', reportType, status: 'failed', error: `agency '${event.agencySlug}' not found` };
+    const asOf = dryRun && event.asOf ? new Date(event.asOf) : null;
+    const nowUtc = asOf && !Number.isNaN(asOf.getTime()) ? asOf : new Date();
+    const coverage = await loadAgencyCoverage(client as PgClientLike, a.id);
+    const win = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
+    const w = { startYmd: win.startYmd, endYmd: win.endYmd, prevStartYmd: win.prevStartYmd, prevEndYmd: win.prevEndYmd };
+    const report = await buildSentimentReport(client as PgClientLike, a.id, w.startYmd, w.endYmd, w.prevStartYmd, w.prevEndYmd);
+    if (report.totals.total === 0) {
+      return { ok: true, action: 'compose', agency: a.slug, reportType, status: 'no_data', periodEnd: w.endYmd };
+    }
+    const input = await buildDailyComposerInput(client, { id: a.id, slug: a.slug, name: a.name, shortName: agencyShortName(a.slug) }, w, report);
+    const timed = await composeWithDeadline(input.input, {
+      llm: getComposerLlm(),
+      dryRun,
+      deadlineMs: Math.max(0, clock.remainingMs() - 30_000),
+      log: (m) => console.log(m),
+    });
+    if (!timed.result) {
+      return { ok: false, action: 'compose', agency: a.slug, reportType, status: 'timeout', periodEnd: w.endYmd, seconds: timed.seconds };
+    }
+    const composition = { ...timed.result.composition, adapter: { parentStats: input.parentStats, contextError: input.contextError } } as Composition;
+    const status = compositionStatus(composition);
+    const saved = dryRun ? false : await saveComposition(client, { agencyId: a.id, reportType: 'daily', periodEnd: w.endYmd, composition, status });
+    const bedrockCalls = composition.calls.reduce((n, c) => n + c.attempts, 0);
+    console.log(`[weekly-report] compose ${a.slug} ${w.endYmd} · ${status} · ${timed.seconds}s · ${bedrockCalls} llamadas · guardada=${saved}`);
+    return {
+      ok: status === 'complete',
+      action: 'compose',
+      agency: a.slug,
+      reportType,
+      status: status === 'complete' ? 'composed' : 'degraded',
+      periodEnd: w.endYmd,
+      saved,
+      seconds: timed.seconds,
+      bedrockCalls,
+      headline: timed.result.final.headline,
+      ...(dryRun ? { composition } : {}),
+    };
+  } catch (err) {
+    console.error('[weekly-report] compose FAILED:', err);
+    return { ok: false, action: 'compose', agency: event.agencySlug, reportType, status: 'failed', error: String((err as Error)?.message ?? err) };
+  }
 }
 
 // ============================================================
@@ -333,6 +595,7 @@ async function runForAgency(
   i: AgencyRunInputs,
   reportType: ReportType,
   appointment: AppointmentRow | null = null,
+  daily: DailyBuildOptions = LEGACY_DAILY,
 ): Promise<RunResult> {
   const logTemplateKey = reportType === 'weekly' ? WEEKLY_TEMPLATE_KEY
     : reportType === 'appointment' ? APPOINTMENT_TEMPLATE_KEY
@@ -340,7 +603,7 @@ async function runForAgency(
   try {
     const built = await buildEmail(client, {
       id: i.agencyId, slug: i.agencySlug, name: i.agencyName,
-    }, reportType, appointment);
+    }, reportType, appointment, daily);
 
     if (!built.hasData) {
       console.warn(`[weekly-report] ${i.agencySlug} (${reportType}) — no mentions in period, skipping send`);
@@ -382,6 +645,8 @@ async function runForAgency(
       trigger: i.trigger, status, messageId: firstMessageId,
       error: failed.length > 0 ? `partial: ${failed.map((f) => f.email).join(',')}` : undefined,
       stats: built.stats, triggeredBy: i.triggeredBy ?? undefined,
+      // Solo con el motor (shadow/agentic): asunto, titular y composición enviados.
+      archive: built.archive,
     });
     return {
       ok: sent.length > 0,
@@ -413,13 +678,35 @@ interface BuiltEmail {
   stats: { negative: number; neutral: number; positive: number; total: number };
   /** false → no se envía (status no_data). */
   hasData: boolean;
+  /** Archivo del envío en report_send_log (solo con el motor; legacy = undefined). */
+  archive?: SendArchive;
 }
+
+/** Columnas de archivo de report_send_log (0013; spec 5.2). */
+interface SendArchive {
+  subject: string;
+  headline: string;
+  composition: Record<string, unknown>;
+  composerVersion: string | null;
+}
+
+/** Cómo se arma el diario: modo del motor y reloj de la corrida. */
+interface DailyBuildOptions {
+  mode: ComposerMode;
+  dryRun: boolean;
+  clock?: RunClock;
+  /** «Ahora» de la corrida (solo vistas previas con dryRun). */
+  nowUtc?: Date;
+}
+
+const LEGACY_DAILY: DailyBuildOptions = { mode: 'legacy', dryRun: false };
 
 async function buildEmail(
   client: any,
   agency: { id: string; slug: string; name: string },
   reportType: ReportType,
   appointment: AppointmentRow | null = null,
+  daily: DailyBuildOptions = LEGACY_DAILY,
 ): Promise<BuiltEmail> {
   if (reportType === 'appointment') {
     if (!appointment) throw new Error('buildEmail: reportType=appointment requiere una fila de agency_appointments');
@@ -427,7 +714,7 @@ async function buildEmail(
   }
   return reportType === 'weekly'
     ? buildWeeklySummaryEmail(client, agency)
-    : buildDailyReportEmail(client, agency);
+    : buildDailyReportEmail(client, agency, daily);
 }
 
 /** "lun 7 jul" — día de envío para el asunto del diario. */
@@ -462,13 +749,14 @@ function daysBetweenInclusive(startYmd: string, endYmd: string): number {
 async function buildDailyReportEmail(
   client: any,
   agency: { id: string; slug: string; name: string },
+  opts: DailyBuildOptions = LEGACY_DAILY,
 ): Promise<BuiltEmail> {
   // Periodo: últimos 7 días CERRADOS (terminando AYER) en America/Puerto_Rico.
   // El correo se envía 6 AM PR; ayer ya es un día completo. No incluimos hoy
   // parcial — eso sesgaría el termómetro y el delta vs. los 7 días previos.
   // En una agencia importada la ventana termina en el último día que cubre
   // entero el último exporte (coverage.ts), nunca en días sin cargar.
-  const nowUtc = new Date();
+  const nowUtc = opts.nowUtc ?? new Date();
   const coverage = await loadAgencyCoverage(client as PgClientLike, agency.id);
   const window = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
   const { startYmd: startDate, endYmd: endDate, prevStartYmd: prevStartDate, prevEndYmd: prevEndDate } = window;
@@ -492,6 +780,14 @@ async function buildDailyReportEmail(
   const aggregates = await buildAggregates(client, agency, startDate, endDate, sentimentReport);
   const samples = await loadSamples(client, agency.id, startDate, endDate);
   const todaySamples = await loadTodaySamples(client, agency.id, endDate);
+
+  // Motor de redacción (shadow/agentic): camino aparte. Con legacy, lo que
+  // sigue es exactamente el correo de siempre.
+  if (opts.mode !== 'legacy') {
+    return buildDailyEmailWithComposer(client, agency, opts, {
+      nowUtc, coverage, window, sentimentReport, winCur, winPrev, aggregates, samples, todaySamples,
+    });
+  }
 
   const [insights, dailySummary, heroImage] = await Promise.all([
     generateInsights(aggregates, samples),
@@ -548,6 +844,231 @@ async function buildDailyReportEmail(
     subject,
     stats: sentimentReport.totals,
     hasData: sentimentReport.totals.total > 0,
+  };
+}
+
+// ============================================================
+// REPORTE DIARIO con el motor de redacción (shadow / agentic)
+// ============================================================
+
+/** Lo que `buildDailyReportEmail` ya cargó (mismas consultas que el legacy). */
+interface DailyLoaded {
+  nowUtc: Date;
+  coverage: AgencyCoverage;
+  window: { startYmd: string; endYmd: string; prevStartYmd: string; prevEndYmd: string };
+  sentimentReport: SentimentReport;
+  winCur: WindowMetrics;
+  winPrev: WindowMetrics;
+  aggregates: WeeklyAggregates;
+  samples: { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] };
+  todaySamples: MentionSample[];
+}
+
+interface DailyText {
+  headline: string;
+  paragraph: string;
+  highlights: string[];
+  insights: { negative: string[]; neutral: string[]; positive: string[] };
+}
+
+/**
+ * Delta de conteo con base mínima (spec 10.2): porcentaje solo si la base
+ * previa es ≥ 30 menciones; si no, la diferencia en menciones (sin «+1400 %»).
+ */
+function minBaseCountDelta(cur: number, prev: number) {
+  return prev >= FACT_MIN_DELTA_BASE
+    ? formatDelta(cur, prev, { kind: 'percent', decimals: 0 })
+    : formatDelta(cur, prev, { kind: 'absolute', decimals: 0 });
+}
+
+function pctOf(part: number, whole: number): number {
+  return whole > 0 ? (100 * part) / whole : 0;
+}
+
+/**
+ * Diario con `composer_mode` shadow o agentic. Decide de dónde sale el texto
+ * (`planDailyText`), compone si hace falta, y arma el archivo del envío.
+ *   - shadow: SIEMPRE envía el texto legacy; archiva la composición (guardada,
+ *     o pide una asíncrona si falta). El HTML es el legacy.
+ *   - agentic: envía el texto del motor (guardado o compuesto ahora); si no
+ *     hay a tiempo o el redactor falló, envía el legacy y lo registra.
+ * Nunca lanza por culpa del motor: cualquier error del motor cae al legacy.
+ */
+async function buildDailyEmailWithComposer(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+  opts: DailyBuildOptions,
+  L: DailyLoaded,
+): Promise<BuiltEmail> {
+  const mode = opts.mode === 'agentic' ? 'agentic' : 'shadow';
+  const clock: RunClock = opts.clock ?? { remainingMs: () => DEFAULT_TIMEOUT_MS };
+  const short = agencyShortName(agency.slug);
+  const cAgency = { id: agency.id, slug: agency.slug, name: agency.name, shortName: short };
+  const w = L.window;
+  const endDate = w.endYmd;
+  const hasData = L.sentimentReport.totals.total > 0;
+  const heroP = loadHeroImage(client, agency.id, endDate, endDate);
+  const legacyText = async (): Promise<DailyText> => {
+    const [insights, lede] = await Promise.all([
+      generateInsights(L.aggregates, L.samples),
+      generateDailySummary(L.aggregates, L.todaySamples, endDate),
+    ]);
+    return { headline: lede.headline, paragraph: lede.paragraph, highlights: lede.highlights, insights };
+  };
+  const errMsg = (err: unknown) => String((err as Error)?.message ?? err).slice(0, 500);
+
+  const delivery: DeliveryRecord = { mode, sentText: 'legacy', compositionSource: 'none', reason: '' };
+  let composition: Composition | null = null;
+  let composerText: DailyText | null = null;
+  let legacy: DailyText | null = null;
+  let fresh: DailyComposerInputResult | null = null;
+
+  if (!hasData) {
+    // Sin menciones el correo no sale (no_data): no se gasta el motor.
+    delivery.reason = 'sin menciones en el periodo';
+  } else {
+    // 1) Composición guardada del periodo (dryRun no lee ni escribe la tabla).
+    let stored: StoredComposition | null = null;
+    let evaluation: StoredEvaluation = { state: 'missing', final: null, changed: {}, reason: opts.dryRun ? 'dryRun compone de cero' : 'sin composición guardada' };
+    if (!opts.dryRun) {
+      stored = await loadStoredComposition(client, agency.id, 'daily', endDate);
+      if (stored) {
+        try {
+          fresh = await buildDailyComposerInput(client, cAgency, w, L.sentimentReport, { withSamples: false });
+          evaluation = evaluateStoredComposition(stored, fresh.input, w);
+        } catch (err) {
+          evaluation = { state: 'missing', final: null, changed: {}, reason: `no se pudo evaluar la composición guardada: ${errMsg(err)}` };
+        }
+      }
+    }
+    const plan = planDailyText({ mode, dryRun: opts.dryRun, stored: evaluation.state, remainingMs: clock.remainingMs() });
+    delivery.reason = `${plan.reason} (${evaluation.reason})`;
+    if (Object.keys(evaluation.changed).length) delivery.changedFacts = evaluation.changed;
+    console.log(`[weekly-report] ${agency.slug} diario · motor=${mode} · plan=${plan.compose}/${plan.text} · ${delivery.reason}`);
+
+    if (plan.compose === 'stored' && stored) {
+      composition = stored.composition;
+      delivery.compositionSource = evaluation.state === 'refreshable' ? 'stored_refreshed' : 'stored';
+      if (plan.text === 'composer' && evaluation.final) composerText = draftToDailyText(evaluation.final);
+    } else if (plan.compose === 'now') {
+      // En shadow (solo dryRun llega aquí) el legacy corre en paralelo: es lo que se envía.
+      const legacyP = plan.text === 'legacy' ? legacyText() : null;
+      try {
+        fresh = await buildDailyComposerInput(client, cAgency, w, L.sentimentReport);
+        delivery.parentStats = fresh.parentStats;
+        delivery.contextError = fresh.contextError;
+        const timed = await composeWithDeadline(fresh.input, {
+          llm: getComposerLlm(),
+          dryRun: opts.dryRun,
+          deadlineMs: composeDeadlineMs(clock.remainingMs()),
+          log: (m) => console.log(m),
+        });
+        delivery.composeSeconds = timed.seconds;
+        if (timed.result) {
+          composition = timed.result.composition;
+          delivery.compositionSource = 'composed_now';
+          if (!opts.dryRun) {
+            await saveComposition(client, { agencyId: agency.id, reportType: 'daily', periodEnd: endDate, composition: { ...composition, adapter: { parentStats: fresh.parentStats, contextError: fresh.contextError } } as Composition });
+          }
+          if (plan.text === 'composer') {
+            if (isSendableComposition(composition)) composerText = draftToDailyText(timed.result.final);
+            else delivery.reason += ' · el redactor no produjo texto: va el legacy';
+          }
+        } else {
+          delivery.reason += ' · el motor no terminó a tiempo: va el legacy';
+        }
+      } catch (err) {
+        delivery.errors = [errMsg(err)];
+        delivery.reason += ' · error del motor: va el legacy';
+        console.error(`[weekly-report] ${agency.slug} motor falló:`, err);
+      }
+      if (legacyP) legacy = await legacyP;
+    } else if (plan.compose === 'async' && !opts.dryRun) {
+      // Shadow sin composición guardada: se pide una aparte (no retrasa el envío).
+      const r = await invokeComposeAsync(agency.slug);
+      delivery.reason += r.ok ? ' · composición asíncrona pedida' : ` · no se pudo pedir la composición: ${r.error}`;
+    }
+  }
+  if (!composerText && !legacy) legacy = await legacyText();
+  const heroImage = await heroP;
+
+  const useComposer = composerText !== null;
+  const text: DailyText = (composerText ?? legacy)!;
+  delivery.sentText = useComposer ? 'composer' : 'legacy';
+  if (legacy) delivery.legacyText = legacy;
+
+  // Indicadores del motor: con base mínima. Si el texto es el legacy, el
+  // correo es el legacy entero (mismos deltas, sin chip ni nota).
+  const deltaDisplay = useComposer
+    ? {
+        negative: minBaseCountDelta(L.winCur.totals.negative, L.winPrev.totals.negative),
+        neutral: minBaseCountDelta(L.winCur.totals.neutral, L.winPrev.totals.neutral),
+        positive: minBaseCountDelta(L.winCur.totals.positive, L.winPrev.totals.positive),
+      }
+    : {
+        negative: formatDelta(L.winCur.totals.negative, L.winPrev.totals.negative, { kind: 'percent', decimals: 0 }),
+        neutral: formatDelta(L.winCur.totals.neutral, L.winPrev.totals.neutral, { kind: 'percent', decimals: 0 }),
+        positive: formatDelta(L.winCur.totals.positive, L.winPrev.totals.positive, { kind: 'percent', decimals: 0 }),
+      };
+  let interpretation: DailyInterpretation | undefined;
+  if (useComposer) {
+    const share = fresh?.share ?? null;
+    interpretation = {
+      insightsWindowLabel: 'últimos 7 días',
+      composition: share && share.week.total > 0
+        ? { weekPct: pctOf(share.week.comments, share.week.total), prevWeekPct: share.prevWeek.total > 0 ? pctOf(share.prevWeek.comments, share.prevWeek.total) : null }
+        : null,
+      methodologyNote: buildDailyMethodologyNote({
+        periodLabel: formatPeriodLabel(w.startYmd, endDate),
+        dayLabel: formatLongDay(endDate),
+        minDeltaBase: FACT_MIN_DELTA_BASE,
+      }),
+    };
+  }
+
+  const renderData: DailyReportRenderData = {
+    agencyName: agency.name,
+    agencyShortName: short,
+    agencyKicker: `${short} · ${agency.name}`,
+    periodLabel: formatPeriodLabel(w.startYmd, endDate),
+    updatedAtLabel: updatedLabelFor(L.coverage, L.nowUtc),
+    totals: L.sentimentReport.totals,
+    deltaVsPrev: L.sentimentReport.deltaVsPrev,
+    deltaDisplay,
+    dailySeries: L.sentimentReport.dailySeries,
+    topicsTable: L.sentimentReport.topicsTable,
+    insights: text.insights,
+    heroImage,
+    dailySummary: {
+      label: `Resumen del día · ${formatShortDay(endDate)}`,
+      headline: text.headline,
+      paragraph: text.paragraph,
+      highlights: text.highlights,
+    },
+    metrics: buildEmailMetrics(L.winCur, L.winPrev),
+    overviewUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
+    ...(interpretation ? { interpretation } : {}),
+  };
+
+  const todayYmd = ymdInTimeZone(L.nowUtc, REPORT_TIMEZONE);
+  const headline = (text.headline ?? '').trim();
+  const subject = buildSubject(
+    'Diario',
+    short,
+    headline || `${fullDayEs(todayYmd)} · ${fmtIntEs(L.sentimentReport.totals.total)} menciones`,
+  );
+
+  return {
+    html: renderDailyReportHtml(renderData),
+    subject,
+    stats: L.sentimentReport.totals,
+    hasData,
+    archive: {
+      subject,
+      headline,
+      composition: { ...((composition ?? {}) as Record<string, unknown>), delivery },
+      composerVersion: composition?.composerVersion ?? null,
+    },
   };
 }
 
@@ -1230,6 +1751,12 @@ async function ensureReportsSchema(client: any): Promise<void> {
   // Seed default config: DDEC activo con destinatarios Populicom a las 6 AM
   // (America/Puerto_Rico). Otras agencias inactivas. El ON CONFLICT solo
   // sobreescribe si nadie ha editado la fila desde la UI (updated_by IS NULL).
+  //
+  // composer_mode (interpretación v1) NO está en este SET ni en ningún otro
+  // self-heal de esta función: un cambio de modo por SQL no se revierte. Aun
+  // así, al editar report_configs por SQL hay que dejar updated_by NOT NULL:
+  // con updated_by NULL este UPSERT reescribe is_active (todas menos DDEC
+  // quedarían inactivas), send_hour_local, timezone y recipients cada hora.
   const DDEC_RECIPIENTS = [
     'agutierrez@populicom.com',
     'gpaz@populicom.com',
@@ -1830,9 +2357,42 @@ interface LogEntry {
   error?: string;
   stats?: { negative: number; neutral: number; positive: number; total: number };
   triggeredBy?: string;
+  /** Archivo del envío (solo con el motor). Sin él, el INSERT es el de siempre. */
+  archive?: SendArchive;
 }
 
 async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<void> {
+  if (entry.archive) {
+    try {
+      await client.query(
+        `INSERT INTO report_send_log
+           (agency_id, recipients, from_email, template_key, trigger, status, message_id, error, stats, triggered_by,
+            subject, headline, composition, composer_version)
+         VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb, $14)`,
+        [
+          agencyId,
+          JSON.stringify(entry.recipients),
+          entry.fromEmail,
+          entry.templateKey,
+          entry.trigger,
+          entry.status,
+          entry.messageId ?? null,
+          entry.error ?? null,
+          entry.stats ? JSON.stringify(entry.stats) : null,
+          entry.triggeredBy ?? null,
+          entry.archive.subject,
+          entry.archive.headline,
+          JSON.stringify(entry.archive.composition),
+          entry.archive.composerVersion,
+        ],
+      );
+      return;
+    } catch (err) {
+      // Sin las columnas de 0013 (o composición demasiado grande): se registra
+      // el envío igual, sin archivo. El registro del envío nunca se pierde.
+      console.error('[weekly-report] failed to write send log with archive; retrying without it:', err);
+    }
+  }
   try {
     await client.query(
       `INSERT INTO report_send_log

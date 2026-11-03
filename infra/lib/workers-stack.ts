@@ -423,7 +423,10 @@ export class WorkersStack extends cdk.Stack {
       entry: path.join(__dirname, '../lambda/weekly-report/index.ts'),
       handler: 'handler',
       memorySize: 1024,
-      timeout: cdk.Duration.minutes(5),
+      // 15 min (interpretación v1, WP-6): con composer_mode shadow/agentic el
+      // motor de redacción tarda ~3.5 min por correo; si al enviar falta la
+      // composición anticipada y quedan más de 420 s, compone en el momento.
+      timeout: cdk.Duration.minutes(15),
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
       securityGroups: [props.lambdaSecurityGroup],
@@ -453,6 +456,13 @@ export class WorkersStack extends cdk.Stack {
     this.weeklyReportFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: [props.dbSecret.secretArn],
+    }));
+    // Composición anticipada (WP-6): el barrido horario se invoca a sí mismo
+    // de forma asíncrona ({action:'compose'}) 2 h antes del envío. ARN literal
+    // (como eco-mention-import) para no crear una dependencia circular.
+    this.weeklyReportFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:eco-weekly-report`],
     }));
 
     // EventBridge schedule: cada hora en punto (UTC).
