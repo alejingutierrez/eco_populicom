@@ -19,6 +19,12 @@
  * Las invocaciones se cachean en memoria (LRU TTL 30min) por
  * `(agency, metric, period)` para evitar burnear tokens si el usuario abre
  * varias veces el mismo modal.
+ *
+ * Motor de redacción (WP-8): con la agencia en `COMPOSER_WEB_AGENCIES` la
+ * interpretación sale del perfil ligero (ver ./composer.ts): el número lo
+ * pone el marcador y la banda la calcula el código como hoy. La clave del
+ * caché lleva la versión del motor. Con la bandera vacía la ruta no hace
+ * ninguna consulta extra y responde lo mismo que antes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, dailyMetricSnapshots } from '@eco/database';
@@ -27,6 +33,7 @@ import {
   resolveWindow,
   loadMetricsForWindow,
   loadSentimentTotals,
+  loadDailySentimentSeries,
   METRIC_INSIGHT_SYSTEM_PROMPT,
   buildMetricInsightPrompt,
   formatMetric,
@@ -44,6 +51,7 @@ import {
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
+import { composerWebActive, expectedComposerVersion } from '@/lib/ai-cache-freshness';
 
 export const dynamic = 'force-dynamic';
 
@@ -162,7 +170,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // periodKey pasa a describir otra ventana, y la clave vieja servía el
   // insight de ayer hasta 30 min (auditoría 2026-08).
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
-  const cacheKey = `${agencyId}::${metric}::${periodKey}::${startYmd}::${endYmd}`;
+  // Motor: solo se resuelve la agencia si la bandera tiene algún slug.
+  let composerAgency: { slug: string; name: string } | null = null;
+  if (composerWebActive()) {
+    const a = await (getPool() as unknown as PgClientLike).query<{ slug: string; name: string }>(
+      `SELECT slug, name FROM agencies WHERE id = $1 LIMIT 1`, [agencyId],
+    ).catch(() => ({ rows: [] as Array<{ slug: string; name: string }> }));
+    const row = a.rows[0];
+    if (row && expectedComposerVersion(row.slug, { startYmd, endYmd })) composerAgency = row;
+  }
+  const composerVersion = composerAgency ? expectedComposerVersion(composerAgency.slug, { startYmd, endYmd }) : null;
+  const cacheKey = `${agencyId}::${metric}::${periodKey}::${startYmd}::${endYmd}${composerVersion ? `::${composerVersion}` : ''}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
@@ -319,11 +337,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
 
     let interpretation: string;
-    try {
-      interpretation = await generateInterpretation(insightInput);
-    } catch (err) {
-      log.warn('metric-insight', 'AI call failed, using rule-based', { msg: (err as Error).message });
-      interpretation = buildRuleBasedInsight(insightInput);
+    if (composerAgency) {
+      interpretation = await composeInterpretation({
+        agencyId, agency: composerAgency, metric, startYmd, endYmd, prevStartYmd, prevEndYmd,
+        raw: value, prevRaw: prevValue, band, p25, p75, topics: topContributingTopics,
+        totals: volCur, prevTotals: volPrev, pool,
+      }).catch((err) => {
+        log.warn('metric-insight', 'composer failed, using rule-based', { msg: (err as Error).message });
+        return null;
+      }) ?? buildRuleBasedInsight(insightInput);
+    } else {
+      try {
+        interpretation = await generateInterpretation(insightInput);
+      } catch (err) {
+        log.warn('metric-insight', 'AI call failed, using rule-based', { msg: (err as Error).message });
+        interpretation = buildRuleBasedInsight(insightInput);
+      }
     }
 
     // Formato legible-para-el-público del headline del drawer (palabra + número
@@ -365,6 +394,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       historicalP75: displayP75,
       topContributingTopics,
       interpretation,
+      // Solo con motor: con la bandera vacía el payload es el de siempre.
+      ...(composerVersion ? { composerVersion } : {}),
     };
 
     cacheSet(cacheKey, payload);
@@ -415,6 +446,44 @@ async function generateInterpretation(input: MetricInsightInput): Promise<string
   const raw = (parsed?.interpretation ?? '').trim();
   // Sanitize: permite solo <strong>.
   return raw.replace(/<(?!\/?strong\b)[^>]*>/gi, '').slice(0, 1200);
+}
+
+/**
+ * Interpretación con el motor (perfil ligero). Devuelve null si el redactor
+ * no produjo borrador: el caller usa entonces la interpretación por reglas.
+ * La serie diaria fija la ventana del paquete de hechos (y los días que el
+ * lint acepta); se carga solo en este camino.
+ */
+async function composeInterpretation(a: {
+  agencyId: string;
+  agency: { slug: string; name: string };
+  metric: MetricKey;
+  startYmd: string; endYmd: string; prevStartYmd: string; prevEndYmd: string;
+  raw: number | null; prevRaw: number | null; band: MetricBand;
+  p25: number | null; p75: number | null;
+  topics: Array<{ name: string; share: number }>;
+  totals: { negative: number; neutral: number; positive: number; total: number };
+  prevTotals: { negative: number; neutral: number; positive: number; total: number };
+  pool: PgClientLike;
+}): Promise<string | null> {
+  const [{ getComposerLlm }, { kpiComposerInput, composeKpi, kpiInterpretation }] = await Promise.all([
+    import('@/lib/bedrock-client'),
+    import('./composer'),
+  ]);
+  const series = await loadDailySentimentSeries(a.pool, a.agencyId, a.startYmd, a.endYmd);
+  const input = kpiComposerInput({
+    agencyId: a.agencyId, agencyName: a.agency.name, shortName: a.agency.slug.toUpperCase().slice(0, 6),
+    metric: a.metric, startYmd: a.startYmd, endYmd: a.endYmd, prevStartYmd: a.prevStartYmd, prevEndYmd: a.prevEndYmd,
+    raw: a.raw, prevRaw: a.prevRaw, band: a.band, p25: a.p25, p75: a.p75, topics: a.topics,
+    totals: a.totals, prevTotals: a.prevTotals, dailySeries: series,
+  });
+  const r = await composeKpi(input, getComposerLlm());
+  const c = r.composition;
+  log.info('metric-insight', 'composer', {
+    metric: a.metric, version: c.composerVersion, degraded: c.degraded, seconds: c.stageSeconds.total,
+    corrector: c.correctorRan, safetyNet: c.safetyNetLog.length, errors: c.errors.slice(0, 3),
+  });
+  return kpiInterpretation(r);
 }
 
 /**
