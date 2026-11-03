@@ -11,6 +11,7 @@ import {
   crisisBand,
   ymdInTimeZone,
   isImportQueryId,
+  universeFilterSql,
 } from '@eco/shared';
 import type {
   PgClientLike,
@@ -21,6 +22,7 @@ import type {
 import { resolveAllowedAgencySlugs, listActiveAgencies } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
+import { universeOptsForSlug } from '@/lib/mentions/universe-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -281,10 +283,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Por agencia: métricas de la ventana actual + previa + reporte de tópicos.
     const perAgency = await Promise.all(
       active.map(async (a) => {
+        // WP-9a: universo por agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+        const uopts = universeOptsForSlug(a.slug);
         const [cur, prev, report] = await Promise.all([
-          loadMetricsForWindow(pool, a.id, startYmd, endYmd),
-          loadMetricsForWindow(pool, a.id, prevStartYmd, prevEndYmd),
-          buildSentimentReport(pool, a.id, startYmd, endYmd, prevStartYmd, prevEndYmd),
+          loadMetricsForWindow(pool, a.id, startYmd, endYmd, uopts),
+          loadMetricsForWindow(pool, a.id, prevStartYmd, prevEndYmd, uopts),
+          buildSentimentReport(pool, a.id, startYmd, endYmd, prevStartYmd, prevEndYmd, uopts),
         ]);
         const src = sourceById.get(a.id);
         const lastIngested = src?.last_ingested_at ? new Date(src.last_ingested_at) : null;
@@ -483,8 +487,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
                FROM mentions m
               WHERE m.agency_id = $1
-                AND m.is_duplicate = false
-                AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+                ${universeFilterSql(universeOptsForSlug(a.slug), 'm.')}
                 AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date
                 AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date
            ) pt

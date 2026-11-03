@@ -6,7 +6,8 @@ import { requireAuth } from '@/lib/auth/require-admin';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
 import { processRows, propagationRows, type RawMentionRow } from '@/lib/narrative/overview';
-import { PROPAGATION_ROWS_SQL } from '@/lib/narrative/propagation-query';
+import { propagationRowsSql } from '@/lib/narrative/propagation-query';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,8 +65,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     if (!own.rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const narrative = own.rows[0];
 
+    // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+    const uopts = await universeOptsForAgencyId(agencyId);
     const rowsRes = await pool.query<RawMentionRow>(
-      PROPAGATION_ROWS_SQL,
+      propagationRowsSql(uopts),
       // Borde holgado: la última mención con hora del día final es anterior a
       // las 04:00Z del siguiente; `processRows` descarta lo posterior a endYmd.
       [narrative.id, agencyId, `${addDaysYmd(endYmd, 1)}T04:00:00Z`],

@@ -4,6 +4,7 @@ import { mentions, municipalities, mentionMunicipalities } from '@eco/database';
 import { sql, eq, and, gte, lte, count } from 'drizzle-orm';
 import { dashboardPresetWindowYmdInTZ, sourceMatchTerms } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
+import { universeOptsForAgencyId, strictUniverseCond } from '@/lib/mentions/universe-config';
 import { log } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -91,12 +92,14 @@ export async function GET(req: NextRequest) {
     until = new Date(`${w.endYmd}T23:59:59.999-04:00`);
   }
 
+  // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+  const strictCond = strictUniverseCond(await universeOptsForAgencyId(agencyId));
   const conds = [
     eq(mentions.agencyId, agencyId),
-    eq(mentions.isDuplicate, false),
+    ...(strictCond ? [] : [eq(mentions.isDuplicate, false)]),
     gte(mentions.publishedAt, since),
     lte(mentions.publishedAt, until),
-    sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`,
+    strictCond ?? sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`,
   ];
 
   const source = searchParams.get('source');

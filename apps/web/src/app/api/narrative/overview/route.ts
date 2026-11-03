@@ -4,6 +4,7 @@ import { resolveAgencyId } from '@/lib/agency';
 import { requireAuth } from '@/lib/auth/require-admin';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
 import { computeOverview, TZ } from '@/lib/narrative/compute';
 import type { OverviewPayload } from '@/lib/narrative/overview';
 
@@ -74,9 +75,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+    const uopts = await universeOptsForAgencyId(agencyId);
     let job = inflight.get(cacheKey);
     if (!job) {
-      job = computeOverview(agencyId, endYmd).finally(() => inflight.delete(cacheKey));
+      job = computeOverview(agencyId, endYmd, uopts).finally(() => inflight.delete(cacheKey));
       inflight.set(cacheKey, job);
     }
     const payload = await job;

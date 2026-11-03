@@ -30,6 +30,7 @@ import { resolveWindow } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
 import { hasTermsTable, queryTerms } from '@/lib/terms/query';
 
 export const dynamic = 'force-dynamic';
@@ -71,8 +72,10 @@ export async function GET(request: NextRequest) {
   const fast = await hasTermsTable(pool);
 
   try {
+    // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+    const universe = await universeOptsForAgencyId(agencyId);
     const { terms, refMode, refDays } = await queryTerms(pool, {
-      searchParams, w, agencyId, agencySlug, mode, limit, fast,
+      searchParams, w, agencyId, agencySlug, mode, limit, fast, universe,
     });
     const out = NextResponse.json({
       terms,

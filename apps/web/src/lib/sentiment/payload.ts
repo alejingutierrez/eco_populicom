@@ -5,48 +5,54 @@
  * pertinencia baja, días calendario de Puerto Rico — para que la cascada
  * empiece y termine en el mismo NSS que muestra la página.
  */
-import { MIN_WINDOW_MENTIONS, type PgClientLike } from '@eco/shared';
+import { MIN_WINDOW_MENTIONS, universeFilterSql, type PgClientLike, type UniverseOptions } from '@eco/shared';
 import { buildNssShift, bucketEmotionWeeks, emotionLabel, whereOf, type EmotionWeeks, type NssShift } from './analysis';
 
-const BASE = `m.agency_id = $1::uuid
-   AND m.is_duplicate = false
-   AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`;
+// Universo de la agencia (WP-9a): `opts` vacío = histórico; `strictUniverse` =
+// alta/media (universe.ts). Las consultas son funciones para que la bandera
+// llegue hasta aquí; las constantes exportadas son las de siempre.
+const baseFor = (opts?: UniverseOptions) => `m.agency_id = $1::uuid
+   ${universeFilterSql(opts, 'm.')}`;
 const LOCAL_DAY = `(m.published_at AT TIME ZONE 'America/Puerto_Rico')::date`;
 const POS = `COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')`;
 const NEG = `COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')`;
 
 // Las dos ventanas son contiguas: [prevStart, start) es la previa y [start, end] la actual.
-export const WHERE_SQL = `
+export const whereSql = (opts?: UniverseOptions) => `
 SELECT m.author, m.author_fullname, m.domain, m.page_type, m.pub_type,
        (${LOCAL_DAY} >= $3::date) AS cur,
        COUNT(*)::int AS n,
        COUNT(*) FILTER (WHERE ${POS})::int AS pos,
        COUNT(*) FILTER (WHERE ${NEG})::int AS neg
   FROM mentions m
- WHERE ${BASE}
+ WHERE ${baseFor(opts)}
    AND ${LOCAL_DAY} >= $2::date AND ${LOCAL_DAY} <= $4::date
  GROUP BY 1, 2, 3, 4, 5, 6`;
+export const WHERE_SQL = whereSql();
 
 // Emociones por día (12 semanas hasta el fin de la ventana) y, de la ventana, cuántas menciones traen emoción y con qué tono.
-export const EMOTION_DAYS_SQL = `
+export const emotionDaysSql = (opts?: UniverseOptions) => `
 SELECT ${LOCAL_DAY}::text AS d, lower(trim(e.value::text, '"')) AS emotion, COUNT(*)::int AS c
   FROM mentions m, jsonb_array_elements(CASE WHEN jsonb_typeof(m.nlp_emotions) = 'array' THEN m.nlp_emotions ELSE '[]'::jsonb END) AS e
- WHERE ${BASE}
+ WHERE ${baseFor(opts)}
    AND ${LOCAL_DAY} >= $2::date AND ${LOCAL_DAY} <= $3::date
  GROUP BY 1, 2`;
-export const EMOTION_TONE_SQL = `
+export const EMOTION_DAYS_SQL = emotionDaysSql();
+export const emotionToneSql = (opts?: UniverseOptions) => `
 SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*)::int AS n,
        COUNT(*) FILTER (WHERE ${POS})::int AS pos, COUNT(*) FILTER (WHERE ${NEG})::int AS neg
   FROM mentions m, jsonb_array_elements(CASE WHEN jsonb_typeof(m.nlp_emotions) = 'array' THEN m.nlp_emotions ELSE '[]'::jsonb END) AS e
- WHERE ${BASE}
+ WHERE ${baseFor(opts)}
    AND ${LOCAL_DAY} >= $2::date AND ${LOCAL_DAY} <= $3::date
  GROUP BY 1`;
-export const WITH_EMOTION_SQL = `
+export const EMOTION_TONE_SQL = emotionToneSql();
+export const withEmotionSql = (opts?: UniverseOptions) => `
 SELECT COUNT(*) FILTER (WHERE jsonb_typeof(m.nlp_emotions) = 'array' AND jsonb_array_length(m.nlp_emotions) > 0)::int AS with_emotion,
        COUNT(*)::int AS total
   FROM mentions m
- WHERE ${BASE}
+ WHERE ${baseFor(opts)}
    AND ${LOCAL_DAY} >= $2::date AND ${LOCAL_DAY} <= $3::date`;
+export const WITH_EMOTION_SQL = withEmotionSql();
 
 export interface SentimentWindow { startYmd: string; endYmd: string; prevStartYmd: string; prevEndYmd: string }
 export interface SentimentAnalysis {
@@ -67,14 +73,15 @@ export async function computeSentimentAnalysis(
   pool: PgClientLike,
   agency: { id: string; slug: string; name: string | null },
   w: SentimentWindow,
+  opts?: UniverseOptions,
 ): Promise<SentimentAnalysis> {
   const firstWeekDay = addDays(w.endYmd, -(12 * 7 - 1));
   const [where, emoDays, emoTone, withEmo] = await Promise.all([
     pool.query<{ author: string | null; author_fullname: string | null; domain: string | null; page_type: string | null; pub_type: string | null; cur: boolean; n: number; pos: number; neg: number }>(
-      WHERE_SQL, [agency.id, w.prevStartYmd, w.startYmd, w.endYmd]),
-    pool.query<{ d: string; emotion: string; c: number }>(EMOTION_DAYS_SQL, [agency.id, firstWeekDay, w.endYmd]),
-    pool.query<{ emotion: string; n: number; pos: number; neg: number }>(EMOTION_TONE_SQL, [agency.id, w.startYmd, w.endYmd]),
-    pool.query<{ with_emotion: number; total: number }>(WITH_EMOTION_SQL, [agency.id, w.startYmd, w.endYmd]),
+      whereSql(opts), [agency.id, w.prevStartYmd, w.startYmd, w.endYmd]),
+    pool.query<{ d: string; emotion: string; c: number }>(emotionDaysSql(opts), [agency.id, firstWeekDay, w.endYmd]),
+    pool.query<{ emotion: string; n: number; pos: number; neg: number }>(emotionToneSql(opts), [agency.id, w.startYmd, w.endYmd]),
+    pool.query<{ with_emotion: number; total: number }>(withEmotionSql(opts), [agency.id, w.startYmd, w.endYmd]),
   ]);
   const shift = buildNssShift(where.rows.map((r) => ({
     where: whereOf(r, agency.slug, agency.name), cur: !!r.cur, n: Number(r.n) || 0, pos: Number(r.pos) || 0, neg: Number(r.neg) || 0,

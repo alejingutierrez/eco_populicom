@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
 import { PERIOD_DAYS, resolveWindow } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
+import { universeOptsForAgencyId, strictOnlyPertinenceSql } from '@/lib/mentions/universe-config';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -60,6 +61,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   const agencyId = await resolveAgencyId(searchParams);
   if (!agencyId) return NextResponse.json({ error: 'No agency' }, { status: 404 });
 
+  // WP-9a: con UNIVERSE_STRICT_AGENCIES para la agencia, estas consultas
+  // también se limitan a pertinencia alta/media (hoy solo excluyen duplicados);
+  // con la bandera vacía el fragmento es '' y el SQL no cambia.
+  const pertSql = strictOnlyPertinenceSql(await universeOptsForAgencyId(agencyId), 'm.');
   const pgPool = getPool();
 
   // Un enlace viejo puede apuntar a una narrativa que después se consolidó en
@@ -92,7 +97,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
             COALESCE(SUM(m.reach_estimate), 0)::bigint AS "totalReach"
        FROM narrative_mentions nm
        JOIN mentions m ON m.id = nm.mention_id
-      WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.is_duplicate = false
+      WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.is_duplicate = false ${pertSql}
         AND m.published_at >= $2::timestamptz AND m.published_at <= $3::timestamptz`,
     [effectiveId, startTs, endTs],
   );
@@ -111,7 +116,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
-       AND m.is_duplicate = false
+       AND m.is_duplicate = false ${pertSql}
        GROUP BY 1
        ORDER BY 1 ASC`,
     [effectiveId],
@@ -126,7 +131,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
-         AND m.is_duplicate = false
+         AND m.is_duplicate = false ${pertSql}
          AND m.author IS NOT NULL
          AND m.published_at >= $2::timestamptz AND m.published_at <= $3::timestamptz
        GROUP BY m.author
@@ -142,7 +147,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
-       AND m.is_duplicate = false
+       AND m.is_duplicate = false ${pertSql}
        AND m.published_at >= $2::timestamptz AND m.published_at <= $3::timestamptz
        GROUP BY 1
        ORDER BY 2 DESC`,
@@ -174,7 +179,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1 AND nm.is_primary = true
-       AND m.is_duplicate = false
+       AND m.is_duplicate = false ${pertSql}
        AND m.published_at >= $2::timestamptz AND m.published_at <= $3::timestamptz
        ORDER BY m.published_at DESC
        LIMIT 10`,

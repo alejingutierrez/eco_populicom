@@ -8,7 +8,7 @@
  * las menciones pertinentes sin duplicados, como loadAggregatesForWindow, y
  * los CONTEOS (menciones, quién habló) cuentan esas mismas menciones.
  */
-import { HISTORY_DAYS, addDaysYmd, loadAgencyCoverage, loadDailySentimentSeries, loadMetricsForWindow, type PgClientLike } from '@eco/shared';
+import { HISTORY_DAYS, addDaysYmd, loadAgencyCoverage, loadDailySentimentSeries, loadMetricsForWindow, universeFilterSql, type PgClientLike, type UniverseOptions } from '@eco/shared';
 import { BASELINE_FROM, BASELINE_MAX_WEEKS, WEEKS_SHOWN, buildWeeks, type DayAggregates, type SnapshotRow } from './weeks';
 import { buildVoices, type VoiceRow } from './voices';
 
@@ -16,7 +16,11 @@ const TZ = 'America/Puerto_Rico';
 
 // Agregados por día con la misma definición que loadAggregatesForWindow, para
 // calcular muchas semanas con una sola consulta.
-export const DAILY_AGG_SQL = `
+//
+// Universo de la agencia (WP-9a): `opts` vacío = histórico (`NULL o <> 'baja'`),
+// `strictUniverse` = alta/media. Las consultas son funciones para que la
+// bandera llegue hasta aquí; las constantes exportadas son las de siempre.
+export const dailyAggSql = (opts?: UniverseOptions) => `
 SELECT to_char((published_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS date,
        COUNT(*)::int AS total_mentions,
        COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count,
@@ -33,11 +37,11 @@ SELECT to_char((published_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS date,
        COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score
   FROM mentions
  WHERE agency_id = $1
-   AND is_duplicate = false
-   AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja')
+   ${universeFilterSql(opts)}
    AND (published_at AT TIME ZONE '${TZ}')::date >= $2::date
    AND (published_at AT TIME ZONE '${TZ}')::date <= $3::date
  GROUP BY 1`;
+export const DAILY_AGG_SQL = dailyAggSql();
 
 export const SNAP_SQL = `
 SELECT to_char(date, 'YYYY-MM-DD') AS date, total_mentions, negative_count, nss, total_reach,
@@ -46,7 +50,7 @@ SELECT to_char(date, 'YYYY-MM-DD') AS date, total_mentions, negative_count, nss,
  WHERE agency_id = $1 AND date >= $2::date AND date <= $3::date`;
 
 // Quién habló: una fila por día y autor, en el universo pertinente.
-export const VOICES_SQL = `
+export const voicesSql = (opts?: UniverseOptions) => `
 SELECT to_char((m.published_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS day,
        m.author, m.author_fullname, m.domain, m.page_type,
        COUNT(*)::int AS n,
@@ -55,23 +59,23 @@ SELECT to_char((m.published_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS day
        COUNT(*) FILTER (WHERE COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0) = 0)::int AS zero
   FROM mentions m
  WHERE m.agency_id = $1
-   AND m.is_duplicate = false
-   AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+   ${universeFilterSql(opts, 'm.')}
    AND (m.published_at AT TIME ZONE '${TZ}')::date >= $2::date
    AND (m.published_at AT TIME ZONE '${TZ}')::date <= $3::date
  GROUP BY 1, 2, 3, 4, 5`;
+export const VOICES_SQL = voicesSql();
 
 // Voces vistas en las 5 semanas antes de la ventana, para contar las nuevas.
-export const PRIOR_VOICES_SQL = `
+export const priorVoicesSql = (opts?: UniverseOptions) => `
 SELECT DISTINCT m.author, m.author_fullname, m.domain, m.page_type
   FROM mentions m
  WHERE m.agency_id = $1
-   AND m.is_duplicate = false
-   AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+   ${universeFilterSql(opts, 'm.')}
    AND (m.published_at AT TIME ZONE '${TZ}')::date >= $2::date
    AND (m.published_at AT TIME ZONE '${TZ}')::date <= $3::date`;
+export const PRIOR_VOICES_SQL = priorVoicesSql();
 
-export async function computeScorecard(pool: PgClientLike, agencyId: string, startYmd: string, endYmd: string, prevStartYmd: string, prevEndYmd: string) {
+export async function computeScorecard(pool: PgClientLike, agencyId: string, startYmd: string, endYmd: string, prevStartYmd: string, prevEndYmd: string, opts?: UniverseOptions) {
   // Semanas: las 12 que se muestran y, para lo usual, hasta un año hacia atrás
   // sin cruzar el quiebre de serie. La historia de cada semana necesita los
   // HISTORY_DAYS (90) días de snapshots anteriores a su inicio.
@@ -85,12 +89,12 @@ export async function computeScorecard(pool: PgClientLike, agencyId: string, sta
 
   const [agencyRes, aggRes, snapRes, counts, prevMetrics, voicesRes, priorRes, coverage] = await Promise.all([
     pool.query<{ slug: string; name: string | null }>('SELECT slug, name FROM agencies WHERE id = $1', [agencyId]),
-    pool.query<Record<string, string | number>>(DAILY_AGG_SQL, [agencyId, aggFrom, endYmd]),
+    pool.query<Record<string, string | number>>(dailyAggSql(opts), [agencyId, aggFrom, endYmd]),
     pool.query<Record<string, string | number | null>>(SNAP_SQL, [agencyId, snapFrom, endYmd]),
-    loadDailySentimentSeries(pool, agencyId, countsFrom, endYmd),
-    loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
-    pool.query<VoiceRow>(VOICES_SQL, [agencyId, prevStartYmd, endYmd]),
-    pool.query<VoiceRow>(PRIOR_VOICES_SQL, [agencyId, priorFrom, priorTo]),
+    loadDailySentimentSeries(pool, agencyId, countsFrom, endYmd, opts),
+    loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd, opts),
+    pool.query<VoiceRow>(voicesSql(opts), [agencyId, prevStartYmd, endYmd]),
+    pool.query<VoiceRow>(priorVoicesSql(opts), [agencyId, priorFrom, priorTo]),
     loadAgencyCoverage(pool, agencyId),
   ]);
   const n = (v: unknown) => (v == null ? 0 : Number(v));

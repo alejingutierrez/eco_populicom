@@ -6,7 +6,7 @@
  * viven aquí.
  */
 import type { getPool } from '@eco/database';
-import { addDaysYmd, sourceMatchTerms } from '@eco/shared';
+import { addDaysYmd, sourceMatchTerms, pertinentUniverseSql, type UniverseOptions } from '@eco/shared';
 import { stopSurfacesFor, STOP_STEMS } from '@/lib/wordcloud/stopwords';
 
 type Pool = ReturnType<typeof getPool>;
@@ -49,9 +49,11 @@ export async function queryTerms(
     mode: 'frequent' | 'distinctive';
     limit: number;
     fast: boolean;
+    /** Universo de la agencia (WP-9a); vacío = histórico. */
+    universe?: UniverseOptions;
   },
 ) {
-  const { searchParams, w, agencyId, agencySlug, mode, limit, fast } = args;
+  const { searchParams, w, agencyId, agencySlug, mode, limit, fast, universe } = args;
   const days = w.days;
 
   // ---- filtros de contenido: los MISMOS nombres de param que /api/eco-mentions
@@ -121,11 +123,15 @@ export async function queryTerms(
     contentConds.push(`(m.title ILIKE ${P(like)} OR m.snippet ILIKE ${P(like)})`);
   }
 
-  const baseConds = [
-    `m.agency_id = ${agencyP}::uuid`,
-    'm.is_duplicate = false',
-    `(m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`,
-  ];
+  // WP-9a: con `strictUniverse` el universo es alta/media (universe.ts); sin
+  // bandera, el histórico de siempre (mismo SQL).
+  const baseConds = universe?.strictUniverse
+    ? [`m.agency_id = ${agencyP}::uuid`, pertinentUniverseSql('m.')]
+    : [
+        `m.agency_id = ${agencyP}::uuid`,
+        'm.is_duplicate = false',
+        `(m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`,
+      ];
   // `::int * INTERVAL '1 day'` y NO `(param || ' days')::interval`.
   //
   // Con la forma vieja el endpoint devolvía 500 en producción:

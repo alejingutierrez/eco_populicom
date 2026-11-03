@@ -14,6 +14,8 @@ import {
 } from '@eco/shared';
 import type { PgClientLike, SentimentReport, MetricDisplay, DeltaDisplay, HourlyPoint, DailyPoint } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
+import { loadComposition, type CompositionPayload } from '@/lib/mentions/composition';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -73,6 +75,11 @@ interface OverviewResponse {
   trendGranularity: 'hour' | 'day';
   /** Poblada solo cuando trendGranularity === 'hour'. */
   hourlySeries: HourlyPoint[] | null;
+  /**
+   * WP-9a (aditivo): composición del volumen (porcentaje de comentarios de
+   * usuarios, actual y previo), deltas con base mínima y el universo contado.
+   */
+  composition: CompositionPayload;
   topicsTable: SentimentReport['topicsTable'];
   /**
    * Estado actual de las métricas compuestas (NSS, BHI, crisis, etc) — leído
@@ -136,9 +143,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // pg.Pool implementa PgClientLike (mismo shape que pg.Client del lambda).
     const pool = getPool() as unknown as PgClientLike;
 
+    // WP-9a: universo de esta agencia (bandera UNIVERSE_STRICT_AGENCIES). Vacío
+    // = universo histórico, SQL idéntico al de antes.
+    const uopts = await universeOptsForAgencyId(agencyId);
+
     // Agregados base — misma fuente que el correo.
     const report = await buildSentimentReport(
-      pool, agencyId, startYmd, endYmd, prevStartYmd, prevEndYmd,
+      pool, agencyId, startYmd, endYmd, prevStartYmd, prevEndYmd, uopts,
     );
 
     // Métricas compuestas — recalculadas sobre la VENTANA del period (no
@@ -151,10 +162,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const singleDayWindow = startYmd === endYmd;
     const windowDays = report.dailySeries.length;
     const [winCur, winPrev, prevDailySeries, crisisDaily, agencyRow] = await Promise.all([
-      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
-      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+      loadMetricsForWindow(pool, agencyId, startYmd, endYmd, uopts),
+      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd, uopts),
       !singleDayWindow && windowDays <= PREV_SERIES_MAX_DAYS
-        ? loadDailySentimentSeries(pool, agencyId, prevStartYmd, prevEndYmd)
+        ? loadDailySentimentSeries(pool, agencyId, prevStartYmd, prevEndYmd, uopts)
         : Promise.resolve(null),
       pool.query<{ d: string; score: number | string | null }>(
         `SELECT to_char(date, 'YYYY-MM-DD') AS d, crisis_risk_score AS score
@@ -185,7 +196,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // horas cuadra con el total del termómetro.
     const singleDay = singleDayWindow;
     const hourlySeries = singleDay
-      ? await loadHourlySentimentSeries(pool, agencyId, startYmd, endYmd)
+      ? await loadHourlySentimentSeries(pool, agencyId, startYmd, endYmd, uopts)
       : null;
 
     // Volumen y su delta salen del MISMO report que el hero/termómetro/tabla
@@ -196,6 +207,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const totalMentionsDelta = report.prevTotals.total > 0
       ? Number((((report.totals.total - report.prevTotals.total) / report.prevTotals.total) * 100).toFixed(1))
       : (report.totals.total > 0 ? 100 : 0);
+
+    const composition = await loadComposition(
+      pool, agencyId, { startYmd, endYmd, prevStartYmd, prevEndYmd }, uopts,
+      { cur: report.totals, prev: report.prevTotals },
+    );
 
     const response: OverviewResponse = {
       agency: ag ? { slug: ag.slug, name: ag.name, shortName: SHORT_NAMES[ag.slug] ?? ag.slug.toUpperCase() } : null,
@@ -218,6 +234,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       trendGranularity: singleDay ? 'hour' : 'day',
       hourlySeries,
+      composition,
       topicsTable: report.topicsTable,
       currentMetrics: {
         nss: winCur.nss,
