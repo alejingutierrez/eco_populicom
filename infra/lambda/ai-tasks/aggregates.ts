@@ -8,8 +8,15 @@
  * `buildSentimentInsightsPrompt` y `buildDailySummaryPrompt` esperan.
  */
 import { buildSentimentReport } from '@eco/shared';
-import type { PgClientLike, SentimentReport } from '@eco/shared';
+import type { PgClientLike, SentimentReport, SentimentTotals } from '@eco/shared';
 import type { MentionSample, WeeklyAggregates } from '@eco/shared';
+
+/**
+ * `WeeklyAggregates` + los totales REALES del periodo previo (el motor de
+ * redacción los usa para la variación con base mínima; el prompt legacy no
+ * lee este campo).
+ */
+export type PeriodAggregates = WeeklyAggregates & { prevTotals: SentimentTotals };
 
 export function agencyShortName(slug: string): string {
   // Reglas heurísticas del weekly-report para acortar el nombre de la agencia.
@@ -35,7 +42,7 @@ export async function buildPeriodAggregates(
   endDate: string,
   prevStartDate: string,
   prevEndDate: string,
-): Promise<WeeklyAggregates> {
+): Promise<PeriodAggregates> {
   const sentimentReport: SentimentReport = await buildSentimentReport(
     client as PgClientLike, agency.id, startDate, endDate, prevStartDate, prevEndDate,
   );
@@ -154,6 +161,7 @@ export async function buildPeriodAggregates(
     topAuthors,
     topSources,
     topEmotions,
+    prevTotals: sentimentReport.prevTotals,
   };
 }
 
@@ -513,4 +521,80 @@ export async function loadHeroCandidates(client: any, agencyId: string, startYmd
     publishedAt: new Date(row.published_at),
     day: row.day,
   }));
+}
+
+// ============================================================
+// Motor de redacción (WP-8): tópicos con perfil ligero
+// ============================================================
+
+/**
+ * Muestras de un tópico para el motor (con id y fecha, que el motor necesita
+ * para anotar tipo, padre y día). Mismo universo y orden que
+ * `loadTopicSamples` de index.ts (any-touch del tópico, no duplicadas,
+ * engagement): hasta `perSentiment` por sentimiento.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadTopicComposerSamples(client: any, agencyId: string, topicId: number, since: Date, perSentiment = 6): Promise<{ negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] }> {
+  const out: { negative: MentionSample[]; neutral: MentionSample[]; positive: MentionSample[] } = { negative: [], neutral: [], positive: [] };
+  const pairs: Array<[keyof typeof out, string, string]> = [['negative', 'negativo', 'negative'], ['neutral', 'neutral', 'neutral'], ['positive', 'positivo', 'positive']];
+  for (const [key, es, en] of pairs) {
+    const r = await client.query(
+      `SELECT m.id, m.published_at, m.title, m.snippet, m.author, m.content_source_name, m.url,
+              m.page_type, m.engagement_score
+         FROM mentions m
+        WHERE m.agency_id = $1
+          AND EXISTS (SELECT 1 FROM mention_topics mt WHERE mt.mention_id = m.id AND mt.topic_id = $2)
+          AND m.is_duplicate = false
+          AND m.published_at >= $3
+          AND COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ($4, $5)
+        ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+        LIMIT $6`,
+      [agencyId, topicId, since.toISOString(), es, en, Math.max(1, Math.min(20, perSentiment))],
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = r.rows as any[];
+    out[key] = rows.map((row: any) => ({
+      id: row.id,
+      createdAt: (row.published_at as Date).toISOString(),
+      text: `${row.title ? row.title + ' — ' : ''}${row.snippet ?? ''}`.trim(),
+      sentiment: key,
+      author: row.author,
+      source: row.content_source_name,
+      url: row.url,
+      pageType: row.page_type,
+      engagement: row.engagement_score != null ? Number(row.engagement_score) : null,
+    }));
+  }
+  return out;
+}
+
+/** Serie diaria (día PR) de un tópico, mismo universo que `loadTopicAggregate` de index.ts. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadTopicDailySeries(client: any, agencyId: string, topicId: number, startYmd: string, endYmd: string): Promise<Array<{ date: string; negative: number; neutral: number; positive: number }>> {
+  const r = await client.query(
+    `SELECT to_char(m.published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
+            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg,
+            COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
+            COUNT(DISTINCT m.id)::int AS total
+       FROM mention_topics mt
+       JOIN mentions m ON m.id = mt.mention_id
+      WHERE m.agency_id = $1 AND mt.topic_id = $2
+        AND m.is_duplicate = false
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $3::date
+        AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $4::date
+      GROUP BY 1`,
+    [agencyId, topicId, startYmd, endYmd],
+  );
+  const byDay = new Map<string, { negative: number; neutral: number; positive: number }>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of r.rows as any[]) {
+    const neg = Number(row.neg), pos = Number(row.pos), tot = Number(row.total);
+    byDay.set(String(row.d), { negative: neg, positive: pos, neutral: Math.max(0, tot - neg - pos) });
+  }
+  const out: Array<{ date: string; negative: number; neutral: number; positive: number }> = [];
+  for (let t = Date.parse(`${startYmd}T00:00:00Z`); t <= Date.parse(`${endYmd}T00:00:00Z`); t += 86_400_000) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    out.push({ date: d, ...(byDay.get(d) ?? { negative: 0, neutral: 0, positive: 0 }) });
+  }
+  return out;
 }

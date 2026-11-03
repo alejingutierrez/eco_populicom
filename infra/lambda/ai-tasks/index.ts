@@ -12,6 +12,12 @@
  *                   descripción 2-3 oraciones para cada uno de sus tópicos
  *                   activos y la persiste en `topics.description`.
  *
+ * Motor de redacción (WP-8, nov-2026): con la agencia en
+ * `COMPOSER_WEB_AGENCIES` (o `composer: true` en el payload, que manda la
+ * ruta web), `period-insights`, `metric-insight` y `topic-descriptions` pasan
+ * por `compose()` (ver composer-surfaces.ts) y archivan la composición. Sin
+ * bandera el comportamiento es el de siempre.
+ *
  * Trigger 1 — EventBridge cron 4×/día (00, 06, 12, 18 hora AST) sin payload.
  * Trigger 2 — invocación manual con payload:
  *   {action:'briefing', agencySlug?:string, dryRun?:bool}
@@ -57,8 +63,38 @@ import {
   mirrorImage,
   formatShortDay,
   ymdInTimeZone,
+  commentShare,
+  loadSentimentTotals,
+  loadDailySentimentSeries,
+  COMPOSER_MODEL_SONNET,
+  type ComposeResult,
 } from '@eco/shared';
-import { agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext, loadDaySamples, loadHeroCandidates, type HeroCandidate } from './aggregates';
+import {
+  agencyShortName, buildPeriodAggregates, loadSamples, loadMetricInsightContext, loadDaySamples, loadHeroCandidates,
+  loadTopicComposerSamples, loadTopicDailySeries, type HeroCandidate, type PeriodAggregates,
+} from './aggregates';
+import {
+  COMPOSER_VERSION,
+  METRIC_LIGHT_PROFILE,
+  TOPIC_LIGHT_PROFILE,
+  PEAKS_SYSTEM,
+  PEAKS_TOOL_SCHEMA,
+  annotatePeriodSamples,
+  buildPeaksPrompt,
+  composeLight,
+  composeOverview,
+  compositionSummary,
+  createPgComposerDataAccess,
+  lightParagraph,
+  metricLightInput,
+  normalizePeakLabels,
+  overviewTextsFromDraft,
+  periodComposerInput,
+  topicLightInput,
+  useComposerFor,
+} from './composer-surfaces';
+import { AGENCY_OWN_AUTHORS } from '../lib/mention-kind';
+import { createBedrockComposerLlm } from '@eco/shared/src/composer/bedrock-llm';
 // `invokeClaudeWithTool` se importa por deep-path para no traer el SDK Bedrock
 // al grafo de apps/web. El index de `@eco/shared` no re-exporta `bedrock.ts`
 // — solo este lambda (y otros consumers que tengan @aws-sdk/client-bedrock-
@@ -120,6 +156,12 @@ interface InvokeEvent {
   /** Solo para action='metric-insight'. */
   metric?: MetricKey;
   dryRun?: boolean;
+  /**
+   * Motor de redacción para esta generación (lo manda la ruta web que la
+   * dispara, para que web y lambda esperen la misma versión de la fila).
+   * Ausente = decide `COMPOSER_WEB_AGENCIES`.
+   */
+  composer?: boolean;
 }
 
 interface PerAgencyResult {
@@ -164,7 +206,7 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
       }
     } else if (action === 'topic-descriptions') {
       for (const a of agencies) {
-        results.push(await generateTopicDescriptionsFor(client, a, dryRun));
+        results.push(await generateTopicDescriptionsFor(client, a, dryRun, event?.composer));
       }
     } else if (action === 'period-insights') {
       if (!event?.periodStart || !event?.periodEnd) {
@@ -172,7 +214,7 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
       }
       await ensureOverviewPeriodInsightsSchema(client);
       for (const a of agencies) {
-        results.push(await generatePeriodInsightsFor(client, a, event.periodStart, event.periodEnd, dryRun));
+        results.push(await generatePeriodInsightsFor(client, a, event.periodStart, event.periodEnd, dryRun, event.composer));
       }
     } else if (action === 'metric-insight') {
       if (!event?.periodStart || !event?.periodEnd || !event?.metric) {
@@ -180,7 +222,7 @@ export const handler = async (event?: InvokeEvent): Promise<HandlerResult> => {
       }
       await ensureMetricInsightsSchema(client);
       for (const a of agencies) {
-        results.push(await generateMetricInsightFor(client, a, event.metric, event.periodStart, event.periodEnd, dryRun));
+        results.push(await generateMetricInsightFor(client, a, event.metric, event.periodStart, event.periodEnd, dryRun, event.composer));
       }
     } else {
       return { statusCode: 400, body: JSON.stringify({ error: `unknown action: ${action}` }) };
@@ -728,6 +770,7 @@ async function generateTopicDescriptionsFor(
   client: any,
   agency: AgencyRow,
   dryRun: boolean,
+  composerOverride?: boolean,
 ): Promise<PerAgencyResult> {
   const topicsRes = await client.query(
     `SELECT id, slug, name FROM topics WHERE agency_id = $1 AND is_active = true ORDER BY display_order`,
@@ -737,12 +780,20 @@ async function generateTopicDescriptionsFor(
   const updates: Array<{ topic: string; description?: string; status: string; message?: string }> = [];
   const periodDays = 30;
   const since = new Date(Date.now() - periodDays * 24 * 3600 * 1000);
+  // Ventana en días PR para el motor (la consulta legacy usa `since` en UTC).
+  const endYmd = ymdInTimeZone(new Date(), TZ);
+  const startYmd = ymdInTimeZone(since, TZ);
+  const withComposer = useComposerFor(agency.slug, startYmd, endYmd, { override: composerOverride });
 
   for (const t of topicsRes.rows) {
     try {
       const agg = await loadTopicAggregate(client, agency, t.id, t.name, t.slug, since, periodDays);
       if (agg.totalMentions === 0) {
         updates.push({ topic: t.slug, status: 'skip', message: 'sin menciones en 30d' });
+        continue;
+      }
+      if (withComposer) {
+        updates.push(await composeTopicDescription(client, agency, t, agg, since, startYmd, endYmd, dryRun));
         continue;
       }
       const samples = await loadTopicSamples(client, agency, t.id, since);
@@ -779,6 +830,52 @@ async function generateTopicDescriptionsFor(
   }
 
   return { agencySlug: agency.slug, status: 'ok', output: updates };
+}
+
+/** Autores que son la propia agencia (marca `agency_post` en las muestras del motor). */
+function agencyAuthors(agency: AgencyRow): string[] {
+  return [agency.name, ...(AGENCY_OWN_AUTHORS[agency.slug] ?? [])];
+}
+
+const composerLlm = () => createBedrockComposerLlm(bedrock);
+const composerLog = (m: string) => console.warn(m);
+/** `model_used` de una fila escrita por el motor: versión + modelo del redactor. */
+function composerModelLabel(r: ComposeResult): string {
+  return `${COMPOSER_VERSION} · ${r.composition.models.writer ?? 'determinista'}`;
+}
+
+/**
+ * Descripción de 30 días de un tópico con el perfil ligero. `topics` no tiene
+ * columna de composición: se registra un resumen en CloudWatch.
+ */
+async function composeTopicDescription(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  t: { id: number; slug: string; name: string },
+  agg: TopicAggregateForDescription,
+  since: Date,
+  startYmd: string,
+  endYmd: string,
+  dryRun: boolean,
+): Promise<{ topic: string; description?: string; status: string; message?: string; composition?: unknown }> {
+  const [raw, series] = await Promise.all([
+    loadTopicComposerSamples(client, agency.id, t.id, since),
+    loadTopicDailySeries(client, agency.id, t.id, startYmd, endYmd),
+  ]);
+  const { samples } = await annotatePeriodSamples(createPgComposerDataAccess(client, agency.id), raw, agencyAuthors(agency));
+  const input = topicLightInput({
+    agencyId: agency.id, agencyName: agency.name, shortName: agencyShortName(agency.slug), topicName: t.name,
+    periodStart: startYmd, periodEnd: endYmd,
+    total: agg.totalMentions, positive: agg.positive, negative: agg.negative, neutral: agg.neutral,
+    topSubtopics: agg.topSubtopics, topMunicipalities: agg.topMunicipalities, dailySeries: series,
+  }, samples);
+  const r = await composeLight(TOPIC_LIGHT_PROFILE, input, { llm: composerLlm(), dryRun, log: composerLog });
+  console.log(`[ai-tasks] composer topic ${agency.slug}/${t.slug} ${JSON.stringify(compositionSummary(r))}`);
+  const description = lightParagraph(r.final, 1200);
+  if (!description) return { topic: t.slug, status: 'skip', message: 'motor devolvió vacío' };
+  if (!dryRun) await client.query(`UPDATE topics SET description = $1 WHERE id = $2`, [description, t.id]);
+  return { topic: t.slug, description, status: r.degraded ? 'fallback' : 'ok', ...(dryRun ? { composition: r.composition } : {}) };
 }
 
 // ============================================================
@@ -932,6 +1029,7 @@ async function generatePeriodInsightsFor(
   periodStart: string,
   periodEnd: string,
   dryRun: boolean,
+  composerOverride?: boolean,
 ): Promise<PerAgencyResult> {
   // Ventana previa de igual duración para deltaVsPrevWeek.
   const fromDate = new Date(`${periodStart}T00:00:00Z`);
@@ -943,21 +1041,30 @@ async function generatePeriodInsightsFor(
   const prevStartYmd = fmt(prevStart);
   const prevEndYmd = fmt(prevEnd);
 
-  let aggregates: WeeklyAggregates;
+  let aggregates: PeriodAggregates;
   try {
     aggregates = await buildPeriodAggregates(client, agency, periodStart, periodEnd, prevStartYmd, prevEndYmd);
   } catch (err) {
     return { agencySlug: agency.slug, status: 'error', message: `aggregates failed: ${(err as Error).message}` };
   }
 
+  const withComposer = useComposerFor(agency.slug, periodStart, periodEnd, { override: composerOverride });
+
   if (aggregates.totals.total < 10) {
     // No vale la pena gastar LLM para señal anémica. Persistimos fila vacía
-    // para que el endpoint la sirva sin reintentar.
+    // para que el endpoint la sirva sin reintentar. Con motor la fila lleva
+    // su versión: si no, /api/eco-insights la vería «de otra versión» y la
+    // recalcularía en bucle.
     const empty: PeriodInsightsOutput = { negative: [], neutral: [], positive: [] };
     if (!dryRun) {
-      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, null, PRIMARY_MODEL);
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, empty, null, null, PRIMARY_MODEL,
+        null, withComposer ? COMPOSER_VERSION : null);
     }
     return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal (<10 menciones)', output: { ...empty, daily_summary: null } };
+  }
+
+  if (withComposer) {
+    return generatePeriodInsightsWithComposer(client, agency, periodStart, periodEnd, prevStartYmd, prevEndYmd, aggregates, dryRun);
   }
 
   try {
@@ -1097,7 +1204,7 @@ async function generatePeriodInsightsFor(
     };
 
     if (!dryRun) {
-      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, lede, PRIMARY_MODEL);
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, validated, dailySummary, lede, PRIMARY_MODEL, null, null);
     }
     return {
       agencySlug: agency.slug,
@@ -1106,6 +1213,124 @@ async function generatePeriodInsightsFor(
     };
   } catch (err) {
     return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
+  }
+}
+
+/**
+ * Lede e insights del periodo con el motor completo (perfil `overview`).
+ * Mismo resultado en la tabla que el camino legacy (insights, daily_summary,
+ * lede v2 con titular, viñetas, rótulos de picos y foto) más la composición.
+ * Los rótulos de picos y la foto salen de una llamada corta (Sonnet) que ya
+ * conoce el titular validado; un rótulo con vetado o cifra se descarta.
+ */
+async function generatePeriodInsightsWithComposer(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  periodStart: string,
+  periodEnd: string,
+  prevStartYmd: string,
+  prevEndYmd: string,
+  aggregates: PeriodAggregates,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  try {
+    const samplesRaw = await loadSamples(client, agency.id, periodStart, periodEnd);
+    // Mismo universo que los totales del dashboard (strictUniverse: false).
+    const share = (s: string, e: string) => commentShare(client, agency.id, { startYmd: s, endYmd: e }, { strictUniverse: false })
+      .then((c) => ({ comments: c.comments, total: c.total }))
+      .catch(() => null);
+    const [annotated, cShare, prevCShare] = await Promise.all([
+      annotatePeriodSamples(createPgComposerDataAccess(client, agency.id), samplesRaw, agencyAuthors(agency)),
+      share(periodStart, periodEnd),
+      share(prevStartYmd, prevEndYmd),
+    ]);
+    const input = periodComposerInput(aggregates, {
+      agencyId: agency.id, agencyName: agency.name, shortName: agencyShortName(agency.slug),
+      prevStartYmd, prevEndYmd, prevTotals: aggregates.prevTotals, commentShare: cShare, prevCommentShare: prevCShare,
+    }, annotated.samples);
+
+    // Picos y candidatas a foto: en paralelo con el motor (no dependen del texto).
+    const peaksPromise = Promise.all(selectAnnotatedPeaks(aggregates.dailySeries).map(async (p) => ({
+      date: p.date, total: p.total, negative: p.negative,
+      samples: await loadDaySamples(client, agency.id, p.date).catch(() => []),
+    })));
+    const heroPromise = loadHeroCandidates(client, agency.id, periodStart, periodEnd)
+      .then((cs) => cs.filter((c) => isArticlePageType(c.pageType)))
+      .catch(() => [] as HeroCandidate[]);
+    const [result, peaks, heroCandidates] = await Promise.all([
+      composeOverview(input, { llm: composerLlm(), dryRun, log: composerLog }),
+      peaksPromise,
+      heroPromise,
+    ]);
+    const texts = overviewTextsFromDraft(result.final);
+
+    const sourceOf = (c: HeroCandidate): string => {
+      try { if (c.url) return new URL(c.url).hostname.replace(/^www\./, ''); } catch { /* sin URL válida */ }
+      return c.sourceName ?? 'medio';
+    };
+    let peakLabels: Array<{ date: string; label: string }> = [];
+    let heroIndex: number | null = null;
+    const peaksCall: Record<string, unknown> = { model: COMPOSER_MODEL_SONNET, ran: false };
+    if (texts.headline && (peaks.length > 0 || heroCandidates.length > 0)) {
+      const t0 = Date.now();
+      try {
+        const raw = await invokeClaudeWithTool<unknown>({
+          client: bedrock,
+          systemPrompt: PEAKS_SYSTEM,
+          userPrompt: buildPeaksPrompt(texts.headline, peaks,
+            heroCandidates.map((c) => ({ day: c.day, source: sourceOf(c), title: c.title }))),
+          maxTokens: 800,
+          primaryModel: COMPOSER_MODEL_SONNET,
+          fallbackModel: null,
+          temperature: 0,
+          tool: { name: 'emit_peak_labels', description: 'Emit the peak-day labels and the hero photo index.', input_schema: PEAKS_TOOL_SCHEMA },
+        });
+        const norm = normalizePeakLabels(raw, new Set(peaks.map((p) => p.date)), heroCandidates.length);
+        peakLabels = norm.labels;
+        heroIndex = norm.heroIndex;
+        Object.assign(peaksCall, { ran: true, ok: true, dropped: norm.dropped });
+      } catch (err) {
+        Object.assign(peaksCall, { ran: true, ok: false, error: (err as Error).message.slice(0, 300) });
+      }
+      peaksCall.seconds = Math.round((Date.now() - t0) / 100) / 10;
+    }
+    const ordered = heroIndex != null
+      ? [heroCandidates[heroIndex], ...heroCandidates.filter((_, i) => i !== heroIndex)]
+      : heroCandidates;
+    const hero = await loadPeriodHero(ordered);
+    const lede: PeriodLede = {
+      v: 2,
+      headline: texts.headline,
+      highlights: texts.highlights,
+      peaks: peakLabels.map((l) => {
+        const p = peaks.find((x) => x.date === l.date)!;
+        return { date: l.date, label: l.label, total: p.total, negative: p.negative };
+      }),
+      hero,
+    };
+    const archive = { ...result.composition, surface: { name: 'overview', peaksCall, sampleContextError: annotated.contextError } };
+    if (!texts.dailySummary) {
+      console.error(`[ai-tasks] composer period_summary vacío ${agency.slug} ${periodStart}→${periodEnd}: ${result.composition.errors.join(' | ')}`);
+    }
+    if (!dryRun) {
+      await persistPeriodInsights(client, agency.id, periodStart, periodEnd, texts.insights, texts.dailySummary, lede,
+        composerModelLabel(result), archive, COMPOSER_VERSION);
+    }
+    console.log(`[ai-tasks] composer overview ${agency.slug} ${periodStart}→${periodEnd} ${JSON.stringify(compositionSummary(result))}`);
+    return {
+      agencySlug: agency.slug,
+      status: result.degraded ? 'fallback' : 'ok',
+      output: {
+        ...texts.insights,
+        daily_summary: texts.dailySummary,
+        lede,
+        composer_version: COMPOSER_VERSION,
+        composition: dryRun ? archive : compositionSummary(result),
+      },
+    };
+  } catch (err) {
+    return { agencySlug: agency.slug, status: 'error', message: `composer: ${(err as Error).message}` };
   }
 }
 
@@ -1188,10 +1413,12 @@ async function generateMetricInsightFor(
   periodStart: string,
   periodEnd: string,
   dryRun: boolean,
+  composerOverride?: boolean,
 ): Promise<PerAgencyResult> {
   try {
     const ctx = await loadMetricInsightContext(client, agency, periodStart, periodEnd);
     const value = snapshotValueFor(metric, ctx.snapshot, ctx.totalMentions);
+    const withComposer = useComposerFor(agency.slug, periodStart, periodEnd, { override: composerOverride });
     const promptInput: CachedMetricInsightInput = {
       metric,
       agencyName: agency.name,
@@ -1209,9 +1436,13 @@ async function generateMetricInsightFor(
     if (ctx.totalMentions < 5) {
       const fallback = `No hay señal suficiente (<strong>${ctx.totalMentions}</strong> menciones) en el periodo seleccionado para describir el valor de la métrica.`;
       if (!dryRun) {
-        await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, fallback, PRIMARY_MODEL);
+        await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, fallback, PRIMARY_MODEL,
+          null, withComposer ? COMPOSER_VERSION : null);
       }
       return { agencySlug: agency.slug, status: 'fallback', message: 'baja señal', output: { metric, insight: fallback } };
+    }
+    if (withComposer) {
+      return await composeMetricInsight(client, agency, metric, periodStart, periodEnd, value, ctx, dryRun);
     }
     const prompt = buildCachedMetricInsightPrompt(promptInput);
     const parsed = await invokeClaudeWithTool<{ insight: string }>({
@@ -1233,12 +1464,57 @@ async function generateMetricInsightFor(
       return { agencySlug: agency.slug, status: 'error', message: 'modelo devolvió vacío' };
     }
     if (!dryRun) {
-      await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, insight, PRIMARY_MODEL);
+      await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, insight, PRIMARY_MODEL, null, null);
     }
     return { agencySlug: agency.slug, status: 'ok', output: { metric, insight } };
   } catch (err) {
     return { agencySlug: agency.slug, status: 'error', message: (err as Error).message };
   }
+}
+
+/**
+ * Insight de una métrica con el perfil ligero: el valor y la banda los pone
+ * el código (marcador `kpi_value` y la palabra de la banda en el contexto);
+ * el modelo explica con tópicos y voces.
+ */
+async function composeMetricInsight(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any,
+  agency: AgencyRow,
+  metric: MetricKey,
+  periodStart: string,
+  periodEnd: string,
+  value: number | null,
+  ctx: Awaited<ReturnType<typeof loadMetricInsightContext>>,
+  dryRun: boolean,
+): Promise<PerAgencyResult> {
+  const days = Math.round((Date.parse(`${periodEnd}T00:00:00Z`) - Date.parse(`${periodStart}T00:00:00Z`)) / 86_400_000) + 1;
+  const fmt = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const prevEnd = fmt(Date.parse(`${periodStart}T00:00:00Z`) - 86_400_000);
+  const prevStart = fmt(Date.parse(`${periodStart}T00:00:00Z`) - days * 86_400_000);
+  const [totals, prevTotals, series] = await Promise.all([
+    loadSentimentTotals(client, agency.id, periodStart, periodEnd),
+    loadSentimentTotals(client, agency.id, prevStart, prevEnd),
+    loadDailySentimentSeries(client, agency.id, periodStart, periodEnd),
+  ]);
+  const input = metricLightInput({
+    agencyId: agency.id, agencyName: agency.name, shortName: agencyShortName(agency.slug),
+    metric, periodStart, periodEnd,
+    value: metric === 'volume' ? totals.total : value,
+    totals, prevTotals, dailySeries: series,
+    topTopics: ctx.topTopics, topAuthors: ctx.topAuthors, topMunicipalities: ctx.topMunicipalities,
+  });
+  const r = await composeLight(METRIC_LIGHT_PROFILE, input, { llm: composerLlm(), dryRun, log: composerLog });
+  const insight = lightParagraph(r.final);
+  if (!insight) return { agencySlug: agency.slug, status: 'error', message: 'motor devolvió vacío' };
+  if (!dryRun) {
+    await persistMetricInsight(client, agency.id, metric, periodStart, periodEnd, insight, composerModelLabel(r), r.composition, COMPOSER_VERSION);
+  }
+  return {
+    agencySlug: agency.slug,
+    status: r.degraded ? 'fallback' : 'ok',
+    output: { metric, insight, composer_version: COMPOSER_VERSION, composition: dryRun ? r.composition : compositionSummary(r) },
+  };
 }
 
 async function persistMetricInsight(
@@ -1250,18 +1526,25 @@ async function persistMetricInsight(
   periodEnd: string,
   insight: string,
   modelUsed: string,
+  composition: unknown,
+  composerVersion: string | null,
 ): Promise<void> {
+  // composition/composer_version (migración 0013): NULL en el camino legacy,
+  // así una fila regenerada sin motor deja de declarar una versión del motor.
   await client.query(
     `INSERT INTO metric_insights_cache
        (agency_id, metric, period_start_date, period_end_date,
-        insight_text, model_used, generated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        insight_text, model_used, composition, composer_version, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, NOW())
      ON CONFLICT ON CONSTRAINT uq_metric_insights_agency_metric_range
      DO UPDATE SET
-       insight_text = EXCLUDED.insight_text,
-       model_used   = EXCLUDED.model_used,
-       generated_at = NOW()`,
-    [agencyId, metric, periodStart, periodEnd, insight, modelUsed],
+       insight_text     = EXCLUDED.insight_text,
+       model_used       = EXCLUDED.model_used,
+       composition      = EXCLUDED.composition,
+       composer_version = EXCLUDED.composer_version,
+       generated_at     = NOW()`,
+    [agencyId, metric, periodStart, periodEnd, insight, modelUsed,
+      composition == null ? null : JSON.stringify(composition), composerVersion],
   );
 }
 
@@ -1275,13 +1558,17 @@ async function persistPeriodInsights(
   dailySummary: string | null,
   lede: PeriodLede | null,
   modelUsed: string,
+  composition: unknown,
+  composerVersion: string | null,
 ): Promise<void> {
+  // composition/composer_version (migración 0013): NULL en el camino legacy,
+  // así una fila regenerada sin motor deja de declarar una versión del motor.
   await client.query(
     `INSERT INTO overview_period_insights
        (agency_id, period_start_date, period_end_date,
         negative_insights, neutral_insights, positive_insights,
-        daily_summary, model_used, lede, generated_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb, NOW())
+        daily_summary, model_used, lede, composition, composer_version, generated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb, $10::jsonb, $11, NOW())
      ON CONFLICT ON CONSTRAINT uq_overview_period_insights_agency_range
      DO UPDATE SET
        negative_insights = EXCLUDED.negative_insights,
@@ -1290,6 +1577,8 @@ async function persistPeriodInsights(
        daily_summary     = EXCLUDED.daily_summary,
        model_used        = EXCLUDED.model_used,
        lede              = EXCLUDED.lede,
+       composition       = EXCLUDED.composition,
+       composer_version  = EXCLUDED.composer_version,
        generated_at      = NOW()`,
     [
       agencyId, periodStart, periodEnd,
@@ -1298,6 +1587,8 @@ async function persistPeriodInsights(
       JSON.stringify(insights.positive),
       dailySummary, modelUsed,
       lede ? JSON.stringify(lede) : null,
+      composition == null ? null : JSON.stringify(composition),
+      composerVersion,
     ],
   );
 }
