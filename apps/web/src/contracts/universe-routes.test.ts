@@ -161,7 +161,11 @@ async function run(env: string | undefined): Promise<Record<string, Q[]>> {
  *     Se prueba aparte («la página del feed conserva todas sus columnas»).
  */
 const FEED_PAGE = /^select "id", "title", "snippet", "domain", "page_type"/;
-const isAdditive = (q: Q) => /#channels_comment/.test(q.sql) || FEED_PAGE.test(q.sql);
+// Existencia de evaluaciones de la rúbrica v2 (adverseAvailable): consulta nueva del feed, sin efecto en cifras.
+const ADVERSE_EXISTS = /^select 1 from "mentions" where .*"nlp_adverse_fact" IS NOT NULL/;
+// Slug/nombre de la agencia para el tipo de mención de la composición (solo si la ruta no los tenía).
+const COMPOSITION_AGENCY = /^SELECT a\.slug, a\.name FROM agencies a WHERE a\.id = \$1 LIMIT 1$/;
+const isAdditive = (q: Q) => /#channels_comment/.test(q.sql) || FEED_PAGE.test(q.sql) || ADVERSE_EXISTS.test(q.sql) || COMPOSITION_AGENCY.test(q.sql);
 
 beforeAll(() => {
   jest.useFakeTimers({

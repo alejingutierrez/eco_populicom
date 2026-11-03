@@ -111,10 +111,12 @@ export function strictOnlyPertinenceSql(opts: UniverseOptions | undefined, alias
 
 /**
  * Etiqueta del universo que se muestra junto a la lista (spec 8 y 11.5): lo que
- * dice el toggle «incluir pertinencia baja». El universo estricto (que además
- * deja fuera las menciones aún sin clasificar) se declara aparte en `strict`.
+ * dice el toggle «incluir pertinencia baja». El universo estricto deja fuera
+ * además las menciones aún sin clasificar, así que lo dice con sus palabras:
+ * «sin pertinencia baja» describiría mal un universo que también excluye las
+ * pendientes.
  */
 export function universeLabel(opts: UniverseOptions | undefined, includeLow: boolean): string {
   if (includeLow) return 'todas las pertinencias';
-  return 'sin pertinencia baja';
+  return opts?.strictUniverse ? 'solo pertinencia alta o media' : 'sin pertinencia baja';
 }

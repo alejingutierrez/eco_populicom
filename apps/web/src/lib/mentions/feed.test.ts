@@ -5,7 +5,7 @@
  */
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '@eco/database';
-import { queryMentions, mentionExtras } from './query';
+import { queryMentions, mentionExtras, clearAdverseCache } from './query';
 import { clearUniverseSlugCache } from './universe-config';
 
 jest.mock('@/lib/log', () => ({ log: { info: () => undefined, warn: () => undefined, error: () => undefined } }));
@@ -13,25 +13,27 @@ jest.mock('@/lib/log', () => ({ log: { info: () => undefined, warn: () => undefi
 interface Q { sql: string; params: unknown[] }
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-function spy(captured: Q[], pageRows?: unknown[][]) {
+function spy(captured: Q[], pageRows?: unknown[][], adverseRows?: unknown[][]) {
   const query = async (arg: unknown, params?: unknown[]) => {
     const cfg = typeof arg === 'string' ? { text: arg } : (arg as { text: string; values?: unknown[]; rowMode?: string });
     const text = cfg.text;
     captured.push({ sql: norm(text), params: params ?? cfg.values ?? [] });
     const empty = { rows: [] as unknown[], rowCount: 0, fields: [] as unknown[], command: 'SELECT', oid: 0 };
     if (/count\(/i.test(text) && !/group by/i.test(text)) return { ...empty, rows: [[7]], rowCount: 1 };
+    if (adverseRows && /nlp_adverse_fact" IS NOT NULL/.test(text)) return { ...empty, rows: adverseRows, rowCount: adverseRows.length };
     if (pageRows && /^select "id", "title"/.test(norm(text))) return { ...empty, rows: pageRows, rowCount: pageRows.length };
     return empty;
   };
   return { query, connect: async () => ({ query, release: () => undefined }), on: () => undefined };
 }
-const makeDb = (captured: Q[]) => drizzle(spy(captured) as never, { schema });
+const makeDb = (captured: Q[], adverseRows?: unknown[][]) => drizzle(spy(captured, undefined, adverseRows) as never, { schema });
 
-const feed = async (qs: string, env?: string) => {
+const feed = async (qs: string, env?: string, adverseRows?: unknown[][]) => {
   clearUniverseSlugCache();
+  clearAdverseCache();
   if (env === undefined) delete process.env.UNIVERSE_STRICT_AGENCIES; else process.env.UNIVERSE_STRICT_AGENCIES = env;
   const captured: Q[] = [];
-  const res = await queryMentions(makeDb(captured), { agencyId: '00000000-0000-0000-0000-000000000001' }, new URLSearchParams(qs));
+  const res = await queryMentions(makeDb(captured, adverseRows), { agencyId: '00000000-0000-0000-0000-000000000001' }, new URLSearchParams(qs));
   return { res, captured, sqls: captured.map((c) => c.sql) };
 };
 
@@ -104,6 +106,18 @@ describe('feed — filtros nuevos', () => {
   test('la consulta de agencia para el filtro se hace una sola vez', async () => {
     const { sqls } = await feed('period=7D&mentionKind=comment');
     expect(sqls.filter((s) => /from "agencies"/.test(s))).toHaveLength(1);
+  });
+});
+
+describe('feed — adverseAvailable (el filtro de hecho adverso solo se ofrece con la rúbrica v2 encendida)', () => {
+  test('sin ninguna mención evaluada (rúbrica apagada) → false: el front no ofrece el chip', async () => {
+    const { res, sqls } = await feed('period=7D');
+    expect(res.body.adverseAvailable).toBe(false);
+    expect(sqls.some((q) => /nlp_adverse_fact" IS NOT NULL/.test(q) && /limit \$/.test(q))).toBe(true);
+  });
+  test('con al menos una mención evaluada → true', async () => {
+    const { res } = await feed('period=7D', undefined, [[1]]);
+    expect(res.body.adverseAvailable).toBe(true);
   });
 });
 

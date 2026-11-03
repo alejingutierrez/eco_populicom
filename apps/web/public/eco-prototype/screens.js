@@ -1599,7 +1599,7 @@ function MentionsScreen({ onMentionClick }) {
     const sort = resolveSort(filters.sortBy, !!qEff);
     if (sort !== 'recent') params.set('sortBy', sort);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), universe: j.universe || null, universeTotal: j.universeTotal != null ? Number(j.universeTotal) : null }))
+      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), universe: j.universe || null, universeTotal: j.universeTotal != null ? Number(j.universeTotal) : null, adverseAvailable: j.adverseAvailable === true }))
       .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } setError(true); })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
@@ -1656,6 +1656,11 @@ function MentionsScreen({ onMentionClick }) {
   // API los entiende: /api/eco-mentions responde `universe` desde WP-9a. Con una API
   // anterior la lista queda exactamente como antes.
   const apiV2 = !!data.universe;
+  // El filtro «con hecho adverso» solo existe si la agencia ya tiene menciones
+  // evaluadas por la rúbrica v2 (`adverseAvailable`): sin ella nlp_adverse_fact es
+  // NULL y el filtro devolvería siempre una lista vacía. Se mantiene visible mientras
+  // está activo para que se pueda apagar.
+  const adverseOffer = apiV2 && (data.adverseAvailable === true || adverse);
   const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
   const activeMore = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0) + (kind !== 'all' ? 1 : 0);
@@ -1686,7 +1691,7 @@ function MentionsScreen({ onMentionClick }) {
             </button>
           ))}
         </div>
-        {apiV2 && <button type="button" className={`chip ${adverse ? 'active' : ''}`} aria-pressed={adverse} onClick={() => setAdverse((v) => !v)}
+        {adverseOffer && <button type="button" className={`chip ${adverse ? 'active' : ''}`} aria-pressed={adverse} onClick={() => setAdverse((v) => !v)}
           title="Solo menciones cuyo hecho es desfavorable para la agencia, sin importar el tono de quien escribe (rúbrica nueva)">
           <span className="dot" style={{ background: 'var(--neg)' }} />Con hecho adverso
         </button>}
@@ -5321,28 +5326,21 @@ function SettingsScreen() {
 }
 
 // --- Panel de calidad (Configuración → Calidad de datos) — spec interpretación v1, 11.7 ---
-// Lo que la rúbrica nueva, el motor de redacción y la red de seguridad dejan
-// medido, por agencia y día. /api/admin/diagnostics (secreto del cron, sin
-// pantalla) sigue siendo el reporte técnico de ingesta; este panel es el de la
-// calidad de la interpretación.
-//
-// Hoy solo existe lo que /api/eco-data ya manda para la agencia activa: el
-// universo y la composición (`COMPOSITION`). Los demás bloques —defectos de QA,
-// frases removidas, resolución de padres, texto completo, versión de la
-// rúbrica, pertinencia NULL y el archivo de cada envío— los llenan WP-6, WP-7,
-// WP-12 y WP-13: la estructura y el estado vacío quedan listos y cada bloque
-// se enciende solo cuando `ECO_DATA.QUALITY[clave]` trae filas
-// `{ label, value, detail? }` (p. ej. `{ label: 'DDEC · 2 nov', value: 3, detail: '1 duro' }`).
+// Lo que la interpretación deja medido, por agencia y ventana. Lo sirve
+// /api/admin/quality (sesión + manage_users, la misma capacidad que muestra esta
+// sección); /api/admin/diagnostics (secreto del cron, sin pantalla) sigue siendo
+// el reporte técnico de la ingesta. Cada bloque son filas `{ label, value,
+// detail? }`: `null` = no se pudo medir; `[]` = se midió y no hay nada.
 const QUALITY_BLOCKS = [
-  { k: 'qaDefects', t: 'Defectos detectados por QA', d: 'Afirmaciones con defecto que el agente y el código encontraron antes del envío, por agencia y día.', src: 'se llena con el motor de redacción (WP-6/7) en cada envío' },
-  { k: 'safetyNet', t: 'Frases removidas por la red de seguridad', d: 'Frases que el lint final eliminó por no poder verificarse; el correo sale sin ellas.', src: 'se llena con el motor de redacción (WP-6/7) en cada envío' },
-  { k: 'parentResolution', t: 'Resolución de padres', d: 'Comentarios cuya publicación original se encontró, por plataforma.', src: 'se llena al terminar el backfill de padres (WP-13)' },
-  { k: 'fullTextCoverage', t: 'Cobertura de texto completo', d: 'Menciones con el texto completo del artículo o publicación.', src: 'se llena con el archivo de texto completo' },
-  { k: 'promptVersions', t: 'Versión de la rúbrica (nlp_prompt_version)', d: 'Cuántas menciones tienen la rúbrica nueva y cuántas la anterior.', src: 'se llena al reclasificar el histórico (WP-12/13)' },
-  { k: 'nullPertinence', t: 'Menciones con pertinencia pendiente', d: 'Menciones sin pertinencia: quedan fuera del universo hasta que el processor las clasifique.', src: 'se llena con el conteo del universo estricto' },
-  { k: 'composerArchive', t: 'Archivo de la composición de cada envío', d: 'Enlace al paquete de hechos, borradores, QA y versión final de cada correo.', src: 'se llena con el archivo de envíos (report_send_log)' },
+  { k: 'nullPertinence', t: 'Pertinencia de las menciones', d: 'Cuántas menciones del periodo son de pertinencia alta, media, baja o están pendientes. Las pendientes quedan fuera del universo estricto.', empty: 'No hay menciones en el periodo.' },
+  { k: 'promptVersions', t: 'Versión de la rúbrica (nlp_prompt_version)', d: 'Cuántas menciones ya tienen la rúbrica nueva y cuántas la anterior.', empty: 'No hay menciones en el periodo.' },
+  { k: 'parentResolution', t: 'Resolución de padres', d: 'Comentarios cuya publicación original está guardada en la mención, por plataforma. El feed también la busca al leer.', empty: 'No hay comentarios en el periodo.' },
+  { k: 'fullTextCoverage', t: 'Cobertura de texto completo', d: 'Notas de prensa, blogs y foros con el cuerpo completo del artículo.', empty: 'No hay notas de prensa en el periodo.' },
+  { k: 'qaDefects', t: 'Defectos detectados por QA', d: 'Afirmaciones con defecto que el agente y el código encontraron antes de cada envío.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
+  { k: 'safetyNet', t: 'Frases removidas por la red de seguridad', d: 'Frases que el lint final eliminó por no poder verificarse; el correo sale sin ellas.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
+  { k: 'composerArchive', t: 'Archivo de la composición de cada envío', d: 'Versión del motor y asunto de los últimos envíos archivados.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
 ];
-function QualityBlock({ b, rows }) {
+function QualityBlock({ b, rows, loading }) {
   const has = Array.isArray(rows) && rows.length > 0;
   return (
     <div className="card eco-q-block">
@@ -5354,8 +5352,12 @@ function QualityBlock({ b, rows }) {
               <div key={`${r.label}-${i}`} className="eco-q-row"><span>{r.label}</span><b className="num">{typeof r.value === 'number' ? r.value.toLocaleString('es-PR') : r.value}</b>{r.detail && <small>{r.detail}</small>}</div>
             ))}
           </div>
+        ) : loading ? (
+          <div className="eco-q-empty"><b>Midiendo…</b></div>
+        ) : rows === null || rows === undefined ? (
+          <div className="eco-q-empty"><b>No se pudo medir</b><span>La consulta de este bloque falló; el resto del panel sigue siendo válido.</span></div>
         ) : (
-          <div className="eco-q-empty"><b>Sin datos todavía</b><span>Aún no hay mediciones: {b.src}.</span></div>
+          <div className="eco-q-empty"><b>Sin datos en el periodo</b><span>{b.empty}</span></div>
         )}
       </div>
     </div>
@@ -5364,23 +5366,44 @@ function QualityBlock({ b, rows }) {
 function QualityAdmin() {
   const comp = D.COMPOSITION;
   const cs = comp && comp.commentShare;
-  const cur = cs && cs.current, prev = cs && cs.previous;
+  const bk = comp && comp.byKind;
+  const kc = bk && bk.current && bk.current.total > 0 ? bk.current : null;
+  const kp = bk && bk.previous && bk.previous.total > 0 ? bk.previous : null;
+  // Comentarios y total: los mismos que la barra de composición (por tipo) si existen.
+  const cur = kc ? { total: kc.total, comments: kc.comment, pct: (kc.comment / kc.total) * 100 } : (cs && cs.current);
+  const prev = kc ? (kp ? { total: kp.total, comments: kp.comment, pct: (kp.comment / kp.total) * 100 } : null) : (cs && cs.previous);
   const win = ecoDataWindow();
-  const q = D.QUALITY || {};
   const agencyKey = localStorage.getItem('eco.agency') || D.USER_AGENCY_SLUG || '';
   const agencyName = ((D.AGENCIES_FULL || []).find((a) => a && a.key === agencyKey) || {}).name || agencyKey.toUpperCase();
   const pct = (v) => `${Number(v).toLocaleString('es-PR', { maximumFractionDigits: 1 })}%`;
+  const [q, setQ] = useState({ phase: 'loading', data: null });
+  useEffect(() => {
+    let cancelled = false;
+    setQ({ phase: 'loading', data: null });
+    const params = new URLSearchParams();
+    if (win.from && win.to) { params.set('from', win.from); params.set('to', win.to); }
+    if (agencyKey) params.set('agency', agencyKey);
+    ecoFetchAuthed('/api/admin/quality?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((d) => { if (!cancelled) setQ({ phase: 'ready', data: d }); })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setQ({ phase: 'error', data: null, code: e && e.code });
+      });
+    return () => { cancelled = true; };
+  }, [agencyKey, win.from, win.to]);
+  const blocks = (q.data && q.data.blocks) || {};
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)', minWidth: 0 }}>
       <div>
         <h2 className="eco-q-h">Calidad de datos</h2>
-        <div className="eco-q-sub">Cómo está saliendo la interpretación de {agencyName || 'la agencia activa'}: qué universo se cuenta, qué parte son comentarios y qué dejó medido cada envío.</div>
+        <div className="eco-q-sub">Cómo está saliendo la interpretación de {agencyName || 'la agencia activa'}: qué universo se cuenta, qué parte son comentarios y qué dejó medido cada bloque.</div>
       </div>
       <div className="card">
         <div className="card-hd"><div><div className="card-hd-title">Universo y composición</div><div className="card-hd-sub">{win.from && win.to ? `${win.from} – ${win.to} · ` : ''}la ventana y el universo de los gráficos de esta agencia</div></div></div>
         <div className="card-bd">
           {!comp || !cur ? (
-            <div className="eco-q-empty"><b>Sin datos todavía</b><span>El servidor no mandó la composición del periodo.</span></div>
+            <div className="eco-q-empty"><b>Sin datos en el periodo</b><span>El servidor no mandó la composición del periodo.</span></div>
           ) : (
             <div className="eco-q-grid">
               <div><span className="eco-q-k">Universo</span><b>{comp.universe ? comp.universe.label : '—'}</b><small>{comp.universe && comp.universe.strict ? 'Universo estricto: alta o media; las pendientes quedan fuera.' : 'Universo histórico: todo salvo pertinencia baja (las pendientes cuentan).'}</small></div>
@@ -5391,9 +5414,14 @@ function QualityAdmin() {
           )}
         </div>
       </div>
-      <div className="eco-q-blocks">
-        {QUALITY_BLOCKS.map((b) => <QualityBlock key={b.k} b={b} rows={q[b.k]} />)}
-      </div>
+      {q.phase === 'error' && (
+        <div className="card"><div className="card-bd"><div className="eco-q-empty"><b>No se pudo cargar la calidad de datos</b><span>{q.code === 403 ? 'Tu rol no tiene acceso a este panel.' : 'Error de conexión: vuelve a abrir esta sección en unos minutos.'}</span></div></div></div>
+      )}
+      {q.phase !== 'error' && (
+        <div className="eco-q-blocks">
+          {QUALITY_BLOCKS.map((b) => <QualityBlock key={b.k} b={b} rows={blocks[b.k]} loading={q.phase === 'loading'} />)}
+        </div>
+      )}
     </div>
   );
 }

@@ -341,6 +341,7 @@ export async function GET(request: NextRequest) {
     // Aditivo: ningún campo anterior del payload cambia.
     const composition = await loadComposition(
       pool, agencyId, { startYmd, endYmd, prevStartYmd, prevEndYmd }, uopts, { cur: volCur, prev: volPrev },
+      (() => { const a = agencyRows.find((r) => r.id === agencyId); return a ? { slug: a.slug, name: a.name } : undefined; })(),
     );
 
     // Deltas vs ventana previa de igual duración.

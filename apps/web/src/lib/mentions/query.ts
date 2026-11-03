@@ -41,9 +41,44 @@ export interface MentionsQueryResult {
      */
     universe?: { strict: boolean; label: string; includeLow: boolean; pertinence: string | null };
     universeTotal?: number;
+    /**
+     * La agencia ya tiene menciones evaluadas por la rúbrica v2 (hecho adverso
+     * no nulo). El front ofrece el chip/filtro «con hecho adverso» solo si es
+     * true: con la rúbrica apagada el filtro siempre daría una lista vacía.
+     */
+    adverseAvailable?: boolean;
   };
   /** Si la respuesta lleva `Cache-Control: no-store` (las de error y la de parecidas sin resultados no). */
   noStore: boolean;
+}
+
+/**
+ * ¿La agencia ya tiene menciones evaluadas por la rúbrica v2 (`nlp_adverse_fact`
+ * no nulo)? Sin eso el filtro «con hecho adverso» devolvería siempre una lista
+ * vacía (NULL nunca cuenta como adverso), así que el front solo lo ofrece cuando
+ * esto es true. Una consulta de existencia por agencia, con caché de 5 minutos
+ * (encender la rúbrica en una agencia hace aparecer el control sin redeploy).
+ */
+const ADVERSE_TTL_MS = 5 * 60_000;
+const adverseCache = new Map<string, { at: number; v: boolean }>();
+export function clearAdverseCache(): void { adverseCache.clear(); }
+async function hasAdverseEvaluations(db: Db, agencyId: string): Promise<boolean> {
+  const hit = adverseCache.get(agencyId);
+  if (hit && Date.now() - hit.at < ADVERSE_TTL_MS) return hit.v;
+  let v = false;
+  try {
+    const r = await db
+      .select({ one: sql<number>`1` })
+      .from(mentions)
+      .where(and(eq(mentions.agencyId, agencyId), sql`${mentions.nlpAdverseFact} IS NOT NULL`))
+      .limit(1);
+    v = r.length > 0;
+  } catch {
+    // El control es opcional: ante un fallo no se ofrece (y no se guarda en caché).
+    return false;
+  }
+  adverseCache.set(agencyId, { at: Date.now(), v });
+  return v;
 }
 
 function bad400(error: string): MentionsQueryResult {
@@ -673,6 +708,8 @@ export async function queryMentions(
     };
   });
 
+  const adverseAvailable = await hasAdverseEvaluations(db, agencyId);
+
   log.info('eco-mentions', 'request complete', { latencyMs: Date.now() - start, total: Number(total) });
   return {
     status: 200,
@@ -682,6 +719,7 @@ export async function queryMentions(
       sentiment: sentCounts,
       universe: { strict: !!uopts.strictUniverse, label: universeLabel(uopts, includeLowOn), includeLow: includeLowOn, pertinence: pertinence ?? null },
       universeTotal,
+      adverseAvailable,
     },
     noStore: true,
   };

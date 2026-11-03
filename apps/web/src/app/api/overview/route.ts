@@ -211,6 +211,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const composition = await loadComposition(
       pool, agencyId, { startYmd, endYmd, prevStartYmd, prevEndYmd }, uopts,
       { cur: report.totals, prev: report.prevTotals },
+      ag ? { slug: ag.slug, name: ag.name } : undefined,
     );
 
     const response: OverviewResponse = {

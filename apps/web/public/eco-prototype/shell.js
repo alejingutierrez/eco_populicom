@@ -1147,7 +1147,7 @@ function MentionParent({ m, inline }) {
   }
   const head = <>Responde a la publicación de <b>{p.author || 'la página'}</b> del <span className="num">{ecoPrDate(p.publishedAt)}</span>{lateTag}</>;
   // En una fila el autor de la página no cabe: «Responde a la publicación del 26 oct · reacción tardía».
-  if (inline) return <div className="eco-parent eco-parent-inline">Responde a la publicación del <span className="num">{ecoPrDate(p.publishedAt)}</span>{lateTag}</div>;
+  if (inline) return <span className="eco-parent eco-parent-inline">Responde a la publicación del <span className="num">{ecoPrDate(p.publishedAt)}</span>{lateTag}</span>;
   if (!p.text) return <div className="eco-parent">{head}</div>;
   return (
     <details className="eco-parent">
@@ -1208,24 +1208,37 @@ function BaseDeltaBadge({ bd, metricKey = 'volume' }) {
   );
 }
 
-// Composición: qué parte del volumen son comentarios de usuarios (en DDEC el
-// 83 % de las «menciones» del 25–31 oct). `composition` = { universe, commentShare }
-// de /api/overview o /api/eco-data. `onPick(kinds)` abre el drill-down de esa
-// parte (mentionKind: 'comment' o el resto).
+// Composición: de qué está hecho el volumen, por TIPO de mención (comentarios de
+// usuarios, publicaciones de la agencia, notas de prensa y terceros; en DDEC el
+// 83 % de las «menciones» del 25–31 oct eran comentarios). `composition` =
+// { universe, byKind, commentShare } de /api/overview o /api/eco-data. `onPick(kind,
+// label)` abre el drill-down de ese tipo (mentionKind). Con una API que aún no
+// manda `byKind` cae a dos tramos (comentarios / el resto) con `commentShare`.
+const ECO_KIND_PLURAL = {
+  comment: 'Comentarios de usuarios',
+  agency_post: 'Publicaciones de la agencia',
+  article: 'Notas de prensa',
+  third_party_post: 'Terceros',
+};
 function CompositionBar({ composition, onPick, windowLabel }) {
+  const bk = composition && composition.byKind;
+  const kCur = bk && bk.current && bk.current.total > 0 ? bk.current : null;
+  const kPrev = bk && bk.previous && bk.previous.total > 0 ? bk.previous : null;
   const cs = composition && composition.commentShare;
-  const cur = cs && cs.current;
+  // Total, comentarios y porcentaje: de los tipos si existen (son los que abre el clic), si no de commentShare.
+  const cur = kCur ? { total: kCur.total, comments: kCur.comment, pct: (kCur.comment / kCur.total) * 100 } : (cs && cs.current);
   if (!cur || !(cur.total > 0)) return null;
+  const prev = kCur ? (kPrev ? { total: kPrev.total, comments: kPrev.comment, pct: (kPrev.comment / kPrev.total) * 100 } : null) : (cs && cs.previous);
   const pct = Math.max(0, Math.min(100, Number(cur.pct) || 0));
-  const rest = cur.total - cur.comments;
-  const prev = cs.previous;
-  const dpts = cs.deltaPts;
+  const dpts = kCur ? (prev ? Number((cur.pct - prev.pct).toFixed(1)) : null) : (cs && cs.deltaPts);
   const fmtN = (n) => Number(n).toLocaleString('es-PR');
   const pctTxt = (v) => `${Number(v).toLocaleString('es-PR', { maximumFractionDigits: 1 })}%`;
-  const seg = [
-    { k: 'comment', l: 'Comentarios de usuarios', n: cur.comments, w: pct, kinds: 'comment' },
-    { k: 'rest', l: 'Publicaciones, notas y terceros', n: rest, w: 100 - pct, kinds: 'agency_post,article,third_party_post' },
-  ];
+  const seg = kCur
+    ? ECO_KIND_ORDER.map((k) => ({ k, l: ECO_KIND_PLURAL[k], n: kCur[k] || 0, w: ((kCur[k] || 0) / kCur.total) * 100, kinds: k, tip: ECO_KIND_META[k].tip }))
+    : [
+        { k: 'comment', l: ECO_KIND_PLURAL.comment, n: cur.comments, w: pct, kinds: 'comment', tip: ECO_KIND_META.comment.tip },
+        { k: 'rest', l: 'Publicaciones, notas y terceros', n: cur.total - cur.comments, w: 100 - pct, kinds: 'agency_post,article,third_party_post', tip: '' },
+      ];
   return (
     <div className="eco-comp">
       <div className="eco-comp-hd">
@@ -1239,11 +1252,15 @@ function CompositionBar({ composition, onPick, windowLabel }) {
       <div className="eco-comp-bar" role="img" aria-label={seg.map((s) => `${fmtN(s.n)} ${s.l.toLowerCase()}`).join(', ')}>
         {seg.map((s) => s.w > 0 && (
           <button key={s.k} type="button" className="eco-comp-seg" data-seg={s.k} style={{ width: `${s.w}%` }} disabled={!onPick}
-            onClick={onPick ? () => onPick(s.kinds, s.l) : undefined} title={`${s.l}: ${fmtN(s.n)} · ${pctTxt(s.w)}${onPick ? ' — clic para ver la lista' : ''}`} />
+            onClick={onPick ? () => onPick(s.kinds, s.l) : undefined} title={`${s.l}: ${fmtN(s.n)} · ${pctTxt(s.w)}${s.tip ? ` — ${s.tip}` : ''}${onPick ? ' · clic para ver la lista' : ''}`} />
         ))}
       </div>
       <div className="eco-comp-lg">
-        {seg.map((s) => <span key={s.k}><i data-seg={s.k} />{s.l} <b className="num">{fmtN(s.n)}</b></span>)}
+        {seg.map((s) => (
+          onPick
+            ? <button key={s.k} type="button" className="eco-comp-lgb" onClick={() => onPick(s.kinds, s.l)} title={s.tip || undefined}><i data-seg={s.k} />{s.l} <b className="num">{fmtN(s.n)}</b><span className="num eco-comp-p">{pctTxt(s.w)}</span></button>
+            : <span key={s.k}><i data-seg={s.k} />{s.l} <b className="num">{fmtN(s.n)}</b><span className="num eco-comp-p">{pctTxt(s.w)}</span></span>
+        ))}
         <span className="eco-comp-uni">{composition.universe ? composition.universe.label : ''}{windowLabel ? ` · ${windowLabel}` : ''}</span>
       </div>
     </div>
@@ -2368,5 +2385,5 @@ window.ECO_SHELL = {
   EmptyState, Avatar, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV,
   // WP-9b: tipo, post padre, hecho adverso, universo, composición y deltas con base mínima.
   MentionKindTag, MentionAdverseChip, MentionLowTag, MentionTags, MentionParent, PertinenceToggle, CompositionBar, BaseDeltaBadge,
-  ecoBaseDeltaInfo, ecoSentTip, ecoInterpActive, ECO_KIND_META, ECO_KIND_ORDER,
+  ecoBaseDeltaInfo, ECO_KIND_PLURAL, ecoSentTip, ecoInterpActive, ECO_KIND_META, ECO_KIND_ORDER,
 };

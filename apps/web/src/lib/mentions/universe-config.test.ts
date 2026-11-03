@@ -67,7 +67,7 @@ describe('helpers', () => {
   });
   test('universeLabel dice qué universo muestra la lista', () => {
     expect(universeLabel({}, false)).toBe('sin pertinencia baja');
-    expect(universeLabel({ strictUniverse: true }, false)).toBe('sin pertinencia baja');
+    expect(universeLabel({ strictUniverse: true }, false)).toBe('solo pertinencia alta o media');
     expect(universeLabel({}, true)).toBe('todas las pertinencias');
   });
 });
