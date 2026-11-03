@@ -82,11 +82,15 @@ export function composerEnabledFor(
 export { COMPOSER_VERSION };
 
 /**
- * Ventana máxima con motor. El paquete de hechos lista 3 cifras por día de la
- * serie: con 1A (365 días) serían ~1,100 líneas por llamada (lento y caro).
- * Las ventanas más largas siguen por el camino actual.
+ * Ventana máxima con motor (cubre 1D, 5D, 7D, 30D y 1M). El paquete de hechos
+ * lista 3 cifras por día de la serie y el analista lee todo: medido con Opus
+ * (DDEC, 28-sep → 27-oct) el overview de 30 días tardó 231 s (analista
+ * 156 s) contra un timeout de 300 s del lambda. Las ventanas más largas
+ * (90D, 3M, 6M, 1A, Max) siguen por el camino actual.
  */
-export const MAX_COMPOSER_WINDOW_DAYS = 92;
+export const MAX_COMPOSER_WINDOW_DAYS = 31;
+/** A partir de aquí el analista del overview usa Sonnet (ver OVERVIEW_MODELS). */
+export const OVERVIEW_LONG_WINDOW_DAYS = 14;
 
 export function windowDaysYmd(startYmd: string, endYmd: string): number {
   return Math.round((Date.parse(`${endYmd}T00:00:00Z`) - Date.parse(`${startYmd}T00:00:00Z`)) / 86_400_000) + 1;
@@ -108,6 +112,12 @@ export function useComposerFor(
 
 /** Overview: el motor completo con los modelos del laboratorio (Opus redacta, Sonnet revisa). */
 export const OVERVIEW_MODELS: Partial<RoleModels> = {};
+/** Overview de más de OVERVIEW_LONG_WINDOW_DAYS días: analista con Sonnet (el resto igual). */
+export const OVERVIEW_LONG_MODELS: Partial<RoleModels> = { analyst: COMPOSER_MODEL_SONNET };
+
+export function overviewModelsFor(startYmd: string, endYmd: string): Partial<RoleModels> {
+  return windowDaysYmd(startYmd, endYmd) > OVERVIEW_LONG_WINDOW_DAYS ? OVERVIEW_LONG_MODELS : OVERVIEW_MODELS;
+}
 /** Perfil ligero (métrica cacheada, tópicos): Sonnet en redactor y corrector. */
 export const LIGHT_MODELS: Partial<RoleModels> = { writer: COMPOSER_MODEL_SONNET, corrector: COMPOSER_MODEL_SONNET };
 
@@ -324,7 +334,10 @@ export async function composeOverview(
   input: ComposerInput,
   opts: { llm: ComposerLlm | null; dryRun: boolean; log?: (m: string) => void; models?: Partial<RoleModels> },
 ): Promise<ComposeResult> {
-  const o: ComposeOptions = { llm: opts.llm, dryRun: opts.dryRun, models: opts.models ?? OVERVIEW_MODELS, log: opts.log };
+  const o: ComposeOptions = {
+    llm: opts.llm, dryRun: opts.dryRun, log: opts.log,
+    models: opts.models ?? overviewModelsFor(input.window.startYmd, input.window.endYmd),
+  };
   return compose('overview', input, o);
 }
 

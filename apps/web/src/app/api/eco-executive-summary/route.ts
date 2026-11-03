@@ -82,7 +82,7 @@ function getBedrock(): BedrockRuntimeClient {
 const SAMPLES_PER_SENTIMENT = 10;
 
 /** Cuánto espera la ruta al motor antes de responder sin él (maxDuration = 60 s). */
-const COMPOSER_BUDGET_MS = 48_000;
+const COMPOSER_BUDGET_MS = 52_000;
 
 function normalizeSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo' {
   if (s === 'positivo' || s === 'positive') return 'positivo';

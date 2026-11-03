@@ -12,12 +12,14 @@
  */
 import {
   compose,
+  COMPOSER_PROFILES,
   COMPOSER_MODEL_OPUS,
   COMPOSER_MODEL_SONNET,
   COMPOSER_VERSION,
   type ComposeResult,
   type ComposerInput,
   type ComposerLlm,
+  type ComposerProfile,
   type ExecutiveSummaryOutput,
   type RoleModels,
 } from '@eco/shared';
@@ -32,6 +34,17 @@ export const SCORECARD_MODELS: Partial<RoleModels> = {
   writer: COMPOSER_MODEL_SONNET,
   qa: COMPOSER_MODEL_OPUS,
   corrector: COMPOSER_MODEL_SONNET,
+};
+
+/**
+ * Perfil `scorecard` sin analista. Medido con datos reales (DDEC y DF,
+ * 26-oct → 1-nov): con analista el motor tarda 73–79 s (analista ~30 s) y no
+ * cabe en la ruta síncrona; sin él, redactor + QA + corrector. El QA y el
+ * corrector siguen revisando cada oración contra las muestras y los hechos.
+ */
+export const SCORECARD_PROFILE: ComposerProfile = {
+  ...COMPOSER_PROFILES.scorecard,
+  stages: { ...COMPOSER_PROFILES.scorecard.stages, analyst: false },
 };
 
 export interface ScorecardTopic {
@@ -148,5 +161,5 @@ export function executiveSummaryFromComposition(r: ComposeResult, topics: Scorec
 }
 
 export async function composeScorecard(input: ComposerInput, llm: ComposerLlm | null, log?: (m: string) => void): Promise<ComposeResult> {
-  return compose('scorecard', input, { llm, models: SCORECARD_MODELS, retries: 2, backoffMs: 1500, log });
+  return compose(SCORECARD_PROFILE, input, { llm, models: SCORECARD_MODELS, retries: 2, backoffMs: 1500, log });
 }

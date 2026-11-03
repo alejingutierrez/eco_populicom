@@ -129,11 +129,11 @@ export function composerWebActive(env: string | null | undefined = process.env.C
 
 /**
  * Ventana máxima con motor (mismo valor que eco-ai-tasks,
- * `MAX_COMPOSER_WINDOW_DAYS`): el paquete de hechos lista 3 cifras por día de
- * la serie; con 1A serían ~1,100 líneas por llamada. Las ventanas más largas
+ * `MAX_COMPOSER_WINDOW_DAYS`; cubre 1D, 5D, 7D, 30D y 1M): el overview de 30
+ * días con Opus ya tarda ~230 s de 300 s del lambda. Las ventanas más largas
  * siguen por el camino actual.
  */
-export const MAX_COMPOSER_WINDOW_DAYS = 92;
+export const MAX_COMPOSER_WINDOW_DAYS = 31;
 
 function windowDays(startYmd: string, endYmd: string): number {
   return Math.round((Date.parse(`${endYmd}T00:00:00Z`) - Date.parse(`${startYmd}T00:00:00Z`)) / 86_400_000) + 1;

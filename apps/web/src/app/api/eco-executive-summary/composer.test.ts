@@ -56,7 +56,7 @@ describe('composeScorecard con LLM simulado', () => {
     };
     const r = await composeScorecard(input, llm);
     expect(roles).toEqual([
-      `analyst:${SCORECARD_MODELS.analyst}`, `writer:${SCORECARD_MODELS.writer}`, `qa:${SCORECARD_MODELS.qa}`, `corrector:${SCORECARD_MODELS.corrector}`,
+      `writer:${SCORECARD_MODELS.writer}`, `qa:${SCORECARD_MODELS.qa}`, `corrector:${SCORECARD_MODELS.corrector}`,
     ]);
     const out = executiveSummaryFromComposition(r, TOPICS);
     expect(out.signal_narrative).toContain('364 menciones');

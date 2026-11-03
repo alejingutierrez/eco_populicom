@@ -82,9 +82,12 @@ describe('motor de redacción: bandera y versión del caché (WP-8)', () => {
 
   it('ventanas largas siguen en legacy', () => {
     const long = { startYmd: '2025-11-02', endYmd: '2026-11-01' };
-    const edge = { startYmd: '2026-08-02', endYmd: '2026-11-01' }; // 92 días
+    const d31 = { startYmd: '2026-10-02', endYmd: '2026-11-01' }; // 31 días (1M)
+    const d90 = { startYmd: '2026-08-04', endYmd: '2026-11-01' }; // 90D
+    expect(MAX_COMPOSER_WINDOW_DAYS).toBe(31);
     expect(isComposerWebEnabled('ddecpr', long, 'ddecpr')).toBe(false);
-    expect(isComposerWebEnabled('ddecpr', edge, 'ddecpr')).toBe(MAX_COMPOSER_WINDOW_DAYS >= 92);
+    expect(isComposerWebEnabled('ddecpr', d31, 'ddecpr')).toBe(true);
+    expect(isComposerWebEnabled('ddecpr', d90, 'ddecpr')).toBe(false);
   });
 
   it('la versión esperada es la del motor o null', () => {

@@ -18,6 +18,8 @@ import {
   METRIC_LIGHT_PROFILE,
   SAMPLE_CONTEXT_SQL,
   MAX_COMPOSER_WINDOW_DAYS,
+  overviewModelsFor,
+  MODELS,
 } from '../lambda/ai-tasks/composer-surfaces';
 import { annotateSamples, findVetoed, COMPOSER_VERSION, type ComposerLlm, type WeeklyAggregates } from '@eco/shared';
 
@@ -34,11 +36,20 @@ describe('bandera COMPOSER_WEB_AGENCIES', () => {
     expect(composerEnabledFor('ddecpr', { env: '', override: true })).toBe(true);
     expect(composerEnabledFor('ddecpr', { env: 'ddecpr', override: false })).toBe(false);
   });
-  it('ventanas de más de 92 días siguen en legacy', () => {
-    expect(MAX_COMPOSER_WINDOW_DAYS).toBe(92);
+  it('ventanas de más de 31 días siguen en legacy', () => {
+    expect(MAX_COMPOSER_WINDOW_DAYS).toBe(31);
     expect(useComposerFor('ddecpr', '2026-10-26', '2026-11-01', { env: 'ddecpr' })).toBe(true);
+    expect(useComposerFor('ddecpr', '2026-10-02', '2026-11-01', { env: 'ddecpr' })).toBe(true);
+    expect(useComposerFor('ddecpr', '2026-08-04', '2026-11-01', { env: 'ddecpr' })).toBe(false);
     expect(useComposerFor('ddecpr', '2025-11-02', '2026-11-01', { env: 'ddecpr' })).toBe(false);
     expect(useComposerFor('ddecpr', '2025-11-02', '2026-11-01', { override: true })).toBe(false);
+  });
+});
+
+describe('modelos del overview por largo de ventana', () => {
+  it('analista con Sonnet desde 15 días; 7 días con los del laboratorio', () => {
+    expect(overviewModelsFor('2026-10-26', '2026-11-01')).toEqual({});
+    expect(overviewModelsFor('2026-10-02', '2026-11-01')).toEqual({ analyst: MODELS.sonnet });
   });
 });
 

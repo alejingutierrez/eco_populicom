@@ -3,6 +3,10 @@
  * 11.4): redactor + QA por código + una vuelta de corrector, sin analista ni
  * QA agente (latencia de usuario: p95 < 6 s).
  *
+ * El titular no se muestra en el modal: se pide corto para que un aviso
+ * blando de largo no dispare la vuelta del corrector (medido: 2 de 20
+ * invocaciones pasaban de 6 s solo por eso).
+ *
  * El número lo pone el MARCADOR (`{{kpi_value}}`, `{{kpi_delta}}`…), no el
  * modelo; la banda (CRISIS, ALERTA…) la calcula el código como hoy y entra
  * al prompt como palabra del contexto. Este módulo es puro (sin DB ni SDK):
@@ -41,7 +45,7 @@ export const KPI_LIGHT_PROFILE: ComposerProfile = {
   writerTask: `
 
 TAREA (rol REDACTOR): explica en el modal de la métrica POR QUÉ tiene el valor que tiene en este periodo, en UNA sola pasada:
-- headline: una línea con sujeto y verbo literal, máximo 16 palabras, sin cifras ni dramatismo.
+- headline: etiqueta interna de 4 a 10 palabras con sujeto y verbo literal, sin cifras ni dramatismo (el modal no la muestra: no la alargues).
 - paragraph: 2 o 3 oraciones (unas 60 palabras). Cita el valor y su banda tal como vienen (el valor solo con su marcador; la banda con la palabra del contexto), di si subió o bajó contra el periodo previo con su marcador y qué tópicos lo explican, con sus marcadores. No expliques la fórmula ni recomiendes acciones.
 - highlights: lista vacía.
 Responde con la herramienta.`,
@@ -99,6 +103,7 @@ export function kpiFacts(args: {
   if (p25 != null && p75 != null && metric !== 'volume') {
     out.push({ id: 'kpi_p25', value: p25, display: metric === 'nss' ? signed(p25) : `${p25}${unit}`, label: 'percentil 25 de los 90 días previos (rango habitual, piso)' });
     out.push({ id: 'kpi_p75', value: p75, display: metric === 'nss' ? signed(p75) : `${p75}${unit}`, label: 'percentil 75 de los 90 días previos (rango habitual, techo)' });
+    out.push({ id: 'kpi_history_days', value: 90, display: '90', label: 'días de historia del rango habitual' });
   }
   args.topics.slice(0, 3).forEach((t, i) => {
     const s = Math.round(t.share * 100);
