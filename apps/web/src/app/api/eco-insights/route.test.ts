@@ -5,6 +5,8 @@
  *    de siempre (sin `composer`, sin `stale` extra por la versión).
  *  - Bandera encendida: una fila legacy (composer_version NULL) se sirve y se
  *    recalcula una vez con `composer: true`; una fila del motor vigente no.
+ *    Sin texto que mostrar se pide primero el legacy (`composer: false`): el
+ *    motor (84–231 s) no entra en el camino crítico de la primera vista.
  *
  * Sin DB ni AWS: se simulan @eco/database, la resolución de agencia y el
  * cliente de Lambda.
@@ -14,10 +16,11 @@ import { COMPOSER_VERSION } from '@eco/shared';
 
 const mockSend = jest.fn(async (_cmd: unknown) => ({}));
 let mockRow: Record<string, unknown> | null = null;
+// loadWindowFreshness: por defecto nada llegó después de generar.
+let mockFreshness = { total: 100, newer: 0 };
 const mockPoolQuery = jest.fn(async (sql: string) => {
   if (/FROM agencies/.test(sql)) return { rows: [{ slug: 'ddecpr' }] };
-  // loadWindowFreshness: nada llegó después de generar.
-  return { rows: [{ total: 100, newer: 0 }] };
+  return { rows: [mockFreshness] };
 });
 
 jest.mock('@eco/database', () => {
@@ -78,6 +81,7 @@ beforeEach(() => {
   mockSend.mockClear();
   mockPoolQuery.mockClear();
   mockRow = null;
+  mockFreshness = { total: 100, newer: 0 };
   delete process.env.COMPOSER_WEB_AGENCIES;
 });
 
@@ -159,5 +163,39 @@ describe('/api/eco-insights — bandera encendida', () => {
     expect(status).toBe(202);
     expect(body.status).toBe('computing');
     expect(invokedPayloads()[0]).toMatchObject({ composer: true });
+  });
+
+  it('sin fila: 202 y primero el texto legacy (`composer: false`), no el motor', async () => {
+    process.env.COMPOSER_WEB_AGENCIES = 'ddecpr';
+    const { status, body } = await call();
+    expect(status).toBe(202);
+    expect(body.status).toBe('computing');
+    expect(invokedPayloads()).toEqual([
+      { action: 'period-insights', agencySlug: 'ddecpr', periodStart: WINDOW.from, periodEnd: WINDOW.to, composer: false },
+    ]);
+  });
+
+  it('llega la fila legacy del arranque: se sirve y el motor corre en segundo plano', async () => {
+    process.env.COMPOSER_WEB_AGENCIES = 'ddecpr';
+    // Mismo módulo (mismo dedup) para las dos consultas: el arranque legacy no bloquea al motor.
+    let GET: (r: NextRequest) => Promise<Response>;
+    jest.isolateModules(() => { GET = require('./route').GET; });
+    const first = await GET!(req());
+    expect(first.status).toBe(202);
+    mockRow = legacyRow();
+    const second = await GET!(req());
+    await new Promise((r) => setImmediate(r));
+    expect(second.status).toBe(200);
+    expect((await second.json()).dailySummary).toBe('Resumen del periodo.');
+    expect(invokedPayloads().map((p) => p.composer)).toEqual([false, true]);
+  });
+
+  it('fila «sin señal» que ya tiene señal: primero el legacy', async () => {
+    process.env.COMPOSER_WEB_AGENCIES = 'ddecpr';
+    mockRow = legacyRow({ dailySummary: null, lede: null, negativeInsights: [], neutralInsights: [], positiveInsights: [] });
+    mockFreshness = { total: 120, newer: 40 };
+    const { status } = await call();
+    expect(status).toBe(202);
+    expect(invokedPayloads()[0]).toMatchObject({ composer: false });
   });
 });

@@ -28,8 +28,11 @@
  * Motor de redacción (WP-8): con la agencia en `COMPOSER_WEB_AGENCIES` la
  * descripción sale del perfil ligero del motor (./composer.ts), con cifras
  * por marcador. La versión del motor va en `model_used`; una fila de otra
- * versión (o legacy con la bandera encendida, y al revés) se regenera. Con la
- * bandera vacía la ruta hace exactamente lo de antes.
+ * versión (o legacy con la bandera encendida, y al revés) se regenera. El
+ * motor compone SIEMPRE en segundo plano: con fila se sirve la que haya; sin
+ * fila se responde con el texto legacy (misma latencia que hoy) y la del
+ * motor aparece en la siguiente vista. Un fallo del redactor no guarda nada.
+ * Con la bandera vacía la ruta hace exactamente lo de antes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
@@ -48,7 +51,7 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
 import {
-  loadWindowFreshness, isAiCacheOutdated, claimAiTrigger,
+  loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger,
   expectedComposerVersion, isComposerVersionStale,
 } from '@/lib/ai-cache-freshness';
 import { composerVersionFromModelUsed } from './composer';
@@ -247,39 +250,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const samples = await loadTopicSamples(pool, agencyId, topicRow.id, sinceIso, untilIso);
-    if (composerExpected) {
-      const composed = await composeDescription({
-        pool, agencyId, agency: agencyRow, topicId: topicRow.id, startYmd, endYmd, sinceIso, untilIso, aggregate, samples,
-      });
-      if (!composed) {
-        const fallback = serveStale();
-        if (fallback) return fallback;
-        return NextResponse.json(
-          { error: 'Model returned empty description', topicSlug, periodStart: startYmd, periodEnd: endYmd },
-          { status: 502 },
-        );
-      }
-      await pool.query(
-        `INSERT INTO topic_descriptions_cache
-           (agency_id, topic_id, period_start_date, period_end_date, description, model_used)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT ON CONSTRAINT uq_topic_descriptions_topic_range
-         DO UPDATE SET description = EXCLUDED.description,
-                       model_used  = EXCLUDED.model_used,
-                       generated_at = NOW()`,
-        [agencyId, topicRow.id, startYmd, endYmd, composed.description, composed.modelUsed],
-      );
-      const res = NextResponse.json({
-        status: 'ready' as const,
-        topicSlug,
-        periodStart: startYmd,
-        periodEnd: endYmd,
-        description: composed.description,
-        generatedAt: new Date().toISOString(),
-        stale: false,
-      });
-      res.headers.set('Cache-Control', 'no-store');
-      return res;
+    const regenKey = `topic-description:${topicRow.id}:${startYmd}:${endYmd}`;
+    const composerArgs = {
+      pool, agencyId, agency: agencyRow, topicId: topicRow.id, startYmd, endYmd, sinceIso, untilIso, aggregate, samples, regenKey,
+    };
+    if (composerExpected && staleRow) {
+      // Hay texto que mostrar: se sirve YA y el motor compone en segundo plano
+      // (el hit ya reclamó la clave). El motor no entra al camino crítico.
+      composeDescriptionInBackground(composerArgs);
+      return serveStale()!;
     }
     const userPrompt = buildTopicDescriptionPrompt(aggregate, samples);
     // tool-use en vez de pedir JSON en texto crudo: la descripción ahora es
@@ -334,6 +313,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                      generated_at = NOW()`,
       [agencyId, topicRow.id, startYmd, endYmd, description, PRIMARY_MODEL + PRIMARY_UNIVERSE_TAG],
     );
+    // Con motor y sin fila: la primera vista recibe el texto legacy (misma
+    // latencia que hoy) y el motor compone en segundo plano para la siguiente.
+    if (composerExpected && claimAiTrigger(regenKey)) composeDescriptionInBackground(composerArgs);
 
     const res = NextResponse.json({
       status: 'ready' as const,
@@ -400,6 +382,35 @@ async function composeDescription(a: {
   });
   const description = c.topicDescription(r);
   return description ? { description, modelUsed: c.composerModelUsed(r, PRIMARY_UNIVERSE_TAG) } : null;
+}
+
+/**
+ * El motor en segundo plano: compone y, solo si el texto salió del redactor,
+ * guarda la fila con su versión en `model_used`. La ruta nunca lo espera
+ * (sin fila responde con el texto legacy, con fila con la que haya), así la
+ * vista tarda lo mismo que hoy. El llamador ya reclamó `regenKey`.
+ */
+function composeDescriptionInBackground(a: Parameters<typeof composeDescription>[0] & { regenKey: string }): void {
+  (async () => {
+    try {
+      const composed = await composeDescription(a);
+      if (!composed) return; // sin borrador del redactor: queda la fila que había
+      await a.pool.query(
+        `INSERT INTO topic_descriptions_cache
+           (agency_id, topic_id, period_start_date, period_end_date, description, model_used)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT ON CONSTRAINT uq_topic_descriptions_topic_range
+         DO UPDATE SET description = EXCLUDED.description,
+                       model_used  = EXCLUDED.model_used,
+                       generated_at = NOW()`,
+        [a.agencyId, a.topicId, a.startYmd, a.endYmd, composed.description, composed.modelUsed],
+      );
+    } catch (err) {
+      log.error('eco-topic-description', 'composer (background) failed', { msg: (err as Error).message });
+    } finally {
+      releaseAiTrigger(a.regenKey);
+    }
+  })();
 }
 
 /**

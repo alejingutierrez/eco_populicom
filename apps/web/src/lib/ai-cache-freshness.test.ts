@@ -1,8 +1,7 @@
 import {
   isAiCacheOutdated, claimAiTrigger, releaseAiTrigger, loadWindowFreshness, AI_TRIGGER_DEDUP_MS,
   parseComposerWebAgencies, composerWebActive, isComposerWebEnabled, expectedComposerVersion, isComposerVersionStale,
-  MAX_COMPOSER_WINDOW_DAYS,
-} from './ai-cache-freshness';
+  MAX_COMPOSER_WINDOW_DAYS, composedByWriter } from './ai-cache-freshness';
 import { COMPOSER_VERSION } from '@eco/shared';
 
 describe('isAiCacheOutdated', () => {
@@ -101,5 +100,19 @@ describe('motor de redacción: bandera y versión del caché (WP-8)', () => {
     expect(isComposerVersionStale(COMPOSER_VERSION, null)).toBe(true);
     expect(isComposerVersionStale('composer-0.9.0', COMPOSER_VERSION)).toBe(true);
     expect(isComposerVersionStale(COMPOSER_VERSION, COMPOSER_VERSION)).toBe(false);
+  });
+});
+
+describe('composedByWriter (texto degradado del motor no se guarda)', () => {
+  it('sin borrador del redactor (Bedrock falló) → false', () => {
+    expect(composedByWriter({ draft1Raw: null, errors: ['redactor: ThrottlingException'] })).toBe(false);
+  });
+  it('sin cliente LLM o error inesperado tras el redactor → false', () => {
+    expect(composedByWriter({ draft1Raw: null, errors: ['sin cliente LLM: texto determinista'] })).toBe(false);
+    expect(composedByWriter({ draft1Raw: { headline: 'x' }, errors: ['inesperado: boom'] })).toBe(false);
+  });
+  it('con borrador (aunque el QA o el corrector fallen) → true', () => {
+    expect(composedByWriter({ draft1Raw: { headline: 'x' }, errors: [] })).toBe(true);
+    expect(composedByWriter({ draft1Raw: { headline: 'x' }, errors: ['qa: timeout'] })).toBe(true);
   });
 });

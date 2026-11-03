@@ -21,8 +21,9 @@ import {
   type RoleModels,
   type TopicAggregateForDescription,
 } from '@eco/shared';
+import { composedByWriter } from '@/lib/ai-cache-freshness';
 
-/** Sonnet en redactor y corrector: la ruta es síncrona (maxDuration 30 s). */
+/** Sonnet en redactor y corrector: corre en segundo plano, pero que sea corto igual. */
 export const TOPIC_MODELS: Partial<RoleModels> = { writer: COMPOSER_MODEL_SONNET, corrector: COMPOSER_MODEL_SONNET };
 
 export const TOPIC_LIGHT_PROFILE: ComposerProfile = {
@@ -76,7 +77,7 @@ export function topicComposerInput(a: {
 
 /** Descripción final: el párrafo (solo `<strong>`), con el tope legacy de 1200. */
 export function topicDescription(r: ComposeResult): string | null {
-  if (!r.composition.draft1Raw) return null;
+  if (!composedByWriter(r.composition)) return null;
   const t = String(r.final.paragraph ?? '').trim().replace(/<(?!\/?strong\b)[^>]*>/gi, '').slice(0, 1200);
   return t || null;
 }

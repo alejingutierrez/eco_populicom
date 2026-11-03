@@ -168,3 +168,14 @@ export function expectedComposerVersion(
 export function isComposerVersionStale(rowVersion: string | null | undefined, expected: string | null): boolean {
   return (rowVersion ?? null) !== (expected ?? null);
 }
+
+/**
+ * ¿El texto salió del redactor del motor? Si Bedrock falla (throttling,
+ * timeout, error tras los reintentos) o algo revienta después, `compose()`
+ * devuelve el titular y el párrafo DETERMINISTAS. Esos no se guardan como
+ * fila vigente de un caché: el camino legacy, ante un error, tampoco escribe
+ * nada (y se sirve la vieja o el respaldo por reglas).
+ */
+export function composedByWriter(c: { draft1Raw: unknown; errors: readonly string[] }): boolean {
+  return c.draft1Raw != null && !c.errors.some((e) => /^(inesperado|sin cliente LLM)/.test(e));
+}

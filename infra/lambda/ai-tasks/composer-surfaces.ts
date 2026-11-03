@@ -106,6 +106,46 @@ export function useComposerFor(
   return composerEnabledFor(slug, opts) && windowDaysYmd(startYmd, endYmd) <= MAX_COMPOSER_WINDOW_DAYS;
 }
 
+/** Acciones que dispara la web y que escriben una fila de caché con versión. */
+export const WEB_TRIGGERED_ACTIONS = new Set(['period-insights', 'metric-insight']);
+
+/**
+ * ¿Esta acción va por el motor? En las acciones que dispara la web
+ * (`period-insights`, `metric-insight`) decide SOLO el `composer` del
+ * payload: la web es quien sabe qué versión espera la fila, y sin `composer`
+ * el lambda va por el camino legacy aunque tenga `COMPOSER_WEB_AGENCIES`. Así
+ * unas banderas desalineadas (web vacía, lambda con la agencia) no pueden
+ * entrar en un bucle de recálculo, y /api/eco-metric-insight (que no manda
+ * `composer`) no mezcla filas del motor en su caché. `topic-descriptions`
+ * (acción manual, sin caché con versión) sigue leyendo la variable de entorno.
+ */
+export function composerDecisionFor(
+  action: string,
+  slug: string,
+  startYmd: string,
+  endYmd: string,
+  override: boolean | null | undefined,
+  env?: string | null,
+): boolean {
+  if (WEB_TRIGGERED_ACTIONS.has(action)) {
+    return override === true && windowDaysYmd(startYmd, endYmd) <= MAX_COMPOSER_WINDOW_DAYS;
+  }
+  return useComposerFor(slug, startYmd, endYmd, { override, env });
+}
+
+/**
+ * ¿El texto final salió del redactor? Si Bedrock falla (throttling, timeout,
+ * error tras los reintentos) o algo revienta después, `compose()` devuelve el
+ * titular y el párrafo DETERMINISTAS: sirven para un correo que tiene que
+ * salir, pero no se guardan como fila vigente de un caché (en una ventana
+ * histórica no se regeneraría nunca, y en tópicos borraría la descripción
+ * buena). El camino legacy, ante un error, tampoco escribe nada.
+ */
+export function composedByWriter(r: Pick<ComposeResult, 'composition'>): boolean {
+  const c = r.composition;
+  return c.draft1Raw != null && !c.errors.some((e) => /^(inesperado|sin cliente LLM)/.test(e));
+}
+
 // ============================================================
 // Modelos por superficie
 // ============================================================

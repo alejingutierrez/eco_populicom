@@ -31,10 +31,13 @@
  * secciones en una pasada del redactor, con analista, QA y corrector, y
  * cifras por marcador. El payload guarda además `composer_version` y la
  * composición; una fila de otra versión (o legacy con la bandera encendida, y
- * al revés) se regenera. Como el motor puede pasar del presupuesto de la ruta,
- * si no termina en COMPOSER_BUDGET_MS se sirve lo que haya (vieja o «empty»,
- * y el SPA usa el briefing por reglas) y la composición sigue y se guarda.
- * Con la bandera vacía la ruta hace exactamente lo de antes.
+ * al revés) se regenera. El motor NUNCA está en el camino crítico de la
+ * vista (tarda 38–47 s): con fila se sirve la que haya y el motor compone en
+ * segundo plano; sin fila se genera el texto legacy como hoy (misma
+ * latencia), se responde con él y el motor compone en segundo plano para la
+ * siguiente vista. Un fallo del redactor no guarda nada (el determinista no
+ * es una fila vigente). Con la bandera vacía la ruta hace exactamente lo de
+ * antes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, agencies } from '@eco/database';
@@ -61,7 +64,7 @@ import { requireAuth } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
 import {
   loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger,
-  expectedComposerVersion, isComposerVersionStale,
+  expectedComposerVersion, isComposerVersionStale, composedByWriter,
 } from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 
@@ -80,9 +83,6 @@ function getBedrock(): BedrockRuntimeClient {
 
 /** Muestras por sentimiento: mitad por engagement, mitad por recencia. */
 const SAMPLES_PER_SENTIMENT = 10;
-
-/** Cuánto espera la ruta al motor antes de responder sin él (maxDuration = 60 s). */
-const COMPOSER_BUDGET_MS = 52_000;
 
 function normalizeSentiment(s: string | null): 'positivo' | 'neutral' | 'negativo' {
   if (s === 'positivo' || s === 'positive') return 'positivo';
@@ -254,11 +254,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       loadTopicHalves(pool, agencyId, sinceIso, untilIso),
     ]);
 
-    if (composerExpected) {
-      return await respondWithComposer({
-        pool, agencyId, agency: agencyRow, startYmd, endYmd, prevStartYmd, prevEndYmd,
-        report, samples, municipalities, authors, halves, regenKey, hadStale: staleRow != null, serveStale,
-      });
+    const composerArgs = {
+      pool, agencyId, agency: agencyRow, startYmd, endYmd, prevStartYmd, prevEndYmd,
+      report, samples, municipalities, authors, halves, regenKey,
+    };
+    if (composerExpected && staleRow) {
+      // Hay texto que mostrar (legacy, de otra versión o con datos nuevos): se
+      // sirve YA y el motor compone en segundo plano (el hit ya reclamó la clave).
+      composeExecutiveSummaryInBackground(composerArgs);
+      return serveStale()!;
     }
 
     const aggregates: ExecutiveSummaryAggregates = {
@@ -332,6 +336,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                      generated_at = NOW()`,
       [agencyId, startYmd, endYmd, JSON.stringify(output), PRIMARY_MODEL],
     );
+    // Con motor y sin fila: la primera vista recibe el texto legacy (misma
+    // latencia que hoy) y el motor compone en segundo plano para la siguiente.
+    if (composerExpected && claimAiTrigger(regenKey)) composeExecutiveSummaryInBackground(composerArgs);
 
     const res = NextResponse.json({
       status: 'ready' as const,
@@ -360,12 +367,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * Camino con motor: compone, guarda y responde. Si el motor no termina en
- * COMPOSER_BUDGET_MS responde sin él (vieja o «empty») y la composición sigue
- * en segundo plano y se guarda al terminar. Un disparo por ventana a la vez
- * (claimAiTrigger): una segunda petición mientras compone recibe lo mismo.
+ * Camino con motor, SIEMPRE en segundo plano: compone, y solo si el texto
+ * salió del redactor lo guarda (un fallo de Bedrock deja el determinista, que
+ * no se guarda como vigente). La ruta nunca espera al motor: responde con la
+ * fila que haya (vieja o legacy recién generada) y la del motor aparece en la
+ * siguiente vista. Así la primera vista tarda lo mismo que hoy (el perfil
+ * scorecard mide 38–47 s, contra el presupuesto de la ruta). El llamador ya
+ * reclamó `regenKey` (claimAiTrigger); aquí se libera al terminar.
  */
-async function respondWithComposer(a: {
+function composeExecutiveSummaryInBackground(a: {
   pool: ReturnType<typeof getPool>;
   agencyId: string;
   agency: { id: string; name: string; slug: string };
@@ -376,24 +386,8 @@ async function respondWithComposer(a: {
   authors: Array<{ name: string; mentions: number; reach: number }>;
   halves: Map<string, number>;
   regenKey: string;
-  hadStale: boolean;
-  serveStale: () => NextResponse | null;
-}): Promise<NextResponse> {
-  const empty = () => {
-    const res = NextResponse.json({
-      status: 'empty' as const,
-      periodStart: a.startYmd,
-      periodEnd: a.endYmd,
-      modes: null,
-      message: 'Generando el resumen del periodo.',
-    });
-    res.headers.set('Cache-Control', 'no-store');
-    return res;
-  };
-  // El hit viejo ya reclamó la clave arriba; un miss la reclama aquí.
-  if (!a.hadStale && !claimAiTrigger(a.regenKey)) return empty();
-
-  const work = (async () => {
+}): void {
+  (async () => {
     try {
       const [{ getComposerLlm, createComposerDataAccess, toRawComposerSample }, c, shared] = await Promise.all([
         import('@/lib/bedrock-client'),
@@ -426,11 +420,14 @@ async function respondWithComposer(a: {
       });
       const r = await c.composeScorecard(input, getComposerLlm(), (m) => log.warn('eco-executive-summary', m));
       const out = c.executiveSummaryFromComposition(r, topics);
+      const fromWriter = composedByWriter(r.composition);
       log.info('eco-executive-summary', 'composer', {
         startYmd: a.startYmd, endYmd: a.endYmd, version: r.composition.composerVersion,
-        degraded: r.degraded, seconds: r.composition.stageSeconds.total, errors: r.composition.errors.slice(0, 3),
+        degraded: r.degraded, fromWriter, seconds: r.composition.stageSeconds.total, errors: r.composition.errors.slice(0, 3),
       });
-      if (!out.signal_narrative.trim()) return null;
+      // Sin borrador del redactor `signal_narrative` sería el párrafo
+      // determinista: no se guarda (queda la fila que había).
+      if (!fromWriter || !out.signal_narrative.trim()) return;
       await a.pool.query(
         `INSERT INTO executive_summaries_cache
            (agency_id, period_start_date, period_end_date, payload, model_used)
@@ -441,48 +438,12 @@ async function respondWithComposer(a: {
                        generated_at = NOW()`,
         [a.agencyId, a.startYmd, a.endYmd, JSON.stringify(out), `${r.composition.composerVersion} · ${r.composition.models.writer ?? 'determinista'}`],
       );
-      return out;
+    } catch (err) {
+      log.error('eco-executive-summary', 'composer (background) failed', { msg: (err as Error).message });
     } finally {
       releaseAiTrigger(a.regenKey);
     }
   })();
-
-  const out = await withBudgetLocal(work, COMPOSER_BUDGET_MS).catch((err) => {
-    log.error('eco-executive-summary', 'composer failed', { msg: (err as Error).message });
-    return null;
-  });
-  if (out === TIMED_OUT) {
-    work.catch((err) => log.error('eco-executive-summary', 'composer (background) failed', { msg: (err as Error).message }));
-    return a.serveStale() ?? empty();
-  }
-  if (!out) {
-    const fallback = a.serveStale();
-    if (fallback) return fallback;
-    return NextResponse.json(
-      { error: 'Model returned empty summary', periodStart: a.startYmd, periodEnd: a.endYmd },
-      { status: 502 },
-    );
-  }
-  const res = NextResponse.json({
-    status: 'ready' as const,
-    periodStart: a.startYmd,
-    periodEnd: a.endYmd,
-    modes: toModes(out),
-    generatedAt: new Date().toISOString(),
-  });
-  res.headers.set('Cache-Control', 'no-store');
-  return res;
-}
-
-const TIMED_OUT = Symbol('timed-out');
-async function withBudgetLocal<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), ms); });
-  try {
-    return await Promise.race([p, timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 /**

@@ -92,6 +92,8 @@ import {
   periodComposerInput,
   topicLightInput,
   useComposerFor,
+  composerDecisionFor,
+  composedByWriter,
 } from './composer-surfaces';
 import { AGENCY_OWN_AUTHORS } from '../lib/mention-kind';
 import { createBedrockComposerLlm } from '@eco/shared/src/composer/bedrock-llm';
@@ -872,6 +874,14 @@ async function composeTopicDescription(
   }, samples);
   const r = await composeLight(TOPIC_LIGHT_PROFILE, input, { llm: composerLlm(), dryRun, log: composerLog });
   console.log(`[ai-tasks] composer topic ${agency.slug}/${t.slug} ${JSON.stringify(compositionSummary(r))}`);
+  // Sin borrador del redactor el párrafo es el determinista: NO se escribe
+  // (borraría la descripción buena anterior), igual que el legacy ante un error.
+  if (!composedByWriter(r)) {
+    return {
+      topic: t.slug, status: 'error', message: `motor sin redactor: ${r.composition.errors.slice(0, 2).join(' | ')}`,
+      ...(dryRun ? { composition: r.composition } : {}),
+    };
+  }
   const description = lightParagraph(r.final, 1200);
   if (!description) return { topic: t.slug, status: 'skip', message: 'motor devolvió vacío' };
   if (!dryRun) await client.query(`UPDATE topics SET description = $1 WHERE id = $2`, [description, t.id]);
@@ -1048,7 +1058,8 @@ async function generatePeriodInsightsFor(
     return { agencySlug: agency.slug, status: 'error', message: `aggregates failed: ${(err as Error).message}` };
   }
 
-  const withComposer = useComposerFor(agency.slug, periodStart, periodEnd, { override: composerOverride });
+  // Acción disparada por la web: decide el `composer` del payload (ver composerDecisionFor).
+  const withComposer = composerDecisionFor('period-insights', agency.slug, periodStart, periodEnd, composerOverride);
 
   if (aggregates.totals.total < 10) {
     // No vale la pena gastar LLM para señal anémica. Persistimos fila vacía
@@ -1263,6 +1274,19 @@ async function generatePeriodInsightsWithComposer(
       peaksPromise,
       heroPromise,
     ]);
+    // Sin borrador del redactor el texto es el determinista («Entre el X y el
+    // Y hubo N menciones…», sin insights): NO se guarda como fila vigente del
+    // motor (en una ventana histórica no se regeneraría nunca). Igual que el
+    // legacy ante un error: no se escribe nada y la web vuelve a disparar.
+    if (!composedByWriter(result)) {
+      console.error(`[ai-tasks] composer overview sin redactor ${agency.slug} ${periodStart}→${periodEnd}: ${result.composition.errors.join(' | ')}`);
+      return {
+        agencySlug: agency.slug,
+        status: 'error',
+        message: `composer sin redactor: ${result.composition.errors.slice(0, 2).join(' | ')}`,
+        ...(dryRun ? { output: { composition: result.composition } } : {}),
+      };
+    }
     const texts = overviewTextsFromDraft(result.final);
 
     const sourceOf = (c: HeroCandidate): string => {
@@ -1418,7 +1442,8 @@ async function generateMetricInsightFor(
   try {
     const ctx = await loadMetricInsightContext(client, agency, periodStart, periodEnd);
     const value = snapshotValueFor(metric, ctx.snapshot, ctx.totalMentions);
-    const withComposer = useComposerFor(agency.slug, periodStart, periodEnd, { override: composerOverride });
+    // Acción disparada por la web: decide el `composer` del payload (ver composerDecisionFor).
+    const withComposer = composerDecisionFor('metric-insight', agency.slug, periodStart, periodEnd, composerOverride);
     const promptInput: CachedMetricInsightInput = {
       metric,
       agencyName: agency.name,
@@ -1505,6 +1530,14 @@ async function composeMetricInsight(
     topTopics: ctx.topTopics, topAuthors: ctx.topAuthors, topMunicipalities: ctx.topMunicipalities,
   });
   const r = await composeLight(METRIC_LIGHT_PROFILE, input, { llm: composerLlm(), dryRun, log: composerLog });
+  // Sin borrador del redactor el párrafo es el determinista: no se cachea.
+  if (!composedByWriter(r)) {
+    return {
+      agencySlug: agency.slug, status: 'error',
+      message: `motor sin redactor: ${r.composition.errors.slice(0, 2).join(' | ')}`,
+      ...(dryRun ? { output: { metric, composition: r.composition } } : {}),
+    };
+  }
   const insight = lightParagraph(r.final);
   if (!insight) return { agencySlug: agency.slug, status: 'error', message: 'motor devolvió vacío' };
   if (!dryRun) {

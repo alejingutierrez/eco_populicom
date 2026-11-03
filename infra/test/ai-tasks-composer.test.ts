@@ -5,6 +5,8 @@
 import {
   composerEnabledFor,
   useComposerFor,
+  composerDecisionFor,
+  composedByWriter,
   parseComposerAgencies,
   sampleContextFromRow,
   overviewTextsFromDraft,
@@ -43,6 +45,23 @@ describe('bandera COMPOSER_WEB_AGENCIES', () => {
     expect(useComposerFor('ddecpr', '2026-08-04', '2026-11-01', { env: 'ddecpr' })).toBe(false);
     expect(useComposerFor('ddecpr', '2025-11-02', '2026-11-01', { env: 'ddecpr' })).toBe(false);
     expect(useComposerFor('ddecpr', '2025-11-02', '2026-11-01', { override: true })).toBe(false);
+  });
+});
+
+describe('decisión del motor por acción (banderas desalineadas)', () => {
+  it('period-insights y metric-insight: solo el `composer` del payload decide', () => {
+    for (const action of ['period-insights', 'metric-insight']) {
+      // Lambda con la agencia en su variable y la web sin bandera (no manda `composer`): legacy.
+      expect(composerDecisionFor(action, 'ddecpr', '2026-10-26', '2026-11-01', undefined, 'ddecpr')).toBe(false);
+      expect(composerDecisionFor(action, 'ddecpr', '2026-10-26', '2026-11-01', false, '*')).toBe(false);
+      expect(composerDecisionFor(action, 'ddecpr', '2026-10-26', '2026-11-01', true, '')).toBe(true);
+      // La ventana máxima se respeta igual.
+      expect(composerDecisionFor(action, 'ddecpr', '2026-08-04', '2026-11-01', true, '')).toBe(false);
+    }
+  });
+  it('topic-descriptions (manual): la variable de entorno sigue valiendo', () => {
+    expect(composerDecisionFor('topic-descriptions', 'ddecpr', '2026-10-03', '2026-11-01', undefined, 'ddecpr')).toBe(true);
+    expect(composerDecisionFor('topic-descriptions', 'ddecpr', '2026-10-03', '2026-11-01', undefined, '')).toBe(false);
   });
 });
 
@@ -187,5 +206,29 @@ describe('perfil ligero de métrica con LLM simulado', () => {
     const r = await composeLight(METRIC_LIGHT_PROFILE, input, { llm, dryRun: true });
     expect(llm.roles).toEqual(['writer']);
     expect(lightParagraph(r.final)).toBe('El riesgo de crisis está en <strong>56 %</strong>, banda Alerta. Lo explica Desarrollo Empresarial con 300 menciones.');
+  });
+});
+
+describe('texto degradado: no se guarda como vigente', () => {
+  const input = () => metricLightInput({
+    agencyId: 'a', agencyName: 'DDEC', shortName: 'DDEC', metric: 'nss', periodStart: '2026-10-26', periodEnd: '2026-11-01',
+    value: 12.3, totals: AGG.totals, prevTotals: null, dailySeries: SERIES,
+    topTopics: [], topAuthors: [], topMunicipalities: [],
+  });
+  it('si el redactor falla (Bedrock), compose da el determinista y composedByWriter es false', async () => {
+    const llm: ComposerLlm = { invokeTool: async () => { throw new Error('ThrottlingException'); } };
+    const r = await composeLight(METRIC_LIGHT_PROFILE, input(), { llm, dryRun: true });
+    expect(r.composition.draft1Raw).toBeNull();
+    expect(lightParagraph(r.final).length).toBeGreaterThan(0); // hay texto, pero es el determinista
+    expect(composedByWriter(r)).toBe(false);
+  });
+  it('sin cliente LLM tampoco cuenta como texto del redactor', async () => {
+    const r = await composeLight(METRIC_LIGHT_PROFILE, input(), { llm: null, dryRun: true });
+    expect(composedByWriter(r)).toBe(false);
+  });
+  it('con borrador del redactor sí', async () => {
+    const good = { headline: 'El sentimiento neto del DDEC se mantiene', paragraph: 'El sentimiento neto está en <strong>{{kpi_value}}</strong>.', highlights: [] };
+    const r = await composeLight(METRIC_LIGHT_PROFILE, input(), { llm: fakeLlm({ writer: good }), dryRun: true });
+    expect(composedByWriter(r)).toBe(true);
   });
 });

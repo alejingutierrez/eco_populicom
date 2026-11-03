@@ -27,6 +27,7 @@ import {
   type MetricKey,
   type RoleModels,
 } from '@eco/shared';
+import { composedByWriter } from '@/lib/ai-cache-freshness';
 
 /** Sonnet en redactor y corrector: el modal espera al usuario. */
 export const KPI_MODELS: Partial<RoleModels> = { writer: COMPOSER_MODEL_SONNET, corrector: COMPOSER_MODEL_SONNET };
@@ -159,7 +160,7 @@ export function kpiComposerInput(a: KpiComposerArgs): ComposerInput {
 export function kpiInterpretation(r: ComposeResult): string | null {
   // Sin borrador del redactor el párrafo es el determinista genérico del motor:
   // el caller usa entonces la interpretación por reglas de siempre.
-  if (!r.composition.draft1Raw) return null;
+  if (!composedByWriter(r.composition)) return null;
   const t = String(r.final.paragraph ?? '').trim().replace(/<(?!\/?strong\b)[^>]*>/gi, '').slice(0, 1200);
   return t || null;
 }

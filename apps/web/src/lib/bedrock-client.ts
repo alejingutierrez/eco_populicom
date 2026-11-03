@@ -31,9 +31,11 @@ export function getBedrockClient(): BedrockRuntimeClient {
 // Motor de redacción (WP-8): cliente LLM y capa de datos de las muestras
 // ============================================================
 //
-// Solo se cargan desde el camino con motor (`await import('@/lib/bedrock-client')`
-// dentro de la rama de `COMPOSER_WEB_AGENCIES`): con la bandera vacía ninguna
-// ruta toca este código.
+// Las rutas con motor importan este módulo de forma diferida, dentro de la
+// rama de `COMPOSER_WEB_AGENCIES`. Las rutas que ya lo importaban de forma
+// estática (chat/stream, chat/advisor) ahora cargan también el adaptador
+// `@eco/shared/src/composer/bedrock-llm`: no tiene efectos laterales al
+// cargarse y estas funciones solo corren en la rama con motor.
 
 
 /** Cliente del motor sobre el mismo BedrockRuntimeClient singleton. */
