@@ -111,20 +111,25 @@ export async function loadComposerSamples(
   client: Queryable,
   agencyId: string,
   window: { startYmd: string; endYmd: string; dayYmd: string },
+  /** `includeToday: false` (semanal, WP-7): sin las muestras del día, que el perfil `weekly` no usa. */
+  opts: { includeToday?: boolean } = {},
 ): Promise<RawSampleGroups> {
-  const today = await client.query(
-    `SELECT ${SAMPLE_COLUMNS}
-       FROM mentions m
-       ${TOPIC_JOIN}
-      WHERE m.agency_id = $1
-        AND m.is_duplicate = false
-        AND m.nlp_pertinence IN ('alta','media')
-        ${prWindowRangeSql('m.', '$2', '$3')}
-      ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
-      LIMIT ${TODAY_SAMPLE_LIMIT}`,
-    [agencyId, window.dayYmd, window.dayYmd],
-  );
-  const out: RawSampleGroups = { today: today.rows.map(rowToRawSample) };
+  const out: RawSampleGroups = { today: [] };
+  if (opts.includeToday !== false) {
+    const today = await client.query(
+      `SELECT ${SAMPLE_COLUMNS}
+         FROM mentions m
+         ${TOPIC_JOIN}
+        WHERE m.agency_id = $1
+          AND m.is_duplicate = false
+          AND m.nlp_pertinence IN ('alta','media')
+          ${prWindowRangeSql('m.', '$2', '$3')}
+        ORDER BY COALESCE(m.engagement_score, 0) DESC, m.published_at DESC
+        LIMIT ${TODAY_SAMPLE_LIMIT}`,
+      [agencyId, window.dayYmd, window.dayYmd],
+    );
+    out.today = today.rows.map(rowToRawSample);
+  }
   for (const key of ['negative', 'neutral', 'positive'] as const) {
     const r = await client.query(
       `SELECT ${SAMPLE_COLUMNS}

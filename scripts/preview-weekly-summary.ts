@@ -5,9 +5,16 @@
  *
  * Uso: tsx scripts/preview-weekly-summary.ts
  *      → escribe a apps/web/public/emails/weekly-summary-preview.html
+ *
+ * Variante `weekly-summary-preview-motor.html` (interpretación v1, WP-7): lo
+ * que cambia cuando `composer_mode = agentic` — rótulos de ventana, viñetas de
+ * hechos bajo el párrafo, «Qué cambió» con la comparación, chip de
+ * composición, insights de la semana, deltas con base mínima (positivas
+ * 42 → 58 y tópicos con base < 30 van como diferencia) y nota de
+ * metodología. El texto del motor es ilustrativo.
  */
 
-import { renderWeeklySummaryHtml, type WeeklySummaryRenderData } from '../packages/shared/src/email/render-weekly-summary.ts';
+import { buildWeeklyMethodologyNote, renderWeeklySummaryHtml, type WeeklySummaryRenderData } from '../packages/shared/src/email/render-weekly-summary.ts';
 import { formatMetric, formatDelta, formatVelocity } from '../packages/shared/src/format/metrics-display.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -140,10 +147,51 @@ const data: WeeklySummaryRenderData = {
 };
 
 
+// Con el motor (agentic): base mínima de 30 para el % (una base previa menor
+// va como diferencia en menciones), texto por marcadores y rótulos.
+const minBase = (cur: number, prev: number, invert = false) =>
+  prev === 0 || prev >= 30
+    ? formatDelta(cur, prev, { kind: 'percent', decimals: 0, invert })
+    : formatDelta(cur, prev, { kind: 'absolute', decimals: 0, invert });
+const motor: WeeklySummaryRenderData = {
+  ...data,
+  totalDelta: minBase(totals.total, prevTotals.total),
+  sentimentDelta: {
+    negative: minBase(totals.negative, prevTotals.negative, true),
+    neutral: minBase(totals.neutral, prevTotals.neutral),
+    positive: minBase(totals.positive, prevTotals.positive),
+  },
+  topicsCompare: data.topicsCompare.map((t) => ({ ...t, delta: minBase(t.cur, t.prev) })),
+  weeklyHeadline: 'El Senado no celebró vistas del PS 1183 y el DDEC anunció la convocatoria para pymes',
+  weeklySummary:
+    'La semana tuvo <strong>476 menciones</strong>, 83 menos que la anterior. La prensa dejó de publicar seguimientos del <strong>PS 1183</strong> a mitad de semana y el DDEC anunció el lunes 30 la convocatoria de incentivos para pymes, que medios regionales reprodujeron.',
+  highlights: [
+    'Las negativas bajaron de 258 a 187 (28 % menos): no hubo vistas del PS 1183 en el Senado.',
+    '«Incentivos Económicos» pasó de 24 a 67 menciones tras la convocatoria del lunes 30.',
+    'El riesgo de crisis bajó 11 pts, de 42% a 31%.',
+  ],
+  interpretation: {
+    windowLabel: data.weekLabel,
+    prevWindowLabel: data.prevWeekLabel,
+    weekHighlights: [
+      'El DDEC publicó el lunes 30 la convocatoria de incentivos para pymes.',
+      'Un usuario reclamó en Facebook que el portal no acepta sus documentos de renovación.',
+    ],
+    insights: {
+      negative: ['Usuarios reclamaron demoras en el portal de renovaciones (publicaciones del 1 y 2 jul).'],
+      neutral: ['Medios regionales reprodujeron la convocatoria del lunes 30.'],
+      positive: ['Usuarios en X celebraron la inversión anunciada para la zona oeste.'],
+    },
+    composition: { weekPct: 41, prevWeekPct: 28 },
+    methodologyNote: buildWeeklyMethodologyNote({ weekLabel: data.weekLabel, prevWeekLabel: data.prevWeekLabel, minDeltaBase: 30 }),
+  },
+};
+
 const repoRoot = join(__dirname, '..');
 const variants: Array<{ file: string; data: WeeklySummaryRenderData }> = [
   { file: 'weekly-summary-preview.html', data: { ...data, heroImage: { url: MOCK_HERO, caption: 'Foto: elnuevodia.com · 30 jun' } } },
   { file: 'weekly-summary-preview-sin-foto.html', data: { ...data, topMentions: data.topMentions?.map((m) => ({ ...m, imageUrl: null })) } },
+  { file: 'weekly-summary-preview-motor.html', data: { ...motor, heroImage: { url: MOCK_HERO, caption: 'Foto: elnuevodia.com · 30 jun' } } },
 ];
 for (const v of variants) {
   const html = renderWeeklySummaryHtml(v.data);

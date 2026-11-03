@@ -158,17 +158,18 @@ export interface TimedCompose {
 }
 
 /**
- * `compose('daily')` con plazo. El motor nunca lanza, pero puede tardar (3
- * roles Opus + QA Sonnet, reintentos): si pasa el plazo, se devuelve
- * `timedOut` y el caller envía el texto legacy. La promesa del motor sigue
- * corriendo en segundo plano y se descarta.
+ * `compose(profile)` con plazo (`daily` por defecto; el semanal pasa
+ * `weekly`, WP-7). El motor nunca lanza, pero puede tardar (3 roles Opus + QA
+ * Sonnet, reintentos): si pasa el plazo, se devuelve `timedOut` y el caller
+ * envía el texto legacy. La promesa del motor sigue corriendo en segundo
+ * plano y se descarta.
  */
 export async function composeWithDeadline(
   input: ComposerInput,
-  opts: { llm: ComposerLlm | null; dryRun: boolean; deadlineMs: number; log?: (m: string) => void; compose?: typeof compose; options?: Partial<ComposeOptions> },
+  opts: { llm: ComposerLlm | null; dryRun: boolean; deadlineMs: number; log?: (m: string) => void; compose?: typeof compose; options?: Partial<ComposeOptions>; profile?: 'daily' | 'weekly' },
 ): Promise<TimedCompose> {
   const t0 = Date.now();
-  const run = (opts.compose ?? compose)('daily', input, { llm: opts.llm, dryRun: opts.dryRun, log: opts.log, ...(opts.options ?? {}) });
+  const run = (opts.compose ?? compose)(opts.profile ?? 'daily', input, { llm: opts.llm, dryRun: opts.dryRun, log: opts.log, ...(opts.options ?? {}) });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, opts.deadlineMs)); });
   try {
@@ -207,6 +208,8 @@ export function evaluateStoredComposition(
   stored: StoredComposition | null,
   fresh: ComposerInput,
   window: DailyComposeWindow,
+  /** `day` para el diario, `period` para el semanal (WP-7): alcance de la red de seguridad. */
+  scope: 'day' | 'period' = 'day',
 ): StoredEvaluation {
   const none = (reason: string): StoredEvaluation => ({ state: 'missing', final: null, changed: {}, reason });
   if (!stored) return none('sin composición guardada');
@@ -244,7 +247,7 @@ export function evaluateStoredComposition(
   ]));
   const lintCtx = buildLintContext(pkg, samples, names);
   const filled = fillDraft(chosen, pkg.facts, { keepInvalid: true }).filled;
-  const net = safetyNet(filled, pkg, lintCtx, 'day');
+  const net = safetyNet(filled, pkg, lintCtx, scope);
   return { state: 'refreshable', final: net.draft, changed, reason: 'cifras citadas re-rellenadas' };
 }
 
@@ -270,6 +273,8 @@ export function draftToDailyText(d: Draft): {
 
 /** Bloque `delivery` que se añade a la composición archivada en report_send_log. */
 export interface DeliveryRecord {
+  /** Correo al que pertenece el envío (el semanal se distingue en report_send_log por template_key). */
+  reportType?: 'daily' | 'weekly';
   mode: 'shadow' | 'agentic';
   /** De dónde salió el texto ENVIADO. */
   sentText: 'composer' | 'legacy';

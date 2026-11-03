@@ -51,6 +51,27 @@ export function isComposeAheadDue(localHour: number, sendHourLocal: number, mode
   return mode !== 'legacy' && localHour === composeAheadHour(sendHourLocal);
 }
 
+/**
+ * ¿Toca disparar la composición anticipada del SEMANAL (WP-7)? El semanal
+ * sale un solo día (weekly_send_dow, convención JS getDay) a su hora
+ * (weekly_send_hour_local): se compone `leadHours` antes, mirando el día y la
+ * hora locales de «ahora + leadHours» para que una hora de envío temprana
+ * (p. ej. 1 AM del viernes) componga el jueves a las 23. El barrido corre en
+ * el minuto 0, así que la comparación por hora es exacta.
+ */
+export function isWeeklyComposeAheadDue(
+  nowUtc: Date,
+  timeZone: string,
+  weekly: { enabled: boolean; dow: number; hourLocal: number },
+  mode: ComposerMode,
+  clock: { hourInTimeZone: (d: Date, tz: string) => number; dowInTimeZone: (d: Date, tz: string) => number },
+  leadHours = COMPOSE_LEAD_HOURS,
+): boolean {
+  if (mode === 'legacy' || !weekly.enabled) return false;
+  const at = new Date(nowUtc.getTime() + leadHours * 3_600_000);
+  return clock.dowInTimeZone(at, timeZone) === weekly.dow && clock.hourInTimeZone(at, timeZone) === weekly.hourLocal;
+}
+
 // ------------------------------------------------------------------ presupuesto de tiempo
 
 /**
@@ -100,8 +121,9 @@ export type DailyTextPlan =
   | { text: 'legacy'; compose: 'none'; reason: 'no_time' };
 
 /**
- * Plan del texto del correo diario. `remainingMs` es el tiempo de ejecución
- * que le queda al lambda en este momento.
+ * Plan del texto del correo diario (y del semanal: misma regla, WP-7).
+ * `remainingMs` es el tiempo de ejecución que le queda al lambda en este
+ * momento.
  */
 export function planDailyText(opts: { mode: ComposerMode; dryRun: boolean; stored: StoredState; remainingMs: number }): DailyTextPlan {
   const { mode, dryRun, stored, remainingMs } = opts;

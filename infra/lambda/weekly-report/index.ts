@@ -34,6 +34,11 @@
  *  - el envío lee la composición guardada del periodo; si falta y quedan más
  *    de 420 s de ejecución, compone en el momento; si no, sale el legacy.
  *    Nunca se retiene un correo.
+ *  - El SEMANAL (WP-7) sigue la misma bandera: perfil `weekly` del motor con
+ *    paquete comparativo; composición anticipada 2 h antes de
+ *    weekly_send_hour_local del weekly_send_dow (viernes 1:00 PM PR para
+ *    salir a las 3:00 PM). El diario y el semanal no se pisan: cada uno tiene
+ *    su fila en report_compositions (report_type) y su hora.
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
@@ -82,15 +87,19 @@ import {
   type SentimentReport,
   type WindowMetrics,
   buildDailyMethodologyNote,
+  buildWeeklyMethodologyNote,
   FACT_MIN_DELTA_BASE,
   type Composition,
   type ComposerLlm,
   type DailyInterpretation,
+  type DeltaDisplay,
+  type WeeklyInterpretation,
 } from '@eco/shared';
 import { createBedrockComposerLlm } from '@eco/shared/src/composer/bedrock-llm';
 import {
   composeDeadlineMs,
   isComposeAheadDue,
+  isWeeklyComposeAheadDue,
   normalizeComposerMode,
   planDailyText,
   resolveComposerMode,
@@ -107,6 +116,13 @@ import {
   type StoredEvaluation,
 } from './daily-composer';
 import { compositionStatus, loadStoredComposition, saveComposition, type StoredComposition } from './compositions-store';
+import {
+  buildWeeklyComposerInput,
+  draftToWeeklyText,
+  type WeeklyComposerInputResult,
+  type WeeklyIndicator,
+  type WeeklyTopicCount,
+} from './weekly-composer';
 
 const bedrock = new BedrockRuntimeClient({});
 const sm = new SecretsManagerClient({});
@@ -179,9 +195,10 @@ interface InvokePayload {
   /** uuid del usuario que disparó (solo manual/test). */
   triggeredBy?: string;
   /**
-   * `compose`: solo compone el diario de `agencySlug` y lo guarda en
-   * report_compositions (la dispara el barrido 2 h antes del envío; también
-   * manual). Sin `action`: el comportamiento de siempre.
+   * `compose`: solo compone el correo de `agencySlug` (diario o, con
+   * `reportType: 'weekly'`, el semanal) y lo guarda en report_compositions
+   * (la dispara el barrido 2 h antes del envío; también manual). Sin
+   * `action`: el comportamiento de siempre.
    */
   action?: 'compose';
   /** Fuerza el modo del motor. SOLO con dryRun (un envío real usa report_configs). */
@@ -275,6 +292,16 @@ export const handler = async (
         && Array.isArray(cfg.recipients) && cfg.recipients.length > 0) {
         runs.push(await dispatchComposeAhead(client, cfg, context));
       }
+      // Ídem para el semanal (WP-7): 2 h antes de weekly_send_hour_local del
+      // weekly_send_dow (default viernes 3 PM → compone a la 1 PM).
+      if (isWeeklyComposeAheadDue(nowUtc, cfg.timezone, {
+        enabled: cfg.weekly_enabled === true,
+        dow: cfg.weekly_send_dow ?? 5,
+        hourLocal: cfg.weekly_send_hour_local ?? 15,
+      }, composerMode, { hourInTimeZone, dowInTimeZone })
+        && Array.isArray(cfg.recipients) && cfg.recipients.length > 0) {
+        runs.push(await dispatchComposeAhead(client, cfg, context, 'weekly'));
+      }
 
       // Diario: todos los días a send_hour_local. Semanal: SOLO el día
       // configurado (default viernes) a SU propia hora (default 15 = 3 PM),
@@ -324,7 +351,7 @@ export const handler = async (
           runs.push({ ok: true, agency: cfg.slug, reportType: type, status: 'skipped' });
           continue;
         }
-        runs.push(await runForAgency(client, inputs, type, null, { mode: type === 'daily' ? composerMode : 'legacy', dryRun: false, clock }));
+        runs.push(await runForAgency(client, inputs, type, null, { mode: composerMode, dryRun: false, clock }));
       }
     }
 
@@ -385,10 +412,11 @@ async function runForAgencyBySlug(client: any, event: InvokePayload, clock: RunC
   const templateKey = a.template_key ?? 'daily-sentiment-summary';
   const trigger = event.trigger ?? 'manual';
 
-  // Motor de redacción: solo el diario. El modo sale de report_configs; en
-  // dryRun el payload puede forzarlo (`composerMode`) sin tocar la base.
+  // Motor de redacción: diario y semanal (el nombramiento sigue legacy). El
+  // modo sale de report_configs; en dryRun el payload puede forzarlo
+  // (`composerMode`) sin tocar la base.
   const dryRun = event.dryRun === true;
-  const composerMode: ComposerMode = reportType === 'daily'
+  const composerMode: ComposerMode = reportType === 'daily' || reportType === 'weekly'
     ? resolveComposerMode(await loadComposerMode(client, a.id), event.composerMode, dryRun)
     : 'legacy';
   const asOf = dryRun && event.asOf ? new Date(event.asOf) : null;
@@ -458,21 +486,24 @@ async function loadComposerModes(client: any): Promise<Map<string, ComposerMode>
   return out;
 }
 
+/** Correos que el motor compone (el nombramiento no). */
+type ComposedReportType = 'daily' | 'weekly';
+
 /**
  * Invoca ESTE lambda de forma asíncrona (InvocationType Event) para componer
- * el diario de una agencia. Nunca lanza.
+ * el diario (o el semanal) de una agencia. Nunca lanza.
  */
-async function invokeComposeAsync(agencySlug: string, functionName?: string): Promise<{ ok: boolean; error?: string }> {
+async function invokeComposeAsync(agencySlug: string, reportType: ComposedReportType = 'daily', functionName?: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await lambdaClient.send(new InvokeCommand({
       FunctionName: functionName || process.env.AWS_LAMBDA_FUNCTION_NAME || 'eco-weekly-report',
       InvocationType: 'Event',
-      Payload: new TextEncoder().encode(JSON.stringify({ action: 'compose', agencySlug, reportType: 'daily', trigger: 'scheduled' })),
+      Payload: new TextEncoder().encode(JSON.stringify({ action: 'compose', agencySlug, reportType, trigger: 'scheduled' })),
     }));
     return { ok: true };
   } catch (err) {
     const error = String((err as Error)?.message ?? err);
-    console.warn(`[weekly-report] no se pudo invocar la composición de ${agencySlug}: ${error}`);
+    console.warn(`[weekly-report] no se pudo invocar la composición de ${agencySlug} (${reportType}): ${error}`);
     return { ok: false, error };
   }
 }
@@ -482,19 +513,20 @@ async function invokeComposeAsync(agencySlug: string, functionName?: string): Pr
  * agencia. Una agencia por exportes (DF) sin exporte nuevo no tendrá envío,
  * así que no se compone.
  */
-async function dispatchComposeAhead(client: any, cfg: any, context?: LambdaContextLike): Promise<RunResult> {
+async function dispatchComposeAhead(client: any, cfg: any, context?: LambdaContextLike, reportType: ComposedReportType = 'daily'): Promise<RunResult> {
+  const templateKey = reportType === 'weekly' ? WEEKLY_TEMPLATE_KEY : cfg.template_key;
   try {
     const coverage = await loadAgencyCoverage(client as PgClientLike, cfg.agency_id);
-    if (coverage.importFed && !(await hasImportSinceLastSend(client, cfg.agency_id, cfg.template_key, coverage))) {
-      console.log(`[weekly-report] compose ${cfg.slug} · sin exporte nuevo: no se compone`);
-      return { ok: true, agency: cfg.slug, reportType: 'daily', status: 'skipped', error: 'compose: sin exporte nuevo desde el último envío' };
+    if (coverage.importFed && !(await hasImportSinceLastSend(client, cfg.agency_id, templateKey, coverage))) {
+      console.log(`[weekly-report] compose ${cfg.slug} (${reportType}) · sin exporte nuevo: no se compone`);
+      return { ok: true, agency: cfg.slug, reportType, status: 'skipped', error: 'compose: sin exporte nuevo desde el último envío' };
     }
   } catch (err) {
-    console.warn(`[weekly-report] compose ${cfg.slug} · cobertura no disponible, se compone igual:`, (err as Error)?.message ?? err);
+    console.warn(`[weekly-report] compose ${cfg.slug} (${reportType}) · cobertura no disponible, se compone igual:`, (err as Error)?.message ?? err);
   }
-  const r = await invokeComposeAsync(cfg.slug, context?.functionName);
-  console.log(`[weekly-report] compose ${cfg.slug} · ${r.ok ? 'invocación asíncrona enviada' : `falló: ${r.error}`}`);
-  return { ok: r.ok, agency: cfg.slug, reportType: 'daily', status: r.ok ? 'compose_dispatched' : 'failed', ...(r.error ? { error: r.error } : {}) };
+  const r = await invokeComposeAsync(cfg.slug, reportType, context?.functionName);
+  console.log(`[weekly-report] compose ${cfg.slug} (${reportType}) · ${r.ok ? 'invocación asíncrona enviada' : `falló: ${r.error}`}`);
+  return { ok: r.ok, agency: cfg.slug, reportType, status: r.ok ? 'compose_dispatched' : 'failed', ...(r.error ? { error: r.error } : {}) };
 }
 
 interface ComposeActionResult {
@@ -515,15 +547,16 @@ interface ComposeActionResult {
 }
 
 /**
- * Acción `compose`: compone el diario de una agencia para la ventana que
- * enviaría ahora y lo guarda en report_compositions (dryRun: no guarda y
- * devuelve la composición). NUNCA lanza: una invocación asíncrona que falla
- * se reintenta sola (2 veces) y cada reintento gastaría el motor otra vez.
+ * Acción `compose`: compone el diario (o el semanal, `reportType: 'weekly'`)
+ * de una agencia para la ventana que enviaría ahora y lo guarda en
+ * report_compositions (dryRun: no guarda y devuelve la composición). NUNCA
+ * lanza: una invocación asíncrona que falla se reintenta sola (2 veces) y
+ * cada reintento gastaría el motor otra vez.
  */
 async function runComposeAction(client: any, event: InvokePayload, clock: RunClock): Promise<ComposeActionResult> {
   const reportType: ReportType = event.reportType ?? 'daily';
-  if (reportType !== 'daily') {
-    return { ok: false, action: 'compose', reportType, status: 'unsupported', error: 'la composición anticipada existe solo para el diario (el semanal llega con WP-7)' };
+  if (reportType !== 'daily' && reportType !== 'weekly') {
+    return { ok: false, action: 'compose', reportType, status: 'unsupported', error: 'la composición anticipada existe para el diario y el semanal' };
   }
   if (!event.agencySlug) return { ok: false, action: 'compose', reportType, status: 'failed', error: 'agencySlug requerido' };
   const dryRun = event.dryRun === true;
@@ -533,35 +566,55 @@ async function runComposeAction(client: any, event: InvokePayload, clock: RunClo
     if (!a) return { ok: false, action: 'compose', reportType, status: 'failed', error: `agency '${event.agencySlug}' not found` };
     const asOf = dryRun && event.asOf ? new Date(event.asOf) : null;
     const nowUtc = asOf && !Number.isNaN(asOf.getTime()) ? asOf : new Date();
-    const coverage = await loadAgencyCoverage(client as PgClientLike, a.id);
-    const win = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
-    const w = { startYmd: win.startYmd, endYmd: win.endYmd, prevStartYmd: win.prevStartYmd, prevEndYmd: win.prevEndYmd };
-    const report = await buildSentimentReport(client as PgClientLike, a.id, w.startYmd, w.endYmd, w.prevStartYmd, w.prevEndYmd);
-    if (report.totals.total === 0) {
-      return { ok: true, action: 'compose', agency: a.slug, reportType, status: 'no_data', periodEnd: w.endYmd };
+    const cAgency = { id: a.id, slug: a.slug, name: a.name, shortName: agencyShortName(a.slug) };
+    let input: DailyComposerInputResult | WeeklyComposerInputResult;
+    let periodEnd: string;
+    if (reportType === 'weekly') {
+      const core = await loadWeeklyCore(client, a.id, nowUtc);
+      periodEnd = core.window.endYmd;
+      if (core.curReport.totals.total === 0) {
+        return { ok: true, action: 'compose', agency: a.slug, reportType, status: 'no_data', periodEnd };
+      }
+      input = await buildWeeklyComposerInput(client, cAgency, core.window, {
+        curReport: core.curReport,
+        prevReport: core.prevReport,
+        indicators: weeklyIndicators(core.winCur, core.winPrev),
+        topics: core.curTopics,
+        prevTopics: core.prevTopics,
+      });
+    } else {
+      const coverage = await loadAgencyCoverage(client as PgClientLike, a.id);
+      const win = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
+      const w = { startYmd: win.startYmd, endYmd: win.endYmd, prevStartYmd: win.prevStartYmd, prevEndYmd: win.prevEndYmd };
+      periodEnd = w.endYmd;
+      const report = await buildSentimentReport(client as PgClientLike, a.id, w.startYmd, w.endYmd, w.prevStartYmd, w.prevEndYmd);
+      if (report.totals.total === 0) {
+        return { ok: true, action: 'compose', agency: a.slug, reportType, status: 'no_data', periodEnd };
+      }
+      input = await buildDailyComposerInput(client, cAgency, w, report);
     }
-    const input = await buildDailyComposerInput(client, { id: a.id, slug: a.slug, name: a.name, shortName: agencyShortName(a.slug) }, w, report);
     const timed = await composeWithDeadline(input.input, {
       llm: getComposerLlm(),
       dryRun,
       deadlineMs: Math.max(0, clock.remainingMs() - 30_000),
       log: (m) => console.log(m),
+      profile: reportType,
     });
     if (!timed.result) {
-      return { ok: false, action: 'compose', agency: a.slug, reportType, status: 'timeout', periodEnd: w.endYmd, seconds: timed.seconds };
+      return { ok: false, action: 'compose', agency: a.slug, reportType, status: 'timeout', periodEnd, seconds: timed.seconds };
     }
     const composition = { ...timed.result.composition, adapter: { parentStats: input.parentStats, contextError: input.contextError } } as Composition;
     const status = compositionStatus(composition);
-    const saved = dryRun ? false : await saveComposition(client, { agencyId: a.id, reportType: 'daily', periodEnd: w.endYmd, composition, status });
+    const saved = dryRun ? false : await saveComposition(client, { agencyId: a.id, reportType, periodEnd, composition, status });
     const bedrockCalls = composition.calls.reduce((n, c) => n + c.attempts, 0);
-    console.log(`[weekly-report] compose ${a.slug} ${w.endYmd} · ${status} · ${timed.seconds}s · ${bedrockCalls} llamadas · guardada=${saved}`);
+    console.log(`[weekly-report] compose ${a.slug} ${reportType} ${periodEnd} · ${status} · ${timed.seconds}s · ${bedrockCalls} llamadas · guardada=${saved}`);
     return {
       ok: status === 'complete',
       action: 'compose',
       agency: a.slug,
       reportType,
       status: status === 'complete' ? 'composed' : 'degraded',
-      periodEnd: w.endYmd,
+      periodEnd,
       saved,
       seconds: timed.seconds,
       bedrockCalls,
@@ -690,7 +743,7 @@ interface SendArchive {
   composerVersion: string | null;
 }
 
-/** Cómo se arma el diario: modo del motor y reloj de la corrida. */
+/** Cómo se arma el diario (y el semanal, WP-7): modo del motor y reloj de la corrida. */
 interface DailyBuildOptions {
   mode: ComposerMode;
   dryRun: boolean;
@@ -713,7 +766,7 @@ async function buildEmail(
     return buildAppointmentEmail(client, agency, appointment);
   }
   return reportType === 'weekly'
-    ? buildWeeklySummaryEmail(client, agency)
+    ? buildWeeklySummaryEmail(client, agency, daily)
     : buildDailyReportEmail(client, agency, daily);
 }
 
@@ -917,7 +970,7 @@ async function buildDailyEmailWithComposer(
   };
   const errMsg = (err: unknown) => String((err as Error)?.message ?? err).slice(0, 500);
 
-  const delivery: DeliveryRecord = { mode, sentText: 'legacy', compositionSource: 'none', reason: '' };
+  const delivery: DeliveryRecord = { reportType: 'daily', mode, sentText: 'legacy', compositionSource: 'none', reason: '' };
   let composition: Composition | null = null;
   let composerText: DailyText | null = null;
   let legacy: DailyText | null = null;
@@ -985,7 +1038,7 @@ async function buildDailyEmailWithComposer(
       if (legacyP) legacy = await legacyP;
     } else if (plan.compose === 'async' && !opts.dryRun) {
       // Shadow sin composición guardada: se pide una aparte (no retrasa el envío).
-      const r = await invokeComposeAsync(agency.slug);
+      const r = await invokeComposeAsync(agency.slug, 'daily');
       delivery.reason += r.ok ? ' · composición asíncrona pedida' : ` · no se pudo pedir la composición: ${r.error}`;
     }
   }
@@ -1172,14 +1225,22 @@ async function loadTopicCounts(
   }));
 }
 
-async function buildWeeklySummaryEmail(
-  client: any,
-  agency: { id: string; slug: string; name: string },
-): Promise<BuiltEmail> {
+/** Lo que el semanal carga de la base: ventanas, reportes, métricas y tópicos de las dos semanas. */
+interface WeeklyCore {
+  coverage: AgencyCoverage;
+  window: { startYmd: string; endYmd: string; prevStartYmd: string; prevEndYmd: string };
+  curReport: SentimentReport;
+  prevReport: SentimentReport;
+  winCur: WindowMetrics;
+  winPrev: WindowMetrics;
+  curTopics: TopicWindowCount[];
+  prevTopics: TopicWindowCount[];
+}
+
+async function loadWeeklyCore(client: any, agencyId: string, nowUtc: Date): Promise<WeeklyCore> {
   // Semana cerrada: 7 días terminando AYER. Enviado el viernes ⇒ vie–jue.
   // Agencia importada: termina en el último día que cubre el exporte.
-  const nowUtc = new Date();
-  const coverage = await loadAgencyCoverage(client as PgClientLike, agency.id);
+  const coverage = await loadAgencyCoverage(client as PgClientLike, agencyId);
   const window = closedWindowYmdInTZ(7, reportWindowNow(coverage, nowUtc), REPORT_TIMEZONE);
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
   // Ventana previa-previa: solo para satisfacer la firma de buildSentimentReport
@@ -1188,13 +1249,44 @@ async function buildWeeklySummaryEmail(
   const prevPrevStart = addDaysYmd(prevPrevEnd, -6);
 
   const [curReport, prevReport, winCur, winPrev, curTopics, prevTopics] = await Promise.all([
-    buildSentimentReport(client as PgClientLike, agency.id, startYmd, endYmd, prevStartYmd, prevEndYmd),
-    buildSentimentReport(client as PgClientLike, agency.id, prevStartYmd, prevEndYmd, prevPrevStart, prevPrevEnd),
-    loadMetricsForWindow(client as PgClientLike, agency.id, startYmd, endYmd),
-    loadMetricsForWindow(client as PgClientLike, agency.id, prevStartYmd, prevEndYmd),
-    loadTopicCounts(client, agency.id, startYmd, endYmd),
-    loadTopicCounts(client, agency.id, prevStartYmd, prevEndYmd),
+    buildSentimentReport(client as PgClientLike, agencyId, startYmd, endYmd, prevStartYmd, prevEndYmd),
+    buildSentimentReport(client as PgClientLike, agencyId, prevStartYmd, prevEndYmd, prevPrevStart, prevPrevEnd),
+    loadMetricsForWindow(client as PgClientLike, agencyId, startYmd, endYmd),
+    loadMetricsForWindow(client as PgClientLike, agencyId, prevStartYmd, prevEndYmd),
+    loadTopicCounts(client, agencyId, startYmd, endYmd),
+    loadTopicCounts(client, agencyId, prevStartYmd, prevEndYmd),
   ]);
+  return { coverage, window: { startYmd, endYmd, prevStartYmd, prevEndYmd }, curReport, prevReport, winCur, winPrev, curTopics, prevTopics };
+}
+
+/**
+ * Exactamente los 4 indicadores que el lector VE en el correo (tiles del
+ * Bloque 2), con el valor de la semana, el de la previa y el delta tal como
+ * se pintan. Tasa de interacción y Velocidad quedaron fuera de los tiles
+ * (ago 2026): la Velocidad duplica el delta de "Semana vs semana".
+ */
+function weeklyIndicators(winCur: WindowMetrics, winPrev: WindowMetrics): WeeklyIndicator[] {
+  const metrics = buildEmailMetrics(winCur, winPrev);
+  return [
+    { key: 'crisis', label: 'Riesgo de crisis', cur: metrics.crisis.display.value, prev: formatMetric('crisis', winPrev.crisisRiskScore).value, delta: metrics.crisis.delta },
+    { key: 'nss', label: 'Sentimiento neto', cur: metrics.nss.display.value, prev: formatMetric('nss', winPrev.nss).value, delta: metrics.nss.delta },
+    { key: 'bhi', label: 'Salud de marca', cur: metrics.bhi.display.value, prev: formatMetric('bhi', winPrev.brandHealthIndex).value, delta: metrics.bhi.delta },
+    { key: 'polarization', label: 'Polarización', cur: metrics.polarization?.display.value ?? null, prev: formatMetric('polarization', winPrev.polarizationIndex).value, delta: metrics.polarization?.delta },
+  ];
+}
+
+/** Render del semanal sin los textos del modelo (titular, resumen y viñetas). */
+type WeeklyRenderBase = Omit<WeeklySummaryRenderData, 'weeklyHeadline' | 'weeklySummary' | 'highlights'>;
+
+async function buildWeeklySummaryEmail(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+  opts: DailyBuildOptions = LEGACY_DAILY,
+): Promise<BuiltEmail> {
+  const nowUtc = opts.nowUtc ?? new Date();
+  const core = await loadWeeklyCore(client, agency.id, nowUtc);
+  const { coverage, curReport, prevReport, winCur, winPrev, curTopics, prevTopics } = core;
+  const { startYmd, endYmd, prevStartYmd, prevEndYmd } = core.window;
 
   const totals = curReport.totals;
   const prevTotals = prevReport.totals;
@@ -1232,16 +1324,10 @@ async function buildWeeklySummaryEmail(
   const samples = await loadSamples(client, agency.id, startYmd, endYmd);
 
   const metrics = buildEmailMetrics(winCur, winPrev);
-  // Exactamente los 4 indicadores que el lector VE en el correo (tiles del
-  // Bloque 2) — así el LLM no comenta indicadores invisibles ni ignora los
-  // visibles. Tasa de interacción y Velocidad quedaron fuera de los tiles
-  // (ago 2026): la Velocidad duplica el delta de "Semana vs semana".
-  const indicatorLines = [
-    { label: 'Riesgo de crisis', cur: metrics.crisis.display.value ?? '—', prev: formatMetric('crisis', winPrev.crisisRiskScore).value ?? '—' },
-    { label: 'Sentimiento neto', cur: metrics.nss.display.value ?? '—', prev: formatMetric('nss', winPrev.nss).value ?? '—' },
-    { label: 'Salud de marca', cur: metrics.bhi.display.value ?? '—', prev: formatMetric('bhi', winPrev.brandHealthIndex).value ?? '—' },
-    { label: 'Polarización', cur: metrics.polarization?.display.value ?? '—', prev: formatMetric('polarization', winPrev.polarizationIndex).value ?? '—' },
-  ];
+  // Los 4 indicadores que el lector VE en el correo (ver weeklyIndicators): así
+  // el LLM no comenta indicadores invisibles ni ignora los visibles.
+  const indicators = weeklyIndicators(winCur, winPrev);
+  const indicatorLines = indicators.map((x) => ({ label: x.label, cur: x.cur ?? '—', prev: x.prev ?? '—' }));
 
   const weekLabel = formatPeriodLabel(startYmd, endYmd);
   const prevWeekLabel = formatPeriodLabel(prevStartYmd, prevEndYmd);
@@ -1271,7 +1357,7 @@ async function buildWeeklySummaryEmail(
       imageUrl: thumbs.get(m.id) ?? null,
     }));
 
-  const ai = await generateWeeklyComparison({
+  const legacyInputs: Parameters<typeof buildWeeklySummaryPrompt>[0] = {
     current: aggregates,
     prevTotals,
     prevByTopic: prevTopics.map((t) => ({ topic: t.topic, total: t.total, negative: t.negative })),
@@ -1279,9 +1365,9 @@ async function buildWeeklySummaryEmail(
     samples,
     weekLabel,
     prevWeekLabel,
-  });
+  };
 
-  const renderData: WeeklySummaryRenderData = {
+  const renderBase: WeeklyRenderBase = {
     agencyName: agency.name,
     agencyShortName: agencyShortName(agency.slug),
     agencyKicker: `${agencyShortName(agency.slug)} · ${agency.name}`,
@@ -1308,14 +1394,26 @@ async function buildWeeklySummaryEmail(
       };
     }),
     heroImage,
-    weeklyHeadline: ai.headline,
-    weeklySummary: ai.summary,
-    highlights: ai.highlights,
     topicsCompare,
     goneTopics,
     topMentions,
     // Misma URL que los CTAs del diario (paridad ago 2026): Overview de la agencia.
     dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
+  };
+
+  // Motor de redacción (shadow/agentic): camino aparte. Con legacy, lo que
+  // sigue es exactamente el correo de siempre.
+  if (opts.mode !== 'legacy') {
+    return buildWeeklyEmailWithComposer(client, agency, opts, { nowUtc, core, indicators, legacyInputs, renderBase });
+  }
+
+  const ai = await generateWeeklyComparison(legacyInputs);
+
+  const renderData: WeeklySummaryRenderData = {
+    ...renderBase,
+    weeklyHeadline: ai.headline,
+    weeklySummary: ai.summary,
+    highlights: ai.highlights,
   };
 
   // Como en el diario: el asunto es el titular de la semana; las cifras van
@@ -1330,6 +1428,204 @@ async function buildWeeklySummaryEmail(
     // Enviamos también cuando la semana actual quedó en cero pero la anterior
     // tuvo volumen — "la conversación se apagó" ES señal semanal.
     hasData: totals.total > 0 || prevTotals.total > 0,
+  };
+}
+
+// ============================================================
+// RESUMEN SEMANAL con el motor de redacción (shadow / agentic) — WP-7
+// ============================================================
+
+/** Lo que `buildWeeklySummaryEmail` ya cargó (mismas consultas que el legacy). */
+interface WeeklyLoaded {
+  nowUtc: Date;
+  core: WeeklyCore;
+  indicators: WeeklyIndicator[];
+  legacyInputs: Parameters<typeof buildWeeklySummaryPrompt>[0];
+  renderBase: WeeklyRenderBase;
+}
+
+interface WeeklyComposerText {
+  headline: string;
+  paragraph: string;
+  highlights: string[];
+  comparison: string[];
+  insights: { negative: string[]; neutral: string[]; positive: string[] };
+}
+
+/**
+ * Delta de conteo semanal con base mínima (spec 10.2): porcentaje si la base
+ * previa es ≥ 30 menciones o es 0 («nuevo»); si no, la diferencia en
+ * menciones (sin «+400 %» sobre 4 menciones).
+ */
+function minBaseWeeklyDelta(cur: number, prev: number, invert = false): DeltaDisplay {
+  return prev === 0 || prev >= FACT_MIN_DELTA_BASE
+    ? formatDelta(cur, prev, { kind: 'percent', decimals: 0, invert })
+    : formatDelta(cur, prev, { kind: 'absolute', decimals: 0, invert });
+}
+
+/**
+ * Semanal con `composer_mode` shadow o agentic (misma regla que el diario,
+ * `planDailyText`):
+ *   - shadow: SIEMPRE envía el texto legacy; archiva la composición (guardada,
+ *     o pide una asíncrona si falta). El HTML es el legacy.
+ *   - agentic: envía el texto del motor (guardado o compuesto ahora); si no
+ *     hay a tiempo o el redactor falló, envía el legacy entero y lo registra.
+ * Nunca lanza por culpa del motor.
+ */
+async function buildWeeklyEmailWithComposer(
+  client: any,
+  agency: { id: string; slug: string; name: string },
+  opts: DailyBuildOptions,
+  L: WeeklyLoaded,
+): Promise<BuiltEmail> {
+  const mode = opts.mode === 'agentic' ? 'agentic' : 'shadow';
+  const clock: RunClock = opts.clock ?? { remainingMs: () => DEFAULT_TIMEOUT_MS };
+  const short = agencyShortName(agency.slug);
+  const cAgency = { id: agency.id, slug: agency.slug, name: agency.name, shortName: short };
+  const w = L.core.window;
+  const endDate = w.endYmd;
+  const totals = L.core.curReport.totals;
+  const prevTotals = L.core.prevReport.totals;
+  const hasData = totals.total > 0 || prevTotals.total > 0;
+  const weeklyData = {
+    curReport: L.core.curReport,
+    prevReport: L.core.prevReport,
+    indicators: L.indicators,
+    topics: L.core.curTopics,
+    prevTopics: L.core.prevTopics,
+  };
+  const legacyText = () => generateWeeklyComparison(L.legacyInputs);
+  const errMsg = (err: unknown) => String((err as Error)?.message ?? err).slice(0, 500);
+
+  const delivery: DeliveryRecord = { reportType: 'weekly', mode, sentText: 'legacy', compositionSource: 'none', reason: '' };
+  let composition: Composition | null = null;
+  let composerText: WeeklyComposerText | null = null;
+  let legacy: { headline: string; summary: string; highlights: string[] } | null = null;
+  let fresh: WeeklyComposerInputResult | null = null;
+
+  if (totals.total === 0) {
+    // Semana sin menciones (la previa sí tuvo): el legacy ya dice que la
+    // conversación se apagó; no se gasta el motor.
+    delivery.reason = 'sin menciones en la semana';
+  } else {
+    let stored: StoredComposition | null = null;
+    let evaluation: StoredEvaluation = { state: 'missing', final: null, changed: {}, reason: opts.dryRun ? 'dryRun compone de cero' : 'sin composición guardada' };
+    if (!opts.dryRun) {
+      stored = await loadStoredComposition(client, agency.id, 'weekly', endDate);
+      if (stored) {
+        try {
+          fresh = await buildWeeklyComposerInput(client, cAgency, w, weeklyData, { withSamples: false });
+          evaluation = evaluateStoredComposition(stored, fresh.input, w, 'period');
+        } catch (err) {
+          evaluation = { state: 'missing', final: null, changed: {}, reason: `no se pudo evaluar la composición guardada: ${errMsg(err)}` };
+        }
+      }
+    }
+    const plan = planDailyText({ mode, dryRun: opts.dryRun, stored: evaluation.state, remainingMs: clock.remainingMs() });
+    delivery.reason = `${plan.reason} (${evaluation.reason})`;
+    if (Object.keys(evaluation.changed).length) delivery.changedFacts = evaluation.changed;
+    console.log(`[weekly-report] ${agency.slug} semanal · motor=${mode} · plan=${plan.compose}/${plan.text} · ${delivery.reason}`);
+
+    if (plan.compose === 'stored' && stored) {
+      composition = stored.composition;
+      delivery.compositionSource = evaluation.state === 'refreshable' ? 'stored_refreshed' : 'stored';
+      if (plan.text === 'composer' && evaluation.final) composerText = draftToWeeklyText(evaluation.final);
+    } else if (plan.compose === 'now') {
+      const legacyP = plan.text === 'legacy' ? legacyText() : null;
+      try {
+        fresh = await buildWeeklyComposerInput(client, cAgency, w, weeklyData);
+        delivery.parentStats = fresh.parentStats;
+        delivery.contextError = fresh.contextError;
+        const timed = await composeWithDeadline(fresh.input, {
+          llm: getComposerLlm(),
+          dryRun: opts.dryRun,
+          deadlineMs: composeDeadlineMs(clock.remainingMs()),
+          log: (m) => console.log(m),
+          profile: 'weekly',
+        });
+        delivery.composeSeconds = timed.seconds;
+        if (timed.result) {
+          composition = timed.result.composition;
+          delivery.compositionSource = 'composed_now';
+          if (!opts.dryRun) {
+            await saveComposition(client, { agencyId: agency.id, reportType: 'weekly', periodEnd: endDate, composition: { ...composition, adapter: { parentStats: fresh.parentStats, contextError: fresh.contextError } } as Composition });
+          }
+          if (plan.text === 'composer') {
+            if (isSendableComposition(composition)) composerText = draftToWeeklyText(timed.result.final);
+            else delivery.reason += ' · el redactor no produjo texto: va el legacy';
+          }
+        } else {
+          delivery.reason += ' · el motor no terminó a tiempo: va el legacy';
+        }
+      } catch (err) {
+        delivery.errors = [errMsg(err)];
+        delivery.reason += ' · error del motor: va el legacy';
+        console.error(`[weekly-report] ${agency.slug} motor (semanal) falló:`, err);
+      }
+      if (legacyP) legacy = await legacyP;
+    } else if (plan.compose === 'async' && !opts.dryRun) {
+      const r = await invokeComposeAsync(agency.slug, 'weekly');
+      delivery.reason += r.ok ? ' · composición asíncrona pedida' : ` · no se pudo pedir la composición: ${r.error}`;
+    }
+  }
+  if (!composerText && !legacy) legacy = await legacyText();
+
+  const useComposer = composerText !== null;
+  delivery.sentText = useComposer ? 'composer' : 'legacy';
+  if (legacy) {
+    delivery.legacyText = { headline: legacy.headline, paragraph: legacy.summary, highlights: legacy.highlights, insights: { negative: [], neutral: [], positive: [] } };
+  }
+
+  const B = L.renderBase;
+  let renderData: WeeklySummaryRenderData;
+  if (composerText) {
+    const share = fresh?.share ?? null;
+    const pct = (c: { total: number; comments: number }) => (c.total > 0 ? (100 * c.comments) / c.total : 0);
+    const interpretation: WeeklyInterpretation = {
+      windowLabel: B.weekLabel,
+      prevWindowLabel: B.prevWeekLabel,
+      weekHighlights: composerText.highlights,
+      insights: composerText.insights,
+      composition: share && fresh?.hasComments
+        ? { weekPct: pct(share.week), prevWeekPct: share.prevWeek.total > 0 ? pct(share.prevWeek) : null }
+        : null,
+      methodologyNote: buildWeeklyMethodologyNote({ weekLabel: B.weekLabel, prevWeekLabel: B.prevWeekLabel, minDeltaBase: FACT_MIN_DELTA_BASE }),
+    };
+    renderData = {
+      ...B,
+      // Deltas con base mínima: sin «+400 %» sobre una base previa chica.
+      totalDelta: minBaseWeeklyDelta(totals.total, prevTotals.total),
+      sentimentDelta: {
+        negative: minBaseWeeklyDelta(totals.negative, prevTotals.negative, true),
+        neutral: minBaseWeeklyDelta(totals.neutral, prevTotals.neutral),
+        positive: minBaseWeeklyDelta(totals.positive, prevTotals.positive),
+      },
+      topicsCompare: B.topicsCompare.map((t) => ({ ...t, delta: minBaseWeeklyDelta(t.cur, t.prev) })),
+      weeklyHeadline: composerText.headline,
+      weeklySummary: composerText.paragraph,
+      // «Qué cambió» lleva la comparación contra la semana previa; los hechos
+      // de la semana van bajo el párrafo (interpretation.weekHighlights).
+      highlights: composerText.comparison,
+      interpretation,
+    };
+  } else {
+    // Texto legacy: el correo es el legacy entero (mismos deltas, sin rótulos).
+    renderData = { ...B, weeklyHeadline: legacy!.headline, weeklySummary: legacy!.summary, highlights: legacy!.highlights };
+  }
+
+  const headline = (renderData.weeklyHeadline ?? '').trim();
+  const subject = buildSubject('Semanal', short, headline || `semana ${B.weekLabel}`);
+  return {
+    html: renderWeeklySummaryHtml(renderData),
+    subject,
+    stats: totals,
+    hasData,
+    archive: {
+      subject,
+      headline,
+      composition: { ...((composition ?? {}) as Record<string, unknown>), delivery },
+      composerVersion: composition?.composerVersion ?? null,
+    },
   };
 }
 
