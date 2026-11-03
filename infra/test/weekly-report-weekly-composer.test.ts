@@ -145,10 +145,11 @@ describe('indicadores compuestos en escala pública', () => {
   test('el contexto no trae cifras y avisa si no hay comentarios en redes propias', () => {
     const moves = topicMoves([{ topic: 'A', total: 50, negative: 0 }, { topic: 'B', total: 40, negative: 0 }], [{ topic: 'A', total: 30, negative: 0 }, { topic: 'B', total: 20, negative: 0 }]);
     const c = weeklyExtraContext({ hasComments: false, moves });
-    expect(c.replace(/\{\{[^}]+\}\}/g, '').replace(/topic_[a-z]+_\d(_prev)?/g, '')).not.toMatch(/\d/);
+    expect(c.replace(/\{\{[^}]+\}\}/g, '').replace(/topic_([a-z]+_)?\d(_prev)?/g, '')).not.toMatch(/\d/);
     expect(c).toMatch(/no hubo comentarios/);
     expect(c).toMatch(/SUBEN al menos tres menciones \(dos\): topic_up_1 «A», topic_up_2 «B»/);
     expect(c).toMatch(/BAJAN al menos tres menciones \(ninguno\): ninguno/);
+    expect(c).toMatch(/RANKINGS: no hay hechos de interacciones por publicación/);
     expect(weeklyExtraContext({ hasComments: true, moves })).toMatch(/comment_share_prev_week/);
   });
 

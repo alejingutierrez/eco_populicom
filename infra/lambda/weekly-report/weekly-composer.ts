@@ -240,6 +240,7 @@ export function weeklyExtraContext(opts: { hasComments: boolean; moves: TopicMov
     `Tópicos que BAJAN al menos tres menciones (${COUNT_WORDS[m.down.length] ?? m.down.length}): ${movesLine('ninguno', m.down, (i) => `topic_down_${i + 1}`)}.`,
     `Tópicos SIN menciones la semana previa: ${movesLine('ninguno', m.fresh, (i) => `topic_new_${i + 1}`)}. Tópicos SIN menciones esta semana: ${movesLine('ninguno', m.gone, (i) => `topic_gone_${i + 1}_prev`)}.`,
     'Con varias subidas o bajadas, no digas que un tópico fue «el único» en subir o bajar; las listas están limitadas a las tres más grandes.',
+    'RANKINGS: no hay hechos de interacciones por publicación. No digas que una publicación o un tema «marcó», «lideró» o «dominó» la semana, ni que fue «la de más reacciones» o «lo más comentado», salvo que un hecho lo respalde (topic_1 es el tópico con más menciones; peak_total, el día con más menciones).',
   ];
   if (opts.hasComments) {
     lines.push('COMPOSICIÓN: comment_share_week y comment_share_prev_week dicen qué parte de las menciones son comentarios de usuarios en publicaciones de redes de la agencia. Si cambió mucho, dilo en la comparación: los totales no comparan el mismo tipo de conversación.');
