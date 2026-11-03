@@ -24,10 +24,13 @@ import {
   loadAgencyCoverage,
   formatUpdatedAtLabel,
   ymdInTimeZone,
+  universeFilterSql,
 } from '@eco/shared';
 import { resolveAgencyId, resolveAllowedAgencySlugs, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
+import { universeOptsForAgencyId, strictUniverseCond } from '@/lib/mentions/universe-config';
+import { loadComposition } from '@/lib/mentions/composition';
 
 export const dynamic = 'force-dynamic';
 
@@ -214,15 +217,27 @@ export async function GET(request: NextRequest) {
   // Overview, los correos y el default de /api/eco-mentions (las modales).
   // Desde V5 (oct-2026) las métricas compuestas (loadMetricsForWindow) usan
   // este mismo universo.
-  const baseWhere = and(
-    eq(mentions.agencyId, agencyId),
-    eq(mentions.isDuplicate, false),
-    sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`,
-    gte(mentions.publishedAt, since),
-    lte(mentions.publishedAt, until),
-  );
-
+  //
+  // WP-9a (spec interpretación v1, sección 8): con `UNIVERSE_STRICT_AGENCIES`
+  // para esta agencia el universo es el ESTRICTO de @eco/shared (alta o media,
+  // NULL fuera) en TODAS las consultas de esta ruta; con la variable vacía,
+  // el histórico de arriba, sin cambiar el SQL.
   try {
+    const uopts = await universeOptsForAgencyId(agencyId);
+    const uni = universeFilterSql(uopts, 'm.');
+    const strictCond = strictUniverseCond(uopts);
+    const baseWhere = and(
+      eq(mentions.agencyId, agencyId),
+      ...(strictCond
+        ? [strictCond]
+        : [
+            eq(mentions.isDuplicate, false),
+            sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`,
+          ]),
+      gte(mentions.publishedAt, since),
+      lte(mentions.publishedAt, until),
+    );
+
     // ---- AGENCIES (the ones this user may switch between) ----
     const agencyRows = await db
       .select({
@@ -288,7 +303,7 @@ export async function GET(request: NextRequest) {
       .orderBy(dailyMetricSnapshots.date);
     const snapByDate = new Map(snapshots.map((s) => [String(s.date), s]));
 
-    const dailyCounts = await loadDailySentimentSeries(poolForCounts, agencyId, startYmd, endYmd);
+    const dailyCounts = await loadDailySentimentSeries(poolForCounts, agencyId, startYmd, endYmd, uopts);
     const TIMELINE: TimelineRow[] = dailyCounts.map((d) => {
       const s = snapByDate.get(d.date);
       const iso = `${d.date}T00:00:00.000Z`;
@@ -314,13 +329,20 @@ export async function GET(request: NextRequest) {
     // Eso hace que cambiar 1D → 1M → 1A cambie también las compuestas.
     const pool = getPool() as unknown as PgClientLike;
     const [winCur, winPrev, volCur, volPrev] = await Promise.all([
-      loadMetricsForWindow(pool, agencyId, startYmd, endYmd),
-      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd),
+      loadMetricsForWindow(pool, agencyId, startYmd, endYmd, uopts),
+      loadMetricsForWindow(pool, agencyId, prevStartYmd, prevEndYmd, uopts),
       // Totales de CONTEO en el universo pertinente — la misma query que el
       // Overview/correo. Gobiernan todo "N menciones" visible.
-      loadSentimentTotals(pool, agencyId, startYmd, endYmd),
-      loadSentimentTotals(pool, agencyId, prevStartYmd, prevEndYmd),
+      loadSentimentTotals(pool, agencyId, startYmd, endYmd, uopts),
+      loadSentimentTotals(pool, agencyId, prevStartYmd, prevEndYmd, uopts),
     ]);
+
+    // WP-9a: composición (comentarios de usuarios) y deltas con base mínima.
+    // Aditivo: ningún campo anterior del payload cambia.
+    const composition = await loadComposition(
+      pool, agencyId, { startYmd, endYmd, prevStartYmd, prevEndYmd }, uopts, { cur: volCur, prev: volPrev },
+      (() => { const a = agencyRows.find((r) => r.id === agencyId); return a ? { slug: a.slug, name: a.name } : undefined; })(),
+    );
 
     // Deltas vs ventana previa de igual duración.
     const safeDelta = (cur: number | null, prev: number | null, decimals = 1) => {
@@ -486,8 +508,7 @@ export async function GET(request: NextRequest) {
                      ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
              FROM mentions m
             WHERE m.agency_id = $1
-              AND m.is_duplicate = false
-              AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+              ${uni}
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -527,8 +548,7 @@ export async function GET(request: NextRequest) {
                 LIMIT 1
              ) p
             WHERE m.agency_id = $1
-              AND m.is_duplicate = false
-              AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+              ${uni}
               AND m.published_at >= $2
               AND m.published_at <= $3
          ) pt
@@ -579,8 +599,7 @@ export async function GET(request: NextRequest) {
                        ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
                FROM mentions m
               WHERE m.agency_id = $1
-                AND m.is_duplicate = false
-                AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+                ${uni}
                 AND m.published_at >= $2
                 AND m.published_at <= $3
            ) pt
@@ -593,8 +612,7 @@ export async function GET(request: NextRequest) {
            FROM mention_topics mt
            JOIN mentions m ON m.id = mt.mention_id
           WHERE m.agency_id = $1
-            AND m.is_duplicate = false
-            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+            ${uni}
             AND m.published_at >= $2
             AND m.published_at <= $3
           GROUP BY mt.topic_id
@@ -702,8 +720,7 @@ export async function GET(request: NextRequest) {
               LIMIT 1
            ) p
           WHERE m.agency_id = $1
-            AND m.is_duplicate = false
-            AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+            ${uni}
             AND m.published_at >= $2
             AND m.published_at <= $3
        )
@@ -788,8 +805,7 @@ export async function GET(request: NextRequest) {
                     ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
             FROM mentions m
            WHERE m.agency_id = ${agencyId}
-             AND m.is_duplicate = false
-             AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+             ${sql.raw(uni)}
              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${evolutionStartYmd}::date
              AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
         ) pm
@@ -853,8 +869,7 @@ export async function GET(request: NextRequest) {
                       ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
               FROM mentions m
              WHERE m.agency_id = ${agencyId}
-               AND m.is_duplicate = false
-               AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+               ${sql.raw(uni)}
                AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${prevStartYmd}::date
                AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${prevEndYmd}::date
           ) pm
@@ -872,8 +887,7 @@ export async function GET(request: NextRequest) {
                         ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id
                 FROM mentions m
                WHERE m.agency_id = ${agencyId}
-                 AND m.is_duplicate = false
-                 AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+                 ${sql.raw(uni)}
                  AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${startYmd}::date
                  AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
             ) pm
@@ -932,8 +946,7 @@ export async function GET(request: NextRequest) {
           ) p
           JOIN topics t ON t.id = p.topic_id
          WHERE m.agency_id = ${agencyId}
-           AND m.is_duplicate = false
-           AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+           ${sql.raw(uni)}
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= ${calendarStartYmd}::date
            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= ${endYmd}::date
          GROUP BY day, t.slug, t.name
@@ -984,7 +997,7 @@ export async function GET(request: NextRequest) {
       // Excluye 'baja' pertinencia igual que el feed del scorecard y el modal
       // (eco-mentions, default). Así el conteo del dot del mapa coincide con el
       // total que muestra el modal de cada municipio/región al hacer click.
-      .where(and(baseWhere, sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
+      .where(and(baseWhere, strictCond ?? sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
       .groupBy(municipalities.slug, municipalities.name, municipalities.region, municipalities.latitude, municipalities.longitude, effectiveSentimentSql);
 
     const mMap = new Map<string, {
@@ -1042,7 +1055,7 @@ export async function GET(request: NextRequest) {
       .from(mentionMunicipalities)
       .innerJoin(municipalities, eq(municipalities.id, mentionMunicipalities.municipalityId))
       .innerJoin(mentions, eq(mentions.id, mentionMunicipalities.mentionId))
-      .where(and(baseWhere, sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
+      .where(and(baseWhere, strictCond ?? sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`))
       .groupBy(municipalities.region, effectiveSentimentSql);
     const byRegion = new Map<string, { region: string; positivo: number; neutral: number; negativo: number }>();
     for (const r of regionRows) {
@@ -1061,8 +1074,7 @@ export async function GET(request: NextRequest) {
       SELECT lower(trim(e.value::text, '"')) AS emotion, COUNT(*) AS c
       FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e
       WHERE m.agency_id = ${agencyId}
-        AND m.is_duplicate = false
-        AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+        ${sql.raw(uni)}
         AND m.published_at >= ${since.toISOString()}
         AND m.published_at <= ${until.toISOString()}
       GROUP BY emotion
@@ -1491,6 +1503,9 @@ export async function GET(request: NextRequest) {
       },
       TIMELINE: TIMELINE.some((t) => t.totalMentions > 0) ? TIMELINE : null,
       CURRENT_METRICS,
+      // WP-9a (aditivo): composición del volumen (commentShare actual y previo)
+      // y deltas con base mínima; declara además el universo que se cuenta.
+      COMPOSITION: composition,
       SENTIMENT_BREAKDOWN: SENTIMENT_BREAKDOWN.some((x) => x.value > 0) ? SENTIMENT_BREAKDOWN : null,
       TOP_SOURCES: TOP_SOURCES.length > 0 ? TOP_SOURCES : null,
       SENTIMENT_BY_SOURCE: SENTIMENT_BY_SOURCE.length > 0 ? SENTIMENT_BY_SOURCE : null,

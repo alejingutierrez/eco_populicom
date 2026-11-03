@@ -4,7 +4,7 @@
  * la ruta solo añade auth, ventana, caché y respuesta.
  */
 import { getPool } from '@eco/database';
-import { addDaysYmd } from '@eco/shared';
+import { addDaysYmd, universeFilterSql, type UniverseOptions } from '@eco/shared';
 import {
   buildOverview, mondayOf, MAP_WEEKS, type OverviewPayload, type RawMentionRow,
 } from '@/lib/narrative/overview';
@@ -15,7 +15,9 @@ export const TZ = 'America/Puerto_Rico';
 // qué narrativas entran (una mención del universo desde el lunes de la semana
 // más antigua del mapa); la consulta exterior trae todas sus menciones, porque
 // el origen, el pico de 14 días y el cajón se miden sobre la vida entera.
-const ROWS_SQL = `
+// Universo (WP-9a): `opts` vacío = histórico (`NULL o <> 'baja'`); con
+// `strictUniverse`, alta/media (universe.ts). Mismo SQL que antes con bandera apagada.
+const rowsSql = (opts?: UniverseOptions) => `
 WITH touch AS (
   SELECT DISTINCT nm.narrative_id
     FROM narrative_mentions nm
@@ -23,8 +25,7 @@ WITH touch AS (
     JOIN mentions m ON m.id = nm.mention_id
    WHERE n.agency_id = $1 AND n.merged_into_id IS NULL AND m.agency_id = $1
      AND nm.is_primary = true
-     AND m.is_duplicate = false
-     AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+     ${universeFilterSql(opts, 'm.')}
      AND m.published_at >= $2::timestamptz
      AND m.published_at < $3::timestamptz
 )
@@ -36,15 +37,14 @@ SELECT nm.narrative_id AS nid, m.id, m.published_at, m.url, m.title, m.page_type
   JOIN narrative_mentions nm ON nm.narrative_id = t.narrative_id
   JOIN mentions m ON m.id = nm.mention_id
  WHERE nm.is_primary = true AND m.agency_id = $1
-   AND m.is_duplicate = false
-   AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+   ${universeFilterSql(opts, 'm.')}
    AND m.published_at < $3::timestamptz`;
 
 // Todas las menciones del universo por día efectivo, y cuántas tienen una
 // narrativa principal viva. La fila de contexto del mapa: una semana con
 // menciones y ninguna en narrativas es un hueco del agrupador, no silencio
 // (del 6 al 19 de julio de 2026 estuvo detenido).
-const CONTEXT_SQL = `
+const contextSql = (opts?: UniverseOptions) => `
 SELECT day, COUNT(*)::int AS total, COUNT(*) FILTER (WHERE in_narr)::int AS in_narr
   FROM (
     SELECT to_char(CASE WHEN (m.published_at AT TIME ZONE 'UTC')::time = '00:00'
@@ -56,8 +56,7 @@ SELECT day, COUNT(*)::int AS total, COUNT(*) FILTER (WHERE in_narr)::int AS in_n
                       AND n.merged_into_id IS NULL AND n.agency_id = $1) AS in_narr
       FROM mentions m
      WHERE m.agency_id = $1
-       AND m.is_duplicate = false
-       AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')
+       ${universeFilterSql(opts, 'm.')}
        AND m.published_at >= $2::timestamptz
        AND m.published_at < $3::timestamptz
   ) z
@@ -77,7 +76,7 @@ SELECT a.id AS a, b.id AS b, (1 - (a.centroid <=> b.centroid))::float8 AS sim
    AND a.centroid IS NOT NULL AND b.centroid IS NOT NULL
    AND 1 - (a.centroid <=> b.centroid) >= 0.44`;
 
-export async function computeOverview(agencyId: string, endYmd: string): Promise<OverviewPayload> {
+export async function computeOverview(agencyId: string, endYmd: string, opts?: UniverseOptions): Promise<OverviewPayload> {
   const pool = getPool();
   const mapFrom = addDaysYmd(mondayOf(endYmd), -7 * (MAP_WEEKS - 1));
   // Bordes holgados: una «solo fecha» del primer día está a las 00:00Z; la
@@ -87,11 +86,11 @@ export async function computeOverview(agencyId: string, endYmd: string): Promise
 
   const [agencyRes, rowsRes, metaRes, ctxRes, statusRes] = await Promise.all([
     pool.query<{ slug: string; name: string | null }>('SELECT slug, name FROM agencies WHERE id = $1', [agencyId]),
-    pool.query<RawMentionRow>(ROWS_SQL, [agencyId, lo, hi]),
+    pool.query<RawMentionRow>(rowsSql(opts), [agencyId, lo, hi]),
     pool.query(
       `SELECT id, name, summary, keywords, status, born_at, last_mention_at, created_at
          FROM narratives WHERE agency_id = $1 AND merged_into_id IS NULL`, [agencyId]),
-    pool.query<{ day: string; total: number; in_narr: number }>(CONTEXT_SQL, [agencyId, lo, hi, mapFrom, endYmd]),
+    pool.query<{ day: string; total: number; in_narr: number }>(contextSql(opts), [agencyId, lo, hi, mapFrom, endYmd]),
     pool.query<{ status: string; n: number; first_born: Date | null }>(
       `SELECT status, COUNT(*)::int AS n, MIN(born_at) AS first_born
          FROM narratives WHERE agency_id = $1 AND merged_into_id IS NULL GROUP BY status`, [agencyId]),

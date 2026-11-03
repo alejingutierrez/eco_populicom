@@ -1,0 +1,995 @@
+{
+ "ecoData": [
+  {
+   "sql": "select \"id\", \"name\", \"slug\", \"brandwatch_project_id\", \"brandwatch_query_ids\" from \"agencies\" where \"agencies\".\"is_active\" = $1",
+   "params": [
+    true
+   ]
+  },
+  {
+   "sql": "select \"id\", \"agency_id\", \"date\", \"total_mentions\", \"positive_count\", \"neutral_count\", \"negative_count\", \"high_pertinence_count\", \"total_likes\", \"total_comments\", \"total_shares\", \"total_reach\", \"total_impact\", \"total_engagement_score\", \"nss\", \"brand_health_index\", \"reputation_momentum\", \"engagement_rate\", \"amplification_rate\", \"engagement_velocity\", \"crisis_risk_score\", \"volume_anomaly_zscore\", \"crisis_severity\", \"crisis_velocity\", \"crisis_relevance\", \"crisis_confidence\", \"polarization_index\", \"nss_7d\", \"nss_30d\", \"computed_at\" from \"daily_metric_snapshots\" where (\"daily_metric_snapshots\".\"agency_id\" = $1 and \"daily_metric_snapshots\".\"date\" >= $2 and \"daily_metric_snapshots\".\"date\" <= $3) order by \"daily_metric_snapshots\".\"date\"",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d, COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2 ORDER BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    0
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    0
+   ]
+  },
+  {
+   "sql": "select COALESCE(\"nlp_sentiment\", \"bw_sentiment\"), count(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) group by COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select COUNT(*) FILTER (WHERE \"nlp_pertinence\" = 'alta') from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4)",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select \"page_type\", count(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) group by \"mentions\".\"page_type\"",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select \"page_type\", COALESCE(\"nlp_sentiment\", \"bw_sentiment\"), count(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) group by \"mentions\".\"page_type\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "SELECT t.slug, t.name, pt.sentiment, COUNT(*)::int AS c FROM ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 ) pt JOIN topics t ON t.id = pt.topic_id GROUP BY t.slug, t.name, pt.sentiment",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "SELECT st.slug, st.name, t.slug AS topic_slug, pt.sentiment, COUNT(*)::int AS c FROM ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, p.topic_id, p.subtopic_id FROM mentions m CROSS JOIN LATERAL ( SELECT mt.topic_id, mt.subtopic_id FROM mention_topics mt WHERE mt.mention_id = m.id ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC LIMIT 1 ) p WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 ) pt JOIN subtopics st ON st.id = pt.subtopic_id JOIN topics t ON t.id = pt.topic_id GROUP BY st.slug, st.name, t.slug, pt.sentiment",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "WITH primaries AS ( SELECT t.id AS topic_id, t.slug, t.name, COUNT(*)::int AS primary_count, COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative, COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral, COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive FROM ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 ) pt JOIN topics t ON t.id = pt.topic_id GROUP BY t.id, t.slug, t.name ), multi AS ( SELECT mt.topic_id, COUNT(DISTINCT mt.mention_id)::int AS multi_count FROM mention_topics mt JOIN mentions m ON m.id = mt.mention_id WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 GROUP BY mt.topic_id ) SELECT p.slug, p.name, p.primary_count, p.negative, p.neutral, p.positive, GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count FROM primaries p LEFT JOIN multi mu ON mu.topic_id = p.topic_id ORDER BY p.primary_count DESC LIMIT 12",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select \"slug\", \"description\" from \"topics\" where \"topics\".\"agency_id\" = $1",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "WITH primary_pick AS ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, p.topic_id, p.subtopic_id FROM mentions m CROSS JOIN LATERAL ( SELECT mt.topic_id, mt.subtopic_id FROM mention_topics mt WHERE mt.mention_id = m.id ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC LIMIT 1 ) p WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 ) SELECT t.slug AS topic_slug, s.slug AS sub_slug, s.name AS sub_name, s.description AS sub_description, COUNT(*)::int AS c, COUNT(*) FILTER (WHERE pp.sentiment IN ('positivo','positive'))::int AS pos, COUNT(*) FILTER (WHERE pp.sentiment IN ('negativo','negative'))::int AS neg, COUNT(*) FILTER (WHERE pp.sentiment NOT IN ('positivo','positive','negativo','negative') OR pp.sentiment IS NULL)::int AS neu FROM primary_pick pp JOIN subtopics s ON s.id = pp.subtopic_id JOIN topics t ON t.id = pp.topic_id GROUP BY t.slug, s.slug, s.name, s.description",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "SELECT t.slug AS slug, (pm.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS day, COUNT(*) AS c FROM ( SELECT m.id, m.published_at, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date ) pm JOIN topics t ON t.id = pm.topic_id GROUP BY t.slug, day ORDER BY t.slug, day",
+   "params": [
+    "agency-1",
+    "2026-09-29",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT t.slug AS slug, COUNT(*) AS c, COUNT(*) FILTER (WHERE pm.sentiment IN ('negativo','negative')) AS neg FROM ( SELECT m.id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date ) pm JOIN topics t ON t.id = pm.topic_id GROUP BY t.slug",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "SELECT slug, who, n FROM ( SELECT t.slug AS slug, pm.who AS who, COUNT(*) AS n, ROW_NUMBER() OVER (PARTITION BY t.slug ORDER BY COUNT(*) DESC, pm.who ASC) AS rn FROM ( SELECT COALESCE(NULLIF(TRIM(m.author_fullname), ''), NULLIF(TRIM(m.author), ''), m.domain) AS who, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date ) pm JOIN topics t ON t.id = pm.topic_id WHERE pm.who IS NOT NULL GROUP BY t.slug, pm.who ) x WHERE rn = 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH per_day AS ( SELECT (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day, t.slug, t.name, COUNT(*) AS volume, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive')) AS pos, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative')) AS neg FROM mentions m -- Tópico PRINCIPAL (fila de mayor confianza), como TOPICS y el resto -- de la página: contando todas las filas, el 21-oct de DF salía -- «Gestión de la Secretaria 226» cuando por tópico principal era -- Controversia ADSEF 130 (QA oct-2026). CROSS JOIN LATERAL ( SELECT mt.topic_id FROM mention_topics mt WHERE mt.mention_id = m.id ORDER BY mt.confidence DESC NULLS LAST, mt.topic_id ASC LIMIT 1 ) p JOIN topics t ON t.id = p.topic_id WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY day, t.slug, t.name ), ranked AS ( SELECT *, ROW_NUMBER() OVER (PARTITION BY day ORDER BY volume DESC, slug ASC) AS rk FROM per_day ) SELECT day::text AS day, slug, name, volume, pos, neg FROM ranked WHERE rk = 1 ORDER BY day",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "select \"municipalities\".\"slug\", \"municipalities\".\"name\", \"municipalities\".\"region\", \"municipalities\".\"latitude\", \"municipalities\".\"longitude\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\"), count(*) from \"mention_municipalities\" inner join \"municipalities\" on \"municipalities\".\"id\" = \"mention_municipalities\".\"municipality_id\" inner join \"mentions\" on \"mentions\".\"id\" = \"mention_municipalities\".\"mention_id\" where ((\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja')) group by \"municipalities\".\"slug\", \"municipalities\".\"name\", \"municipalities\".\"region\", \"municipalities\".\"latitude\", \"municipalities\".\"longitude\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select \"municipalities\".\"region\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\"), COUNT(DISTINCT \"mentions\".\"id\")::int from \"mention_municipalities\" inner join \"municipalities\" on \"municipalities\".\"id\" = \"mention_municipalities\".\"municipality_id\" inner join \"mentions\" on \"mentions\".\"id\" = \"mention_municipalities\".\"mention_id\" where ((\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja')) group by \"municipalities\".\"region\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "SELECT lower(trim(e.value::text, '\"')) AS emotion, COUNT(*) AS c FROM mentions m, jsonb_array_elements(COALESCE(m.nlp_emotions, '[]'::jsonb)) AS e WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at <= $3 GROUP BY emotion ORDER BY c DESC LIMIT 20",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "select \"id\", \"title\", \"snippet\", \"domain\", \"page_type\", \"author\", \"author_fullname\", \"nlp_sentiment\", \"bw_sentiment\", \"nlp_pertinence\", \"nlp_emotions\", \"nlp_summary\", \"engagement_score\", \"likes\", \"comments\", \"shares\", \"published_at\", \"url\" from \"mentions\" where ((\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) and COALESCE(\"mentions\".\"page_type\", '') NOT IN ('twitter','x','xcom') and COALESCE(\"mentions\".\"nlp_pertinence\", 'media') <> 'baja') order by \"mentions\".\"published_at\" desc limit $5",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z",
+    50
+   ]
+  },
+  {
+   "sql": "select MAX(\"ingested_at\") from \"mentions\" where \"mentions\".\"agency_id\" = $1",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "select \"id\", \"agency_id\", \"name\", \"description\", \"is_active\", \"config\", \"notify_emails\", \"created_by\", \"created_at\", \"updated_at\" from \"alert_rules\" where \"alert_rules\".\"agency_id\" = $1 order by \"alert_rules\".\"created_at\" desc limit $2",
+   "params": [
+    "agency-1",
+    20
+   ]
+  },
+  {
+   "sql": "select EXTRACT(DOW FROM (\"mentions\".\"published_at\" AT TIME ZONE 'America/Puerto_Rico')), EXTRACT(HOUR FROM (\"mentions\".\"published_at\" AT TIME ZONE 'America/Puerto_Rico')), count(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja') and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4) group by EXTRACT(DOW FROM (\"mentions\".\"published_at\" AT TIME ZONE 'America/Puerto_Rico')), EXTRACT(HOUR FROM (\"mentions\".\"published_at\" AT TIME ZONE 'America/Puerto_Rico'))",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT ON (mode) mode, generated_at, narrative_html, dominant_signal, action_label, action_tone, reach_label, fallback FROM agency_briefings WHERE agency_id = $1 ORDER BY mode, generated_at DESC",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "select \"slug\" from \"agencies\" where \"agencies\".\"id\" = $1 limit $2",
+   "params": [
+    "agency-1",
+    1
+   ]
+  }
+ ],
+ "overview": [
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d, COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2 ORDER BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH primaries AS ( SELECT COALESCE(t.id::text, 'unclassified') AS topic_id_key, COALESCE(t.name, 'Sin clasificar') AS topic, ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics, COUNT(*)::int AS primary_count, COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative, COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral, COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive FROM ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id, (SELECT subtopic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date ) pt LEFT JOIN topics t ON t.id = pt.topic_id LEFT JOIN subtopics s ON s.id = pt.subtopic_id GROUP BY t.id, t.name ), multi AS ( SELECT mt.topic_id::text AS topic_id_key, COUNT(DISTINCT mt.mention_id)::int AS multi_count FROM mention_topics mt JOIN mentions m ON m.id = mt.mention_id WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY mt.topic_id ) SELECT p.topic_id_key, p.topic, p.subtopics, p.primary_count, GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count, p.negative, p.neutral, p.positive FROM primaries p LEFT JOIN multi mu ON mu.topic_id_key = p.topic_id_key ORDER BY p.primary_count DESC",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d, COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2 ORDER BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(date, 'YYYY-MM-DD') AS d, crisis_risk_score AS score FROM daily_metric_snapshots WHERE agency_id = $1 AND date BETWEEN $2::date AND $3::date AND crisis_risk_score IS NOT NULL ORDER BY date",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT slug, name FROM agencies WHERE id = $1 LIMIT 1",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    0
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    0
+   ]
+  }
+ ],
+ "ecoMentions": [
+  {
+   "sql": "select COUNT(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and \"mentions\".\"published_at\" >= $3 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja'))",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-26T15:00:00.000Z"
+   ]
+  },
+  {
+   "sql": "select COALESCE(\"nlp_sentiment\", \"bw_sentiment\"), COUNT(*) from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and \"mentions\".\"published_at\" >= $3 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja')) group by COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-26T15:00:00.000Z"
+   ]
+  },
+  {
+   "sql": "select \"id\", \"title\", \"snippet\", \"domain\", \"page_type\", \"author\", \"author_fullname\", \"nlp_sentiment\", \"bw_sentiment\", \"nlp_pertinence\", \"nlp_emotions\", \"nlp_summary\", \"engagement_score\", \"likes\", \"comments\", \"shares\", \"reach_estimate\", \"published_at\", \"url\", \"media_urls\", \"author_avatar_url\", \"resolved_image_url\" from \"mentions\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and \"mentions\".\"published_at\" >= $3 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja')) order by \"mentions\".\"published_at\" desc limit $4",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-26T15:00:00.000Z",
+    20
+   ]
+  },
+  {
+   "sql": "select \"slug\", \"name\" from \"agencies\" where \"agencies\".\"id\" = $1 limit $2",
+   "params": [
+    "agency-1",
+    1
+   ]
+  }
+ ],
+ "mentionsAnalysis": [
+  {
+   "sql": "select \"slug\", \"name\" from \"agencies\" where \"agencies\".\"id\" = $1 limit $2",
+   "params": [
+    "agency-1",
+    1
+   ]
+  },
+  {
+   "sql": "SELECT m.id::text AS id, m.published_at AS ts, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS s, m.author, m.author_fullname, m.domain, m.page_type, (COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0))::int AS inter, left(COALESCE(m.title, ''), 300) AS title, left(COALESCE(m.snippet, ''), 600) AS snippet FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at < $3 ORDER BY m.published_at",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T04:00:00.000Z"
+   ]
+  },
+  {
+   "sql": "WITH w AS ( SELECT m.id, m.published_at, m.embedding FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at < $3 AND m.embedding IS NOT NULL ) SELECT a.id::text AS a, b.id::text AS b FROM w a JOIN w b ON b.id <> a.id AND b.published_at >= a.published_at AND (b.published_at > a.published_at OR b.id > a.id) AND b.published_at <= a.published_at + ($4::int * INTERVAL '1 hour') WHERE (a.embedding <=> b.embedding) <= $5::float8",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T04:00:00.000Z",
+    48,
+    0.16
+   ]
+  },
+  {
+   "sql": "SELECT left(COALESCE(m.title, ''), 300) AS title, left(COALESCE(m.snippet, ''), 600) AS snippet FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2 AND m.published_at < $3",
+   "params": [
+    "agency-1",
+    "2026-10-20T04:00:00.000Z",
+    "2026-10-27T04:00:00.000Z"
+   ]
+  }
+ ],
+ "sentimentAnalysis": [
+  {
+   "sql": "select \"slug\", \"name\" from \"agencies\" where \"agencies\".\"id\" = $1 limit $2",
+   "params": [
+    "agency-1",
+    1
+   ]
+  },
+  {
+   "sql": "SELECT m.author, m.author_fullname, m.domain, m.page_type, m.pub_type, ((m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $3::date) AS cur, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $4::date GROUP BY 1, 2, 3, 4, 5, 6",
+   "params": [
+    "agency-1",
+    "2026-10-19",
+    "2026-10-26",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS d, lower(trim(e.value::text, '\"')) AS emotion, COUNT(*)::int AS c FROM mentions m, jsonb_array_elements(CASE WHEN jsonb_typeof(m.nlp_emotions) = 'array' THEN m.nlp_emotions ELSE '[]'::jsonb END) AS e WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2",
+   "params": [
+    "agency-1",
+    "2026-08-10",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT lower(trim(e.value::text, '\"')) AS emotion, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg FROM mentions m, jsonb_array_elements(CASE WHEN jsonb_typeof(m.nlp_emotions) = 'array' THEN m.nlp_emotions ELSE '[]'::jsonb END) AS e WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-26",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*) FILTER (WHERE jsonb_typeof(m.nlp_emotions) = 'array' AND jsonb_array_length(m.nlp_emotions) > 0)::int AS with_emotion, COUNT(*)::int AS total FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-26",
+    "2026-11-01"
+   ]
+  }
+ ],
+ "scorecard": [
+  {
+   "sql": "SELECT slug, name FROM agencies WHERE id = $1",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "SELECT to_char((published_at AT TIME ZONE 'America/Puerto_Rico')::date, 'YYYY-MM-DD') AS date, COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-04-20",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(date, 'YYYY-MM-DD') AS date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate, brand_health_index, crisis_risk_score, polarization_index FROM daily_metric_snapshots WHERE agency_id = $1 AND date >= $2::date AND date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-01-05",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d, COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2 ORDER BY 1",
+   "params": [
+    "agency-1",
+    "2026-04-20",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT to_char((m.published_at AT TIME ZONE 'America/Puerto_Rico')::date, 'YYYY-MM-DD') AS day, m.author, m.author_fullname, m.domain, m.page_type, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg, COALESCE(SUM(COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0)), 0)::int AS inter, COUNT(*) FILTER (WHERE COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0) = 0)::int AS zero FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2, 3, 4, 5",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT m.author, m.author_fullname, m.domain, m.page_type FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-09-22",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    0
+   ]
+  }
+ ],
+ "geoAnalysis": [
+  {
+   "sql": "SELECT mu.slug, (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date::text AS d, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos, COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg FROM mention_municipalities mm JOIN municipalities mu ON mu.id = mm.municipality_id JOIN mentions m ON m.id = mm.mention_id WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2",
+   "params": [
+    "agency-1",
+    "2026-08-03",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE g.k > 0)::int AS geo, COUNT(*) FILTER (WHERE g.k > 1)::int AS multi FROM mentions m LEFT JOIN LATERAL (SELECT COUNT(*)::int AS k FROM mention_municipalities mm WHERE mm.mention_id = m.id) g ON true WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-26",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT slug, name, region, population FROM municipalities",
+   "params": []
+  }
+ ],
+ "ecoGeo": [
+  {
+   "sql": "select \"municipalities\".\"slug\", \"municipalities\".\"name\", \"municipalities\".\"region\", \"municipalities\".\"latitude\", \"municipalities\".\"longitude\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\"), count(*) from \"mention_municipalities\" inner join \"municipalities\" on \"municipalities\".\"id\" = \"mention_municipalities\".\"municipality_id\" inner join \"mentions\" on \"mentions\".\"id\" = \"mention_municipalities\".\"mention_id\" where (\"mentions\".\"agency_id\" = $1 and \"mentions\".\"is_duplicate\" = $2 and \"mentions\".\"published_at\" >= $3 and \"mentions\".\"published_at\" <= $4 and (\"mentions\".\"nlp_pertinence\" IS NULL OR \"mentions\".\"nlp_pertinence\" <> 'baja')) group by \"municipalities\".\"slug\", \"municipalities\".\"name\", \"municipalities\".\"region\", \"municipalities\".\"latitude\", \"municipalities\".\"longitude\", COALESCE(\"mentions\".\"nlp_sentiment\", \"mentions\".\"bw_sentiment\")",
+   "params": [
+    "agency-1",
+    false,
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T03:59:59.999Z"
+   ]
+  }
+ ],
+ "ecoTerms": [
+  {
+   "sql": "select \"slug\" from \"agencies\" where \"agencies\".\"id\" = $1 limit $2",
+   "params": [
+    "agency-1",
+    1
+   ]
+  },
+  {
+   "sql": "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mention_terms' LIMIT 1",
+   "params": []
+  },
+  {
+   "sql": "WITH stop AS ( SELECT DISTINCT s FROM ( SELECT (ts_lexize('spanish_stem', w))[1] AS s FROM unnest($5::text[]) w UNION ALL SELECT w FROM unnest($6::text[]) w ) u WHERE s IS NOT NULL ), scope AS ( SELECT m.id, (setweight(to_tsvector('spanish', COALESCE(m.title, '')), 'A') || setweight(to_tsvector('spanish', COALESCE(m.snippet, '')), 'B') || setweight(to_tsvector('spanish', COALESCE(m.nlp_summary, '')), 'C')) AS tsv, m.title AS title_txt, m.snippet AS snippet_txt, CASE WHEN COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive') THEN 1 WHEN COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative') THEN -1 ELSE 0 END AS spol, m.published_at FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2::timestamptz AND m.published_at < $3::timestamptz ), ref AS ( SELECT m.id, (setweight(to_tsvector('spanish', COALESCE(m.title, '')), 'A') || setweight(to_tsvector('spanish', COALESCE(m.snippet, '')), 'B') || setweight(to_tsvector('spanish', COALESCE(m.nlp_summary, '')), 'C')) AS tsv FROM mentions m WHERE m.agency_id = $1::uuid AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2::timestamptz - ($4::int * INTERVAL '1 day') AND m.published_at < $2::timestamptz ), scope_n AS (SELECT COUNT(*)::float AS n FROM scope), st AS ( SELECT w.lexeme AS term, COUNT(*)::int AS df, SUM(CASE WHEN s.spol = 1 THEN 1 ELSE 0 END)::int AS pos, SUM(CASE WHEN s.spol = 0 THEN 1 ELSE 0 END)::int AS neu, SUM(CASE WHEN s.spol = -1 THEN 1 ELSE 0 END)::int AS neg, MIN(s.published_at)::date::text AS first_seen FROM scope s, unnest(s.tsv) w WHERE length(w.lexeme) >= 3 AND w.lexeme !~ '^[0-9]+$' AND w.lexeme NOT IN (SELECT s FROM stop) GROUP BY w.lexeme ), rt AS ( SELECT w.lexeme AS term, COUNT(*)::int AS df FROM ref r, unnest(r.tsv) w WHERE length(w.lexeme) >= 3 AND w.lexeme !~ '^[0-9]+$' AND w.lexeme NOT IN (SELECT s FROM stop) GROUP BY w.lexeme ), tot AS (SELECT (SELECT COALESCE(SUM(df),0) FROM st) AS nt, (SELECT COALESCE(SUM(df),0) FROM rt) AS nr), -- Forma de SUPERFICIE por tallo. El stemmer español devuelve \"manufactur\", -- \"permis\", \"abonad\": tallos, no palabras. Mostrarlos al usuario es inaceptable -- en un producto de gobierno. Aquí se recuperan las palabras reales del texto, -- se agrupan por su tallo y se elige la más frecuente como forma de display. words AS ( SELECT lower(wd) AS surface, (ts_lexize('spanish_stem', lower(wd)))[1] AS stem FROM scope s, regexp_matches( COALESCE(s.title_txt, '') || ' ' || COALESCE(s.snippet_txt, ''), '[[:alpha:]ÁÉÍÓÚÜÑáéíóúüñ]{3,}', 'g' ) AS m(arr), unnest(m.arr) AS wd ), surf AS ( SELECT stem, surface, COUNT(*) AS c, ROW_NUMBER() OVER (PARTITION BY stem ORDER BY COUNT(*) DESC, length(surface) ASC, surface ASC) AS rn FROM words WHERE stem IS NOT NULL GROUP BY stem, surface ) SELECT st.term, st.df, st.pos, st.neu, st.neg, st.first_seen, CASE WHEN $8 = 'frequent' THEN st.df::float ELSE ( -- log-odds con prior de Dirichlet informativo (a0 = 500) ( ln( (st.df + (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1))) / GREATEST(tot.nt + 500.0 - st.df - (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1)), 1) ) - ln( (COALESCE(rt.df,0) + (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1))) / GREATEST(tot.nr + 500.0 - COALESCE(rt.df,0) - (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1)), 1) ) ) / sqrt( 1.0/GREATEST(st.df + (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1)), 0.5) + 1.0/GREATEST(COALESCE(rt.df,0) + (500.0 * (st.df + COALESCE(rt.df,0)) / GREATEST(tot.nt + tot.nr, 1)), 0.5) ) ) END AS score, COALESCE(rt.df, 0) AS ref_df, COALESCE(sf.surface, st.term) AS display FROM st LEFT JOIN rt ON rt.term = st.term LEFT JOIN surf sf ON sf.stem = st.term AND sf.rn = 1 CROSS JOIN tot WHERE st.df >= GREATEST(3, CEIL(0.004 * (SELECT n FROM scope_n))) ORDER BY score DESC NULLS LAST, st.df DESC LIMIT $7",
+   "params": [
+    "agency-1",
+    "2026-10-27T04:00:00.000Z",
+    "2026-11-03T04:00:00.000Z",
+    30,
+    [
+     "http",
+     "https",
+     "www",
+     "com",
+     "net",
+     "org",
+     "html",
+     "php",
+     "amp",
+     "utm",
+     "rt",
+     "via",
+     "pic",
+     "photo",
+     "photos",
+     "video",
+     "videos",
+     "twitter",
+     "facebook",
+     "instagram",
+     "youtube",
+     "tiktok",
+     "linkedin",
+     "reddit",
+     "tumblr",
+     "bluesky",
+     "threads",
+     "whatsapp",
+     "telegram",
+     "post",
+     "posts",
+     "story",
+     "stories",
+     "reel",
+     "reels",
+     "tweet",
+     "tweets",
+     "comment",
+     "comments",
+     "share",
+     "shares",
+     "like",
+     "likes",
+     "follow",
+     "click",
+     "link",
+     "enlace",
+     "leer",
+     "lee",
+     "ver",
+     "mira",
+     "aqui",
+     "aquí",
+     "from",
+     "the",
+     "and",
+     "for",
+     "with",
+     "this",
+     "that",
+     "puerto",
+     "rico",
+     "boricua",
+     "isla",
+     "pr",
+     "pueblo",
+     "gobierno",
+     "gobernación",
+     "gobernacion",
+     "gobernador",
+     "gobernadora",
+     "administración",
+     "administracion",
+     "agencia",
+     "agencias",
+     "departamento",
+     "secretario",
+     "secretaria",
+     "secretaría",
+     "autoridad",
+     "oficina",
+     "junta",
+     "programa",
+     "gobiernos",
+     "fortaleza",
+     "capitolio",
+     "senado",
+     "cámara",
+     "camara",
+     "legislatura",
+     "ddec",
+     "desarrollo",
+     "económico",
+     "economico",
+     "comercio",
+     "aaa",
+     "acueductos",
+     "alcantarillados",
+     "jenniffer",
+     "jennifer",
+     "gonzález",
+     "gonzalez",
+     "colón",
+     "colon",
+     "jgo",
+     "sgpr",
+     "domenech",
+     "df",
+     "anuncia",
+     "anunció",
+     "anuncio",
+     "anunciar",
+     "asegura",
+     "aseguró",
+     "afirma",
+     "afirmó",
+     "informa",
+     "informó",
+     "señala",
+     "senala",
+     "señaló",
+     "indica",
+     "indicó",
+     "explica",
+     "explicó",
+     "dice",
+     "dijo",
+     "expresa",
+     "expresó",
+     "sostiene",
+     "sostuvo",
+     "destaca",
+     "destacó",
+     "reitera",
+     "reiteró",
+     "confirma",
+     "confirmó",
+     "declara",
+     "declaró",
+     "agrega",
+     "agregó",
+     "añade",
+     "anade",
+     "añadió",
+     "presenta",
+     "presentó",
+     "realiza",
+     "realizó",
+     "busca",
+     "buscó",
+     "noticia",
+     "noticias",
+     "nota",
+     "reporte",
+     "reportaje",
+     "comunicado",
+     "declaración",
+     "declaracion",
+     "declaraciones",
+     "conferencia",
+     "prensa",
+     "entrevista",
+     "hoy",
+     "ayer",
+     "mañana",
+     "manana",
+     "semana",
+     "mes",
+     "año",
+     "ano",
+     "años",
+     "nuevo",
+     "nueva",
+     "nuevos",
+     "nuevas",
+     "gran",
+     "grande",
+     "primer",
+     "primera",
+     "último",
+     "ultimo",
+     "última",
+     "ultima",
+     "enero",
+     "febrero",
+     "marzo",
+     "abril",
+     "mayo",
+     "junio",
+     "julio",
+     "agosto",
+     "septiembre",
+     "setiembre",
+     "octubre",
+     "noviembre",
+     "diciembre",
+     "lunes",
+     "martes",
+     "miércoles",
+     "miercoles",
+     "jueves",
+     "viernes",
+     "sábado",
+     "sabado",
+     "domingo"
+    ],
+    [
+     "dic",
+     "sab",
+     "hac",
+     "ten",
+     "pod",
+     "deb",
+     "seg",
+     "com",
+     "anunci",
+     "anunc",
+     "asegur",
+     "inform",
+     "señal",
+     "senal",
+     "declar"
+    ],
+    60,
+    "frequent"
+   ]
+  }
+ ],
+ "narrativeOverview": [
+  {
+   "sql": "SELECT slug, name FROM agencies WHERE id = $1",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "WITH touch AS ( SELECT DISTINCT nm.narrative_id FROM narrative_mentions nm JOIN narratives n ON n.id = nm.narrative_id JOIN mentions m ON m.id = nm.mention_id WHERE n.agency_id = $1 AND n.merged_into_id IS NULL AND m.agency_id = $1 AND nm.is_primary = true AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2::timestamptz AND m.published_at < $3::timestamptz ) SELECT nm.narrative_id AS nid, m.id, m.published_at, m.url, m.title, m.page_type, m.author, m.author_fullname, m.domain, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0)) AS inter FROM touch t JOIN narrative_mentions nm ON nm.narrative_id = t.narrative_id JOIN mentions m ON m.id = nm.mention_id WHERE nm.is_primary = true AND m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at < $3::timestamptz",
+   "params": [
+    "agency-1",
+    "2026-05-04T00:00:00Z",
+    "2026-11-02T04:00:00Z"
+   ]
+  },
+  {
+   "sql": "SELECT id, name, summary, keywords, status, born_at, last_mention_at, created_at FROM narratives WHERE agency_id = $1 AND merged_into_id IS NULL",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "SELECT day, COUNT(*)::int AS total, COUNT(*) FILTER (WHERE in_narr)::int AS in_narr FROM ( SELECT to_char(CASE WHEN (m.published_at AT TIME ZONE 'UTC')::time = '00:00' THEN (m.published_at AT TIME ZONE 'UTC')::date ELSE (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date END, 'YYYY-MM-DD') AS day, EXISTS (SELECT 1 FROM narrative_mentions nm JOIN narratives n ON n.id = nm.narrative_id WHERE nm.mention_id = m.id AND nm.is_primary = true AND n.merged_into_id IS NULL AND n.agency_id = $1) AS in_narr FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at >= $2::timestamptz AND m.published_at < $3::timestamptz ) z WHERE day BETWEEN $4 AND $5 GROUP BY day",
+   "params": [
+    "agency-1",
+    "2026-05-04T00:00:00Z",
+    "2026-11-02T04:00:00Z",
+    "2026-05-04",
+    "2026-11-01"
+   ]
+  },
+  {
+   "sql": "SELECT status, COUNT(*)::int AS n, MIN(born_at) AS first_born FROM narratives WHERE agency_id = $1 AND merged_into_id IS NULL GROUP BY status",
+   "params": [
+    "agency-1"
+   ]
+  }
+ ],
+ "narrativePropagation": [
+  {
+   "sql": "SELECT n.id, n.name, n.status, req.id <> n.id AS was_merged, a.slug, a.name AS agency_name FROM narratives req JOIN narratives n ON n.id = COALESCE(req.merged_into_id, req.id) JOIN agencies a ON a.id = n.agency_id WHERE req.id = $1 AND req.agency_id = $2 AND n.agency_id = $2",
+   "params": [
+    "00000000-0000-0000-0000-000000000001",
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "SELECT nm.narrative_id AS nid, m.id, m.published_at, m.url, m.title, m.page_type, m.author, m.author_fullname, m.domain, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0)) AS inter FROM narrative_mentions nm JOIN mentions m ON m.id = nm.mention_id WHERE nm.narrative_id = $1 AND nm.is_primary = true AND m.agency_id = $2 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND m.published_at < $3::timestamptz",
+   "params": [
+    "00000000-0000-0000-0000-000000000001",
+    "agency-1",
+    "2026-11-02T04:00:00Z"
+   ]
+  }
+ ],
+ "execOverview": [
+  {
+   "sql": "select \"id\", \"name\" from \"agencies\" where \"agencies\".\"id\" in ($1)",
+   "params": [
+    "agency-1"
+   ]
+  },
+  {
+   "sql": "SELECT a.id, a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MAX(ingested_at) FROM mentions m WHERE m.agency_id = a.id) AS last_ingested_at, (SELECT MAX(published_at) FROM mentions m WHERE m.agency_id = a.id) AS last_published_at FROM agencies a WHERE a.id = ANY($1::uuid[])",
+   "params": [
+    [
+     "agency-1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT COUNT(*)::int AS total_mentions, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('positivo','positive'))::int AS positive_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('neutral'))::int AS neutral_count, COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS negative_count, COUNT(*) FILTER (WHERE nlp_pertinence = 'alta')::int AS high_pertinence_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media'))::int AS relevant_mentions_count, COUNT(*) FILTER (WHERE nlp_pertinence IN ('alta','media') AND COALESCE(nlp_sentiment, bw_sentiment) IN ('negativo','negative'))::int AS relevant_negative_count, COALESCE(SUM(likes), 0)::int AS total_likes, COALESCE(SUM(comments), 0)::int AS total_comments, COALESCE(SUM(shares), 0)::int AS total_shares, COALESCE(SUM(reach_estimate), 0)::bigint AS total_reach, COALESCE(SUM(impact), 0)::float AS total_impact, COALESCE(SUM(engagement_score), 0)::float AS total_engagement_score FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "WITH d AS ( SELECT DISTINCT (published_at AT TIME ZONE 'America/Puerto_Rico')::date AS day FROM mentions WHERE agency_id = $1 ) SELECT a.brandwatch_project_id, a.brandwatch_query_ids, (SELECT MIN(d1.day)::text FROM d d1 WHERE (SELECT COUNT(*) FROM d d2 WHERE d2.day BETWEEN d1.day AND d1.day + 6) >= $2) AS start_ymd, (SELECT MAX(published_at) FROM mentions WHERE agency_id = $1) AS last_published_at, (SELECT MAX(ingested_at) FROM mentions WHERE agency_id = $1) AS last_ingested_at FROM agencies a WHERE a.id = $1",
+   "params": [
+    "agency-1",
+    4
+   ]
+  },
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    "2026-10-26"
+   ]
+  },
+  {
+   "sql": "SELECT to_char(published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d, COALESCE(nlp_sentiment, bw_sentiment) AS s, COUNT(*)::int AS c FROM mentions WHERE agency_id = $1 AND is_duplicate = false AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja') AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY 1, 2 ORDER BY 1",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "WITH primaries AS ( SELECT COALESCE(t.id::text, 'unclassified') AS topic_id_key, COALESCE(t.name, 'Sin clasificar') AS topic, ARRAY_AGG(DISTINCT s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL) AS subtopics, COUNT(*)::int AS primary_count, COUNT(*) FILTER (WHERE pt.sentiment = 'negativo')::int AS negative, COUNT(*) FILTER (WHERE pt.sentiment = 'neutral')::int AS neutral, COUNT(*) FILTER (WHERE pt.sentiment = 'positivo')::int AS positive FROM ( SELECT m.id AS mention_id, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment, (SELECT topic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS topic_id, (SELECT subtopic_id FROM mention_topics WHERE mention_id = m.id ORDER BY confidence DESC NULLS LAST, topic_id ASC LIMIT 1) AS subtopic_id FROM mentions m WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date ) pt LEFT JOIN topics t ON t.id = pt.topic_id LEFT JOIN subtopics s ON s.id = pt.subtopic_id GROUP BY t.id, t.name ), multi AS ( SELECT mt.topic_id::text AS topic_id_key, COUNT(DISTINCT mt.mention_id)::int AS multi_count FROM mention_topics mt JOIN mentions m ON m.id = mt.mention_id WHERE m.agency_id = $1 AND m.is_duplicate = false AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja') AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date >= $2::date AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date <= $3::date GROUP BY mt.topic_id ) SELECT p.topic_id_key, p.topic, p.subtopics, p.primary_count, GREATEST(COALESCE(mu.multi_count, 0) - p.primary_count, 0)::int AS secondary_count, p.negative, p.neutral, p.positive FROM primaries p LEFT JOIN multi mu ON mu.topic_id_key = p.topic_id_key ORDER BY p.primary_count DESC",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    "2026-11-02"
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-27",
+    0
+   ]
+  },
+  {
+   "sql": "SELECT date, total_mentions, negative_count, nss, total_reach, total_engagement_score, engagement_rate FROM daily_metric_snapshots WHERE agency_id = $1 AND date < $2::date AND ($3::date IS NULL OR date >= $3::date) ORDER BY date DESC LIMIT 90",
+   "params": [
+    "agency-1",
+    "2026-10-20",
+    0
+   ]
+  },
+  {
+   "sql": "select \"alert_history\".\"agency_id\", \"alert_rules\".\"name\", \"alert_history\".\"triggered_at\", \"alert_history\".\"details\" from \"alert_history\" inner join \"alert_rules\" on \"alert_history\".\"alert_rule_id\" = \"alert_rules\".\"id\" where (\"alert_history\".\"agency_id\" in ($1) and \"alert_history\".\"triggered_at\" >= $2 and \"alert_history\".\"triggered_at\" <= $3) order by \"alert_history\".\"triggered_at\" DESC limit $4",
+   "params": [
+    "agency-1",
+    "2026-10-27T00:00:00-04:00",
+    "2026-11-02T23:59:59.999-04:00",
+    100
+   ]
+  }
+ ]
+}

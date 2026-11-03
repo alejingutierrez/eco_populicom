@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
 import { resolveAgencyId } from '@/lib/agency';
+import { universeOptsForAgencyId, strictOnlyPertinenceSql } from '@/lib/mentions/universe-config';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,10 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   // COALESCE este endpoint devolvería el subconjunto pre-fusión mientras la
   // cabecera y el timeline de la MISMA pantalla —que sí resuelven al
   // superviviente— cuentan la unión. Dos paneles, dos números.
+  // WP-9a: con UNIVERSE_STRICT_AGENCIES para la agencia, estas consultas
+  // también se limitan a pertinencia alta/media (hoy solo excluyen duplicados);
+  // con la bandera vacía el fragmento es '' y el SQL no cambia.
+  const pertSql = strictOnlyPertinenceSql(await universeOptsForAgencyId(agencyId), 'm.');
   const pgPool = getPool();
   const owned = await pgPool.query<{ id: string }>(
     `SELECT COALESCE(req.merged_into_id, req.id) AS id
@@ -61,7 +66,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
        FROM mentions m
        JOIN narrative_mentions nm ON nm.mention_id = m.id
        WHERE nm.narrative_id = $1
-         AND m.is_duplicate = false
+         AND m.is_duplicate = false ${pertSql}
          AND nm.is_primary = true
          AND date_trunc('day', m.published_at AT TIME ZONE 'America/Puerto_Rico')::date = $2::date
        ORDER BY engagement DESC NULLS LAST, m.published_at DESC

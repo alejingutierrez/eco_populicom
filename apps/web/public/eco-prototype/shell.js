@@ -1052,6 +1052,221 @@ function MiniMunicipalityMap({ municipality, region, coords, sentiment }) {
   );
 }
 
+// =========================================================
+// Interpretación v1 (WP-9b, spec 11.5): piezas compartidas por Menciones,
+// Búsqueda, Sentimiento, Overview, Scorecard y los drill-downs.
+//
+//   · Tipo de mención (comentario, publicación de la agencia, nota de prensa,
+//     tercero) y, en comentarios, la publicación a la que responden.
+//   · Chip de hecho adverso.
+//   · Toggle ÚNICO de pertinencia baja: dice qué universo muestra la LISTA y
+//     que no cambia ningún gráfico, conteo ni correo.
+//   · Barra de composición (parte del volumen que son comentarios).
+//   · Deltas con base mínima: sin porcentaje cuando la base previa es chica.
+//
+// Todo es ADITIVO y degrada en silencio: si la API aún no manda `mentionKind`,
+// `parent`, `adverseFact` o `composition`, ningún componente pinta nada y la
+// pantalla queda como antes. Nunca dibuja ceros ni "sin dato" en su lugar.
+// =========================================================
+const ECO_KIND_META = {
+  comment: { label: 'Comentario', tip: 'Comentario de un usuario en una publicación de la agencia' },
+  agency_post: { label: 'Publicación de la agencia', tip: 'Publicación de una página o cuenta de la propia agencia' },
+  article: { label: 'Nota de prensa', tip: 'Nota de prensa, blog o foro' },
+  third_party_post: { label: 'Tercero', tip: 'Publicación de un tercero en redes (medio, página, empresa o ciudadano)' },
+};
+const ECO_KIND_ORDER = ['comment', 'agency_post', 'article', 'third_party_post'];
+
+// «26 oct» (o «26 oct 2025» si cambia el año) en hora de Puerto Rico.
+function ecoPrDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const tz = window.ECO_TZ || 'America/Puerto_Rico';
+  const sameYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(d) === new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(new Date());
+  return d.toLocaleDateString('es-PR', { timeZone: tz, day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).replace('.', '');
+}
+
+// ¿La agencia activa corre con el universo/rúbrica nuevos? Hoy lo dice el
+// universo estricto de la composición (UNIVERSE_STRICT_AGENCIES): sin esa señal
+// el sentimiento sigue siendo el de siempre y los rótulos de «postura» serían
+// falsos, así que no se muestran.
+function ecoInterpActive(composition) {
+  const c = composition || (window.ECO_DATA && window.ECO_DATA.COMPOSITION);
+  return !!(c && c.universe && c.universe.strict);
+}
+const ECO_SENT_TIP = {
+  negativo: 'Negativo: postura crítica hacia la agencia (su contenido, programas o gestión). Un hecho adverso se marca aparte.',
+  positivo: 'Positivo: postura favorable hacia la agencia (su contenido, programas o gestión).',
+  neutral: 'Neutral: sin postura hacia la agencia; informa o comenta sin tomar partido.',
+};
+function ecoSentTip(sentiment, composition) {
+  return ecoInterpActive(composition) ? ECO_SENT_TIP[sentiment] : undefined;
+}
+
+function MentionKindTag({ m }) {
+  const meta = m && ECO_KIND_META[m.mentionKind];
+  if (!meta) return null;
+  return <span className="eco-kind" data-kind={m.mentionKind} title={meta.tip}>{meta.label}</span>;
+}
+
+function MentionAdverseChip({ m }) {
+  if (!m || m.adverseFact !== true) return null;
+  return <span className="eco-adverse" title="Hecho adverso: lo que se reporta o discute es desfavorable para la agencia, sin importar el tono de quien escribe. Alimenta el riesgo de crisis, no el NSS.">Hecho adverso</span>;
+}
+
+// «Pertinencia baja»: solo aparece cuando la lista incluye esas filas (toggle).
+function MentionLowTag({ m }) {
+  if (!m || m.pertinence !== 'baja') return null;
+  return <span className="eco-low" title="Pertinencia baja: no entra en gráficos, conteos ni correos">Pertinencia baja</span>;
+}
+
+// Las tres marcas de una tarjeta en una sola línea (tipo, hecho adverso,
+// pertinencia baja). No pinta el contenedor si no hay nada que mostrar.
+function MentionTags({ m }) {
+  if (!m) return null;
+  if (!ECO_KIND_META[m.mentionKind] && m.adverseFact !== true && m.pertinence !== 'baja') return null;
+  return <span className="eco-tags"><MentionKindTag m={m} /><MentionAdverseChip m={m} /><MentionLowTag m={m} /></span>;
+}
+
+// Línea de contexto de un comentario: a qué publicación responde y de cuándo.
+//   inline = true: una sola línea de texto (filas que ya son un <button>:
+//   dentro de él no puede haber un <details> interactivo).
+//   inline = false: «Responde a la publicación de <página> del <fecha>» con el
+//   texto de esa publicación plegable.
+function MentionParent({ m, inline }) {
+  if (!m || m.mentionKind !== 'comment') return null;
+  const p = m.parent;
+  const late = m.lateReaction === true;
+  const age = m.parentAgeDays != null ? Number(m.parentAgeDays).toLocaleString('es-PR', { maximumFractionDigits: 1 }) : null;
+  const lateTag = late
+    ? <span className="eco-late" title={age ? `La publicación tenía ${age} días cuando se escribió este comentario` : 'La publicación tenía más de 2 días cuando se escribió este comentario'}>reacción tardía</span>
+    : null;
+  if (!p) {
+    if (!m.parentUnknown) return null;
+    return <div className="eco-parent eco-parent-unk">Publicación original no identificada: su fecha se trata como desconocida, no como del día.</div>;
+  }
+  const head = <>Responde a la publicación de <b>{p.author || 'la página'}</b> del <span className="num">{ecoPrDate(p.publishedAt)}</span>{lateTag}</>;
+  // En una fila el autor de la página no cabe: «Responde a la publicación del 26 oct · reacción tardía».
+  if (inline) return <span className="eco-parent eco-parent-inline">Responde a la publicación del <span className="num">{ecoPrDate(p.publishedAt)}</span>{lateTag}</span>;
+  if (!p.text) return <div className="eco-parent">{head}</div>;
+  return (
+    <details className="eco-parent">
+      <summary>{head}</summary>
+      <blockquote className="eco-parent-tx">{p.text}</blockquote>
+    </details>
+  );
+}
+
+// Toggle ÚNICO de pertinencia baja (reemplaza el chip suelto del modal y se usa
+// en la lista de Menciones). `total` es el de la lista; `universeTotal`, el del
+// universo con los mismos filtros (lo manda /api/eco-mentions).
+function PertinenceToggle({ includeLow, onChange, total, universeTotal, label, compact }) {
+  const uni = label || (includeLow ? 'todas las pertinencias' : 'sin pertinencia baja');
+  const extra = includeLow && universeTotal != null && total != null && Number(total) !== Number(universeTotal)
+    ? ` · ${Number(universeTotal).toLocaleString('es-PR')} en el universo, ${(Number(total) - Number(universeTotal)).toLocaleString('es-PR')} de pertinencia baja`
+    : '';
+  return (
+    <div className={`eco-pert${compact ? ' eco-pert-compact' : ''}`}>
+      <span className="eco-pert-uni">Universo de la lista: <b>{uni}</b>{extra}</span>
+      <button type="button" className={`chip${includeLow ? ' active' : ''}`} aria-pressed={!!includeLow} onClick={() => onChange(!includeLow)}
+        title="Cambia solo esta lista: los gráficos, conteos y correos siguen sin pertinencia baja">
+        {includeLow ? '— Solo pertinentes' : '+ Incluir pertinencia baja'}
+      </button>
+      {!compact && <span className="eco-pert-note">No afecta gráficos, conteos ni correos.</span>}
+    </div>
+  );
+}
+
+// Delta con base mínima: `bd` = { prev, cur, abs, pct|null, minBase } (@eco/shared
+// minBaseDelta). Con base previa de menos de `minBase` menciones el API no manda
+// porcentaje: se dice la diferencia absoluta y se rotula «base baja».
+function ecoBaseDeltaInfo(bd) {
+  if (!bd || bd.abs == null || !Number.isFinite(Number(bd.abs))) return null;
+  const abs = Number(bd.abs);
+  const arrow = abs > 0 ? '▲' : abs < 0 ? '▼' : '·';
+  const sign = abs > 0 ? '+' : abs < 0 ? '−' : '';
+  if (bd.pct != null) {
+    const pct = Math.round(Math.abs(Number(bd.pct)));
+    return { arrow, abs, pct, low: false, txt: abs === 0 ? '· igual' : `${arrow} ${pct}%`, title: `${Number(bd.prev).toLocaleString('es-PR')} → ${Number(bd.cur).toLocaleString('es-PR')} menciones` };
+  }
+  if (!bd.prev) return { arrow, abs, pct: null, low: true, none: true, txt: '— sin base', title: 'El periodo previo no tuvo menciones: no hay base de comparación.' };
+  return {
+    arrow, abs, pct: null, low: true,
+    txt: abs === 0 ? '· igual' : `${arrow} ${sign}${Math.abs(abs).toLocaleString('es-PR')}`,
+    title: `Base previa de ${Number(bd.prev).toLocaleString('es-PR')} menciones (menos de ${bd.minBase}): se muestra la diferencia, sin porcentaje.`,
+  };
+}
+function BaseDeltaBadge({ bd, metricKey = 'volume' }) {
+  const info = ecoBaseDeltaInfo(bd);
+  if (!info) return null;
+  const color = info.none || info.abs === 0 ? 'var(--text-3)' : window.ecoDeltaColor(metricKey, info.abs);
+  return (
+    <span title={info.title} style={{ fontSize: 'var(--fs-overline)', color, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+      {info.txt}
+      {info.low && !info.none && <span className="eco-lowbase">base baja</span>}
+    </span>
+  );
+}
+
+// Composición: de qué está hecho el volumen, por TIPO de mención (comentarios de
+// usuarios, publicaciones de la agencia, notas de prensa y terceros; en DDEC el
+// 83 % de las «menciones» del 25–31 oct eran comentarios). `composition` =
+// { universe, byKind, commentShare } de /api/overview o /api/eco-data. `onPick(kind,
+// label)` abre el drill-down de ese tipo (mentionKind). Con una API que aún no
+// manda `byKind` cae a dos tramos (comentarios / el resto) con `commentShare`.
+const ECO_KIND_PLURAL = {
+  comment: 'Comentarios de usuarios',
+  agency_post: 'Publicaciones de la agencia',
+  article: 'Notas de prensa',
+  third_party_post: 'Terceros',
+};
+function CompositionBar({ composition, onPick, windowLabel }) {
+  const bk = composition && composition.byKind;
+  const kCur = bk && bk.current && bk.current.total > 0 ? bk.current : null;
+  const kPrev = bk && bk.previous && bk.previous.total > 0 ? bk.previous : null;
+  const cs = composition && composition.commentShare;
+  // Total, comentarios y porcentaje: de los tipos si existen (son los que abre el clic), si no de commentShare.
+  const cur = kCur ? { total: kCur.total, comments: kCur.comment, pct: (kCur.comment / kCur.total) * 100 } : (cs && cs.current);
+  if (!cur || !(cur.total > 0)) return null;
+  const prev = kCur ? (kPrev ? { total: kPrev.total, comments: kPrev.comment, pct: (kPrev.comment / kPrev.total) * 100 } : null) : (cs && cs.previous);
+  const pct = Math.max(0, Math.min(100, Number(cur.pct) || 0));
+  const dpts = kCur ? (prev ? Number((cur.pct - prev.pct).toFixed(1)) : null) : (cs && cs.deltaPts);
+  const fmtN = (n) => Number(n).toLocaleString('es-PR');
+  const pctTxt = (v) => `${Number(v).toLocaleString('es-PR', { maximumFractionDigits: 1 })}%`;
+  const seg = kCur
+    ? ECO_KIND_ORDER.map((k) => ({ k, l: ECO_KIND_PLURAL[k], n: kCur[k] || 0, w: ((kCur[k] || 0) / kCur.total) * 100, kinds: k, tip: ECO_KIND_META[k].tip }))
+    : [
+        { k: 'comment', l: ECO_KIND_PLURAL.comment, n: cur.comments, w: pct, kinds: 'comment', tip: ECO_KIND_META.comment.tip },
+        { k: 'rest', l: 'Publicaciones, notas y terceros', n: cur.total - cur.comments, w: 100 - pct, kinds: 'agency_post,article,third_party_post', tip: '' },
+      ];
+  return (
+    <div className="eco-comp">
+      <div className="eco-comp-hd">
+        <span><b className="num">{pctTxt(pct)}</b> de las menciones son comentarios de usuarios</span>
+        {dpts != null && dpts !== 0 && prev && prev.total > 0 && (
+          <span className="eco-comp-d" title={`Periodo previo: ${pctTxt(prev.pct)} (${fmtN(prev.comments)} de ${fmtN(prev.total)})`}>
+            {dpts > 0 ? '▲' : '▼'} {Math.abs(dpts).toLocaleString('es-PR', { maximumFractionDigits: 1 })} pts vs periodo previo
+          </span>
+        )}
+      </div>
+      <div className="eco-comp-bar" role="img" aria-label={seg.map((s) => `${fmtN(s.n)} ${s.l.toLowerCase()}`).join(', ')}>
+        {seg.map((s) => s.w > 0 && (
+          <button key={s.k} type="button" className="eco-comp-seg" data-seg={s.k} style={{ width: `${s.w}%` }} disabled={!onPick}
+            onClick={onPick ? () => onPick(s.kinds, s.l) : undefined} title={`${s.l}: ${fmtN(s.n)} · ${pctTxt(s.w)}${s.tip ? ` — ${s.tip}` : ''}${onPick ? ' · clic para ver la lista' : ''}`} />
+        ))}
+      </div>
+      <div className="eco-comp-lg">
+        {seg.map((s) => (
+          onPick
+            ? <button key={s.k} type="button" className="eco-comp-lgb" onClick={() => onPick(s.kinds, s.l)} title={s.tip || undefined}><i data-seg={s.k} />{s.l} <b className="num">{fmtN(s.n)}</b><span className="num eco-comp-p">{pctTxt(s.w)}</span></button>
+            : <span key={s.k}><i data-seg={s.k} />{s.l} <b className="num">{fmtN(s.n)}</b><span className="num eco-comp-p">{pctTxt(s.w)}</span></span>
+        ))}
+        <span className="eco-comp-uni">{composition.universe ? composition.universe.label : ''}{windowLabel ? ` · ${windowLabel}` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
 function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
   const [related, setRelated] = React.useState(null); // null while loading, [] if none
 
@@ -1096,8 +1311,11 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
         </div>
         <div style={{ padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' }}>
-              <span className={`pill ${sentClass}`}>{mention.sentiment}</span>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' }}>
+              <span className={`pill ${sentClass}`} title={ecoSentTip(mention.sentiment)}>{mention.sentiment}</span>
+              <MentionKindTag m={mention} />
+              <MentionAdverseChip m={mention} />
+              <MentionLowTag m={mention} />
               <span style={{ marginLeft: 'auto', color: 'var(--text-3)' }}>{mention.domain}</span>
             </div>
             {mention.image && (
@@ -1111,6 +1329,7 @@ function MentionDrawer({ mention, onClose, onNavigate, onMentionClick }) {
             <div style={{ color: 'var(--text-2)', fontSize: 'var(--fs-body-sm)', lineHeight: 1.6 }}>
               {mention.author} · {mention.domain} · {mention.publishedAt}
             </div>
+            <MentionParent m={mention} />
           </div>
 
           <hr className="hr" />
@@ -1615,31 +1834,27 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                 : (includeLow ? 'todas las pertinencias' : 'sin pertinencia baja');
               return (
                 <div style={{ marginTop: 6, fontSize: 'var(--fs-caption)', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span>{range} · {universo}</span>
+                  <span>{range}{f.pertinence ? ` · ${universo}` : ''}</span>
                   {!f.pertinence && (
-                    <button
-                      className="chip"
-                      onClick={() => setIncludeLow((v) => !v)}
-                      title="Cambia el universo de esta consulta; los agregados del dashboard no cambian"
-                      style={{ fontSize: 'var(--fs-caption)', padding: '2px 8px' }}
-                    >
-                      {includeLow ? '— Solo pertinentes' : '+ Incluir baja pertinencia'}
-                    </button>
+                    <PertinenceToggle compact includeLow={includeLow} onChange={setIncludeLow}
+                      total={liveSlice ? liveSlice.total : null}
+                      universeTotal={liveSlice ? liveSlice.universeTotal : null}
+                      label={liveSlice && liveSlice.universe ? liveSlice.universe.label : null} />
                   )}
                 </div>
               );
             })()}
             {(pos || neu || neg) && (
               <div style={{ marginTop: 'var(--sp-2)', display: 'flex', gap: 'var(--sp-4)', fontSize: 'var(--fs-overline)', color: 'var(--text-2)', flexWrap: 'wrap' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }} title={ecoSentTip('positivo')}>
                   <span className="dot" style={{ background: 'var(--pos)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{pos.toLocaleString('es-PR')}</span> positivas
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }} title={ecoSentTip('neutral')}>
                   <span className="dot" style={{ background: 'var(--text-3)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neu.toLocaleString('es-PR')}</span> neutrales
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)' }} title={ecoSentTip('negativo')}>
                   <span className="dot" style={{ background: 'var(--neg)' }} />
                   <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>{neg.toLocaleString('es-PR')}</span> negativas
                 </span>
@@ -1779,8 +1994,10 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.title}</div>
                       <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain} · {mn.publishedAt}</div>
+                      <MentionTags m={mn} />
+                      <MentionParent m={mn} inline />
                     </div>
-                    <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
+                    <span className={`pill ${sc}`} style={{ justifySelf: 'start' }} title={ecoSentTip(mn.sentiment)}>{mn.sentiment}</span>
                     {/* Tópico (columna nueva — reemplazó engagement). Truncado a una línea. */}
                     <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-overline)' }}>
                       {mn.topicName || '—'}
@@ -2164,4 +2381,9 @@ function MetricInsightModal({ metricKey, value, valueDisplay, label, accent = 'v
   );
 }
 
-window.ECO_SHELL = { EmptyState, Avatar, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV };
+window.ECO_SHELL = {
+  EmptyState, Avatar, Sidebar, Header, CommandPalette, MentionDrawer, MentionsSliceModal, MetricInsightModal, TweaksPanel, NAV, SYSTEM_NAV,
+  // WP-9b: tipo, post padre, hecho adverso, universo, composición y deltas con base mínima.
+  MentionKindTag, MentionAdverseChip, MentionLowTag, MentionTags, MentionParent, PertinenceToggle, CompositionBar, BaseDeltaBadge,
+  ecoBaseDeltaInfo, ECO_KIND_PLURAL, ecoSentTip, ecoInterpActive, ECO_KIND_META, ECO_KIND_ORDER,
+};

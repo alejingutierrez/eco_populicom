@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@eco/database';
 import { PERIOD_DAYS, resolveWindow } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
+import { universeOptsForAgencyId, strictOnlyPertinenceSql } from '@/lib/mentions/universe-config';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -94,6 +95,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ narratives: [], meta: { total: 0, period: periodKey } });
   }
 
+  // WP-9a: con UNIVERSE_STRICT_AGENCIES para la agencia, estas consultas
+  // también se limitan a pertinencia alta/media (hoy solo excluyen duplicados);
+  // con la bandera vacía el fragmento es '' y el SQL no cambia.
+  const pertSql = strictOnlyPertinenceSql(await universeOptsForAgencyId(agencyId), 'm.');
   const pgPool = getPool();
 
   const startTs = `${win.startYmd}T00:00:00${AST}`;
@@ -127,7 +132,7 @@ export async function GET(request: NextRequest) {
          FROM narrative_mentions nm
          JOIN mentions m ON m.id = nm.mention_id
         WHERE nm.is_primary = true
-          AND m.is_duplicate = false
+          AND m.is_duplicate = false ${pertSql}
           AND m.agency_id = $1
           AND m.published_at >= $2::timestamptz
           AND m.published_at <= $3::timestamptz
@@ -193,7 +198,7 @@ export async function GET(request: NextRequest) {
              JOIN mentions m ON m.id = nm.mention_id
             WHERE nm.narrative_id = ANY($1::uuid[])
               AND nm.is_primary = true
-              AND m.is_duplicate = false
+              AND m.is_duplicate = false ${pertSql}
               AND (m.published_at AT TIME ZONE '${TZ}')::date BETWEEN $2::date AND $3::date
             GROUP BY 1, 2
          )

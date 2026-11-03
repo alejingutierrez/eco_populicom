@@ -1,6 +1,8 @@
 // Dashboard + screens
 const { Sparkline, AreaLineChart, MultiLineChart, SeriesPanels, BandScale, StackedAreaChart, Donut, HBarList, RadialGauge, Heatmap, PRMap, useChartWidth } = window.ECO_CHARTS;
 const { EmptyState, Avatar, MentionDrawer, MentionsSliceModal, MetricInsightModal } = window.ECO_SHELL;
+// WP-9b: tipo, post padre, hecho adverso, universo, composición y deltas con base mínima.
+const { MentionKindTag, MentionAdverseChip, MentionLowTag, MentionTags, MentionParent, PertinenceToggle, CompositionBar, BaseDeltaBadge, ecoBaseDeltaInfo, ecoSentTip, ecoInterpActive, ECO_KIND_META, ECO_KIND_ORDER } = window.ECO_SHELL;
 const D = window.ECO_DATA;
 const I2 = window.Icons;
 
@@ -412,6 +414,13 @@ function scCurrent(m) {
 const SC_LOW = 'muestra insuficiente';
 // Cambio contra el periodo previo; el color sale de la dirección del indicador.
 function scChange(m, k) {
+  // WP-9b: con base previa chica (< minBase menciones) el volumen no lleva
+  // porcentaje —«+1400 %»— sino la diferencia absoluta y el rótulo «base baja».
+  if (k === 'volume') {
+    const bd = D.COMPOSITION && D.COMPOSITION.deltas && D.COMPOSITION.deltas.total;
+    const info = bd && bd.pct == null && bd.prev > 0 ? ecoBaseDeltaInfo(bd) : null;
+    if (info) return { txt: `${info.txt} · base baja`, cls: 'flat', title: info.title };
+  }
   const d = m.deltaDisplay && m.deltaDisplay[SC_MET[k].dd];
   if (!d || !d.hasBaseline) return { txt: 'sin base', cls: 'flat' };
   const mag = Number(d.magnitude) || 0;
@@ -485,7 +494,7 @@ function ScKpi({ k, m, cur, prev, onDetails, days }) {
       <div className="sc-kpi-k">{meta.label}</div>
       <div className="sc-kpi-vrow">
         <span className="sc-kpi-v num">{scShow(k, v)}{meta.unit && v != null && <small>{meta.unit}</small>}</span>
-        <span className={`sc-dl ${c.cls}`}>{c.txt}</span>
+        <span className={`sc-dl ${c.cls}`} title={c.title}>{c.txt}</span>
       </div>
       <div className="sc-kpi-w">{word || (pv != null ? `vs ${scNum(pv)} el periodo previo` : 'en el periodo')}</div>
       <ScSpark k={k} cur={cur} prev={prev && prev.timeline} />
@@ -684,7 +693,7 @@ function ScIndicatorRows({ m, cur, prev, days }) {
             <div key={k} className="sc-krow">
               <span><span className="sc-krow-nm">{meta.label}</span>{word && <span className="sc-krow-w">{word}</span>}</span>
               <span className="sc-krow-v num">{scShow(k, curV[k])}{meta.unit && curV[k] != null && <small>{meta.unit}</small>}</span>
-              <span><span className={`sc-dl ${c.cls}`}>{c.txt}</span><span className="sc-krow-w num">antes {pv == null ? '—' : `${scShow(k, pv)}${meta.unit}`}</span></span>
+              <span><span className={`sc-dl ${c.cls}`} title={c.title}>{c.txt}</span><span className="sc-krow-w num">antes {pv == null ? '—' : `${scShow(k, pv)}${meta.unit}`}</span></span>
               <span><ScSpark k={k} cur={cur} prev={prev && prev.timeline} h={30} /></span>
               <span>{meta.dom ? <ScScale k={k} v={curV[k]} /> : <span className="sc-krow-w">sin escala</span>}</span>
             </div>
@@ -1310,9 +1319,11 @@ function MnRow({ m, selected, onSelect, highlight }) {
       <span className="mn-row-body">
         <span className="mn-row-ti"><HL text={m.title} terms={highlight} /></span>
         <span className="mn-row-by">{m.author || '—'} · {m.domain} · {mnWhen(m.publishedAtIso) || m.publishedAt}</span>
+        <MentionParent m={m} inline />
         {m.summary && <span className="mn-row-su"><HL text={m.summary} terms={highlight} /></span>}
         <span className="mn-row-mt">
-          <span className={`pill ${mnPill(m.sentiment)}`}>{m.sentiment}</span>
+          <span className={`pill ${mnPill(m.sentiment)}`} title={ecoSentTip(m.sentiment)}>{m.sentiment}</span>
+          <MentionTags m={m} />
           <MnVoice k={m.voice} />
           <span className="mn-row-in num">{inter ? `${mnNum(inter)} interac.` : 'sin interacción'}</span>
         </span>
@@ -1381,7 +1392,8 @@ function MnDetail({ m, analysis, onPick, onOpenDrawer, highlight }) {
   return (
     <div className="card mn-detail">
       <div className="card-bd">
-        <div className="mn-detail-meta"><MnSrc k={m.source} /><span>{m.author || '—'} · {m.domain}</span><span>{mnWhen(m.publishedAtIso) || m.publishedAt}</span><span className={`pill ${mnPill(m.sentiment)}`}>{m.sentiment}</span><MnVoice k={m.voice} /></div>
+        <div className="mn-detail-meta"><MnSrc k={m.source} /><span>{m.author || '—'} · {m.domain}</span><span>{mnWhen(m.publishedAtIso) || m.publishedAt}</span><span className={`pill ${mnPill(m.sentiment)}`} title={ecoSentTip(m.sentiment)}>{m.sentiment}</span><MentionTags m={m} /><MnVoice k={m.voice} /></div>
+        <MentionParent m={m} />
         <h3 className="mn-detail-ti"><HL text={m.title} terms={highlight} /></h3>
         {m.summary && <><div className="mn-over">Resumen</div><div className="mn-detail-box">{m.summary}</div></>}
         {m.snippet && m.snippet !== m.title && <p className="mn-detail-tx"><HL text={m.snippet} terms={highlight} /></p>}
@@ -1531,6 +1543,12 @@ function MentionsScreen({ onMentionClick }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // WP-9b: tipo de mención, hecho adverso y pertinencia baja. Los tres solo
+  // cambian la LISTA: el análisis del periodo, los virales y los gráficos de
+  // la página siguen en el universo de siempre.
+  const [kind, setKind] = useState('all');
+  const [adverse, setAdverse] = useState(false);
+  const [includeLow, setIncludeLow] = useState(false);
   const [viralCount, setViralCount] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [slice, setSlice] = useState(null);
@@ -1544,7 +1562,7 @@ function MentionsScreen({ onMentionClick }) {
     const id = setTimeout(() => { setFilters((f) => (f.q === queryInput ? f : { ...f, q: queryInput })); setPage(1); }, 300);
     return () => clearTimeout(id);
   }, [queryInput]);
-  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy, day]);
+  React.useEffect(() => { setPage(1); }, [filters.sentiment, filters.source, filters.topic, filters.region, filters.sortBy, day, kind, adverse, includeLow]);
 
   const baseParams = () => {
     const p = new URLSearchParams(window.ecoGetPeriodParams());
@@ -1575,14 +1593,17 @@ function MentionsScreen({ onMentionClick }) {
     if (filters.topic) params.set('topic', filters.topic);
     if (filters.region) params.set('region', filters.region);
     if (day) params.set('day', day);
+    if (kind !== 'all') params.set('mentionKind', kind);
+    if (adverse) params.set('adverseFact', '1');
+    if (includeLow) params.set('includeLow', '1');
     const sort = resolveSort(filters.sortBy, !!qEff);
     if (sort !== 'recent') params.set('sortBy', sort);
     ecoFetchAuthed('/api/eco-mentions?' + params.toString(), { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
-      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0) }))
+      .then((j) => setData({ mentions: j.mentions || [], total: Number(j.total || 0), universe: j.universe || null, universeTotal: j.universeTotal != null ? Number(j.universeTotal) : null, adverseAvailable: j.adverseAvailable === true }))
       .catch((e) => { if (e && e.name === 'AbortError') return; if (e && e.code === 401) { ecoBounceToSignIn(); return; } setError(true); })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [filters, terms, day, page, reloadKey]);
+  }, [filters, terms, day, page, reloadKey, kind, adverse, includeLow]);
 
   // Análisis del periodo (no depende de los filtros de la lista).
   React.useEffect(() => {
@@ -1631,9 +1652,18 @@ function MentionsScreen({ onMentionClick }) {
   };
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  // Los controles de WP-9b (hecho adverso, tipo, pertinencia baja) solo existen si la
+  // API los entiende: /api/eco-mentions responde `universe` desde WP-9a. Con una API
+  // anterior la lista queda exactamente como antes.
+  const apiV2 = !!data.universe;
+  // El filtro «con hecho adverso» solo existe si la agencia ya tiene menciones
+  // evaluadas por la rúbrica v2 (`adverseAvailable`): sin ella nlp_adverse_fact es
+  // NULL y el filtro devolvería siempre una lista vacía. Se mantiene visible mientras
+  // está activo para que se pueda apagar.
+  const adverseOffer = apiV2 && (data.adverseAvailable === true || adverse);
   const topicsList = (D.TOPICS || []).filter((t) => t && t.slug);
   const regions = Array.from(new Set((D.MUNICIPALITIES || []).map((m) => m && m.region).filter(Boolean))).sort();
-  const activeMore = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0);
+  const activeMore = (filters.topic ? 1 : 0) + (filters.region ? 1 : 0) + (filters.sortBy !== 'recent' ? 1 : 0) + (kind !== 'all' ? 1 : 0);
   const searchTerms = [...(filters.q ? filters.q.trim().split(/\s+/) : []), ...terms].filter((t) => t.length >= 2);
   const MSliceModal = (window.ECO_SHELL && window.ECO_SHELL.MentionsSliceModal) || null;
   const cm = D.CURRENT_METRICS || {};
@@ -1656,11 +1686,15 @@ function MentionsScreen({ onMentionClick }) {
         </div>
         <div className="toggle-group">
           {[{ k: 'all', l: 'Todas' }, { k: 'positivo', l: 'Positivo', tone: 'pos' }, { k: 'neutral', l: 'Neutral', tone: 'neu' }, { k: 'negativo', l: 'Negativo', tone: 'neg' }].map((x) => (
-            <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`}>
+            <button key={x.k} onClick={() => setFilters((f) => ({ ...f, sentiment: x.k }))} className={`chip ${filters.sentiment === x.k ? 'active' : ''}`} title={ecoSentTip(x.k)}>
               {x.tone && <span className="dot" style={{ background: `var(--${x.tone})` }} />}{x.l}
             </button>
           ))}
         </div>
+        {adverseOffer && <button type="button" className={`chip ${adverse ? 'active' : ''}`} aria-pressed={adverse} onClick={() => setAdverse((v) => !v)}
+          title="Solo menciones cuyo hecho es desfavorable para la agencia, sin importar el tono de quien escribe (rúbrica nueva)">
+          <span className="dot" style={{ background: 'var(--neg)' }} />Con hecho adverso
+        </button>}
         <SourceSelect value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))} style={{ width: 160 }} />
         <div style={{ position: 'relative' }}>
           <button className="btn" onClick={() => setMoreOpen((v) => !v)}><Icons.Filter size={13} /> Más filtros {activeMore > 0 && <span className="num">·{activeMore}</span>}</button>
@@ -1676,6 +1710,12 @@ function MentionsScreen({ onMentionClick }) {
                 <option value="">Todas las regiones</option>
                 {regions.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
+              {apiV2 && <><div className="mn-over">Tipo de mención</div>
+              <div className="toggle-group">
+                {[{ k: 'all', l: 'Todos' }, ...ECO_KIND_ORDER.map((k) => ({ k, l: ECO_KIND_META[k].label }))].map((o) => (
+                  <button key={o.k} type="button" className={`chip ${kind === o.k ? 'active' : ''}`} onClick={() => setKind(o.k)} title={o.k === 'all' ? undefined : ECO_KIND_META[o.k].tip}>{o.l}</button>
+                ))}
+              </div></>}
               <div className="mn-over">Ordenar por</div>
               <div className="toggle-group">
                 {SORT_OPTIONS.map((o) => {
@@ -1685,7 +1725,7 @@ function MentionsScreen({ onMentionClick }) {
                   );
                 })}
               </div>
-              {activeMore > 0 && <button className="chip" onClick={() => setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' }))}>Limpiar filtros</button>}
+              {activeMore > 0 && <button className="chip" onClick={() => { setFilters((f) => ({ ...f, topic: '', region: '', sortBy: 'recent' })); setKind('all'); }}>Limpiar filtros</button>}
             </div>
           )}
         </div>
@@ -1717,6 +1757,12 @@ function MentionsScreen({ onMentionClick }) {
       <div ref={panelsRef} className="mn-two">
         <div className="card">
           <div className="card-hd"><div><div className="card-hd-title">Menciones</div><div className="card-hd-sub">{loading ? 'Cargando…' : error ? 'Error de conexión' : data.total === 0 ? 'Sin resultados' : `Página ${page} de ${totalPages} · ${window.ecoFmtCount(data.total)} en total`}</div></div></div>
+          {apiV2 && (
+            <div className="eco-pert-bar">
+              <PertinenceToggle includeLow={includeLow} onChange={setIncludeLow} total={data.total} universeTotal={data.universeTotal}
+                label={data.universe && data.universe.label ? data.universe.label : null} />
+            </div>
+          )}
           {!loading && error && <div className="mn-empty" style={{ color: 'var(--neg)' }}>No se pudieron cargar las menciones. <button className="chip" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</button></div>}
           {!loading && !error && data.mentions.length === 0 && <div className="mn-empty">No se encontraron menciones con los filtros actuales.</div>}
           {!error && data.mentions.length > 0 && (
@@ -1874,9 +1920,11 @@ function MentionsList({ mentions, onMentionClick, highlight }) {
               <div style={{ overflow: 'hidden' }}>
                 <div style={{ color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><HL text={mn.title} terms={highlight} /></div>
                 <div style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.author} · {mn.domain}</div>
+                <MentionTags m={mn} />
+                <MentionParent m={mn} inline />
               </div>
             </div>
-            <span className={`pill ${sc}`} style={{ justifySelf: 'start' }}>{mn.sentiment}</span>
+            <span className={`pill ${sc}`} style={{ justifySelf: 'start' }} title={ecoSentTip(mn.sentiment)}>{mn.sentiment}</span>
             <span title={mn.topicName || mn.topic || undefined} style={{ color: 'var(--text-2)', fontSize: 'var(--fs-overline)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mn.topicName || mn.topic || '—'}</span>
             <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{mn.publishedAt}</span>
             <Icons.ChevronRight size={14} color="var(--text-3)" />
@@ -1910,8 +1958,10 @@ function MentionsCards({ mentions, onMentionClick, highlight }) {
               <SIcon size={12} /> {mn.domain}
               <span>·</span>
               <span>{mn.publishedAt}</span>
-              <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`}>{mn.sentiment}</span>
+              <span style={{ marginLeft: 'auto' }} className={`pill ${sc}`} title={ecoSentTip(mn.sentiment)}>{mn.sentiment}</span>
             </div>
+            <MentionTags m={mn} />
+            <MentionParent m={mn} inline />
             <div style={{ fontSize: 'var(--fs-body-sm)', fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.title} terms={highlight} /></div>
             {mn.snippet && <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-2)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}><HL text={mn.snippet} terms={highlight} /></div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: 'var(--fs-overline)', color: 'var(--text-3)', paddingTop: 8, borderTop: '1px solid var(--hairline)' }}>
@@ -1947,10 +1997,10 @@ function MentionsTable({ mentions, onMentionClick, highlight }) {
             return (
               <tr key={mn.id} onClick={() => onMentionClick(mn)} className="row-hover" style={{ borderBottom: '1px solid var(--hairline)', cursor: 'pointer' }}>
                 <td style={{ padding: '8px 10px' }}><SIcon size={12} color="var(--text-3)" /></td>
-                <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}><HL text={mn.title} terms={highlight} /></td>
+                <td style={{ padding: '8px 10px', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}><HL text={mn.title} terms={highlight} /> <MentionTags m={mn} /></td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{mn.author || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.domain}</td>
-                <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`}>{mn.sentiment}</span></td>
+                <td style={{ padding: '8px 10px' }}><span className={`pill ${sc}`} title={ecoSentTip(mn.sentiment)}>{mn.sentiment}</span></td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{mn.topicName || mn.topic || '—'}</td>
                 <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>
                   {(mn.subtopics && mn.subtopics.length > 0) ? (
@@ -2287,10 +2337,40 @@ function StToneBar({ breakdown, onPick }) {
       </div>
       <div className="st-tone-l">
         {segs.map(([k, l]) => (
-          <button key={k} className="st-tone-b" onClick={() => onPick(k)} title={`Ver las menciones ${l}`}>
+          <button key={k} className="st-tone-b" onClick={() => onPick(k)} title={`${ecoSentTip(k) ? ecoSentTip(k) + ' ' : ''}Clic para ver las menciones ${l}.`}>
             <StDot tone={k} /><b className="num">{fmt(by[k] || 0)}</b> {l}<span className="num st-muted">{n ? Math.round(((by[k] || 0) / n) * 100) : 0}%</span>
           </button>
         ))}
+      </div>
+      {/* WP-9b: qué significa «negativo» con la rúbrica nueva. Solo si la agencia
+          ya corre con ella: antes de eso el sentimiento sigue siendo el tono. */}
+      {ecoInterpActive() && (
+        <div className="st-note">Negativo es <b>postura crítica hacia la agencia</b> (su contenido, programas o gestión). Un <b>hecho adverso</b> —un escándalo, una queja de servicio— se marca aparte en cada mención y alimenta el riesgo de crisis, no el NSS.</div>
+      )}
+    </div>
+  );
+}
+
+// Composición de la conversación (WP-9b): qué parte del volumen son comentarios
+// de usuarios y cómo cambió cada cifra contra el periodo previo, con base
+// mínima (sin porcentaje cuando el periodo previo tuvo muy pocas menciones).
+function StComposition({ comp, onPick }) {
+  const cur = comp && comp.commentShare && comp.commentShare.current;
+  if (!cur || !(cur.total > 0)) return null;
+  const bd = comp.deltas || {};
+  const rows = [['Menciones', bd.total, 'volume'], ['Positivas', bd.positive, 'positiveCount'], ['Neutrales', bd.neutral, 'volume'], ['Negativas', bd.negative, 'negativeCount']];
+  const low = rows.some(([, d]) => d && d.pct == null && d.prev > 0);
+  return (
+    <div className="card">
+      <div className="card-hd"><div><div className="card-hd-title">Composición de la conversación</div><div className="card-hd-sub">de qué está hecho el volumen · y cuánto cambió contra el periodo previo</div></div></div>
+      <div className="card-bd">
+        <CompositionBar composition={comp} onPick={onPick} />
+        <div className="eco-deltas">
+          {rows.map(([l, d, key]) => d && (
+            <div key={l}><span className="eco-deltas-k">{l}</span><b className="num">{fmt(d.cur)}</b><BaseDeltaBadge bd={d} metricKey={key} /><span className="eco-deltas-p num">antes {fmt(d.prev)}</span></div>
+          ))}
+        </div>
+        {low && <div className="st-note">Cuando el periodo previo tiene menos de {(bd.total && bd.total.minBase) || 30} menciones no se muestra porcentaje (un cambio de 3 a 40 no es «+1.200 %»): se muestra solo la diferencia.</div>}
       </div>
     </div>
   );
@@ -2478,6 +2558,17 @@ function SentimentScreen({ onMentionClick, period, agency }) {
     label: r[activeGroup.itemKey] || r.source || r.topic || r.subtopic || r.region || '—',
   }));
 
+  // Clic en un tramo de la barra de composición: la lista de esa parte del volumen.
+  function openCompositionSlice(kinds, label) {
+    setSlice({
+      eyebrow: 'Composición',
+      title: label,
+      accent: 'var(--text-2)',
+      mentions: [],
+      _filter: { ...ecoDataWindow(), mentionKind: kinds },
+    });
+  }
+
   function openNssInsight() {
     if (m.nss == null) return;
     openMetricInsightShared(setSlice, {
@@ -2653,6 +2744,8 @@ function SentimentScreen({ onMentionClick, period, agency }) {
         </div>
       </div>
 
+      <StComposition comp={D.COMPOSITION} onPick={openCompositionSlice} />
+
       <StShift an={an} periodKey={(D.PERIOD && D.PERIOD.key) || period} />
 
       <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0, 1.5fr) minmax(0, 1fr)', '1fr'), gap: 'var(--sp-3)', alignItems: 'start' }}>
@@ -2736,9 +2829,9 @@ function SentimentScreen({ onMentionClick, period, agency }) {
                     alineación. --fs-caption y no --fs-overline: son cifras de
                     lectura, no un eyebrow en mayúsculas (tokens.css:63). */}
                 <div style={{ display: 'flex', gap: 'var(--sp-3)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)', marginTop: 'var(--sp-1)' }}>
-                  <span><span className="num" style={{ color: 'var(--pos)', fontWeight: 600 }}>{pos}%</span> pos</span>
-                  <span><span className="num" style={{ fontWeight: 600 }}>{neu}%</span> neu</span>
-                  <span><span className="num" style={{ color: 'var(--neg)', fontWeight: 600 }}>{neg}%</span> neg</span>
+                  <span title={ecoSentTip('positivo')}><span className="num" style={{ color: 'var(--pos)', fontWeight: 600 }}>{pos}%</span> pos</span>
+                  <span title={ecoSentTip('neutral')}><span className="num" style={{ fontWeight: 600 }}>{neu}%</span> neu</span>
+                  <span title={ecoSentTip('negativo')}><span className="num" style={{ color: 'var(--neg)', fontWeight: 600 }}>{neg}%</span> neg</span>
                 </div>
               </button>
             );
@@ -5192,6 +5285,8 @@ function SettingsScreen() {
     { k: 'usuarios', l: 'Usuarios y roles', icon: 'Users', cap: 'manage_users', render: () => <UsersAdmin /> },
     { k: 'plantillas', l: 'Plantillas de correo', icon: 'Mail', cap: 'manage_templates', render: () => <TemplatesAdmin /> },
     { k: 'importar', l: 'Importar menciones', icon: 'Upload', cap: 'import_mentions', render: () => <ImportsAdmin /> },
+    // WP-9b: panel de calidad (spec 11.7). Solo administración, igual que Usuarios.
+    { k: 'calidad', l: 'Calidad de datos', icon: 'Activity', cap: 'manage_users', render: () => <QualityAdmin /> },
   ];
   const sections = allSections.filter((s) => has(s.cap));
   const [section, setSection] = useState(sections[0] ? sections[0].k : null);
@@ -5226,6 +5321,107 @@ function SettingsScreen() {
         })}
       </div>
       <div style={{ minWidth: 0 }}>{current ? current.render() : null}</div>
+    </div>
+  );
+}
+
+// --- Panel de calidad (Configuración → Calidad de datos) — spec interpretación v1, 11.7 ---
+// Lo que la interpretación deja medido, por agencia y ventana. Lo sirve
+// /api/admin/quality (sesión + manage_users, la misma capacidad que muestra esta
+// sección); /api/admin/diagnostics (secreto del cron, sin pantalla) sigue siendo
+// el reporte técnico de la ingesta. Cada bloque son filas `{ label, value,
+// detail? }`: `null` = no se pudo medir; `[]` = se midió y no hay nada.
+const QUALITY_BLOCKS = [
+  { k: 'nullPertinence', t: 'Pertinencia de las menciones', d: 'Cuántas menciones del periodo son de pertinencia alta, media, baja o están pendientes. Las pendientes quedan fuera del universo estricto.', empty: 'No hay menciones en el periodo.' },
+  { k: 'promptVersions', t: 'Versión de la rúbrica (nlp_prompt_version)', d: 'Cuántas menciones ya tienen la rúbrica nueva y cuántas la anterior.', empty: 'No hay menciones en el periodo.' },
+  { k: 'parentResolution', t: 'Resolución de padres', d: 'Comentarios cuya publicación original está guardada en la mención, por plataforma. El feed también la busca al leer.', empty: 'No hay comentarios en el periodo.' },
+  { k: 'fullTextCoverage', t: 'Cobertura de texto completo', d: 'Notas de prensa, blogs y foros con el cuerpo completo del artículo.', empty: 'No hay notas de prensa en el periodo.' },
+  { k: 'qaDefects', t: 'Defectos detectados por QA', d: 'Afirmaciones con defecto que el agente y el código encontraron antes de cada envío.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
+  { k: 'safetyNet', t: 'Frases removidas por la red de seguridad', d: 'Frases que el lint final eliminó por no poder verificarse; el correo sale sin ellas.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
+  { k: 'composerArchive', t: 'Archivo de la composición de cada envío', d: 'Versión del motor y asunto de los últimos envíos archivados.', empty: 'Ningún envío archivado todavía: el motor de redacción nuevo aún no guarda su composición.' },
+];
+function QualityBlock({ b, rows, loading }) {
+  const has = Array.isArray(rows) && rows.length > 0;
+  return (
+    <div className="card eco-q-block">
+      <div className="card-hd"><div><div className="card-hd-title">{b.t}</div><div className="card-hd-sub">{b.d}</div></div></div>
+      <div className="card-bd">
+        {has ? (
+          <div className="eco-q-rows">
+            {rows.map((r, i) => (
+              <div key={`${r.label}-${i}`} className="eco-q-row"><span>{r.label}</span><b className="num">{typeof r.value === 'number' ? r.value.toLocaleString('es-PR') : r.value}</b>{r.detail && <small>{r.detail}</small>}</div>
+            ))}
+          </div>
+        ) : loading ? (
+          <div className="eco-q-empty"><b>Midiendo…</b></div>
+        ) : rows === null || rows === undefined ? (
+          <div className="eco-q-empty"><b>No se pudo medir</b><span>La consulta de este bloque falló; el resto del panel sigue siendo válido.</span></div>
+        ) : (
+          <div className="eco-q-empty"><b>Sin datos en el periodo</b><span>{b.empty}</span></div>
+        )}
+      </div>
+    </div>
+  );
+}
+function QualityAdmin() {
+  const comp = D.COMPOSITION;
+  const cs = comp && comp.commentShare;
+  const bk = comp && comp.byKind;
+  const kc = bk && bk.current && bk.current.total > 0 ? bk.current : null;
+  const kp = bk && bk.previous && bk.previous.total > 0 ? bk.previous : null;
+  // Comentarios y total: los mismos que la barra de composición (por tipo) si existen.
+  const cur = kc ? { total: kc.total, comments: kc.comment, pct: (kc.comment / kc.total) * 100 } : (cs && cs.current);
+  const prev = kc ? (kp ? { total: kp.total, comments: kp.comment, pct: (kp.comment / kp.total) * 100 } : null) : (cs && cs.previous);
+  const win = ecoDataWindow();
+  const agencyKey = localStorage.getItem('eco.agency') || D.USER_AGENCY_SLUG || '';
+  const agencyName = ((D.AGENCIES_FULL || []).find((a) => a && a.key === agencyKey) || {}).name || agencyKey.toUpperCase();
+  const pct = (v) => `${Number(v).toLocaleString('es-PR', { maximumFractionDigits: 1 })}%`;
+  const [q, setQ] = useState({ phase: 'loading', data: null });
+  useEffect(() => {
+    let cancelled = false;
+    setQ({ phase: 'loading', data: null });
+    const params = new URLSearchParams();
+    if (win.from && win.to) { params.set('from', win.from); params.set('to', win.to); }
+    if (agencyKey) params.set('agency', agencyKey);
+    ecoFetchAuthed('/api/admin/quality?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((d) => { if (!cancelled) setQ({ phase: 'ready', data: d }); })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e && e.code === 401) { ecoBounceToSignIn(); return; }
+        setQ({ phase: 'error', data: null, code: e && e.code });
+      });
+    return () => { cancelled = true; };
+  }, [agencyKey, win.from, win.to]);
+  const blocks = (q.data && q.data.blocks) || {};
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)', minWidth: 0 }}>
+      <div>
+        <h2 className="eco-q-h">Calidad de datos</h2>
+        <div className="eco-q-sub">Cómo está saliendo la interpretación de {agencyName || 'la agencia activa'}: qué universo se cuenta, qué parte son comentarios y qué dejó medido cada bloque.</div>
+      </div>
+      <div className="card">
+        <div className="card-hd"><div><div className="card-hd-title">Universo y composición</div><div className="card-hd-sub">{win.from && win.to ? `${win.from} – ${win.to} · ` : ''}la ventana y el universo de los gráficos de esta agencia</div></div></div>
+        <div className="card-bd">
+          {!comp || !cur ? (
+            <div className="eco-q-empty"><b>Sin datos en el periodo</b><span>El servidor no mandó la composición del periodo.</span></div>
+          ) : (
+            <div className="eco-q-grid">
+              <div><span className="eco-q-k">Universo</span><b>{comp.universe ? comp.universe.label : '—'}</b><small>{comp.universe && comp.universe.strict ? 'Universo estricto: alta o media; las pendientes quedan fuera.' : 'Universo histórico: todo salvo pertinencia baja (las pendientes cuentan).'}</small></div>
+              <div><span className="eco-q-k">Menciones en el universo</span><b className="num">{Number(cur.total).toLocaleString('es-PR')}</b><small>{prev ? `${Number(prev.total).toLocaleString('es-PR')} en el periodo previo` : ''}</small></div>
+              <div><span className="eco-q-k">Comentarios de usuarios</span><b className="num">{Number(cur.comments).toLocaleString('es-PR')} · {pct(cur.pct)}</b><small>{prev && prev.total > 0 ? `${pct(prev.pct)} en el periodo previo` : 'sin periodo previo'}</small></div>
+              <div><span className="eco-q-k">Rúbrica de sentimiento</span><b>{ecoInterpActive() ? 'Postura hacia la agencia' : 'Tono (rúbrica anterior)'}</b><small>{ecoInterpActive() ? 'Negativo = postura crítica; el hecho adverso va aparte.' : 'Aún no se aplica la rúbrica nueva a esta agencia.'}</small></div>
+            </div>
+          )}
+        </div>
+      </div>
+      {q.phase === 'error' && (
+        <div className="card"><div className="card-bd"><div className="eco-q-empty"><b>No se pudo cargar la calidad de datos</b><span>{q.code === 403 ? 'Tu rol no tiene acceso a este panel.' : 'Error de conexión: vuelve a abrir esta sección en unos minutos.'}</span></div></div></div>
+      )}
+      {q.phase !== 'error' && (
+        <div className="eco-q-blocks">
+          {QUALITY_BLOCKS.map((b) => <QualityBlock key={b.k} b={b} rows={blocks[b.k]} loading={q.phase === 'loading'} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -6307,6 +6503,18 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     });
   }
 
+  // Clic en un tramo de la barra de composición: la lista de esa parte del volumen
+  // (misma ventana y universo del termómetro).
+  function openCompositionSlice(kinds, label) {
+    setSlice({
+      eyebrow: 'Composición',
+      title: label,
+      accent: 'var(--text-2)',
+      mentions: [],
+      _filter: { from: data.periodStart, to: data.periodEnd, mentionKind: kinds },
+    });
+  }
+
   // Click en un día de la tendencia: el modal con las menciones de ESE día
   // (day = YYYY-MM-DD en TZ PR, lo interpreta /api/eco-mentions).
   function openDaySlice(d) {
@@ -6375,7 +6583,8 @@ function OverviewScreen({ period, agency, onMentionClick }) {
     // Overview (tokens.css).
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-section)' }}>
       <OverviewHero data={data} />
-      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice} />
+      <OverviewTermometro totals={data.totals} deltas={data.deltaVsPrev} onSliceClick={openSentimentSlice}
+        composition={data.composition} onCompPick={openCompositionSlice} />
       <OverviewHighlights metrics={data.currentMetrics} crisis={data.crisis} onOpenInsight={openMetricInsight} />
       <OverviewResumen insights={insights} pieces={pieces} onMentionClick={onMentionClick} />
       <OverviewTendencia
@@ -6456,16 +6665,18 @@ function OverviewHero({ data }) {
   );
 }
 
-function OverviewTermometro({ totals, deltas, onSliceClick }) {
+function OverviewTermometro({ totals, deltas, onSliceClick, composition, onCompPick }) {
   // Defensa contra payload incompleto: sin `totals` la tarjeta se dibuja en
   // cero en vez de tumbar la pantalla al error boundary.
   const T = totals || {};
   const D = deltas || {};
+  // WP-9b: deltas con base mínima (composition.deltas). Sin ellos, el delta de siempre.
+  const bdelta = (composition && composition.deltas) || {};
   const t = T.total || 1;
   const cards = [
-    { name: 'Negativo', sentKey: 'negativo', value: T.negative, delta: D.negative, accent: 'var(--neg)', deltaMetric: 'negativeCount' },
-    { name: 'Neutral',  sentKey: 'neutral',  value: T.neutral,  delta: D.neutral,  accent: 'var(--neu)', invert: false },
-    { name: 'Positivo', sentKey: 'positivo', value: T.positive, delta: D.positive, accent: 'var(--pos)', deltaMetric: 'positiveCount' },
+    { name: 'Negativo', sentKey: 'negativo', value: T.negative, delta: D.negative, accent: 'var(--neg)', deltaMetric: 'negativeCount', bd: bdelta.negative },
+    { name: 'Neutral',  sentKey: 'neutral',  value: T.neutral,  delta: D.neutral,  accent: 'var(--neu)', invert: false, bd: bdelta.neutral },
+    { name: 'Positivo', sentKey: 'positivo', value: T.positive, delta: D.positive, accent: 'var(--pos)', deltaMetric: 'positiveCount', bd: bdelta.positive },
   ];
   const share = (v) => (T.total > 0 ? ((v || 0) / t) * 100 : 0);
   return (
@@ -6479,6 +6690,7 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
             <button key={c.name}
               onClick={() => onSliceClick && onSliceClick(c.sentKey, c.value)}
               className="card row-hover"
+              title={ecoSentTip(c.sentKey, composition)}
               style={{
                 padding: 'var(--sp-4)', textAlign: 'left',
                 cursor: 'pointer', border: '1px solid var(--hairline)',
@@ -6496,7 +6708,7 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
                 <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>{pct}%</div>
               </div>
               <div style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-                <DeltaBadge value={c.delta} metricKey={c.deltaMetric || 'volume'} />
+                {c.bd ? <BaseDeltaBadge bd={c.bd} metricKey={c.deltaMetric || 'volume'} /> : <DeltaBadge value={c.delta} metricKey={c.deltaMetric || 'volume'} />}
               </div>
             </button>
           );
@@ -6511,6 +6723,15 @@ function OverviewTermometro({ totals, deltas, onSliceClick }) {
           <span style={{ width: `${share(T.negative)}%`, background: 'var(--neg)' }} />
           <span style={{ width: `${share(T.neutral)}%`, background: 'var(--neu)' }} />
           <span style={{ flex: 1, background: 'var(--pos)' }} />
+        </div>
+      )}
+      {/* WP-9b: cuánto del volumen son comentarios de usuarios. */}
+      {composition && composition.commentShare && composition.commentShare.current.total > 0 && (
+        <div style={{ marginTop: 'var(--sp-4)' }}>
+          <CompositionBar composition={composition} onPick={onCompPick} />
+          {ecoInterpActive(composition) && (
+            <div className="eco-comp-note">Negativo es postura crítica hacia la agencia; un hecho adverso se marca aparte.</div>
+          )}
         </div>
       )}
     </div>

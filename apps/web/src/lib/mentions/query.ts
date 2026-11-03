@@ -15,9 +15,12 @@ import {
   mentionTopics,
   mentionMunicipalities,
 } from '@eco/database';
-import { sourceKey, sourceMatchTerms, PERIOD_DAYS } from '@eco/shared';
+import { sourceKey, sourceMatchTerms, PERIOD_DAYS, pertinentUniverseSql, universeFilterSql, type UniverseOptions } from '@eco/shared';
 import { log } from '@/lib/log';
 import { classifyVoice } from '@/lib/scorecard/voices';
+import { universeOptsForAgencyId, universeLabel } from './universe-config';
+import { deriveMentionKind, mentionKindExprSql, MENTION_KINDS, type MentionKind, type MentionKindAgency } from './kind';
+import { loadParents, NO_PARENT, type ParentFields } from './parents';
 
 type Db = ReturnType<typeof getDb>;
 
@@ -29,9 +32,53 @@ export interface MentionsQueryResult {
     sentiment: { pos: number; neu: number; neg: number };
     similar?: true;
     error?: string;
+    /**
+     * WP-9a (aditivo): qué universo cuenta la LISTA. `includeLow` y `pertinence`
+     * solo cambian la lista; `universeTotal` es el total del universo (sin
+     * pertinencia baja) con los mismos filtros, para que el front rotule
+     * «sin pertinencia baja» / «todas las pertinencias» sin tocar ninguna cifra
+     * de gráfico.
+     */
+    universe?: { strict: boolean; label: string; includeLow: boolean; pertinence: string | null };
+    universeTotal?: number;
+    /**
+     * La agencia ya tiene menciones evaluadas por la rúbrica v2 (hecho adverso
+     * no nulo). El front ofrece el chip/filtro «con hecho adverso» solo si es
+     * true: con la rúbrica apagada el filtro siempre daría una lista vacía.
+     */
+    adverseAvailable?: boolean;
   };
   /** Si la respuesta lleva `Cache-Control: no-store` (las de error y la de parecidas sin resultados no). */
   noStore: boolean;
+}
+
+/**
+ * ¿La agencia ya tiene menciones evaluadas por la rúbrica v2 (`nlp_adverse_fact`
+ * no nulo)? Sin eso el filtro «con hecho adverso» devolvería siempre una lista
+ * vacía (NULL nunca cuenta como adverso), así que el front solo lo ofrece cuando
+ * esto es true. Una consulta de existencia por agencia, con caché de 5 minutos
+ * (encender la rúbrica en una agencia hace aparecer el control sin redeploy).
+ */
+const ADVERSE_TTL_MS = 5 * 60_000;
+const adverseCache = new Map<string, { at: number; v: boolean }>();
+export function clearAdverseCache(): void { adverseCache.clear(); }
+async function hasAdverseEvaluations(db: Db, agencyId: string): Promise<boolean> {
+  const hit = adverseCache.get(agencyId);
+  if (hit && Date.now() - hit.at < ADVERSE_TTL_MS) return hit.v;
+  let v = false;
+  try {
+    const r = await db
+      .select({ one: sql<number>`1` })
+      .from(mentions)
+      .where(and(eq(mentions.agencyId, agencyId), sql`${mentions.nlpAdverseFact} IS NOT NULL`))
+      .limit(1);
+    v = r.length > 0;
+  } catch {
+    // El control es opcional: ante un fallo no se ofrece (y no se guarda en caché).
+    return false;
+  }
+  adverseCache.set(agencyId, { at: Date.now(), v });
+  return v;
 }
 
 function bad400(error: string): MentionsQueryResult {
@@ -122,6 +169,66 @@ function relativeTime(d: Date): string {
   return `hace ${day} d`;
 }
 
+/** Campos aditivos de WP-9a que lleva cada mención del feed (tipo, post padre, hecho adverso). */
+export interface MentionExtras extends ParentFields {
+  mentionKind: MentionKind;
+  /** true = tipo derivado de los datos crudos (la columna aún no está poblada). */
+  mentionKindDerived: boolean;
+  /** Hecho adverso (rúbrica v2); null = no evaluado. */
+  adverseFact: boolean | null;
+}
+
+interface ExtrasRow {
+  id: string;
+  url: string | null;
+  bwGuid: string | null;
+  pubType: string | null;
+  pageType: string;
+  author: string | null;
+  publishedAt: Date;
+  mentionKind: MentionKind | null;
+  parentMentionId: string | null;
+  nlpAdverseFact: boolean | null;
+}
+
+/**
+ * Tipo, post padre y hecho adverso de las filas de UNA página del feed. El tipo
+ * sale de la columna `mention_kind` si está poblada; si no, se deriva con la
+ * lógica del lambda (kind.ts) — solo para las filas devueltas.
+ */
+export async function mentionExtras(
+  db: Db,
+  agencyId: string,
+  ag: { slug: string; name: string | null } | null,
+  rows: ExtrasRow[],
+): Promise<Map<string, MentionExtras>> {
+  const agency: MentionKindAgency | null = ag ? { slug: ag.slug, name: ag.name ?? '' } : null;
+  const withKind = rows.map((m) => ({
+    id: m.id,
+    kind: (m.mentionKind ?? deriveMentionKind({ url: m.url, guid: m.bwGuid, pubType: m.pubType, pageType: m.pageType, author: m.author }, agency)) as MentionKind,
+    derived: !m.mentionKind,
+    row: m,
+  }));
+  const parents = await loadParents(
+    db,
+    agencyId,
+    withKind.map((w) => ({
+      id: w.id, kind: w.kind, publishedAt: new Date(w.row.publishedAt), parentMentionId: w.row.parentMentionId,
+      url: w.row.url, guid: w.row.bwGuid, pubType: w.row.pubType, pageType: w.row.pageType, author: w.row.author,
+    })),
+  );
+  const out = new Map<string, MentionExtras>();
+  for (const w of withKind) {
+    out.set(w.id, {
+      mentionKind: w.kind,
+      mentionKindDerived: w.derived,
+      adverseFact: w.row.nlpAdverseFact ?? null,
+      ...(parents.get(w.id) ?? NO_PARENT),
+    });
+  }
+  return out;
+}
+
 /**
  * GET /api/eco-mentions
  * Query params (all optional):
@@ -139,7 +246,10 @@ function relativeTime(d: Date): string {
  *   hour — hour 0..23
  *   day — YYYY-MM-DD (día calendario AST; REEMPLAZA la ventana del período)
  *   pertinence — alta | media | baja (explicit; bypasses default exclude-low)
- *   includeLow — '1'/'true' to keep baja pertinencia in results (default excludes)
+ *   includeLow — '1'/'true' to keep baja pertinencia in results (default excludes).
+ *                Solo afecta la LISTA (y su total); nunca las cifras de los gráficos.
+ *   mentionKind — article | agency_post | comment | third_party_post (varios, separados por coma)
+ *   adverseFact — '1'/'true': solo menciones con hecho adverso; '0'/'false': sin hecho adverso
  *   minEngagement — number; keeps mentions con engagement_score >= N (viral filter)
  *   q — full-text search in title/snippet (multi-token AND)
  *   sortBy — recent (default) | engagement | relevance (relevance solo aplica con q)
@@ -156,6 +266,8 @@ export async function queryMentions(
 ): Promise<MentionsQueryResult> {
   const { agencyId } = ctx;
   const start = Date.now();
+  // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+  const uopts = await universeOptsForAgencyId(agencyId);
   const periodKey = searchParams.get('period') ?? '1M';
   const customRange = parseCustomRange(searchParams.get('from'), searchParams.get('to'));
   const days = PERIOD_DAYS[periodKey] ?? 30;
@@ -175,7 +287,7 @@ export async function queryMentions(
   // (el drawer lo promete: shell.js MentionDrawer, «respeta la ventana»).
   const similarTo = searchParams.get('similar_to');
   if (similarTo && /^[0-9a-f-]{36}$/i.test(similarTo)) {
-    return await handleSimilarTo(db, similarTo, agencyId, limit, customRange);
+    return await handleSimilarTo(db, similarTo, agencyId, limit, customRange, uopts);
   }
 
   // `day=YYYY-MM-DD` acota a ese día calendario AST y REEMPLAZA la ventana
@@ -215,12 +327,56 @@ export async function queryMentions(
 
   // Default: excluye 'baja' pertinencia. Si el caller pasa `pertinence` explícito
   // o `includeLow=1`, no aplica el filtro (compat con drawer y slices de debug).
+  //
+  // WP-9a: con `strictUniverse` (alta/media; NULL fuera, P1) la condición sale de
+  // universe.ts. `includeLow` y `pertinence` solo cambian la LISTA: el total del
+  // universo se calcula aparte (`universeTotal`) para rotularlo.
   const pertinence = searchParams.get('pertinence');
   const includeLow = searchParams.get('includeLow');
+  const includeLowOn = !!includeLow && (includeLow === '1' || includeLow.toLowerCase() === 'true');
+  let pertCond: any = null;
   if (pertinence) {
-    conditions.push(eq(mentions.nlpPertinence, pertinence));
-  } else if (!includeLow || (includeLow !== '1' && includeLow.toLowerCase() !== 'true')) {
-    conditions.push(sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')` as any);
+    pertCond = eq(mentions.nlpPertinence, pertinence);
+  } else if (!includeLowOn) {
+    pertCond = uopts.strictUniverse
+      ? sql.raw(pertinentUniverseSql('mentions.'))
+      : sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`;
+  } else if (uopts.strictUniverse) {
+    pertCond = sql.raw(universeFilterSql({ ...uopts, includeLowPertinence: true }, 'mentions.').replace(/^AND /, ''));
+  }
+  if (pertCond) conditions.push(pertCond as any);
+
+  // Agencia (slug y nombre): la usan el filtro de tipo, la derivación del tipo y
+  // la voz de cada mención. Se consulta UNA vez y solo cuando hace falta.
+  let agCache: { slug: string; name: string | null } | null | undefined;
+  const getAgency = async () => {
+    if (agCache === undefined) {
+      const [r] = await db.select({ slug: agencies.slug, name: agencies.name }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
+      agCache = r ?? null;
+    }
+    return agCache;
+  };
+
+  // adverseFact (spec 6.2/11.5): chip y filtro «con hecho adverso». NULL = no
+  // evaluado por la rúbrica v2: nunca cuenta como hecho adverso.
+  const adverseParam = searchParams.get('adverseFact');
+  if (adverseParam === '1' || adverseParam?.toLowerCase() === 'true') {
+    conditions.push(sql`${mentions.nlpAdverseFact} IS TRUE` as any);
+  } else if (adverseParam === '0' || adverseParam?.toLowerCase() === 'false') {
+    conditions.push(sql`${mentions.nlpAdverseFact} IS NOT TRUE` as any);
+  }
+
+  // mentionKind (spec 5.1/11.5): columna si está poblada; si no, derivada con la
+  // lógica del lambda (kind.ts). Solo se evalúa sobre filas ya acotadas por agencia y ventana.
+  const kindParam = searchParams.get('mentionKind');
+  if (kindParam) {
+    const wanted = kindParam.split(',').map((k) => k.trim()).filter(Boolean);
+    if (wanted.length === 0 || wanted.some((k) => !(MENTION_KINDS as readonly string[]).includes(k))) {
+      return bad400('invalid mentionKind');
+    }
+    const ag = await getAgency();
+    const expr = mentionKindExprSql(ag ? { slug: ag.slug, name: ag.name ?? '' } : null);
+    conditions.push(sql`${expr} IN (${sql.join(wanted.map((k) => sql`${k}`), sql`, `)})` as any);
   }
 
   // minEngagement: usado por la card "Virales" del MentionsScreen.
@@ -364,6 +520,21 @@ export async function queryMentions(
     .from(mentions)
     .where(whereClause);
 
+  // Total del UNIVERSO con los mismos filtros pero sin el de pertinencia de la
+  // lista: lo que el toggle «incluir pertinencia baja» NUNCA altera. Solo se
+  // consulta cuando la lista difiere del universo (includeLow o `pertinence`).
+  let universeTotal = Number(total);
+  if (includeLowOn || pertinence) {
+    const universeCond = uopts.strictUniverse
+      ? sql.raw(pertinentUniverseSql('mentions.'))
+      : sql`(${mentions.nlpPertinence} IS NULL OR ${mentions.nlpPertinence} <> 'baja')`;
+    const [u] = await db
+      .select({ total: sql<number>`COUNT(*)`.mapWith(Number) })
+      .from(mentions)
+      .where(and(...conditions.filter((c) => c !== pertCond), universeCond as any));
+    universeTotal = Number(u?.total ?? 0);
+  }
+
   // Sentiment breakdown for the slice — sentimiento efectivo (COALESCE nlp/bw)
   // para que el desglose del header cuadre con la card y con el filtro.
   const sentAgg = await db
@@ -425,6 +596,12 @@ export async function queryMentions(
       mediaUrls: mentions.mediaUrls,
       authorAvatarUrl: mentions.authorAvatarUrl,
       resolvedImageUrl: mentions.resolvedImageUrl,
+      // WP-9a: tipo, post padre y hecho adverso (spec 5.1, 7, 6.2).
+      bwGuid: mentions.bwGuid,
+      pubType: mentions.pubType,
+      mentionKind: mentions.mentionKind,
+      parentMentionId: mentions.parentMentionId,
+      nlpAdverseFact: mentions.nlpAdverseFact,
     })
     .from(mentions)
     .where(whereClause)
@@ -489,7 +666,8 @@ export async function queryMentions(
 
   // Quién publica cada mención (la agencia, prensa, gobierno y política,
   // ciudadanía): la misma clasificación que «Quién habló» del Scorecard.
-  const [ag] = await db.select({ slug: agencies.slug, name: agencies.name }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
+  const ag = await getAgency();
+  const extras = await mentionExtras(db, agencyId, ag, rows);
   const out = rows.map((m) => {
     const tp = topicByMention.get(m.id);
     const mu = muniByMention.get(m.id);
@@ -526,13 +704,23 @@ export async function queryMentions(
       summary: m.nlpSummary ?? null,
       image: m.resolvedImageUrl ?? m.mediaUrls?.[0] ?? null,
       avatar: m.authorAvatarUrl ?? null,
+      ...extras.get(m.id),
     };
   });
+
+  const adverseAvailable = await hasAdverseEvaluations(db, agencyId);
 
   log.info('eco-mentions', 'request complete', { latencyMs: Date.now() - start, total: Number(total) });
   return {
     status: 200,
-    body: { mentions: out, total: Number(total), sentiment: sentCounts },
+    body: {
+      mentions: out,
+      total: Number(total),
+      sentiment: sentCounts,
+      universe: { strict: !!uopts.strictUniverse, label: universeLabel(uopts, includeLowOn), includeLow: includeLowOn, pertinence: pertinence ?? null },
+      universeTotal,
+      adverseAvailable,
+    },
     noStore: true,
   };
 }
@@ -548,13 +736,18 @@ async function handleSimilarTo(
   agencyId: string,
   limit: number,
   range: { sinceUtc: Date; untilExclusiveUtc: Date } | null,
+  uopts?: UniverseOptions,
 ): Promise<MentionsQueryResult> {
   const k = Math.min(20, Math.max(1, limit));
   // Mismo universo que el feed (sin pertinencia baja) y, con from/to, la misma
   // ventana. Antes el drawer de «relacionadas» de una mención de 7D en DF
   // devolvía vecinos de hace 2–3 semanas (QA 2026-10-23, M11). Medido: el
   // planner sigue usando agency/published_at y devuelve los k vecinos completos.
-  const nbrScope = sql`(n.nlp_pertinence IS NULL OR n.nlp_pertinence <> 'baja')${
+  // WP-9a: con `strictUniverse`, alta/media (universe.ts).
+  const pertScope = uopts?.strictUniverse
+    ? sql.raw(pertinentUniverseSql('n.'))
+    : sql`(n.nlp_pertinence IS NULL OR n.nlp_pertinence <> 'baja')`;
+  const nbrScope = sql`${pertScope}${
     range ? sql` AND n.published_at >= ${range.sinceUtc.toISOString()}::timestamptz AND n.published_at < ${range.untilExclusiveUtc.toISOString()}::timestamptz` : sql``
   }`;
 
@@ -662,6 +855,11 @@ async function handleSimilarTo(
       mediaUrls: mentions.mediaUrls,
       authorAvatarUrl: mentions.authorAvatarUrl,
       resolvedImageUrl: mentions.resolvedImageUrl,
+      bwGuid: mentions.bwGuid,
+      pubType: mentions.pubType,
+      mentionKind: mentions.mentionKind,
+      parentMentionId: mentions.parentMentionId,
+      nlpAdverseFact: mentions.nlpAdverseFact,
     })
     .from(mentions)
     .where(inArray(mentions.id, neighborIds));
@@ -721,6 +919,8 @@ async function handleSimilarTo(
     }
   }
 
+  const [simAg] = await db.select({ slug: agencies.slug, name: agencies.name }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
+  const extras = await mentionExtras(db, agencyId, simAg ?? null, ordered);
   const out = ordered.map((m) => {
     const tp = topicByMention.get(m.id);
     const mu = muniByMention.get(m.id);
@@ -751,6 +951,7 @@ async function handleSimilarTo(
       summary: m.nlpSummary ?? null,
       image: m.resolvedImageUrl ?? m.mediaUrls?.[0] ?? null,
       avatar: m.authorAvatarUrl ?? null,
+      ...extras.get(m.id),
     };
   });
   return {

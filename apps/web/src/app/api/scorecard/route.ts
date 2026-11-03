@@ -5,6 +5,7 @@ import { resolveAgencyId } from '@/lib/agency';
 import { requireAuth } from '@/lib/auth/require-admin';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
 import { computeScorecard } from '@/lib/scorecard/payload';
 
 export const dynamic = 'force-dynamic';
@@ -55,9 +56,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(hit.payload, { headers: { 'Cache-Control': 'private, max-age=60' } });
   }
   try {
+    // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+    const uopts = await universeOptsForAgencyId(agencyId);
     let job = inflight.get(key);
     if (!job) {
-      job = computeScorecard(getPool() as unknown as PgClientLike, agencyId, win.startYmd, win.endYmd, win.prevStartYmd, win.prevEndYmd).finally(() => inflight.delete(key));
+      job = computeScorecard(getPool() as unknown as PgClientLike, agencyId, win.startYmd, win.endYmd, win.prevStartYmd, win.prevEndYmd, uopts).finally(() => inflight.delete(key));
       inflight.set(key, job);
     }
     const payload = await job;

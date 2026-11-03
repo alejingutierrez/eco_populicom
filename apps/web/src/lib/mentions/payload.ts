@@ -4,7 +4,7 @@
  * script). Universo: el mismo del feed — sin duplicados y sin pertinencia
  * baja — y la misma ventana que /api/eco-mentions.
  */
-import { sourceKey, type PgClientLike } from '@eco/shared';
+import { sourceKey, universeFilterSql, type PgClientLike, type UniverseOptions } from '@eco/shared';
 import { classifyVoice, type VoiceCat } from '@/lib/scorecard/voices';
 import { stopSurfacesFor } from '@/lib/wordcloud/stopwords';
 import {
@@ -13,26 +13,32 @@ import {
   type AmplifyPayload, type DayRow, type ShiftRow,
 } from './analysis';
 
-const BASE = `m.agency_id = $1::uuid
-   AND m.is_duplicate = false
-   AND (m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`;
+/**
+ * Universo de la agencia (WP-9a): `opts` vacío = histórico (`NULL o <> 'baja'`),
+ * `strictUniverse` = alta/media (universe.ts). Las consultas se arman con una
+ * función para que la bandera llegue hasta aquí; las constantes de abajo son
+ * las de siempre (universo histórico) para quien las importe.
+ */
+const baseFor = (opts?: UniverseOptions) => `m.agency_id = $1::uuid
+   ${universeFilterSql(opts, 'm.')}`;
 
-export const ROWS_SQL = `
+export const rowsSql = (opts?: UniverseOptions) => `
 SELECT m.id::text AS id, m.published_at AS ts, COALESCE(m.nlp_sentiment, m.bw_sentiment) AS s,
        m.author, m.author_fullname, m.domain, m.page_type,
        (COALESCE(m.likes, 0) + COALESCE(m.comments, 0) + COALESCE(m.shares, 0))::int AS inter,
        left(COALESCE(m.title, ''), 300) AS title, left(COALESCE(m.snippet, ''), 600) AS snippet
   FROM mentions m
- WHERE ${BASE}
+ WHERE ${baseFor(opts)}
    AND m.published_at >= $2 AND m.published_at < $3
  ORDER BY m.published_at`;
+export const ROWS_SQL = rowsSql();
 
 // Parejas de la misma historia: embeddings cercanos y a menos de N horas.
-export const PAIRS_SQL = `
+export const pairsSql = (opts?: UniverseOptions) => `
 WITH w AS (
   SELECT m.id, m.published_at, m.embedding
     FROM mentions m
-   WHERE ${BASE}
+   WHERE ${baseFor(opts)}
      AND m.published_at >= $2 AND m.published_at < $3
      AND m.embedding IS NOT NULL
 )
@@ -43,12 +49,14 @@ SELECT a.id::text AS a, b.id::text AS b
           AND (b.published_at > a.published_at OR b.id > a.id)
           AND b.published_at <= a.published_at + ($4::int * INTERVAL '1 hour')
  WHERE (a.embedding <=> b.embedding) <= $5::float8`;
+export const PAIRS_SQL = pairsSql();
 
 // Texto de la ventana previa (mismo largo, inmediatamente antes) para comparar el lenguaje.
-export const PREV_TEXT_SQL = `
+export const prevTextSql = (opts?: UniverseOptions) => `
 SELECT left(COALESCE(m.title, ''), 300) AS title, left(COALESCE(m.snippet, ''), 600) AS snippet
   FROM mentions m
- WHERE ${BASE} AND m.published_at >= $2 AND m.published_at < $3`;
+ WHERE ${baseFor(opts)} AND m.published_at >= $2 AND m.published_at < $3`;
+export const PREV_TEXT_SQL = prevTextSql();
 
 /** Palabras genéricas que no dicen de qué se habla; se suman a las de la nube solo en este análisis. */
 export const SHIFT_EXTRA_STOP = [
@@ -91,13 +99,14 @@ export async function computeMentionsAnalysis(
   agency: { id: string; slug: string; name: string | null },
   since: Date,
   until: Date,
+  opts?: UniverseOptions,
 ): Promise<MentionsAnalysis> {
   const days = Math.max(1, Math.round((until.getTime() - since.getTime()) / 864e5));
   const limited = days > ANALYSIS_MAX_DAYS;
   const fromYmd = astYmd(since), toYmd = astYmd(new Date(until.getTime() - 1));
   const s = since.toISOString(), u = until.toISOString();
 
-  const res = await pool.query<{ id: string; ts: string | Date; s: string | null; author: string | null; author_fullname: string | null; domain: string | null; page_type: string | null; inter: number | string; title: string | null; snippet: string | null }>(ROWS_SQL, [agency.id, s, u]);
+  const res = await pool.query<{ id: string; ts: string | Date; s: string | null; author: string | null; author_fullname: string | null; domain: string | null; page_type: string | null; inter: number | string; title: string | null; snippet: string | null }>(rowsSql(opts), [agency.id, s, u]);
   const points: AnalysisPoint[] = res.rows.map((r) => {
     const v = classifyVoice(r, agency.slug, agency.name);
     const title = (r.title || '').trim(), snippet = (r.snippet || '').trim();
@@ -119,8 +128,8 @@ export async function computeMentionsAnalysis(
 
   const prevSince = new Date(since.getTime() - (until.getTime() - since.getTime())).toISOString();
   const [pairs, prevText] = await Promise.all([
-    pool.query<{ a: string; b: string }>(PAIRS_SQL, [agency.id, s, u, STORY_MAX_HOURS, STORY_MAX_DISTANCE]),
-    pool.query<{ title: string | null; snippet: string | null }>(PREV_TEXT_SQL, [agency.id, prevSince, s]),
+    pool.query<{ a: string; b: string }>(pairsSql(opts), [agency.id, s, u, STORY_MAX_HOURS, STORY_MAX_DISTANCE]),
+    pool.query<{ title: string | null; snippet: string | null }>(prevTextSql(opts), [agency.id, prevSince, s]),
   ]);
   const stories = groupStories(pairs.rows.map((p) => [p.a, p.b] as [string, string]));
   const byId = new Map(points.map((p) => [p.id, p]));

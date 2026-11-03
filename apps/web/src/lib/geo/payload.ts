@@ -5,7 +5,7 @@
  * sin pertinencia baja, días calendario de Puerto Rico, fuente por page_type y
  * tópico/subtópico «any-touch» — para que todo cuadre con el mapa.
  */
-import { sourceMatchTerms, type PgClientLike } from '@eco/shared';
+import { sourceMatchTerms, pertinentUniverseSql, type PgClientLike, type UniverseOptions } from '@eco/shared';
 import { buildGeoMunis, spansFor, type GeoMuniOut, type GeoWindow } from './analysis';
 
 export interface GeoFilters { source?: string | null; topic?: string | null; subtopic?: string | null }
@@ -13,12 +13,16 @@ export interface GeoFilters { source?: string | null; topic?: string | null; sub
 const LOCAL_DAY = `(m.published_at AT TIME ZONE 'America/Puerto_Rico')::date`;
 
 /** Predicado común (universo + filtros de contenido). Los parámetros empiezan en $1 = agencia. */
-export function basePredicate(f: GeoFilters, params: unknown[]): string {
-  const parts = [
-    `m.agency_id = $1::uuid`,
-    `m.is_duplicate = false`,
-    `(m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`,
-  ];
+export function basePredicate(f: GeoFilters, params: unknown[], opts?: UniverseOptions): string {
+  // WP-9a: con `strictUniverse` el universo es alta/media (universe.ts); sin
+  // bandera, el histórico de siempre (mismo SQL).
+  const parts = opts?.strictUniverse
+    ? [`m.agency_id = $1::uuid`, pertinentUniverseSql('m.')]
+    : [
+        `m.agency_id = $1::uuid`,
+        `m.is_duplicate = false`,
+        `(m.nlp_pertinence IS NULL OR m.nlp_pertinence <> 'baja')`,
+      ];
   if (f.source && f.source !== 'all') {
     const { negate, terms } = sourceMatchTerms(f.source);
     if (terms.length) {
@@ -45,10 +49,10 @@ export interface GeoAnalysis {
   munis: GeoMuniOut[];
 }
 
-export async function computeGeoAnalysis(pool: PgClientLike, agencyId: string, w: GeoWindow, f: GeoFilters): Promise<GeoAnalysis> {
+export async function computeGeoAnalysis(pool: PgClientLike, agencyId: string, w: GeoWindow, f: GeoFilters, opts?: UniverseOptions): Promise<GeoAnalysis> {
   const sp = spansFor(w);
   const pDays: unknown[] = [agencyId];
-  const predDays = basePredicate(f, pDays);
+  const predDays = basePredicate(f, pDays, opts);
   const i = pDays.length;
   const daysSql = `
 SELECT mu.slug, ${LOCAL_DAY}::text AS d, COUNT(*)::int AS n,
@@ -61,7 +65,7 @@ SELECT mu.slug, ${LOCAL_DAY}::text AS d, COUNT(*)::int AS n,
    AND ${LOCAL_DAY} >= $${i + 1}::date AND ${LOCAL_DAY} <= $${i + 2}::date
  GROUP BY 1, 2`;
   const pCov: unknown[] = [agencyId];
-  const predCov = basePredicate(f, pCov);
+  const predCov = basePredicate(f, pCov, opts);
   const j = pCov.length;
   const covSql = `
 SELECT COUNT(*)::int AS total,

@@ -5,7 +5,11 @@
  * El producto tiene UN contrato de datos:
  *   - Ventana: resolveWindow (cerrada AST terminando ayer; from/to gana).
  *   - Universo de CONTEOS: menciones pertinentes (is_duplicate = false y
- *     nlp_pertinence <> 'baja'), en TZ America/Puerto_Rico.
+ *     nlp_pertinence <> 'baja'), en TZ America/Puerto_Rico. Desde WP-9a
+ *     (nov-2026) cada ruta toma el universo de @eco/shared (`universeFilterSql`
+ *     / `pertinentUniverseSql`) según `UNIVERSE_STRICT_AGENCIES`: vacía = este
+ *     histórico, para la agencia listada = alta/media (spec interpretación v1,
+ *     sección 8). La prueba `universe-routes.test.ts` demuestra ambas cosas.
  *   - Tópico "principal": top-confidence con tie-break
  *     `confidence DESC NULLS LAST, topic_id ASC`.
  *
@@ -149,12 +153,18 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // ranking de Tópicos, ambas sobre el universo pertinente.
     // +1 (oct-2026): «Sentimiento por región» cuenta menciones distintas en su
     // propia query (antes sumaba los pares mención×municipio del mapa).
-    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 11, rawPert: 10, drzDup: 1, drzPert: 3 },
+    // WP-9a (nov-2026): las 10 consultas crudas ya no escriben el predicado: lo
+    // arma `universeFilterSql(uopts, 'm.')` (ver tripwire «universo por bandera»).
+    // Quedan el literal del comentario y el baseWhere de Drizzle (histórico +
+    // rama estricta de strictUniverseCond).
+    { file: 'apps/web/src/app/api/eco-data/route.ts', rawDup: 1, rawPert: 0, drzDup: 1, drzPert: 3 },
     // rawPert 1 (oct-2026): «Menciones parecidas» (similar_to) excluye pertinencia baja.
     // Refactor (oct-2026): el feed y «parecidas» viven en lib/mentions/query.ts
     // (queryMentions); la ruta solo resuelve la agencia y llama. Mismos conteos.
     { file: 'apps/web/src/app/api/eco-mentions/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
-    { file: 'apps/web/src/lib/mentions/query.ts', rawDup: 2, rawPert: 1, drzDup: 1, drzPert: 1 },
+    // WP-9a: el feed suma la rama del universo ESTRICTO (universe.ts) y el total
+    // del universo para el toggle «incluir pertinencia baja» (+1 drzPert).
+    { file: 'apps/web/src/lib/mentions/query.ts', rawDup: 2, rawPert: 1, drzDup: 1, drzPert: 2 },
     { file: 'apps/web/src/app/api/eco-geo/route.ts', rawDup: 0, rawPert: 0, drzDup: 1, drzPert: 1 },
     // Oct-2026: total, subtópicos, municipios y muestras salen de UN CTE que
     // elige el tópico primario (antes 4 queries multi-tópico).
@@ -164,7 +174,8 @@ describe('tripwire — predicados de universo por endpoint', () => {
     { file: 'apps/web/src/lib/ai-cache-freshness.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Vista ejecutiva (oct-2026): conteo de la ventana previa por tópico para
     // el delta de las olas del Radar (antes volumeDelta: 0 fijo).
-    { file: 'apps/web/src/app/api/exec-overview/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // WP-9a: el predicado lo arma universeFilterSql con el universo de CADA agencia.
+    { file: 'apps/web/src/app/api/exec-overview/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     { file: 'apps/web/src/app/api/ai/metric-insight/route.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
     // Resumen ejecutivo por periodo (ago-2026): 4 queries de contexto para el
     // prompt — muestras, municipios, autores y crecimiento por tópico. Todas
@@ -179,15 +190,18 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // ruta solo las llama): los agregados diarios de los ÍNDICES, «Quién habló»
     // y las voces previas, todo sobre el universo pertinente (V5: un solo
     // universo para índices y conteos, como loadAggregatesForWindow).
-    { file: 'apps/web/src/lib/scorecard/payload.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
+    // WP-9a: las 3 consultas toman universeFilterSql(opts) (ver tripwire «universo por bandera»).
+    { file: 'apps/web/src/lib/scorecard/payload.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     // Menciones (oct-2026): filas del periodo, parejas de la misma historia
     // (embeddings), conteo de la ventana previa y términos (actual + previa);
     // un solo predicado BASE compartido, el mismo universo del feed.
-    { file: 'apps/web/src/lib/mentions/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // WP-9a: el predicado BASE sale de universeFilterSql(opts).
+    { file: 'apps/web/src/lib/mentions/payload.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     // Sentimiento (oct-2026): quién movió el NSS (por dónde se dijo) y las
     // emociones de 12 semanas, con el universo y los días de loadAggregatesForWindow;
     // un solo predicado BASE compartido.
-    { file: 'apps/web/src/lib/sentiment/payload.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // WP-9a: el predicado BASE sale de universeFilterSql(opts).
+    { file: 'apps/web/src/lib/sentiment/payload.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     // Geografía (oct-2026): conteos por municipio y día (periodo, lo usual y 12
     // semanas) y la cobertura del periodo, con el universo y los filtros de
     // /api/eco-geo; un solo predicado compartido (basePredicate).
@@ -207,9 +221,11 @@ describe('tripwire — predicados de universo por endpoint', () => {
     // y el de propagación en lib/narrative/propagation-query.ts; las rutas solo
     // llaman y cachean. Mismos conteos, otros archivos.
     { file: 'apps/web/src/app/api/narrative/overview/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
-    { file: 'apps/web/src/lib/narrative/compute.ts', rawDup: 3, rawPert: 3, drzDup: 0, drzPert: 0 },
+    // WP-9a: las 3 consultas toman universeFilterSql(opts).
+    { file: 'apps/web/src/lib/narrative/compute.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
     { file: 'apps/web/src/app/api/narrative/[id]/propagation/route.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
-    { file: 'apps/web/src/lib/narrative/propagation-query.ts', rawDup: 1, rawPert: 1, drzDup: 0, drzPert: 0 },
+    // WP-9a: toma universeFilterSql(opts).
+    { file: 'apps/web/src/lib/narrative/propagation-query.ts', rawDup: 0, rawPert: 0, drzDup: 0, drzPert: 0 },
   ];
 
   test.each(MANIFEST)('$file mantiene sus predicados de universo', ({ file, rawDup, rawPert, drzDup, drzPert }) => {
@@ -220,6 +236,55 @@ describe('tripwire — predicados de universo por endpoint', () => {
       drzDup: count(src, 'isDuplicate, false'),
       drzPert: count(src, 'nlpPertinence} IS NULL'),
     }).toEqual({ rawDup, rawPert, drzDup, drzPert });
+  });
+
+  // WP-9a (nov-2026): los archivos que antes escribían el predicado a mano ahora
+  // lo piden a @eco/shared con las opciones del universo de la agencia
+  // (`UNIVERSE_STRICT_AGENCIES`). Este manifiesto cuenta cuántas veces lo hace
+  // cada archivo: una consulta nueva sobre `mentions` que escriba su propio
+  // predicado rompe el conteo de arriba; una que lo pida a universe.ts rompe
+  // este. Cualquiera de los dos obliga a revisar que la consulta siga el universo.
+  // El comportamiento (SQL idéntico con la bandera vacía; estricto con ella)
+  // lo prueba `universe-routes.test.ts` con un cliente espía.
+  const UNIVERSE_BUILDERS: Array<{ file: string; needle: string; expected: number }> = [
+    // 5 consultas crudas (`${uni}`) + 5 de Drizzle (`${sql.raw(uni)}`); baseWhere usa strictUniverseCond.
+    { file: 'apps/web/src/app/api/eco-data/route.ts', needle: '${uni}', expected: 5 },
+    { file: 'apps/web/src/app/api/eco-data/route.ts', needle: '${sql.raw(uni)}', expected: 5 },
+    { file: 'apps/web/src/app/api/eco-data/route.ts', needle: "universeFilterSql(uopts, 'm.')", expected: 1 },
+    { file: 'apps/web/src/app/api/exec-overview/route.ts', needle: 'universeFilterSql(universeOptsForSlug', expected: 1 },
+    { file: 'apps/web/src/lib/scorecard/payload.ts', needle: 'universeFilterSql(opts', expected: 3 },
+    { file: 'apps/web/src/lib/mentions/payload.ts', needle: 'universeFilterSql(opts', expected: 1 },
+    { file: 'apps/web/src/lib/sentiment/payload.ts', needle: 'universeFilterSql(opts', expected: 1 },
+    { file: 'apps/web/src/lib/narrative/compute.ts', needle: 'universeFilterSql(opts', expected: 3 },
+    { file: 'apps/web/src/lib/narrative/propagation-query.ts', needle: 'universeFilterSql(opts', expected: 1 },
+    // Rutas con Drizzle: la rama estricta sale de strictUniverseCond (universe-config.ts).
+    { file: 'apps/web/src/app/api/eco-geo/route.ts', needle: 'strictUniverseCond(', expected: 1 },
+    // Detalle de narrativas: solo suman el fragmento estricto (hoy no filtran pertinencia).
+    { file: 'apps/web/src/app/api/narrative/route.ts', needle: '${pertSql}', expected: 2 },
+    { file: 'apps/web/src/app/api/narrative/[id]/route.ts', needle: '${pertSql}', expected: 5 },
+    { file: 'apps/web/src/app/api/narrative/[id]/day/route.ts', needle: '${pertSql}', expected: 1 },
+  ];
+  test.each(UNIVERSE_BUILDERS)('universo por bandera: $file pide el predicado a universe.ts ($needle × $expected)', ({ file, needle, expected }) => {
+    expect(count(read(file), needle)).toBe(expected);
+  });
+
+  test('universo por bandera: toda ruta de datos resuelve el universo de la agencia', () => {
+    // Las rutas que consultan `mentions` (directo o por lib/) deben leer la
+    // bandera: si una ruta nueva no lo hace, sus cifras divergen de las demás
+    // cuando se active el universo estricto.
+    const ROUTES = [
+      'eco-data', 'overview', 'eco-mentions', 'mentions/analysis', 'sentiment/analysis', 'scorecard',
+      'geo/analysis', 'eco-geo', 'eco-terms', 'narrative/overview', 'narrative/[id]/propagation',
+    ];
+    const missing = ROUTES.filter((r) => {
+      const f = `apps/web/src/app/api/${r}/route.ts`;
+      const src = read(f);
+      // eco-mentions delega en queryMentions, que lee la bandera.
+      if (r === 'eco-mentions') return !read('apps/web/src/lib/mentions/query.ts').includes('universeOptsForAgencyId');
+      return !src.includes('universeOptsForAgencyId');
+    });
+    expect({ missing }).toEqual({ missing: [] });
+    expect(read('apps/web/src/app/api/exec-overview/route.ts')).toContain('universeOptsForSlug');
   });
 
   test('overview no tiene SQL propio sobre mentions (solo el agregador compartido)', () => {

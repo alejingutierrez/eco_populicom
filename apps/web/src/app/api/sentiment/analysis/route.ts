@@ -6,6 +6,7 @@ import { resolveAgencyId } from '@/lib/agency';
 import { requireAuth } from '@/lib/auth/require-admin';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { log } from '@/lib/log';
+import { universeOptsForAgencyId } from '@/lib/mentions/universe-config';
 import { computeSentimentAnalysis, type SentimentWindow } from '@/lib/sentiment/payload';
 
 export const dynamic = 'force-dynamic';
@@ -56,11 +57,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(hit.payload, { headers: { 'Cache-Control': 'private, max-age=60' } });
   }
   try {
+    // WP-9a: universo de la agencia (UNIVERSE_STRICT_AGENCIES; vacío = histórico).
+    const uopts = await universeOptsForAgencyId(agencyId);
     let job = inflight.get(key);
     if (!job) {
       job = (async () => {
         const [ag] = await getDb().select({ slug: agencies.slug, name: agencies.name }).from(agencies).where(eq(agencies.id, agencyId)).limit(1);
-        return computeSentimentAnalysis(getPool() as unknown as PgClientLike, { id: agencyId, slug: ag?.slug ?? '', name: ag?.name ?? null }, w);
+        return computeSentimentAnalysis(getPool() as unknown as PgClientLike, { id: agencyId, slug: ag?.slug ?? '', name: ag?.name ?? null }, w, uopts);
       })().finally(() => inflight.delete(key));
       inflight.set(key, job);
     }
