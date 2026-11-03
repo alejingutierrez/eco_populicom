@@ -24,6 +24,15 @@
  * el mismo criterio que TOPICS de /api/eco-data. Antes contaba cualquier fila
  * de mention_topics (incluye secundarios) y el texto citaba cifras que la
  * página no muestra (DF gestion-secretaria: 612 en el prompt vs 183 en la UI).
+ *
+ * Motor de redacción (WP-8): con la agencia en `COMPOSER_WEB_AGENCIES` la
+ * descripción sale del perfil ligero del motor (./composer.ts), con cifras
+ * por marcador. La versión del motor va en `model_used`; una fila de otra
+ * versión (o legacy con la bandera encendida, y al revés) se regenera. El
+ * motor compone SIEMPRE en segundo plano: con fila se sirve la que haya; sin
+ * fila se responde con el texto legacy (misma latencia que hoy) y la del
+ * motor aparece en la siguiente vista. Un fallo del redactor no guarda nada.
+ * Con la bandera vacía la ruta hace exactamente lo de antes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, topicDescriptionsCache, topics, agencies } from '@eco/database';
@@ -41,7 +50,11 @@ import { invokeClaudeWithTool } from '@eco/shared/src/bedrock';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { log } from '@/lib/log';
-import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger } from '@/lib/ai-cache-freshness';
+import {
+  loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger,
+  expectedComposerVersion, isComposerVersionStale,
+} from '@/lib/ai-cache-freshness';
+import { composerVersionFromModelUsed } from './composer';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -147,6 +160,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Fila vieja que se está regenerando: respaldo si la regeneración falla.
   let staleRow: { description: string; generatedAt: Date | string } | null = null;
+  // Versión del motor que debe tener la fila (null = legacy, bandera vacía).
+  const composerExpected = expectedComposerVersion(agencyRow.slug, { startYmd, endYmd });
   const serveStale = (): NextResponse | null => {
     if (!staleRow) return null;
     const res = NextResponse.json({
@@ -185,6 +200,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const STALE_MS = 60 * 60 * 1000;
       const stale = !isHistorical && ageMs > STALE_MS;
       const outdated = !String(cached.modelUsed ?? '').endsWith(PRIMARY_UNIVERSE_TAG)
+        || isComposerVersionStale(composerVersionFromModelUsed(cached.modelUsed), composerExpected)
         || isAiCacheOutdated(
           await loadWindowFreshness(pool as unknown as PgClientLike, {
             agencyId, startYmd, endYmd, generatedAt, topicId: topicRow.id,
@@ -234,6 +250,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const samples = await loadTopicSamples(pool, agencyId, topicRow.id, sinceIso, untilIso);
+    const regenKey = `topic-description:${topicRow.id}:${startYmd}:${endYmd}`;
+    const composerArgs = {
+      pool, agencyId, agency: agencyRow, topicId: topicRow.id, startYmd, endYmd, sinceIso, untilIso, aggregate, samples, regenKey,
+    };
+    if (composerExpected && staleRow) {
+      // Hay texto que mostrar: se sirve YA y el motor compone en segundo plano
+      // (el hit ya reclamó la clave). El motor no entra al camino crítico.
+      composeDescriptionInBackground(composerArgs);
+      return serveStale()!;
+    }
     const userPrompt = buildTopicDescriptionPrompt(aggregate, samples);
     // tool-use en vez de pedir JSON en texto crudo: la descripción ahora es
     // más larga y cita contenido real de las menciones, así que trae comillas
@@ -287,6 +313,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                      generated_at = NOW()`,
       [agencyId, topicRow.id, startYmd, endYmd, description, PRIMARY_MODEL + PRIMARY_UNIVERSE_TAG],
     );
+    // Con motor y sin fila: la primera vista recibe el texto legacy (misma
+    // latencia que hoy) y el motor compone en segundo plano para la siguiente.
+    if (composerExpected && claimAiTrigger(regenKey)) composeDescriptionInBackground(composerArgs);
 
     const res = NextResponse.json({
       status: 'ready' as const,
@@ -312,6 +341,110 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       latencyMs: Date.now() - start, topicSlug, startYmd, endYmd,
     });
   }
+}
+
+/**
+ * Descripción con el motor (perfil ligero). Null si el redactor no produjo
+ * borrador. La serie diaria del tópico fija la ventana del paquete de hechos.
+ */
+async function composeDescription(a: {
+  pool: ReturnType<typeof getPool>;
+  agencyId: string;
+  agency: { id: string; name: string; slug: string };
+  topicId: number;
+  startYmd: string; endYmd: string; sinceIso: string; untilIso: string;
+  aggregate: TopicAggregateForDescription;
+  samples: TopicSampleRow[];
+}): Promise<{ description: string; modelUsed: string } | null> {
+  const [{ getComposerLlm, createComposerDataAccess, toRawComposerSample }, c, { prepareSamples }] = await Promise.all([
+    import('@/lib/bedrock-client'),
+    import('./composer'),
+    import('@eco/shared'),
+  ]);
+  const group = (k: 'negativo' | 'neutral' | 'positivo') => a.samples.filter((x) => x.sentiment === k).map((x) => toRawComposerSample({
+    id: x.id, createdAt: x.createdAt, text: x.text, sentiment: x.sentiment, author: x.author ?? null, source: x.source ?? null,
+  }));
+  const [prepared, series] = await Promise.all([
+    prepareSamples(createComposerDataAccess(a.pool, a.agencyId), {
+      negative: group('negativo'), neutral: group('neutral'), positive: group('positivo'),
+    }, { agencyAuthors: [a.agency.name] }),
+    loadTopicDailySeries(a.pool, a.agencyId, a.topicId, a.sinceIso, a.untilIso, a.startYmd, a.endYmd),
+  ]);
+  const input = c.topicComposerInput({
+    agencyId: a.agencyId, agencyName: a.agency.name, shortName: a.agency.slug.toUpperCase().slice(0, 6),
+    startYmd: a.startYmd, endYmd: a.endYmd, aggregate: a.aggregate, dailySeries: series, samples: prepared.samples,
+  });
+  const r = await c.composeTopic(input, getComposerLlm(), (m) => log.warn('eco-topic-description', m));
+  log.info('eco-topic-description', 'composer', {
+    topic: a.aggregate.topicSlug, version: r.composition.composerVersion, degraded: r.degraded,
+    seconds: r.composition.stageSeconds.total, corrector: r.composition.correctorRan,
+    safetyNet: r.composition.safetyNetLog.length, errors: r.composition.errors.slice(0, 3),
+  });
+  const description = c.topicDescription(r);
+  return description ? { description, modelUsed: c.composerModelUsed(r, PRIMARY_UNIVERSE_TAG) } : null;
+}
+
+/**
+ * El motor en segundo plano: compone y, solo si el texto salió del redactor,
+ * guarda la fila con su versión en `model_used`. La ruta nunca lo espera
+ * (sin fila responde con el texto legacy, con fila con la que haya), así la
+ * vista tarda lo mismo que hoy. El llamador ya reclamó `regenKey`.
+ */
+function composeDescriptionInBackground(a: Parameters<typeof composeDescription>[0] & { regenKey: string }): void {
+  (async () => {
+    try {
+      const composed = await composeDescription(a);
+      if (!composed) return; // sin borrador del redactor: queda la fila que había
+      await a.pool.query(
+        `INSERT INTO topic_descriptions_cache
+           (agency_id, topic_id, period_start_date, period_end_date, description, model_used)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT ON CONSTRAINT uq_topic_descriptions_topic_range
+         DO UPDATE SET description = EXCLUDED.description,
+                       model_used  = EXCLUDED.model_used,
+                       generated_at = NOW()`,
+        [a.agencyId, a.topicId, a.startYmd, a.endYmd, composed.description, composed.modelUsed],
+      );
+    } catch (err) {
+      log.error('eco-topic-description', 'composer (background) failed', { msg: (err as Error).message });
+    } finally {
+      releaseAiTrigger(a.regenKey);
+    }
+  })();
+}
+
+/**
+ * Serie diaria (día PR) del tópico, mismo universo y tópico primario que el
+ * resto de la ruta. Rellena los días sin menciones.
+ */
+async function loadTopicDailySeries(
+  pool: ReturnType<typeof getPool>,
+  agencyId: string,
+  topicId: number,
+  sinceIso: string,
+  untilIso: string,
+  startYmd: string,
+  endYmd: string,
+): Promise<Array<{ date: string; negative: number; neutral: number; positive: number }>> {
+  const res = await pool.query<{ d: string; neg: number; pos: number; total: number }>(
+    `WITH ${PRIMARY_TOPIC_MENTIONS_CTE}
+     SELECT to_char(m.published_at AT TIME ZONE 'America/Puerto_Rico', 'YYYY-MM-DD') AS d,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('negativo','negative'))::int AS neg,
+            COUNT(*) FILTER (WHERE COALESCE(m.nlp_sentiment, m.bw_sentiment) IN ('positivo','positive'))::int AS pos,
+            COUNT(*)::int AS total
+       FROM tm m
+      GROUP BY 1`,
+    [agencyId, topicId, sinceIso, untilIso],
+  );
+  const byDay = new Map(res.rows.map((r) => [r.d, r]));
+  const out: Array<{ date: string; negative: number; neutral: number; positive: number }> = [];
+  for (let t = Date.parse(`${startYmd}T00:00:00Z`); t <= Date.parse(`${endYmd}T00:00:00Z`); t += 86_400_000) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    const r = byDay.get(d);
+    const neg = Number(r?.neg ?? 0), pos = Number(r?.pos ?? 0), tot = Number(r?.total ?? 0);
+    out.push({ date: d, negative: neg, positive: pos, neutral: Math.max(0, tot - neg - pos) });
+  }
+  return out;
 }
 
 /**
@@ -416,21 +549,24 @@ async function loadTopicAggregate(
  */
 const SAMPLES_PER_SENTIMENT = 10;
 
+/** Muestra del prompt + id y fecha (el motor las anota con tipo, padre y día). */
+type TopicSampleRow = TopicMentionSample & { id: string; createdAt: string };
+
 async function loadTopicSamples(
   pool: ReturnType<typeof getPool>,
   agencyId: string,
   topicId: number,
   sinceIso: string,
   untilIso: string,
-): Promise<TopicMentionSample[]> {
-  const out: TopicMentionSample[] = [];
+): Promise<TopicSampleRow[]> {
+  const out: TopicSampleRow[] = [];
   const seen = new Set<string>();
   const half = Math.ceil(SAMPLES_PER_SENTIMENT / 2);
   for (const s of ['negativo', 'neutral', 'positivo'] as const) {
     const altSentiment = s === 'negativo' ? 'negative' : s === 'positivo' ? 'positive' : 'neutral';
     // Dos pasadas por sentimiento: top engagement + más recientes. UNION ALL
     // en una sola query para no multiplicar round-trips.
-    const res = await pool.query<{ id: string; title: string | null; snippet: string | null; sentiment: string | null; subtopic: string | null; source: string | null; author: string | null }>(
+    const res = await pool.query<{ id: string; title: string | null; snippet: string | null; sentiment: string | null; subtopic: string | null; source: string | null; author: string | null; published_at: Date | string }>(
       `WITH ${PRIMARY_TOPIC_MENTIONS_CTE},
        pool AS (
          SELECT m.id, m.title, m.snippet, m.author, m.page_type, m.subtopic_id,
@@ -445,7 +581,7 @@ async function loadTopicSamples(
          UNION
          (SELECT * FROM pool ORDER BY published_at DESC LIMIT $8)
        )
-       SELECT p.id, p.title, p.snippet, p.sentiment, p.author,
+       SELECT p.id, p.title, p.snippet, p.sentiment, p.author, p.published_at,
               p.page_type AS source,
               (SELECT sub.name FROM subtopics sub WHERE sub.id = p.subtopic_id) AS subtopic
          FROM picked p
@@ -464,6 +600,8 @@ async function loadTopicSamples(
       if (!text) continue;
       seen.add(r.id);
       out.push({
+        id: r.id,
+        createdAt: new Date(r.published_at as unknown as string).toISOString(),
         text,
         sentiment: normalizeSentiment(r.sentiment),
         subtopic: r.subtopic ?? null,

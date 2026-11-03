@@ -25,6 +25,19 @@
  * menciones, hoy 1,037). Ahora un hit se regenera (síncrono, como un miss) si
  * llegaron menciones a la ventana después de generarlo (lib/ai-cache-
  * freshness); si la regeneración falla se sirve el viejo con stale:true.
+ *
+ * MOTOR DE REDACCIÓN (WP-8). Con la agencia en `COMPOSER_WEB_AGENCIES` el
+ * resumen sale del perfil `scorecard` del motor (./composer.ts): tres
+ * secciones en una pasada del redactor, con analista, QA y corrector, y
+ * cifras por marcador. El payload guarda además `composer_version` y la
+ * composición; una fila de otra versión (o legacy con la bandera encendida, y
+ * al revés) se regenera. El motor NUNCA está en el camino crítico de la
+ * vista (tarda 38–47 s): con fila se sirve la que haya y el motor compone en
+ * segundo plano; sin fila se genera el texto legacy como hoy (misma
+ * latencia), se responde con él y el motor compone en segundo plano para la
+ * siguiente vista. Un fallo del redactor no guarda nada (el determinista no
+ * es una fila vigente). Con la bandera vacía la ruta hace exactamente lo de
+ * antes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getPool, agencies } from '@eco/database';
@@ -49,7 +62,10 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { resolveAgencyId } from '@/lib/agency';
 import { requireAuth } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
-import { loadWindowFreshness, isAiCacheOutdated, claimAiTrigger } from '@/lib/ai-cache-freshness';
+import {
+  loadWindowFreshness, isAiCacheOutdated, claimAiTrigger, releaseAiTrigger,
+  expectedComposerVersion, isComposerVersionStale, composedByWriter,
+} from '@/lib/ai-cache-freshness';
 import { consume, clientKey } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -139,6 +155,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Fila vieja que se está regenerando: respaldo si la regeneración falla.
   let staleRow: { payload: ExecutiveSummaryOutput; generatedAt: Date } | null = null;
   const regenKey = `exec-summary:${agencyId}:${startYmd}:${endYmd}`;
+  // Versión del motor que debe tener la fila (null = legacy, bandera vacía).
+  const composerExpected = expectedComposerVersion(agencyRow.slug, { startYmd, endYmd });
   const serveStale = (): NextResponse | null => {
     if (!staleRow) return null;
     const res = NextResponse.json({
@@ -171,7 +189,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const hit = cached.rows[0];
     if (hit) {
       const generatedAt = new Date(hit.generated_at as unknown as string);
-      const outdated = isAiCacheOutdated(
+      const versionStale = isComposerVersionStale(
+        (hit.payload as { composer_version?: string | null } | null)?.composer_version,
+        composerExpected,
+      );
+      const outdated = versionStale || isAiCacheOutdated(
         await loadWindowFreshness(pool as unknown as PgClientLike, { agencyId, startYmd, endYmd, generatedAt }),
       );
       if (!outdated) {
@@ -231,6 +253,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       loadTopAuthors(pool, agencyId, sinceIso, untilIso),
       loadTopicHalves(pool, agencyId, sinceIso, untilIso),
     ]);
+
+    const composerArgs = {
+      pool, agencyId, agency: agencyRow, startYmd, endYmd, prevStartYmd, prevEndYmd,
+      report, samples, municipalities, authors, halves, regenKey,
+    };
+    if (composerExpected && staleRow) {
+      // Hay texto que mostrar (legacy, de otra versión o con datos nuevos): se
+      // sirve YA y el motor compone en segundo plano (el hit ya reclamó la clave).
+      composeExecutiveSummaryInBackground(composerArgs);
+      return serveStale()!;
+    }
 
     const aggregates: ExecutiveSummaryAggregates = {
       agencyName: agencyRow.name,
@@ -303,6 +336,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                      generated_at = NOW()`,
       [agencyId, startYmd, endYmd, JSON.stringify(output), PRIMARY_MODEL],
     );
+    // Con motor y sin fila: la primera vista recibe el texto legacy (misma
+    // latencia que hoy) y el motor compone en segundo plano para la siguiente.
+    if (composerExpected && claimAiTrigger(regenKey)) composeExecutiveSummaryInBackground(composerArgs);
 
     const res = NextResponse.json({
       status: 'ready' as const,
@@ -328,6 +364,86 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       startYmd, endYmd,
     });
   }
+}
+
+/**
+ * Camino con motor, SIEMPRE en segundo plano: compone, y solo si el texto
+ * salió del redactor lo guarda (un fallo de Bedrock deja el determinista, que
+ * no se guarda como vigente). La ruta nunca espera al motor: responde con la
+ * fila que haya (vieja o legacy recién generada) y la del motor aparece en la
+ * siguiente vista. Así la primera vista tarda lo mismo que hoy (el perfil
+ * scorecard mide 38–47 s, contra el presupuesto de la ruta). El llamador ya
+ * reclamó `regenKey` (claimAiTrigger); aquí se libera al terminar.
+ */
+function composeExecutiveSummaryInBackground(a: {
+  pool: ReturnType<typeof getPool>;
+  agencyId: string;
+  agency: { id: string; name: string; slug: string };
+  startYmd: string; endYmd: string; prevStartYmd: string; prevEndYmd: string;
+  report: Awaited<ReturnType<typeof buildSentimentReport>>;
+  samples: SampleRow[];
+  municipalities: Array<{ name: string; count: number }>;
+  authors: Array<{ name: string; mentions: number; reach: number }>;
+  halves: Map<string, number>;
+  regenKey: string;
+}): void {
+  (async () => {
+    try {
+      const [{ getComposerLlm, createComposerDataAccess, toRawComposerSample }, c, shared] = await Promise.all([
+        import('@/lib/bedrock-client'),
+        import('./composer'),
+        import('@eco/shared'),
+      ]);
+      const client = a.pool as unknown as PgClientLike;
+      const share = (s: string, e: string) => shared.commentShare(client, a.agencyId, { startYmd: s, endYmd: e }, { strictUniverse: false })
+        .then((x) => ({ comments: x.comments, total: x.total }))
+        .catch(() => null);
+      const group = (k: 'negativo' | 'neutral' | 'positivo') => a.samples.filter((x) => x.sentiment === k).map(toRawComposerSample);
+      const [prepared, cShare, prevCShare] = await Promise.all([
+        shared.prepareSamples(createComposerDataAccess(a.pool, a.agencyId), {
+          negative: group('negativo'), neutral: group('neutral'), positive: group('positivo'),
+        }, { agencyAuthors: [a.agency.name] }),
+        share(a.startYmd, a.endYmd),
+        share(a.prevStartYmd, a.prevEndYmd),
+      ]);
+      const topics = a.report.topicsTable
+        .filter((t) => !t.isOther && !t.isUnclassified)
+        .slice(0, 7)
+        .map((t) => ({ name: t.topic, total: t.total, negative: t.negative, neutral: t.neutral, positive: t.positive, deltaPct: a.halves.get(t.topic) ?? null }));
+      const input = c.scorecardComposerInput({
+        agencyId: a.agencyId, agencyName: a.agency.name, shortName: a.agency.slug.toUpperCase().slice(0, 6),
+        periodLabel: formatPeriodLabel(a.startYmd, a.endYmd),
+        startYmd: a.startYmd, endYmd: a.endYmd, prevStartYmd: a.prevStartYmd, prevEndYmd: a.prevEndYmd,
+        totals: a.report.totals, prevTotals: a.report.prevTotals, dailySeries: a.report.dailySeries,
+        topics, municipalities: a.municipalities, authors: a.authors, samples: prepared.samples,
+        commentShare: cShare, prevCommentShare: prevCShare,
+      });
+      const r = await c.composeScorecard(input, getComposerLlm(), (m) => log.warn('eco-executive-summary', m));
+      const out = c.executiveSummaryFromComposition(r, topics);
+      const fromWriter = composedByWriter(r.composition);
+      log.info('eco-executive-summary', 'composer', {
+        startYmd: a.startYmd, endYmd: a.endYmd, version: r.composition.composerVersion,
+        degraded: r.degraded, fromWriter, seconds: r.composition.stageSeconds.total, errors: r.composition.errors.slice(0, 3),
+      });
+      // Sin borrador del redactor `signal_narrative` sería el párrafo
+      // determinista: no se guarda (queda la fila que había).
+      if (!fromWriter || !out.signal_narrative.trim()) return;
+      await a.pool.query(
+        `INSERT INTO executive_summaries_cache
+           (agency_id, period_start_date, period_end_date, payload, model_used)
+         VALUES ($1, $2::date, $3::date, $4::jsonb, $5)
+         ON CONFLICT (agency_id, period_start_date, period_end_date)
+         DO UPDATE SET payload = EXCLUDED.payload,
+                       model_used = EXCLUDED.model_used,
+                       generated_at = NOW()`,
+        [a.agencyId, a.startYmd, a.endYmd, JSON.stringify(out), `${r.composition.composerVersion} · ${r.composition.models.writer ?? 'determinista'}`],
+      );
+    } catch (err) {
+      log.error('eco-executive-summary', 'composer (background) failed', { msg: (err as Error).message });
+    } finally {
+      releaseAiTrigger(a.regenKey);
+    }
+  })();
 }
 
 /**
@@ -386,13 +502,16 @@ function toModes(p: ExecutiveSummaryOutput): Record<'signal' | 'emerging' | 'cri
  * que la gente comentó) y mitad por recencia (la conversación de fondo). Sin
  * esa mezcla el resumen describía solo el post viral del periodo.
  */
+/** Muestra del prompt + id y fecha (el motor las anota con tipo, padre y día). */
+type SampleRow = ExecutiveSummaryMentionSample & { id: string; createdAt: string };
+
 async function loadSamples(
   pool: ReturnType<typeof getPool>,
   agencyId: string,
   sinceIso: string,
   untilIso: string,
-): Promise<ExecutiveSummaryMentionSample[]> {
-  const out: ExecutiveSummaryMentionSample[] = [];
+): Promise<SampleRow[]> {
+  const out: SampleRow[] = [];
   const seen = new Set<string>();
   const half = Math.ceil(SAMPLES_PER_SENTIMENT / 2);
   for (const s of ['negativo', 'neutral', 'positivo'] as const) {
@@ -400,6 +519,7 @@ async function loadSamples(
     const res = await pool.query<{
       id: string; title: string | null; snippet: string | null; sentiment: string | null;
       author: string | null; source: string | null; eng: number | string | null; topic: string | null;
+      published_at: Date | string;
     }>(
       `WITH pool AS (
          SELECT m.id, m.title, m.snippet, m.author, m.page_type,
@@ -418,7 +538,7 @@ async function loadSamples(
          UNION
          (SELECT * FROM pool ORDER BY published_at DESC LIMIT $7)
        )
-       SELECT p.id, p.title, p.snippet, p.sentiment, p.author, p.eng,
+       SELECT p.id, p.title, p.snippet, p.sentiment, p.author, p.eng, p.published_at,
               p.page_type AS source,
               (SELECT t.name FROM mention_topics mt JOIN topics t ON t.id = mt.topic_id
                 WHERE mt.mention_id = p.id
@@ -435,6 +555,8 @@ async function loadSamples(
       if (!text) continue;
       seen.add(r.id);
       out.push({
+        id: r.id,
+        createdAt: new Date(r.published_at as unknown as string).toISOString(),
         text,
         sentiment: normalizeSentiment(r.sentiment),
         topic: r.topic ?? null,
