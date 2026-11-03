@@ -23,6 +23,7 @@ import {
   topicMoves,
   weeklyExtraContext,
   type WeeklyIndicator,
+  type WeeklyTopicCount,
 } from '../lambda/weekly-report/weekly-composer';
 
 /**
@@ -229,6 +230,60 @@ describe('perfil weekly con plazo', () => {
     const big = weeklyInput();
     big.totals = { ...big.totals, negative: big.totals.negative + 200, total: big.totals.total + 200 };
     expect(evaluateStoredComposition(stored, big, WINDOW, 'period').state).toBe('stale');
+  });
+
+  test('composición guardada: una variación sin signo que cambia de sentido con la misma magnitud es stale', () => {
+    // Regresión (revisión WP-7): a la 1 PM hay 2 neutrales MENOS que la previa;
+    // a las 3 PM, por llegadas tardías, hay 2 MÁS. El valor sin signo es 2 en
+    // ambos: solo la etiqueta cambia, y el texto «menos» sería falso.
+    const mk = (neu: number) => {
+      const input = weeklyInput();
+      input.window = { ...input.window, ...WINDOW };
+      input.prevTotals = { negative: 20, neutral: 40, positive: 30, total: 90 };
+      input.totals = { negative: 20, neutral: neu, positive: 30, total: 50 + neu };
+      input.extraFacts = buildWeeklyExtraFacts({ totals: input.totals, prevTotals: input.prevTotals, indicators: [], topics: [], prevTopics: [] });
+      return input;
+    };
+    const at1pm = mk(38);
+    const draft = { headline: 'Usuarios preguntaron por la panadería', paragraph: 'Hubo {{week_neu_delta_abs}} neutrales menos que la semana previa.', highlights: [], comparison: [], insights: { negative: [], neutral: [], positive: [] } };
+    const composition = {
+      window: { ...WINDOW },
+      draft1Raw: draft,
+      draft2Raw: draft,
+      final: { ...draft, paragraph: 'Hubo 2 neutrales menos que la semana previa.' },
+      facts: buildFactPackage(at1pm).facts,
+      calls: [],
+      safetyNetLog: [],
+    };
+    const stored = { agencyId: 'ag', reportType: 'weekly', periodEnd: WINDOW.endYmd, composerVersion: 'v', composition, status: 'complete', createdAt: null } as unknown as StoredComposition;
+    // Sanidad: con la misma entrada sigue fresca.
+    expect(evaluateStoredComposition(stored, at1pm, WINDOW, 'period').state).toBe('fresh');
+    // −2 → +2: mismo valor, otro sentido.
+    const flipped = evaluateStoredComposition(stored, mk(42), WINDOW, 'period');
+    expect(flipped.state).toBe('stale');
+    expect(flipped.final).toBeNull();
+    expect(flipped.reason).toMatch(/sentido/);
+    // −2 → −1 (dentro de la tolerancia, mismo sentido): se re-rellena.
+    expect(evaluateStoredComposition(stored, mk(39), WINDOW, 'period').state).toBe('refreshable');
+    // −2 → +1 (dentro de la tolerancia, otro sentido): stale, no re-relleno con «menos».
+    expect(evaluateStoredComposition(stored, mk(41), WINDOW, 'period').state).toBe('stale');
+  });
+
+  test('composición guardada: topic_up_1 que pasa a ser otro tópico es stale aunque la cifra coincida', () => {
+    const mk = (topics: WeeklyTopicCount[]) => {
+      const input = weeklyInput();
+      input.window = { ...input.window, ...WINDOW };
+      const prevTopics = [{ topic: 'Incentivos', total: 10, negative: 0 }, { topic: 'Empleos', total: 10, negative: 0 }];
+      input.extraFacts = buildWeeklyExtraFacts({ totals: input.totals, prevTotals: input.prevTotals!, indicators: [], topics, prevTopics });
+      return input;
+    };
+    const before = mk([{ topic: 'Incentivos', total: 30, negative: 0 }, { topic: 'Empleos', total: 20, negative: 0 }]);
+    const after = mk([{ topic: 'Empleos', total: 30, negative: 0 }, { topic: 'Incentivos', total: 20, negative: 0 }]);
+    const draft = { headline: 'Incentivos subió en la semana', paragraph: 'Incentivos tuvo {{topic_up_1}} menciones.', highlights: [], comparison: [], insights: { negative: [], neutral: [], positive: [] } };
+    const composition = { window: { ...WINDOW }, draft1Raw: draft, draft2Raw: draft, final: draft, facts: buildFactPackage(before).facts, calls: [], safetyNetLog: [] };
+    const stored = { agencyId: 'ag', reportType: 'weekly', periodEnd: WINDOW.endYmd, composerVersion: 'v', composition, status: 'complete', createdAt: null } as unknown as StoredComposition;
+    expect(buildFactPackage(after).facts.topic_up_1.value).toBe(buildFactPackage(before).facts.topic_up_1.value);
+    expect(evaluateStoredComposition(stored, after, WINDOW, 'period').state).toBe('stale');
   });
 
   test('Bedrock caído: el semanal no es enviable y el plan cae al legacy', async () => {

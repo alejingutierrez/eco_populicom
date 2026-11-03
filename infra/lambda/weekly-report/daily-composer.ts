@@ -222,17 +222,37 @@ export function evaluateStoredComposition(
   const used = markerIds([c.draft1Raw, c.draft2Raw]);
   const changed: StoredEvaluation['changed'] = {};
   let stale = false;
+  let meaningChanged = false;
   for (const id of used) {
     const before = c.facts?.[id]?.value;
     const now = pkg.facts[id]?.value;
     if (before === undefined) continue; // marcador inválido ya tratado por la red de seguridad
     if (now === undefined) { changed[id] = [before, null]; stale = true; continue; }
+    // La etiqueta es el significado del hecho: en el semanal las variaciones
+    // van sin signo (el sentido, «de MÁS» o «de MENOS», vive en la etiqueta) y
+    // topic_up_N / topic_down_N nombran el tópico en ella. Si cambió, el texto
+    // guardado puede afirmar lo contrario con la misma cifra → recomponer,
+    // aunque el valor sea idéntico o esté dentro de la tolerancia.
+    const beforeLabel = c.facts?.[id]?.label;
+    if (beforeLabel !== undefined && pkg.facts[id]?.label !== beforeLabel) {
+      changed[id] = [before, now];
+      stale = true;
+      meaningChanged = true;
+      continue;
+    }
     if (now !== before) {
       changed[id] = [before, now];
       if (!withinDriftTolerance(before, now)) stale = true;
     }
   }
-  if (stale) return { state: 'stale', final: null, changed, reason: 'cifras citadas cambiaron más de la tolerancia' };
+  if (stale) {
+    return {
+      state: 'stale',
+      final: null,
+      changed,
+      reason: meaningChanged ? 'un hecho citado cambió de sentido o de sujeto (etiqueta distinta)' : 'cifras citadas cambiaron más de la tolerancia',
+    };
+  }
   if (Object.keys(changed).length === 0) return { state: 'fresh', final: c.final, changed, reason: 'cifras citadas sin cambios' };
 
   // Re-relleno por código: el borrador elegido (corrector o redactor, con el
