@@ -9,9 +9,14 @@
  *
  * Uso: tsx scripts/preview-daily-report.ts
  *      → escribe a apps/web/public/emails/daily-report-preview.html
+ *
+ * Variante `daily-report-preview-motor.html` (interpretación v1, WP-6): lo
+ * que cambia cuando `composer_mode = agentic` — rótulo «últimos 7 días» en
+ * Insights, chip de composición, deltas con base mínima (positivas 9 → 42:
+ * sin «+367 %») y nota de metodología. El texto del motor es ilustrativo.
  */
 
-import { renderDailyReportHtml, type DailyReportRenderData } from '../packages/shared/src/email/render-daily-report.ts';
+import { buildDailyMethodologyNote, renderDailyReportHtml, type DailyReportRenderData } from '../packages/shared/src/email/render-daily-report.ts';
 import { formatMetric, formatDelta, formatVelocity } from '../packages/shared/src/format/metrics-display.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -116,10 +121,34 @@ const MOCK_HERO = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1072" height="560"><rect width="100%" height="100%" fill="#D5D8DC"/><text x="50%" y="50%" font-family="Helvetica" font-size="36" fill="#5A616B" text-anchor="middle">Foto de la nota del día</text></svg>',
 )}`;
 
+// Con el motor (agentic): base mínima de 30 para el % (positivas 9 → 42 va
+// como diferencia), chip de composición y nota de metodología.
+const minBase = (cur: number, prev: number) =>
+  prev >= 30 ? formatDelta(cur, prev, { kind: 'percent', decimals: 0 }) : formatDelta(cur, prev, { kind: 'absolute', decimals: 0 });
+const motor: DailyReportRenderData = {
+  ...data,
+  deltaDisplay: { negative: minBase(258, 219), neutral: minBase(259, 275), positive: minBase(42, 9) },
+  dailySummary: {
+    label: 'Resumen del día · 4 may',
+    headline: 'Solicitantes de permisos reclamaron demoras el lunes y el DDEC respondió en su página',
+    paragraph: 'El lunes hubo <strong>107 menciones</strong>, el día de más volumen de la semana. Varios usuarios reclamaron por solicitudes de permisos detenidas desde marzo y el DDEC publicó una nota con los pasos del trámite.',
+    highlights: [
+      'Un usuario pidió en X la fecha de una cita que le reasignaron.',
+      'Comentarios a la publicación del DDEC del viernes 1 siguieron llegando el lunes.',
+    ],
+  },
+  interpretation: {
+    insightsWindowLabel: 'últimos 7 días',
+    composition: { weekPct: 41, prevWeekPct: 28 },
+    methodologyNote: buildDailyMethodologyNote({ periodLabel: data.periodLabel, dayLabel: 'lunes 4 de mayo', minDeltaBase: 30 }),
+  },
+};
+
 const repoRoot = join(__dirname, '..');
 const variants: Array<{ file: string; data: DailyReportRenderData }> = [
   { file: 'daily-report-preview.html', data: { ...data, heroImage: { url: MOCK_HERO, caption: 'Foto: ElNuevoDia.com · 4 may' } } },
   { file: 'daily-report-preview-sin-foto.html', data },
+  { file: 'daily-report-preview-motor.html', data: { ...motor, heroImage: { url: MOCK_HERO, caption: 'Foto: ElNuevoDia.com · 4 may' } } },
 ];
 for (const v of variants) {
   const html = renderDailyReportHtml(v.data);

@@ -143,6 +143,24 @@ export interface DailyReportRenderData {
    * resumen; sin URL el bloque no se emite y el correo se lee igual.
    */
   heroImage?: { url: string; alt?: string | null; caption?: string | null } | null;
+  /**
+   * Interpretación v1 (WP-6, spec 11.1). Solo lo manda el lambda cuando el
+   * correo lleva el texto del motor (`composer_mode = agentic`). Ausente, el
+   * correo sale exactamente como siempre (legacy y shadow).
+   */
+  interpretation?: DailyInterpretation;
+}
+
+export interface DailyInterpretation {
+  /** Ventana del rótulo de Insights: «últimos 7 días». */
+  insightsWindowLabel?: string;
+  /**
+   * Chip de composición: qué parte de las menciones son comentarios de
+   * usuarios en publicaciones de redes de la agencia, con la semana previa.
+   */
+  composition?: { weekPct: number; prevWeekPct: number | null } | null;
+  /** Nota de metodología al pie del contenido (texto plano). */
+  methodologyNote?: string | null;
 }
 // ------------------------------------------------------------
 // Helpers locales
@@ -244,7 +262,20 @@ function renderDistribution(data: DailyReportRenderData): string {
               ${stackedBar(totals.negative, totals.neutral, totals.positive, 10)}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 <tr>${legend}</tr>
-              </table>`, { padding: '20px 32px' });
+              </table>${compositionChip(data)}`, { padding: '20px 32px' });
+}
+
+/**
+ * Chip de composición (interpretación v1): «83 % de las menciones son
+ * comentarios de usuarios en publicaciones de redes de la agencia · 7 días
+ * previos: 40 %». Vacío sin `interpretation.composition` (legacy).
+ */
+function compositionChip(data: DailyReportRenderData): string {
+  const c = data.interpretation?.composition;
+  if (!c || !Number.isFinite(c.weekPct)) return '';
+  const prev = c.prevWeekPct != null && Number.isFinite(c.prevWeekPct) ? ` · 7 días previos: ${Math.round(c.prevWeekPct)}%` : '';
+  return `
+              <div style="margin-top:12px;padding:6px 10px;border:1px solid ${T.line};font-family:${FONT_MONO};font-size:12px;line-height:1.5;color:${T.ink2};">${esc(`${Math.round(c.weekPct)}% de las menciones son comentarios de usuarios en publicaciones de redes de la agencia${prev}`)}</div>`;
 }
 
 /** 3 · Resumen del día: titular, foto opcional, párrafo y viñetas numeradas. */
@@ -308,8 +339,9 @@ function renderInsights(data: DailyReportRenderData): string {
                 ${b.items.map((x) => `<tr><td colspan="2" class="force-text-dark" style="padding:8px 0 0 0;font-size:14px;line-height:1.55;color:${T.ink};">${x}</td></tr>`).join('')}
               </table>`).join('')
     : `<div style="font-size:13px;color:${T.text2};">Sin señal suficiente para insights en este periodo.</div>`;
+  const win = data.interpretation?.insightsWindowLabel?.trim();
   return sectionRow(`
-              ${sectionLabel('03 · Insights')}
+              ${sectionLabel(win ? `03 · Insights · ${win}` : '03 · Insights')}
               ${body}`);
 }
 
@@ -370,6 +402,32 @@ function renderTopics(data: DailyReportRenderData): string {
 }
 
 /**
+ * Nota de metodología (interpretación v1, spec 11.1): universo, ventana, de
+ * qué día son las muestras y la latencia de Instagram. Vacía sin
+ * `interpretation.methodologyNote` (legacy).
+ */
+function renderMethodology(data: DailyReportRenderData): string {
+  const note = data.interpretation?.methodologyNote?.trim();
+  if (!note) return '';
+  return sectionRow(`
+              ${sectionLabel('Cómo se lee este correo')}
+              <p style="margin:0;font-size:12px;line-height:1.55;color:${T.text2};">${esc(note)}</p>`, { padding: '20px 32px' });
+}
+
+/**
+ * Texto de la nota de metodología del diario con el motor. Sin cifras propias
+ * (solo la ventana y la base mínima de los porcentajes).
+ */
+export function buildDailyMethodologyNote(opts: { periodLabel: string; dayLabel: string; minDeltaBase: number }): string {
+  return [
+    `Las cifras cuentan menciones pertinentes (se excluye la pertinencia baja) de los 7 días cerrados (${opts.periodLabel}), en hora de Puerto Rico; es la misma base que el dashboard.`,
+    `El resumen del día usa lo escrito el ${opts.dayLabel}. Un comentario cuenta el día en que se escribió; si responde a una publicación de más de 2 días, se presenta como reacción tardía con la fecha de esa publicación.`,
+    'Los comentarios de Instagram llegan con horas de retraso, así que el último día puede subir en el próximo reporte.',
+    `Las variaciones en porcentaje se muestran solo si la base previa llega a ${opts.minDeltaBase} menciones; con menos, se muestra la diferencia en menciones.`,
+  ].join(' ');
+}
+
+/**
  * Vista previa del inbox (lo que se lee bajo el asunto): las cifras que
  * cambiaron, para que el asunto pueda contar el hecho del día.
  */
@@ -390,15 +448,19 @@ export function dailyPreheader(data: DailyReportRenderData): string {
 // ------------------------------------------------------------
 
 export function renderDailyReportHtml(data: DailyReportRenderData): string {
-  const contentRows = [
+  const rows = [
     renderReadouts(data),
     renderDistribution(data),
     renderSummary(data),
     renderTrend(data),
     renderInsights(data),
     renderTopics(data),
-    actionRow(data.overviewUrl || '#', 'Abrir el dashboard'),
-  ].join('\n');
+  ];
+  // Solo con el motor (interpretation); en legacy no hay fila extra.
+  const methodology = renderMethodology(data);
+  if (methodology) rows.push(methodology);
+  rows.push(actionRow(data.overviewUrl || '#', 'Abrir el dashboard'));
+  const contentRows = rows.join('\n');
 
   return instrumentDocument({
     title: `Reporte diario ECO · ${data.agencyShortName} · ${data.periodLabel}`,
