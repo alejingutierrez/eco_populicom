@@ -1013,9 +1013,13 @@ async function buildDailyEmailWithComposer(
   let interpretation: DailyInterpretation | undefined;
   if (useComposer) {
     const share = fresh?.share ?? null;
+    // El chip solo dice algo si hubo comentarios en alguna de las dos semanas
+    // (DF no tiene canales propios: «0 % · previos 0 %» es ruido).
+    const hasComments = !!share && share.week.total > 0
+      && (Math.round(pctOf(share.week.comments, share.week.total)) > 0 || Math.round(pctOf(share.prevWeek.comments, share.prevWeek.total)) > 0);
     interpretation = {
       insightsWindowLabel: 'últimos 7 días',
-      composition: share && share.week.total > 0
+      composition: share && hasComments
         ? { weekPct: pctOf(share.week.comments, share.week.total), prevWeekPct: share.prevWeek.total > 0 ? pctOf(share.prevWeek.comments, share.prevWeek.total) : null }
         : null,
       methodologyNote: buildDailyMethodologyNote({
