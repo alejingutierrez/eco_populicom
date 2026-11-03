@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, timestamp, jsonb, index, date, primaryKey } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { users } from './users';
 
@@ -85,4 +85,35 @@ export const reportSendLog = pgTable(
     index('idx_report_send_log_agency_id').on(t.agencyId),
     index('idx_report_send_log_sent_at').on(t.sentAt),
   ],
+);
+
+/** Tipo de correo de `report_compositions.report_type`. */
+export type ReportCompositionType = 'daily' | 'weekly';
+/** `complete`: el redactor produjo texto; `degraded`: texto determinista (no se envía). */
+export type ReportCompositionStatus = 'complete' | 'degraded';
+
+/**
+ * report_compositions (0014; interpretación v1, WP-6) — composición del motor
+ * de redacción por agencia, tipo de correo y fin de periodo. La deja la
+ * composición anticipada (acción `compose` de eco-weekly-report, 2 h antes del
+ * envío) y la lee el envío de la hora configurada. Una fila por periodo: un
+ * reintento la reemplaza, salvo que una `degraded` intente pisar una
+ * `complete`.
+ */
+export const reportCompositions = pgTable(
+  'report_compositions',
+  {
+    agencyId: uuid('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+    /** 'daily' | 'weekly'. */
+    reportType: varchar('report_type', { length: 10 }).notNull().$type<ReportCompositionType>(),
+    /** Último día (calendario PR) de la ventana del correo. */
+    periodEnd: date('period_end').notNull(),
+    composerVersion: varchar('composer_version', { length: 24 }).notNull(),
+    /** Composición completa del motor (hechos, muestras, borradores, QA, texto final, modelos, tiempos). */
+    composition: jsonb('composition').notNull().$type<Record<string, unknown>>(),
+    status: varchar('status', { length: 16 }).notNull().$type<ReportCompositionStatus>(),
+    /** Momento de la última composición guardada para el periodo. */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'report_compositions_pk', columns: [t.agencyId, t.reportType, t.periodEnd] })],
 );
