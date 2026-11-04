@@ -197,8 +197,19 @@
     }, props.children);
   }
 
-  /** Citas y reglas dentro del texto: M-xxxx, N-xxx, [métrica: …], M-xx/G-x/L-x/LC-x. */
-  const CITE_RE = /(\[métrica:[^\]]*\]|«sin respaldo»|\b(?:N-\d+|LC-\d+|[MGL]-\d+)\b)/g;
+  /** Citas y reglas dentro del texto: M-<uuid>, M-xxxx, N-xxx, [métrica: …], M-xx/G-x/L-x/LC-x. */
+  const UUID_PART = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  const CITE_RE = new RegExp('(\\[métrica:[^\\]]*\\]|«sin respaldo»|\\b[MN]-' + UUID_PART + '|\\b(?:N-\\d+|LC-\\d+|[MGL]-\\d+)\\b)', 'gi');
+  const UUID_CITE_RE = new RegExp('^[MN]-' + UUID_PART + '$', 'i');
+  // Las menciones citadas por ID se numeran [1], [2]… en orden de aparición dentro del memorando.
+  let refMap = {};
+  function buildRefMap(memo) {
+    const map = {}; let n = 0;
+    const re = new RegExp('\\b[MN]-' + UUID_PART, 'gi');
+    (JSON.stringify(memo || {}).match(re) || []).forEach((id) => { const k = id.toLowerCase(); if (!map[k]) { n += 1; map[k] = n; } });
+    return map;
+  }
+  const letra = (i) => (typeof i === 'number' && i >= 0 && i < 26 ? String.fromCharCode(65 + i) : null);
   const CHIP = {
     fontFamily: 'var(--ff-mono, monospace)', fontSize: 'var(--fs-caption)', padding: '0 4px', margin: '0 1px',
     borderRadius: 4, border: '1px solid var(--hairline)', background: 'var(--canvas-2)', color: 'var(--text-2)', whiteSpace: 'nowrap',
@@ -211,6 +222,10 @@
       if (!p) return null;
       if (i % 2 === 0) return h('span', { key: key + i }, p);
       // «sin respaldo» lo marca el servidor: se muestra como advertencia.
+      if (UUID_CITE_RE.test(p)) {
+        const n = refMap[p.toLowerCase()];
+        return h('span', { key: key + i, style: CHIP, title: 'Mención ' + p }, '[' + (n || '·') + ']');
+      }
       return h('span', { key: key + i, style: p === '«sin respaldo»' ? CHIP_BAD : CHIP }, p);
     });
   }
@@ -265,16 +280,17 @@
 
   function caminoCard(c0, i) {
     const c = c0 || {};
-    const letra = String.fromCharCode(65 + i);
-    return h('article', { key: 'c' + i, style: CARD, 'aria-label': 'Camino ' + letra }, [
-      h('div', { key: 'h', style: { fontWeight: 700 } }, 'Camino ' + letra + (c.nombre ? ': ' + c.nombre : '')),
+    const lt = String.fromCharCode(65 + i);
+    const efectos = asList(c.efectos).filter((x) => !/sin clase de referencia/i.test(String(x)));
+    return h('article', { key: 'c' + i, style: CARD, 'aria-label': 'Opción ' + lt }, [
+      h('div', { key: 'h', style: { fontWeight: 700 } }, 'Opción ' + lt + (c.nombre ? ': ' + c.nombre.replace(/^Camino\s*\d+\s*·\s*/i, '') : '')),
       h(Field, { key: 'f1', label: 'Qué', value: c.que }),
       h(Field, { key: 'f2', label: 'Quién', value: c.quien }),
       h(Field, { key: 'f3', label: 'Canal', value: c.canal }),
       h(Field, { key: 'f4', label: 'Cuándo', value: c.cuando }),
       h(Field, { key: 'f5', label: 'Por qué funcionaría', value: c.por_que }),
       h(ListBlock, { key: 'l1', title: 'Reglas citadas', items: c.reglas }),
-      h(ListBlock, { key: 'l2', title: 'Efectos esperados', items: c.efectos }),
+      h(ListBlock, { key: 'l2', title: 'Efectos esperados', items: efectos }),
       h(ListBlock, { key: 'l3', title: 'Riesgos', items: c.riesgos }),
       h(ListBlock, { key: 'l4', title: 'Supuestos críticos', items: c.supuestos }),
       h(ListBlock, { key: 'l5', title: 'Lo apoyan', items: c.apoyos }),
@@ -284,6 +300,7 @@
   /** Memorando en el orden de spec §3.3. Las secciones vacías se ocultan salvo hechos y recomendación. */
   function MemoView(props) {
     const memo = props.memo || {};
+    refMap = buildRefMap(memo);
     const enc = memo.encabezado || {};
     const hechos = memo.hechos || {};
     const sabido = arr(hechos.sabido);
@@ -297,10 +314,8 @@
     const review = arr(props.review);
     const out = [];
 
-    const cam = enc.camino != null
-      ? 'Camino ' + enc.camino + (CAMINO_NOMBRE[enc.camino] ? ' · ' + CAMINO_NOMBRE[enc.camino] : '') : null;
     out.push(h('div', { key: 'enc', style: { ...CAPTION, lineHeight: 1.5 } }, [
-      h('div', { key: 'a' }, [enc.agencia, enc.fecha, cam].filter(Boolean).join(' · ')),
+      h('div', { key: 'a' }, [enc.agencia, enc.fecha].filter(Boolean).join(' · ')),
       enc.motivo ? h('div', { key: 'm' }, enc.motivo) : null,
     ]));
 
@@ -321,16 +336,17 @@
     out.push(section('hechos', 'Hechos', hechosKids));
 
     const lb = memo.linea_base || null;
-    if (lb && (lb.descripcion || lb.rango_indice_72h != null)) {
+    const lbRango = lb && lb.rango_indice_72h != null && !/sin clase de referencia/i.test(String(lb.rango_indice_72h)) ? lb.rango_indice_72h : null;
+    if (lb && (lb.descripcion || lbRango != null)) {
       out.push(section('linea', 'Línea base', [
         lb.descripcion ? h('div', { key: 'd', style: TEXT }, rich(lb.descripcion, 'lb')) : null,
-        lb.rango_indice_72h != null
-          ? h('div', { key: 'r', style: CAPTION }, 'Rango del índice a 72 h si no se hace nada: ' + fmtRango(lb.rango_indice_72h))
+        lbRango != null
+          ? h('div', { key: 'r', style: CAPTION }, 'Rango del índice a 72 h si no se hace nada: ' + fmtRango(lbRango))
           : null,
       ]));
     }
 
-    if (caminos.length) out.push(section('caminos', 'Caminos', caminos.map((c, i) => caminoCard(c, i))));
+    if (caminos.length) out.push(section('caminos', 'Opciones', caminos.map((c, i) => caminoCard(c, i))));
     if (memo.sin_camino_b_porque && caminos.length < 2) {
       out.push(section('sinb', 'Sin camino B', [h('div', { key: 't', style: TEXT }, rich(memo.sin_camino_b_porque, 'sb'))]));
     }
@@ -348,14 +364,14 @@
             h(ListBlock, { key: 'm', title: 'Va mal si', items: s.va_mal_si }),
           ]);
         })),
-        h(ListBlock, { key: 'c', title: 'Cambiar de camino si', items: senales.cambiar_si }),
+        h(ListBlock, { key: 'c', title: 'Cambiar de opción si', items: senales.cambiar_si }),
       ]));
     }
 
     // La recomendación siempre se muestra.
     out.push(section('rec', 'Recomendación del consejo', [
       h('div', { key: 'c', style: { fontWeight: 600 } },
-        (rec.camino != null ? 'Camino ' + rec.camino : 'Sin camino recomendado') +
+        (letra(rec.camino) ? 'Opción ' + letra(rec.camino) : 'Sin opción recomendada') +
         (rec.confianza_cualitativa ? ' · confianza ' + rec.confianza_cualitativa : '')),
       rec.porque ? h('div', { key: 'p', style: TEXT }, rich(rec.porque, 'rp')) : null,
     ]));
@@ -404,28 +420,24 @@
     return h('div', { style: { display: 'flex', flexDirection: 'column' } }, out);
   }
 
-  /** Barra de avance por rondas y líneas por asiento. Sin porcentajes inventados. */
+  /** Avance en cuatro pasos legibles. Los detalles (rondas, asientos) quedan en «Ver la deliberación». */
+  const PASOS = ['Revisando los datos', 'Armando las opciones', 'Probando los riesgos', 'Redactando la respuesta'];
+  const PASO_DE_RONDA = { 0: 0, 1: 1, 3: 2, 5: 3 };
   function ProgressBlock(props) {
     const s = props.sum;
-    const done = Math.min(s.rondasHechas, ROUNDS_TOTAL);
-    const kids = [];
-    if (s.ronda != null) {
-      kids.push(h('div', { key: 'lb', style: CAPTION },
-        'Ronda ' + s.ronda + ' de ' + ROUNDS_TOTAL + (s.nombreRonda ? ' · ' + s.nombreRonda : '')));
-      const segs = [];
-      for (let i = 0; i < ROUNDS_TOTAL; i += 1) {
-        segs.push(h('span', { key: i, style: { flex: 1, height: 4, borderRadius: 2, background: i < done ? 'var(--accent)' : 'var(--hairline)' } }));
-      }
-      kids.push(h('div', {
-        key: 'bar', role: 'progressbar', 'aria-label': 'Avance por rondas',
-        'aria-valuemin': 0, 'aria-valuemax': ROUNDS_TOTAL, 'aria-valuenow': done,
-        style: { display: 'flex', gap: 3 },
-      }, segs));
-    }
-    if (s.asientos.length) kids.push(h('div', { key: 'as', style: CAPTION }, s.asientos.map((a) => a + ' ✓').join(' · ') + ' · …'));
-    if (s.estado) kids.push(h('div', { key: 'es', style: CAPTION }, s.estado));
-    if (!kids.length) kids.push(h('div', { key: 'nx', style: CAPTION }, STATUS_TEXT.running));
-    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } }, kids);
+    const actual = s.ronda != null && PASO_DE_RONDA[s.ronda] != null ? PASO_DE_RONDA[s.ronda] : 0;
+    const kids = PASOS.map((t, i) => h('span', {
+      key: i,
+      style: {
+        display: 'inline-flex', gap: 5, alignItems: 'center',
+        color: i < actual ? 'var(--text-2)' : i === actual ? 'var(--text)' : 'var(--text-3)',
+        fontWeight: i === actual ? 600 : 400,
+      },
+    }, [h('span', { key: 'm', 'aria-hidden': true }, i < actual ? '✓' : i === actual ? '●' : '○'), h('span', { key: 't' }, t)]));
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'status', 'aria-live': 'polite' }, [
+      h('div', { key: 'p', style: { ...CAPTION, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' } }, kids),
+      h('div', { key: 'n', style: CAPTION }, 'Suele tardar de 3 a 5 minutos. Puedes seguir usando el dashboard.'),
+    ]);
   }
 
   function notice(key, text, tone) {
@@ -454,12 +466,48 @@
   }
 
   function choiceLabel(c, caminos) {
-    if (c === 'A' || c === 'B') {
-      const i = c === 'A' ? 0 : 1;
+    if (c === 'A' || c === 'B' || c === 'C') {
+      const i = c.charCodeAt(0) - 65;
       const nombre = caminos[i] && caminos[i].nombre;
-      return c + (nombre ? ' · ' + nombre : '');
+      return 'Opción ' + c + (nombre ? ' · ' + nombre.replace(/^Camino\s*\d+\s*·\s*/i, '') : '');
     }
     return c;
+  }
+
+  const R_HEAD = { margin: 0, fontSize: 'var(--fs-caption)', fontWeight: 700, color: 'var(--text-2)' };
+
+  /** La respuesta corta que redacta el servidor: lo que hay que hacer, sin el proceso. */
+  function RespuestaCorta(props) {
+    const r = props.resumen;
+    const rec = props.rec || {};
+    const borrador = props.borrador || null;
+    const [verBorrador, setVerBorrador] = useState(false);
+    const lista = (titulo, items, ordenada) => (arr(items).length
+      ? h('div', { key: titulo, style: { display: 'flex', flexDirection: 'column', gap: 3 } }, [
+          h('h4', { key: 'h', style: R_HEAD }, titulo),
+          h(ordenada ? 'ol' : 'ul', { key: 'l', style: { margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 4, lineHeight: 1.5 } },
+            arr(items).map((t, i) => h('li', { key: i }, String(t)))),
+        ])
+      : null);
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } }, [
+      h('div', { key: 't', style: { fontWeight: 700, lineHeight: 1.4 } }, r.titular),
+      rec.confianza_cualitativa ? h('div', { key: 'c' }, h(Badge, { tone: rec.confianza_cualitativa === 'alta' ? 'ok' : rec.confianza_cualitativa === 'baja' ? 'warn' : 'neutral' },
+        'Confianza ' + rec.confianza_cualitativa)) : null,
+      lista('Qué hacer hoy', r.hacer_hoy, true),
+      lista('Qué evitar', r.no_hacer, false),
+      lista('Cambiaría la decisión si', r.cambiar_si, false),
+      lista('Lo que ECO no ve', r.falta_saber, false),
+      borrador ? h('div', { key: 'b', style: { display: 'flex', flexDirection: 'column', gap: 6 } }, [
+        h('button', {
+          key: 'tg', type: 'button', style: { ...BTN, alignSelf: 'flex-start' }, 'aria-expanded': verBorrador,
+          onClick: () => setVerBorrador(!verBorrador),
+        }, verBorrador ? 'Ocultar el borrador' : 'Ver un borrador para empezar'),
+        verBorrador ? h('div', { key: 'x', style: CARD }, [
+          h('div', { key: 'n', style: CAPTION }, 'Punto de partida: completa lo que va entre corchetes y que asesoría legal lo revise antes de publicar.'),
+          h('div', { key: 'tx', style: { whiteSpace: 'pre-wrap', lineHeight: 1.5 } }, String(borrador.texto || '')),
+        ]) : null,
+      ]) : null,
+    ].filter(Boolean));
   }
 
   /** Panel de una corrida (caminos 2 y 3): progreso, memorando, elección y deliberación. */
@@ -467,6 +515,7 @@
     const m = props.m;
     const actions = props.actions || {};
     const [showDelib, setShowDelib] = useState(false);
+    const [showFull, setShowFull] = useState(false);
     const [note, setNote] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState(null);
@@ -499,12 +548,21 @@
       kids.push(section('vetos-en-curso', 'Vetos pendientes del memorando', sum.vetos.map((v, i) => vetoCard({ asiento: v.asiento, texto: v.texto, estado: 'pendiente' }, i))));
     }
 
-    if (memo) kids.push(h(MemoView, { key: 'memo', memo, review: sum.review || [] }));
+    const resumen = memo && memo.resumen && typeof memo.resumen.titular === 'string' && arr(memo.resumen.hacer_hoy).length ? memo.resumen : null;
+    if (memo && resumen) {
+      kids.push(h(RespuestaCorta, { key: 'resp', resumen, rec: memo.recomendacion || {}, borrador: arr(memo.borradores)[0] || null }));
+      kids.push(h('button', {
+        key: 'full', type: 'button', style: { ...BTN, alignSelf: 'flex-start' }, 'aria-expanded': showFull,
+        onClick: () => { if (!showFull) track('advisor_full_analysis_open'); setShowFull(!showFull); },
+      }, showFull ? 'Ocultar el análisis completo' : 'Ver el análisis completo'));
+      if (showFull) kids.push(h(MemoView, { key: 'memo', memo, review: sum.review || [] }));
+    } else if (memo) {
+      kids.push(h(MemoView, { key: 'memo', memo, review: sum.review || [] }));
+    }
 
     if (memo) {
       const opciones = [];
-      if (caminos.length >= 1) opciones.push(['A', 'A']);
-      if (caminos.length >= 2) opciones.push(['B', 'B']);
+      ['A', 'B', 'C'].slice(0, Math.min(caminos.length, 3)).forEach((l) => opciones.push([l, 'Opción ' + l]));
       opciones.push(['otro', 'Otro'], ['ninguno', 'Ninguno']);
       const elegir = (c) => {
         setBusy(true); setErr(null);
@@ -516,7 +574,7 @@
         ? h('div', { key: 'ch', style: { fontWeight: 600 } },
             'Elegido: ' + choiceLabel(choice, caminos) + (run.choiceNote ? ' — ' + run.choiceNote : ''))
         : h('div', { key: 'ch', style: SECTION }, [
-            h('div', { key: 't', style: HEAD }, 'Elegimos'),
+            h('div', { key: 't', style: HEAD }, '¿Qué eligen?'),
             h('textarea', {
               key: 'n', rows: 2, maxLength: 500, value: note, disabled: busy,
               placeholder: 'Nota opcional (máximo 500 caracteres)',
@@ -553,8 +611,10 @@
   function TriageLine(props) {
     const t = props.triage || {};
     const nombre = CAMINO_NOMBRE[t.camino] || ('Camino ' + t.camino);
+    // Para la persona: la razón del clasificador, sin el piso por reglas ni el aviso de la fase 2.
+    const razon = (t.clasificacion && t.clasificacion.motivo) || String(t.motivo || '').replace(/\s*·\s*Override:.*$/i, '');
     return h('div', { style: { fontSize: 'var(--fs-caption)', color: 'var(--text-2)', marginBottom: 6, lineHeight: 1.45 } },
-      nombre + (t.motivo ? ' · ' + t.motivo : ''));
+      nombre + (razon ? ' · ' + razon : ''));
   }
 
   /** Notas de progreso del camino 1 mientras no hay texto. */

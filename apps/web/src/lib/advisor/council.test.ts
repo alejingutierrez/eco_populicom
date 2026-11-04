@@ -1,5 +1,6 @@
 import { runPanel, rotatingSeatFor, applyMemoRules, type PanelDeps } from './council';
 import type { AdvisorLLM, AdvisorRequest, AdvisorResponse } from '@eco/shared/src/advisor/llm';
+import { RESUMEN_SCHEMA } from './summary';
 import {
   FACT_SHEET_SCHEMA,
   MEMO_HEAD_SCHEMA,
@@ -57,8 +58,16 @@ const MEMO_BASE = {
   limites: ['ECO no ve WhatsApp'],
 };
 
+const RESUMEN_OK = {
+  titular: 'Respondan con un comunicado hoy y no esperen a mañana.',
+  hacer_hoy: ['Publiquen el comunicado hoy.', 'Designen un solo vocero.'],
+  no_hacer: ['No culpen a nadie sin pruebas.'],
+  cambiar_si: ['Si aparece un dato nuevo, revisen la decisión.'],
+  falta_saber: ['ECO no ve WhatsApp.'],
+};
+
 /** LLM falso: responde según el esquema pedido. Sin esquema y con herramientas, termina el turno. */
-function fakeLLM(overrides: { failSeat?: string } = {}): { llm: AdvisorLLM; calls: AdvisorRequest[] } {
+function fakeLLM(overrides: { failSeat?: string; resumen?: 'ok' | 'mal' } = {}): { llm: AdvisorLLM; calls: AdvisorRequest[] } {
   const calls: AdvisorRequest[] = [];
   const llm: AdvisorLLM = {
     stream: async () => { throw new Error('no usado'); },
@@ -73,6 +82,9 @@ function fakeLLM(overrides: { failSeat?: string } = {}): { llm: AdvisorLLM; call
         else if (seat === 'legal') payload = pos('legal', [{ texto: 'publicidad vedada', estado: 'sin_resolver' }]);
         else payload = pos(seat);
       } else if (req.outputSchema === PREMORTEM_SCHEMA) payload = PREMORT;
+      else if (req.outputSchema === (RESUMEN_SCHEMA as unknown)) {
+        payload = overrides.resumen === 'ok' ? RESUMEN_OK : { titular: 'Revisen el camino M-98', hacer_hoy: ['a'], no_hacer: [], cambiar_si: [], falta_saber: [] };
+      }
       else if (req.outputSchema === MEMO_HEAD_SCHEMA) payload = Object.fromEntries(['encabezado', 'hechos', 'linea_base', 'senales', 'recomendacion', 'disenso', 'sin_camino_b_porque', 'limites'].map((k) => [k, (MEMO_BASE as Record<string, unknown>)[k]]));
       else if (req.outputSchema === MEMO_CAMINOS_SCHEMA) payload = Object.fromEntries(['caminos'].map((k) => [k, (MEMO_BASE as Record<string, unknown>)[k]]));
       else if (req.outputSchema === MEMO_DA_SCHEMA) payload = Object.fromEntries(['objeciones_da', 'vetos', 'borradores'].map((k) => [k, (MEMO_BASE as Record<string, unknown>)[k]]));
@@ -182,6 +194,24 @@ describe('runPanel · orden de rondas y eventos (spec §8.3, §9.3)', () => {
     expect(out.memo).toMatchObject({ recomendacion: { confianza_cualitativa: 'baja' } });
     // Ninguna llamada pide temperature ni tool_choice forzado.
     for (const c of calls) expect(JSON.stringify(c)).not.toMatch(/"temperature"|"tool_choice"/);
+  });
+
+  test('la respuesta corta válida se guarda en el memorando y se anuncia antes del memo', async () => {
+    const { pool, events } = fakePool();
+    const { llm } = fakeLLM({ resumen: 'ok' });
+    const out = await runPanel(deps({ llm }, pool));
+    expect(out.memo).toMatchObject({ resumen: RESUMEN_OK });
+    const memoEv = events.find((e) => e.type === 'memo');
+    expect((memoEv?.payload as { memo: { resumen?: unknown } }).memo.resumen).toEqual(RESUMEN_OK);
+    expect(events.some((e) => e.type === 'status' && (e.payload as { texto: string }).texto === 'Redactando la respuesta')).toBe(true);
+  });
+
+  test('si la respuesta corta no pasa la validación, la corrida termina igual sin ella', async () => {
+    const { pool } = fakePool();
+    const { llm } = fakeLLM({ resumen: 'mal' });
+    const out = await runPanel(deps({ llm }, pool));
+    expect(out.status).toBe('done');
+    expect((out.memo as Record<string, unknown>).resumen).toBeUndefined();
   });
 
   test('un asiento que falla dos veces aborta con código seat_invalid', async () => {
