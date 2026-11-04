@@ -131,6 +131,8 @@ function setupFetch(script: (queryId: string, n: number) => FetchStep) {
   });
 }
 
+// PAGE_SIZE del handler: una página LLENA es la que obliga a pedir la siguiente (`results.length === pageSize`).
+const PAGINA = 500;
 const mention = (i: number, iso: string | null) => ({ resourceId: `r${i}`, date: iso });
 const page = (n: number, iso: string) => Array.from({ length: n }, (_, i) => mention(i, iso));
 
@@ -216,7 +218,7 @@ describe('eco-ingestion: racha de 429 (incidente 28-oct)', () => {
   test('429 a media paginación: el cursor avanza con lo ya encolado y luego aborta', async () => {
     setupAgencies(agencies, { 11: '2026-10-28T14:00:00.000Z' });
     setupFetch((q, n) => {
-      if (q === '11' && n === 0) return { status: 200, mentions: page(100, '2026-10-28T14:30:00.000+0000'), total: 250 };
+      if (q === '11' && n === 0) return { status: 200, mentions: page(PAGINA, '2026-10-28T14:30:00.000+0000'), total: 1250 };
       return { status: 429 };
     });
 
@@ -224,11 +226,11 @@ describe('eco-ingestion: racha de 429 (incidente 28-oct)', () => {
 
     // página 0 OK + escalera de 3 intentos en la página 1; nadie más se sondea
     expect(fetchCalls.map((c) => c.queryId)).toEqual(['11', '11', '11', '11']);
-    // las 100 menciones de la página 0 se encolaron...
-    expect(mockSqsSend).toHaveBeenCalledTimes(10);
+    // las 500 menciones de la página 0 se encolaron (en lotes de 10)...
+    expect(mockSqsSend).toHaveBeenCalledTimes(PAGINA / 10);
     // ...y el cursor se compromete a su fecha (antes: sin avance → la corrida
     // siguiente repetía la página y un backlog grande nunca avanzaba)
-    expect(cursorWrites).toEqual([[11, '2026-10-28T14:30:00.000Z', 100]]);
+    expect(cursorWrites).toEqual([[11, '2026-10-28T14:30:00.000Z', PAGINA]]);
     expect(res.body).toContain('ABORTED por cortacircuitos');
     expect(res.body).toContain('ddecpr:12, ddecpr:13, df:21');
   });
@@ -299,6 +301,54 @@ describe('eco-ingestion: lookback de la corrida normal', () => {
   });
 });
 
+describe('eco-ingestion: tamaño de página', () => {
+  // La cuota de Brandwatch se cuenta en peticiones: a 500 por página cada ventana de 8 h cabe
+  // en una (a 100, Gobernadora pedía 3 y DF 1–2). El tamaño viaja en la URL de cada request.
+  const agency = { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] };
+  const pageSizesPedidos = () =>
+    (global as unknown as { fetch: jest.Mock }).fetch.mock.calls.map((c) =>
+      new URL(String(c[0])).searchParams.get('pageSize'),
+    );
+
+  test.each([
+    ['incremental', () => ({})],
+    ['refresh diario', () => ({ refreshLastHours: 48 })],
+    ['backfill manual', () => ({ backfillStartDate: '2026-10-01T00:00:00.000Z', backfillEndDate: '2026-10-02T00:00:00.000Z' })],
+  ])('modo %s: pide 500 menciones por página', async (_modo, evento) => {
+    setupAgencies([agency], { 11: '2026-10-28T14:00:00.000Z' });
+    setupFetch(() => ({ status: 200, mentions: [mention(1, '2026-10-28T14:10:00.000+0000')] }));
+
+    await run(evento());
+
+    expect(pageSizesPedidos()).toEqual(['500']);
+  });
+
+  test('una ventana de 1.200 menciones son 3 páginas (500, 500 y 200), no 12', async () => {
+    setupAgencies([agency], { 11: '2026-10-28T14:00:00.000Z' });
+    setupFetch((_q, n) => ({
+      status: 200,
+      total: 1200,
+      mentions: Array.from({ length: n < 2 ? PAGINA : 200 }, (_, i) => mention(n * PAGINA + i, '2026-10-28T14:10:00.000+0000')),
+    }));
+
+    const res = await run({});
+
+    expect(fetchCalls).toHaveLength(3);
+    expect(pageSizesPedidos()).toEqual(['500', '500', '500']);
+    expect(res.body).toContain('Query 11: 1200 mentions in 3 pages');
+    expect(res.body).toMatch(/\[run\] mode=incremental requests=3 /);
+  });
+
+  test('una página de 500 con más resultados detrás sigue paginando; una corta, no', async () => {
+    setupAgencies([agency], { 11: '2026-10-28T14:00:00.000Z' });
+    setupFetch(() => ({ status: 200, total: 120, mentions: page(120, '2026-10-28T14:10:00.000+0000') }));
+
+    await run({});
+
+    expect(fetchCalls).toHaveLength(1);
+  });
+});
+
 describe('eco-ingestion: refresh diario de 07:00Z', () => {
   // El handler muta el evento (traduce refreshLastHours a una ventana): uno nuevo por prueba.
   const refresh = () => ({ refreshLastHours: 48 });
@@ -358,7 +408,7 @@ describe('eco-ingestion: backfill manual', () => {
   test('sigue sin tocar el cursor aunque falle a media paginación', async () => {
     setupAgencies([{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] }]);
     setupFetch((_q, n) =>
-      n === 0 ? { status: 200, mentions: page(100, '2026-10-20T10:00:00.000+0000'), total: 250 } : { status: 401 },
+      n === 0 ? { status: 200, mentions: page(PAGINA, '2026-10-20T10:00:00.000+0000'), total: 1250 } : { status: 401 },
     );
 
     const res = await run({ backfillStartDate: '2026-10-20T00:00:00Z', backfillEndDate: '2026-10-21T00:00:00Z' });
