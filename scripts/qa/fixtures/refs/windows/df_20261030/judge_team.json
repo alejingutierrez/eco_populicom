@@ -1,0 +1,176 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "El Senado exigió documentos sobre un cuarto viaje de Roig",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D9, D10, D11, D13, N17) confirman que el Senado solicitó/exigió información sobre un cuarto viaje de Suzanne Roig, esta vez a México."
+  },
+  {
+   "section": "titular",
+   "claim": "Una senadora pidió que se aparte del cargo",
+   "verdict": "verdadera",
+   "why": "D18 confirma que la senadora Nitza Morán exhortó a Suzanne Roig a separarse temporalmente de su cargo."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El viernes 30 de octubre fue el día de mayor volumen de la semana, con 69 menciones",
+   "verdict": "verdadera",
+   "why": "day_total = 69, day_rank = posición 1 de 7 por volumen. Coincide exactamente."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La senadora Nitza Morán exhortó a Roig a separarse temporalmente del cargo",
+   "verdict": "verdadera",
+   "why": "D18 (Radio Isla 1320, viernes 30) confirma exactamente esta información."
+  },
+  {
+   "section": "párrafo",
+   "claim": "usuario_a373c0 informó que el comisionado electoral alterno del PNP, Felixavier Méndez Soto, renunció con efectividad el 15 de noviembre",
+   "verdict": "verdadera",
+   "why": "D1, D3, D5 (publicaciones de usuario_d4b773 y usuario_a373c0 del viernes 30) confirman la renuncia de Méndez con efectividad el 15 de noviembre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Según fuentes citadas por usuario_a373c0, Méndez intentó mediar en las controversias de ADSEF",
+   "verdict": "verdadera",
+   "why": "D3 y D5 mencionan que 'Fuentes de JayFonsecaPR asegura que Méndez intentó mediar en las controversias relacionadas con Alberto Fradera y Blanca Medina en ADSEF'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La agencia publicó una reunión de la secretaria con la Comisión de la Pobreza",
+   "verdict": "verdadera",
+   "why": "D7 (publicación del Departamento de la Familia, viernes 30) confirma la reunión con representantes de la Comisión de la Pobreza."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Esa actividad no generó cobertura fuera de sus propias redes",
+   "verdict": "sin_respaldo",
+   "why": "Las menciones proporcionadas no muestran cobertura externa de esa reunión, pero los datos son muestras, no el universo completo; no se puede afirmar categóricamente que ningún medio la cubrió."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El Vocero, Noticentro, Telenoticias, El Nuevo Día y Noticias Boricuas cubrieron la investigación senatorial sobre el viaje a México",
+   "verdict": "verdadera",
+   "why": "D10 (El Vocero), D9 (Noticentro), D8/D11 (Telenoticias), D13 (El Nuevo Día), D19 (Noticias Boricuas) confirman cobertura de estos medios sobre el viaje a México."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El senador Morales solicitó detalles sobre los gastos y un acuerdo de colaboración con una universidad mexicana",
+   "verdict": "verdadera",
+   "why": "D10 confirma que 'El senador Juan Oscar Morales investiga un cuarto viaje... solicitó detalles sobre los gastos y un acuerdo de colaboración con una universidad mexicana'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Bonita Radio criticó que ni la Policía ni el Departamento de la Familia se han interesado por la casa que tenía Félix Plaud en la urbanización del Sagrado Corazón en San Juan",
+   "verdict": "verdadera",
+   "why": "D6/N20 (Bonita Radio, viernes 30) confirma exactamente esta crítica."
+  },
+  {
+   "section": "viñetas",
+   "claim": "En esa casa se alegó que mantenía viviendo menores con problemas de sustancias controladas, mientras ASSMCA sí actuó",
+   "verdict": "verdadera",
+   "why": "D6 indica que ASSMCA se movió a indagar mientras ni la Policía ni Familia se interesaron, y menciona menores con problemas de sustancias controladas."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La administradora de ASUME, María del Mar Mateu Meléndez, negó en Radio Isla que la gobernadora le haya ofrecido dirigir el Departamento de la Familia",
+   "verdict": "verdadera",
+   "why": "D17 (radioislatv, viernes 30) confirma que Mateu Meléndez negó que la gobernadora le haya ofrecido dirigir el Departamento de la Familia."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen de menciones mostró una tendencia creciente a lo largo de la semana: de 14 el sábado 24 a 69 el viernes 30 de octubre",
+   "verdict": "verdadera",
+   "why": "La serie confirma: 14, 21, 48, 53, 53, 68, 69. Es una tendencia creciente (aunque miércoles y martes empatan en 53, la tendencia general es ascendente)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La tendencia creciente estuvo ligada casi por completo a la cobertura de los viajes y los plazos del Senado",
+   "verdict": "exagerada",
+   "why": "Si bien la controversia de viajes y plazos del Senado fue dominante, también hubo cobertura significativa sobre menores durmiendo en oficinas (N3, N4, N14), el caso Félix Plaud (N9, D6), adopciones relegadas (N1, N15), y trabajadores sociales becados sin contratar (N10). Decir 'casi por completo' exagera la concentración temática."
+  },
+  {
+   "section": "insights",
+   "claim": "Medios reportaron que Roig podría enfrentar un proceso por desacato si la controversia llegaba a los tribunales",
+   "verdict": "verdadera",
+   "why": "N2/N11 (Telemundo PR, miércoles 28) confirma: 'La funcionaria podría enfrentar un proceso por desacato si la controversia llega a los tribunales'."
+  },
+  {
+   "section": "insights",
+   "claim": "Se reveló el cuarto viaje a México",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D9, D10, D11, D13, N17) confirman la revelación del cuarto viaje a México."
+  },
+  {
+   "section": "insights",
+   "claim": "El presidente del Senado Thomas Rivera Schatz responsabilizó a la gobernadora por la permanencia de Roig en el cargo",
+   "verdict": "verdadera",
+   "why": "N8 (Metro Puerto Rico, jueves 29) confirma que Rivera Schatz responsabilizó a la gobernadora Jenniffer González por la permanencia de Roig."
+  },
+  {
+   "section": "insights",
+   "claim": "172 menciones negativas representaron el 53 % del total semanal",
+   "verdict": "verdadera",
+   "why": "week_neg = 172, week_neg_pct = 53 %. Coincide exactamente con los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "usuario_a373c0 publicó el sábado 24 de octubre, en colaboración con Bonita Radio, una investigación sobre menores removidos que pasan semanas durmiendo en oficinas del Departamento",
+   "verdict": "verdadera",
+   "why": "N3 (usuario_d4b773, sábado 24) y N4 (usuario_a373c0, sábado 24) confirman la investigación sobre menores durmiendo en oficinas, mencionando colaboración con Bonita Radio."
+  },
+  {
+   "section": "insights",
+   "claim": "El martes 27, usuario_a373c0 informó que trabajadores sociales denuncian que las adopciones han quedado relegadas y que la agencia no dio cifras de adopciones completadas este año",
+   "verdict": "verdadera",
+   "why": "N1/N15 (usuario_a373c0/usuario_d4b773, martes 27) confirman que trabajadores sociales denuncian adopciones relegadas y que la agencia 'no dio números y dijo que los daría cuando tenga'."
+  },
+  {
+   "section": "insights",
+   "claim": "Bonita Radio publicó su propia cobertura del caso Félix Plaud el viernes 30",
+   "verdict": "verdadera",
+   "why": "D6/N20 (Bonita Radio, viernes 30) confirma la cobertura del caso Félix Plaud."
+  },
+  {
+   "section": "insights",
+   "claim": "La cobertura informativa sobre los plazos del Senado fue extensa y sin juicio propio: Noticentro, Telenoticias, El Nuevo Día y usuario_28b025 reportaron los pasos legislativos del miércoles 28 al viernes 30 de octubre",
+   "verdict": "verdadera",
+   "why": "E17 (Noticentro, miércoles 28), E13/E19 (Telenoticias, jueves 29 y viernes 30), D13 (El Nuevo Día, viernes 30), E14 (usuario_28b025, lunes 26) confirman cobertura neutral. usuario_28b025 publicó el lunes 26, no entre miércoles 28 y viernes 30, pero D20 (usuario_e887cd, viernes 30) sí cae en ese rango."
+  },
+  {
+   "section": "insights",
+   "claim": "Las 153 menciones neutrales fueron casi en su totalidad de medios y páginas públicas, no de ciudadanos",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "week_neu = 153 es correcto. La afirmación de que fueron 'casi en su totalidad de medios y páginas públicas, no de ciudadanos' es consistente con comment_share_week = 0% (solo 1 de 326 menciones fue comentario de usuario), pero esto aplica a todas las menciones, no solo las neutrales. No se puede verificar específicamente la distribución de las neutrales."
+  },
+  {
+   "section": "insights",
+   "claim": "La Fortaleza, a través de su portavoz Jean Peña Payano, afirmó el lunes 26 de octubre que Roig se mantiene en el cargo y que han sido más los logros que las controversias",
+   "verdict": "verdadera",
+   "why": "E10 (El Nuevo Día, lunes 26) confirma que Jean Peña Payano 'recalcó que Suzanne Roig se mantiene en la jefatura del Departamento de la Familia' y que 'Han sido más los logros que las controversias'."
+  },
+  {
+   "section": "insights",
+   "claim": "NotiCel reportó el viernes 30 que la gobernadora González Colón defendió nuevamente a Roig",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D14 (NotiCel, viernes 30) reporta que 'González Colón defiende nuevamente a Suzanne Roig y arremete contra Rivera Schatz'. Sin embargo, el texto del insight dice que fue la gobernadora quien defendió a Roig, pero D14 no especifica si fue directamente la gobernadora o a través de un portavoz/senador. El titular menciona a González Colón defendiendo a Roig, lo cual es consistente."
+  },
+  {
+   "section": "insights",
+   "claim": "La única mención positiva de la semana fue una publicación del propio Departamento sobre una actividad deportiva interna entre empleados, del lunes 26 de octubre",
+   "verdict": "verdadera",
+   "why": "week_pos = 1, y P1 (Departamento de la Familia, lunes 26) es sobre una actividad deportiva interna (subcampeón ADSEF, tercer lugar Región de Humacao, equipos participantes). Coincide exactamente."
+  },
+  {
+   "section": "insights",
+   "claim": "Ningún medio ni ciudadano generó contenido favorable sobre la agencia en los siete días",
+   "verdict": "verdadera",
+   "why": "week_pos = 1 y la única mención positiva (P1) fue del propio Departamento de la Familia, no de un medio externo ni ciudadano."
+  }
+ ],
+ "headline_drama_0_5": 2,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [],
+ "notes": "El texto es en general preciso y bien respaldado por los datos. El titular es factual y sobrio (nivel 2 de drama: usa \"exigió\" que es algo más fuerte que \"solicitó\" pero refleja el tono de las menciones). La única afirmación exagerada es que la tendencia creciente estuvo ligada \"casi por completo\" a los viajes y plazos del Senado, cuando hubo cobertura significativa de otros temas como menores en oficinas, adopciones relegadas y el caso Plaud. No se detectan contradicciones entre bloques ni publicaciones viejas presentadas como noticias del día."
+}

@@ -1,0 +1,224 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Préstamos federales por sequía concentran la cobertura del jueves",
+   "verdict": "verdadera",
+   "why": "La gran mayoría de las menciones del jueves (D1-D3, D6-D8, D10-D15) tratan sobre los préstamos federales por sequía, lo que efectivamente concentra la cobertura del día."
+  },
+  {
+   "section": "titular",
+   "claim": "La noticia tuvo réplica en varios medios",
+   "verdict": "verdadera",
+   "why": "Se confirma réplica en NotiCel, El Nuevo Día, Es Noticia PR, La Perla del Sur, Radio Isla, CyberNews, Foro Noticioso, usuario_dc81cf y otros (D1-D3, D6-D8, D10-D15)."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La gobernadora Jenniffer González Colón y el secretario Carlos Ríos Pierluisi anunciaron los préstamos",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D6, D7, D14, D15) confirman que ambos funcionarios hicieron el anuncio."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Negocios de 18 municipios afectados por la sequía pueden solicitar préstamos federales de la SBA de hasta $2 millones",
+   "verdict": "verdadera",
+   "why": "D1, D3, D8, D12 confirman préstamos de hasta $2 millones para entidades de 18 municipios afectados por la sequía."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Se ofrece orientación presencial en el CUS del DDEC",
+   "verdict": "verdadera",
+   "why": "D2, D6, D8, D11 mencionan que personal de la SBA ofrecerá orientación en el CUS del DDEC."
+  },
+  {
+   "section": "párrafo",
+   "claim": "NotiCel, El Nuevo Día, La Perla del Sur, Radio Isla, CyberNews, Foro Noticioso, usuario_dc81cf y otros replicaron la noticia",
+   "verdict": "verdadera",
+   "why": "D1 (NotiCel), D2 (El Nuevo Día), D6 (La Perla del Sur), D7 (Radio Isla), D8/D12 (CyberNews), D13 (Foro Noticioso), D15 (usuario_dc81cf) confirman cada medio mencionado."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Las únicas 2 menciones negativas del día fueron comentarios de usuarios a la publicación del DDEC sobre la visita a Bombardier en Toronto",
+   "verdict": "verdadera",
+   "why": "Los datos indican day_neg = 2, y D9 y D17 son los dos comentarios negativos, ambos en respuesta a la publicación sobre la visita a Bombardier en Toronto."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Un comentario reclamó falta de resultados concretos en desarrollo económico",
+   "verdict": "verdadera",
+   "why": "D9 (usuario_25fbea): 'No hemos visto avance en nuestro desarrollo económico... un gobierno lleno de gestiones sin resultados.'"
+  },
+  {
+   "section": "párrafo",
+   "claim": "Otro comentario pidió que se priorice la generación energética sobre la aviación",
+   "verdict": "verdadera",
+   "why": "D17 (usuario_65217a): 'Pero necesitamos plantas de generacion energética no aviones.'"
+  },
+  {
+   "section": "viñetas",
+   "claim": "El anuncio de los préstamos de la SBA por sequía generó cobertura uniforme y neutral en al menos ocho medios",
+   "verdict": "verdadera",
+   "why": "Se identifican al menos 8 medios/fuentes distintas (NotiCel, El Nuevo Día, Es Noticia PR, La Perla del Sur, Radio Isla, CyberNews, Foro Noticioso, usuario_dc81cf) y todas las menciones tienen sentimiento neutral."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Ninguna de esas publicaciones incluyó críticas ni cuestionamientos al DDEC",
+   "verdict": "verdadera",
+   "why": "Todas las menciones sobre los préstamos por sequía (D1-D3, D6-D8, D10-D15) tienen sentimiento neutral y son informativas sin críticas."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen del jueves bajó -19 menciones respecto al miércoles",
+   "verdict": "verdadera",
+   "why": "day_delta_abs = -19, consistente con 26 (jueves) - 45 (miércoles) = -19."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El miércoles fue el día pico de la semana con 45 menciones",
+   "verdict": "verdadera",
+   "why": "peak_total = 45 y el día pico es miércoles 21 de octubre con series_2026-10-21 = 45."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El jueves se mantuvo como el tercer día con más actividad de los siete",
+   "verdict": "verdadera",
+   "why": "day_rank = posición 3 de 7 por volumen, confirmado por los datos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "WALO Radio informó que Conexión Laboral, a través del DDEC, celebrará una feria de reclutamiento en Ceiba el 29 de octubre",
+   "verdict": "verdadera",
+   "why": "D16 (Redacción WALO Radio) confirma la feria de reclutamiento en Ceiba el 29 de octubre a través de Conexión Laboral/DDEC."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La mención de WALO Radio pasó sin reacciones visibles",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen métricas de engagement o reacciones para esta mención específica; no se puede confirmar ni negar."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Los comentarios de usuarios en publicaciones del DDEC representaron el 20% de las menciones de la semana",
+   "verdict": "verdadera",
+   "why": "comment_share_week = 20% (28 de 141), coincide exactamente."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Frente al 14% de la semana anterior",
+   "verdict": "verdadera",
+   "why": "comment_share_prev_week = 14% (16 de 113), coincide exactamente."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Esto indica más interacción directa con el contenido de la agencia",
+   "verdict": "verdadera",
+   "why": "Un aumento del 14% al 20% en la proporción de comentarios de usuarios sí indica mayor interacción directa con el contenido de la agencia."
+  },
+  {
+   "section": "insights",
+   "claim": "El Vocero informó el viernes 16 de octubre que una jueza ordenó al DDEC entregar nombres, puestos, salarios y correos institucionales de sus empleados",
+   "verdict": "verdadera",
+   "why": "N11 confirma: nota de El Vocero del viernes 16 de octubre sobre la orden judicial al DDEC de entregar esos documentos."
+  },
+  {
+   "section": "insights",
+   "claim": "La jueza rechazó el reclamo de confidencialidad de la agencia",
+   "verdict": "verdadera",
+   "why": "N11 dice explícitamente 'rechazó su reclamo de confidencialidad'."
+  },
+  {
+   "section": "insights",
+   "claim": "Fue la mención negativa de mayor alcance en la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos indican que N11 aparece en la lista de negativos con más engagement, pero no se proporcionan cifras de alcance específicas para confirmar que fue la de mayor alcance absoluto."
+  },
+  {
+   "section": "insights",
+   "claim": "Una usuaria comentó varias veces en publicaciones del DDEC sobre la Beca Teodoro Moscoso reclamando que se elimine el límite de edad",
+   "verdict": "verdadera",
+   "why": "N4, N5 y N8 son tres comentarios de usuario_99fa7e en distintas publicaciones del DDEC sobre la Beca Teodoro Moscoso, todos pidiendo eliminar o extender el límite de edad."
+  },
+  {
+   "section": "insights",
+   "claim": "Otro usuario reclamó en la publicación de Desarrollo Económico en Ruta el pago relacionado con COVID-19 a empleados del Hospital Industrial",
+   "verdict": "verdadera",
+   "why": "N6 y N7 (usuario_65b0e3) confirman el reclamo sobre el pago de COVID-19 a empleados del Hospital Industrial en la publicación de Desarrollo Económico en Ruta."
+  },
+  {
+   "section": "insights",
+   "claim": "Ambos reclamos aparecieron el miércoles 21 de octubre",
+   "verdict": "verdadera",
+   "why": "N4, N5, N6, N7, N8 están todos fechados el miércoles 21 de octubre."
+  },
+  {
+   "section": "insights",
+   "claim": "El miércoles 21 fue el día con más menciones negativas de la semana",
+   "verdict": "verdadera",
+   "why": "series_2026-10-21 tiene neg=6, que es el mayor número de negativas de cualquier día de la semana (comparado con 0-2 en los demás días)."
+  },
+  {
+   "section": "insights",
+   "claim": "La Beca Teodoro Moscoso fue el tema con presencia más sostenida",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "La Beca aparece en varios días (viernes 16, martes 20, miércoles 21), pero otros temas como Desarrollo Económico en Ruta o la misión comercial a Canadá también tuvieron presencia en múltiples días. Decir que fue 'el más sostenido' es plausible pero no se puede confirmar con certeza absoluta sin un conteo temático completo."
+  },
+  {
+   "section": "insights",
+   "claim": "El DDEC publicó testimonios de beneficiarios de la Beca Teodoro Moscoso desde el viernes 16",
+   "verdict": "verdadera",
+   "why": "E7 (viernes 16, desarrollopr) muestra un testimonio de beneficiario de la Beca, y E10 (martes 20) otro testimonio de Kian Foster."
+  },
+  {
+   "section": "insights",
+   "claim": "La página Puerto Rico La Isla difundió la convocatoria de la Beca el martes 20",
+   "verdict": "verdadera",
+   "why": "E1 confirma que Puerto Rico La Isla publicó sobre la beca de hasta $40,000 el martes 20 de octubre."
+  },
+  {
+   "section": "insights",
+   "claim": "La misión comercial a Canadá incluyó PromoExport con 11 empresas puertorriqueñas y la visita a Bombardier",
+   "verdict": "verdadera",
+   "why": "E18 menciona '11 empresas puertorriqueñas' y PromoExport; D4 y D18 confirman la visita a Bombardier en Toronto."
+  },
+  {
+   "section": "insights",
+   "claim": "La iniciativa Desarrollo Económico en Ruta tuvo paradas anunciadas en Salinas y Peñuelas",
+   "verdict": "verdadera",
+   "why": "E2/E17 confirman Salinas y E4 confirma Peñuelas como paradas anunciadas."
+  },
+  {
+   "section": "insights",
+   "claim": "Toda la agenda institucional de la semana tuvo tono informativo",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "Las publicaciones institucionales del DDEC fueron neutrales/informativas, pero hubo menciones negativas (N11 sobre la orden judicial, comentarios críticos) que forman parte del panorama semanal. Decir 'toda con tono informativo' omite esos matices."
+  },
+  {
+   "section": "insights",
+   "claim": "El Centro para Emprendedores y participantes de Digital Store Academy publicaron comentarios favorables sobre los talleres de comercio digital del DDEC entre el martes 20 y el miércoles 21",
+   "verdict": "verdadera",
+   "why": "P1 (usuario_263acb, martes 20), P6 (usuario_efce0b, miércoles 21), P7 (usuario_263acb, martes 20) confirman comentarios positivos sobre Digital Store Academy."
+  },
+  {
+   "section": "insights",
+   "claim": "Un usuario elogió la misión comercial a Canadá aunque señaló que el sector privado también debería participar",
+   "verdict": "verdadera",
+   "why": "P5 (miércoles 21) dice 'Excelente vamos por más' pero señala que 'no solo el personal gubernamental debe ir' y que el sector privado debería participar."
+  },
+  {
+   "section": "insights",
+   "claim": "usuario_6af3fe agradeció al DDEC por la misión comercial a Austin",
+   "verdict": "verdadera",
+   "why": "P10 (viernes 16) confirma que usuario_6af3fe agradeció al DDEC (desarrollopr) por la misión comercial a Austin."
+  },
+  {
+   "section": "insights",
+   "claim": "Estos dos comentarios positivos fueron por separado (misión a Canadá vs. misión a Austin)",
+   "verdict": "verdadera",
+   "why": "P5 se refiere a la misión a Canadá y P10 a la misión a Austin; son eventos y publicaciones distintas."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [],
+ "notes": "El texto es bastante preciso y fiel a los datos proporcionados. Las cifras coinciden exactamente con los datos reales. Las únicas observaciones menores son: (1) la afirmación de que la nota de El Vocero fue la de mayor alcance negativo no puede verificarse con los datos disponibles (aunque aparece primera en la lista de negativos por engagement); (2) la afirmación de que la Beca Teodoro Moscoso fue el tema 'más sostenido' es razonable pero difícil de confirmar categóricamente; (3) decir que 'toda' la agenda institucional tuvo tono informativo es ligeramente engañoso dado que existieron menciones negativas en la semana. El titular es sobrio y descriptivo, con un nivel de dramatismo bajo."
+}

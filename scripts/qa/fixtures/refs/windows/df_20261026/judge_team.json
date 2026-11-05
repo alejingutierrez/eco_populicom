@@ -1,0 +1,182 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Norma Burgos niega renunciar",
+   "verdict": "verdadera",
+   "why": "D1 y D13 confirman que Burgos descartó haber considerado renunciar y negó deberle disculpas a nadie."
+  },
+  {
+   "section": "titular",
+   "claim": "Coccoloba explica su demanda",
+   "verdict": "verdadera",
+   "why": "D5, D7 y D16 confirman que los abogados de Coccoloba explicaron los fundamentos de su demanda contra el Departamento de la Familia."
+  },
+  {
+   "section": "titular",
+   "claim": "La Fortaleza descarta salida de Roig",
+   "verdict": "verdadera",
+   "why": "D3 y D6 confirman que La Fortaleza/Jean Peña Payano afirmó que Roig se mantiene al frente de la agencia."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Norma Burgos descartó haber considerado renunciar y negó deberle disculpas a nadie tras los señalamientos de la exadministradora de ADSEF, Blanca Medina Díaz",
+   "verdict": "verdadera",
+   "why": "D1 y D13 confirman ambas declaraciones de Burgos y la vinculación con Medina Díaz."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Esto fue reportado por El Nuevo Día y usuario_28b025",
+   "verdict": "verdadera",
+   "why": "D1 es de El Nuevo Día y D4/D13 son de usuario_28b025, ambos del lunes 26 de octubre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Los abogados de Coccoloba explicaron en NotiUno y Teleonce los fundamentos de su demanda contra el Departamento de la Familia, LAP Consulting y Suzanne Roig",
+   "verdict": "verdadera",
+   "why": "D5 (NotiUno) y D7 (Teleonce) confirman la cobertura de la demanda de Coccoloba contra Familia, LAP Consulting y Roig."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El portavoz de La Fortaleza, Jean Peña Payano, afirmó que Roig se mantiene al frente de la agencia",
+   "verdict": "verdadera",
+   "why": "D3 confirma que Jean Peña Payano recalcó que Suzanne Roig se mantiene en la jefatura del Departamento de la Familia."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Jean Peña Payano calificó las pesquisas como 'distracciones'",
+   "verdict": "verdadera",
+   "why": "D6 (El Vocero) confirma que La Fortaleza cataloga como 'distracciones' las pesquisas sobre miembros de su administración."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El volumen del lunes 26 de octubre fue de 48 menciones",
+   "verdict": "verdadera",
+   "why": "day_total = 48 según los datos reales."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Más del doble que las 21 del domingo",
+   "verdict": "verdadera",
+   "why": "prev_day_total = 21, y 48 es efectivamente más del doble de 21 (48/21 ≈ 2.29)."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Sigue lejos del pico de 281 del miércoles 21 de octubre",
+   "verdict": "verdadera",
+   "why": "peak_total = 281 y series_2026-10-21 = 281, confirmado."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Más de la mitad de las menciones del día fueron negativas (26 de 48)",
+   "verdict": "verdadera",
+   "why": "day_neg = 26 de day_total = 48, es decir 54%, que es más de la mitad."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El senador Juan Oscar Morales anticipó en Pega'os en la Mañana (Radio Isla) que ese día pudiera radicarse una nueva demanda contra Suzanne Roig por parte de una funcionaria de la agencia",
+   "verdict": "verdadera",
+   "why": "D19 (radioislatv / Pega'os en la Mañana) confirma que el senador novoprogresista Juan Oscar Morales anticipó que HOY pudiera radicarse una nueva demanda contra Suzanne Roig por parte de una funcionaria de la agencia."
+  },
+  {
+   "section": "viñetas",
+   "claim": "No se confirmó su radicación al cierre del monitoreo",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no contienen información que confirme o niegue si la demanda fue radicada; el texto hace una afirmación negativa que no puede verificarse con las menciones disponibles, aunque es una cautela razonable."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Puerto Rico La Isla replicó el lunes la investigación que usuario_a373c0 y Bonita Radio fueron publicando entre el martes 20 y el sábado 24 de octubre sobre menores removidos de sus hogares que pasan semanas durmiendo en oficinas del Departamento de la Familia",
+   "verdict": "verdadera",
+   "why": "D2 (Puerto Rico La Isla, lunes 26) replica la investigación. N3, N14, N19 confirman publicaciones de usuario_a373c0 y Bonita Radio entre el 20 y el 24 de octubre sobre menores durmiendo en oficinas."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El Senado informó, según Teleonce, que citará a la compañía que evaluó las propuestas del contrato de rezago académico, luego de que venció el plazo de 48 horas que la Cámara concedió a Roig",
+   "verdict": "verdadera",
+   "why": "D12 (Teleonce) confirma que el Senado busca interrogar a la compañía que evaluó propuestas de rezago académico, y menciona el vencimiento del plazo de 48 horas concedido por la Cámara."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El presidente de la Cámara, Carlos 'Johnny' Méndez, anunció que ese cuerpo legislativo buscará mejorar las condiciones laborales y salariales de los trabajadores sociales, según Notiséis WIPR y Noticias RTZ",
+   "verdict": "verdadera",
+   "why": "D11 (Notiséis WIPR) y D20 (Noticias RTZ) confirman el anuncio de Carlos 'Johnny' Méndez sobre mejorar condiciones laborales y salariales de trabajadores sociales."
+  },
+  {
+   "section": "insights",
+   "claim": "La controversia por el contrato a NOLA Education concentró la conversación negativa de toda la semana",
+   "verdict": "verdadera",
+   "why": "La gran mayoría de las menciones negativas de alto engagement (N1, N2, N4-N13, N16-N18) giran en torno a la controversia NOLA Education/ADSEF/Roig."
+  },
+  {
+   "section": "insights",
+   "claim": "Documentos publicados por El Nuevo Día el martes 20 de octubre revelaron que el equipo de Roig evaluó cómo adelantar fondos a NOLA antes de adjudicar",
+   "verdict": "verdadera",
+   "why": "N5, N6, N8 y otros confirman que El Nuevo Día obtuvo documentos que revelan que el equipo de Roig evaluó cómo pagarle a NOLA meses antes de adjudicar."
+  },
+  {
+   "section": "insights",
+   "claim": "El Departamento de Justicia abrió una investigación preliminar",
+   "verdict": "verdadera",
+   "why": "N4 confirma que se abrió una investigación preliminar que incluye a Suzanne Roig por las alegadas presiones para firmar contratos."
+  },
+  {
+   "section": "insights",
+   "claim": "La exadministradora de ADSEF denunció presiones para firmar contratos",
+   "verdict": "verdadera",
+   "why": "N18 y otros confirman las denuncias de Blanca Medina sobre presiones y acoso para la otorgación de contratos."
+  },
+  {
+   "section": "insights",
+   "claim": "Coccoloba demandó el viernes 23 de octubre",
+   "verdict": "verdadera",
+   "why": "N12, E1, E4, E12, E15, E20 confirman la demanda de Coccoloba radicada el viernes 23 de octubre."
+  },
+  {
+   "section": "insights",
+   "claim": "Las menciones negativas de la semana sumaron 600",
+   "verdict": "verdadera",
+   "why": "week_neg = 600 según los datos reales."
+  },
+  {
+   "section": "insights",
+   "claim": "Un +53% más que la semana anterior",
+   "verdict": "verdadera",
+   "why": "week_neg_delta_pct = +53% según los datos reales."
+  },
+  {
+   "section": "insights",
+   "claim": "usuario_a373c0 y Bonita Radio publicaron entre el martes 20 y el sábado 24 de octubre una investigación sobre menores bajo custodia del Estado que duermen en oficinas de la agencia",
+   "verdict": "verdadera",
+   "why": "N14 (usuario_d4b773, miércoles 21), N19 (usuario_d4b773, sábado 24) y E12 (Bonita Radio) confirman publicaciones sobre menores durmiendo en oficinas."
+  },
+  {
+   "section": "insights",
+   "claim": "Trabajadoras sociales compran de su bolsillo comida y artículos de higiene para esos menores",
+   "verdict": "verdadera",
+   "why": "N14 confirma que trabajadoras sociales compran de su bolsillo comida, artículos de higiene y hasta ropa interior para los menores."
+  },
+  {
+   "section": "insights",
+   "claim": "El Colegio de Profesionales del Trabajo Social, a través de su presidenta Lydael Vega, denunció esas condiciones en Telemundo",
+   "verdict": "verdadera",
+   "why": "N3 (telemundopr) confirma que el Colegio de Profesionales del Trabajo Social, a través de su presidenta Lydael Vega, denunció las condiciones."
+  },
+  {
+   "section": "insights",
+   "claim": "Varios medios y programas de análisis —usuario_28b025, Telemundo Puerto Rico, WKAQ, la periodista usuario_a8225a y Bonita Radio— cubrieron del martes 20 al viernes 23 de octubre los desarrollos legales de la controversia sin tomar posición",
+   "verdict": "verdadera",
+   "why": "E1, E3-E12, E15-E20 confirman cobertura neutral de estos medios sobre los desarrollos legales en ese período."
+  },
+  {
+   "section": "insights",
+   "claim": "El representante Georgie Navarro presentó el jueves 22 de octubre una resolución conjunta que propone ayuda para pagar electricidad a familias que reciben el PAN y a pequeños negocios",
+   "verdict": "verdadera",
+   "why": "E14 (En Contacto 787 Tv, jueves 22 de octubre) confirma la resolución conjunta del representante Georgie Navarro para ayuda con electricidad a familias del PAN y pequeños negocios."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [],
+ "notes": "El texto es notablemente preciso y bien respaldado por los datos y las menciones. El titular es sobrio y descriptivo, enumerando los tres hechos principales del día sin verbos dramáticos ni atribución de intenciones. Las cifras citadas (48 menciones, 21 del domingo, 281 del pico, 26 negativas, 600 negativas semanales, +53%) coinciden exactamente con los datos reales. La viñeta sobre Puerto Rico La Isla correctamente señala que replica una investigación publicada previamente (entre el 20 y el 24), sin presentarla como noticia nueva. No se detectan contradicciones entre bloques ni presentación de noticias viejas como del día."
+}
