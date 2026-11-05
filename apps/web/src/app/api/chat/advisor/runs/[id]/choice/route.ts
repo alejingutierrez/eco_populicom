@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CHOICES = ['A', 'B', 'otro', 'ninguno'] as const;
+const CHOICES = ['A', 'B', 'C', 'otro', 'ninguno'] as const;
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   const gate = await requireCapability('advise');

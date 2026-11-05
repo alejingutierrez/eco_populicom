@@ -32,7 +32,9 @@ import {
   validatePremortems,
 } from '@eco/shared/src/advisor/schemas';
 import type { Camino1Tool } from './camino1';
+import { RESUMEN_SCHEMA, RESUMEN_SYSTEM, summaryInput, validateResumen } from './summary';
 import { appendEvent, saveStep, isCancelRequested, type Pool } from './runs';
+import { log } from '@/lib/log';
 
 export const PANEL_EXPECTED_COST_USD = 0.6;
 
@@ -257,6 +259,25 @@ export async function runPanel(d: PanelDeps): Promise<PanelOutcome> {
     return { ...b, revision: { ok: r.alertas === 0, alertas: r.alertas, puntos: r.puntos } };
   });
   memo.borradores = borradores;
+
+  // Respuesta corta para quien decide. Es un añadido: si falla o no pasa la validación, la
+  // corrida sigue sin ella y la vista muestra el memorando completo.
+  await emit(d, 'status', { texto: 'Redactando la respuesta' });
+  try {
+    const resumen = await structuredCall(
+      d, ledger,
+      {
+        model: d.models.main, effort: 'low', maxTokens: 2500, system: [{ type: 'text', text: RESUMEN_SYSTEM }], outputSchema: RESUMEN_SCHEMA as unknown as Record<string, unknown>,
+        messages: [{ role: 'user', content: `Pregunta de la agencia: ${d.question}\n\nAnálisis del panel:\n${summaryInput(memo)}` }],
+      },
+      (x) => validateResumen(x, memo) as unknown as Record<string, unknown> | null,
+      'resumen_invalid',
+    );
+    memo.resumen = resumen;
+  } catch (err) {
+    if (err instanceof AdvisorBudgetError) throw err;
+    log.warn('advisor', 'resumen.skipped', { runId: d.runId, code: (err as { code?: string }).code ?? 'error' });
+  }
   await saveStep(d.pool, d.runId, '5.moderador', memo);
   await emit(d, 'memo', { memo });
   if (borradores.length) await emit(d, 'review', { borradores: borradores.map((b) => ({ tipo_plantilla: b.tipo_plantilla, ok: (b.revision as { ok: boolean }).ok, alertas: (b.revision as { alertas: number }).alertas })) });
