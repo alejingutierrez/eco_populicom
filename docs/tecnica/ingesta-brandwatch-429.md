@@ -162,6 +162,39 @@ Alternativas que no se hicieron (más grandes que este cambio):
    (en una ventana con la ingesta pausada, 429s incluidos) si el filtro admite
    exclusión o hay que listar los tipos que sí interesan.
 
+### Tamaño de página: 500 (4-nov-2026)
+
+La cuota se cuenta en **peticiones**, no en menciones, y con `pageSize: 100` cada
+ventana pagaba una petición por cada 100 resultados, shells de X incluidos. Con
+`PAGE_SIZE = 500` (`infra/lambda/ingestion/index.ts`) cada ventana de 8 h cabe en
+UNA página (Gobernadora ~300 resultados, DF ~110–220, el resto menos): la corrida
+incremental baja al **piso de una petición por query** (~6; antes ~8 y hasta
+11–13 en la hora pico), y el refresh de 07:00Z de ~19 requests (DF solo, 12
+páginas) a ~8, con lo que acaba en ~4 min en vez de ~9–10 y deja de llenar la
+ventana de 30.
+
+Qué lo sustenta. BrandIQ, que comparte con ECO el token y la cuota, leyó el 2-nov
+sus dos consultas a 500 por página: 12 peticiones, 4.449 menciones, ventanas de 5
+a 45 días, ninguna página corta (la API admite hasta 5.000) y un 504 pasajero que
+el reintento resolvió. También se vio dónde NO conviene: un filtro raro
+(`pageType=review`) sobre 180 días con página de 500 dio 504 en 2 de 3 y 4 de 4
+intentos (el servidor recorre casi toda la ventana para llenar la página y el
+gateway corta a ~30 s). Las ventanas de ECO son de 8 h o 48 h y sin filtro: la
+forma ligera.
+
+Qué NO cambia y qué conviene saber:
+
+- `MAX_PAGES_PER_RUN` sigue en 20, que es un tope de PETICIONES por query; a 500
+  son hasta ~10.000 menciones por query y corrida (antes ~2.000).
+- Un 5xx agotado a 500 sólo falla esa query (`classifyFailure` lo trata como
+  `other`: no abre el cortacircuitos) y el cursor no pasa de lo ya encolado.
+- Se ve en el log: `[run] mode=incremental requests=N` (el piso es el número de
+  queries) y `Query X: M mentions in P pages` (P = 1 casi siempre). Si aparecen
+  `Server error 504` seguidos en la misma query, es la señal para volver a 100
+  (una línea: `PAGE_SIZE`).
+- `docs/COLA-BRANDWATCH.md` de BrandIQ lleva la medida y el diseño de una cola
+  común de peticiones para las dos ingestas.
+
 ### Refresh diario de 07:00Z
 
 Era el disparador habitual de la espiral: ~19 requests en 20 s. Ahora va a un

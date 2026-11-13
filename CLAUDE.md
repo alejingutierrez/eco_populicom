@@ -208,7 +208,7 @@ que lo que el cortacircuitos se salta hoy va primero mañana; el backfill manual
 conserva el orden de la tabla. La corrida incremental re-escanea 8 h hacia
 atrás del cursor (`INCREMENTAL_LOOKBACK_MS` en `index.ts`; era 12 h): cada hora
 de más cuesta páginas de cuota y lo que ocupa las páginas son los shells de X
-de Gobernadora y DF; lo más tardío lo recoge el refresh de 07:00Z. Detalle,
+de Gobernadora y DF; lo más tardío lo recoge el refresh de 07:00Z. Pide a **500 por página** (`PAGE_SIZE` en `index.ts`, era 100; 4-nov-2026): cada ventana de 8 h cabe en una página y la corrida baja al piso de ~6 requests (una por query). Detalle,
 parámetros y el diseño del
 limitador compartido con BrandIQ (no implementado) en
 `docs/tecnica/ingesta-brandwatch-429.md`. Las pruebas

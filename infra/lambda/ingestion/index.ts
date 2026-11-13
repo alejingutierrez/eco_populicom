@@ -14,9 +14,22 @@ const sm = new SecretsManagerClient({});
 
 const RAW_BUCKET = process.env.RAW_BUCKET!;
 const INGESTION_QUEUE_URL = process.env.INGESTION_QUEUE_URL!;
-// Tope de páginas por query por corrida (modo normal). 20 páginas × 100 =
-// ~2000 menciones/corrida; el cursor avanza, así que el resto se ingiere en
-// corridas siguientes. Evita que un backlog post-caída agote la cuota de BW.
+// Menciones por página que se piden a Brandwatch. La cuota (~30 req/10 min, de
+// toda la cuenta y compartida con biq-ingestion) se cuenta en PETICIONES, no en
+// menciones: a 100 por página una corrida normal pedía ~8 (Gobernadora 3, DF 1–2,
+// DDEC 1–2, más una por query) y en la hora pico 11–13; cada ventana de 8 h cabe
+// entera en una página de 500 (Gobernadora ~300 resultados, DF ~110–220, el
+// resto menos), así que bajan al piso de una por query. La API admite hasta 5.000
+// y a 500 respondió completo en las 12 lecturas medidas por BrandIQ el 2-nov-2026
+// (4.449 menciones, ninguna página corta), con un 504 pasajero que el reintento
+// resolvió. Un 5xx agotado sólo falla esa query (no abre el cortacircuitos), y el
+// cursor no avanza más allá de lo ya encolado: la corrida siguiente lo retoma.
+// Ver docs/tecnica/ingesta-brandwatch-429.md («Tamaño de página»).
+const PAGE_SIZE = 500;
+// Tope de páginas por query por corrida (modo normal). Es un tope de PETICIONES:
+// con PAGE_SIZE 500, 20 páginas son hasta ~10.000 menciones por query y corrida
+// (antes ~2.000); el cursor avanza, así que el resto se ingiere en corridas
+// siguientes. Evita que un backlog post-caída agote la cuota de BW.
 const MAX_PAGES_PER_RUN = 20;
 // Cuánto se re-escanea hacia atrás del cursor en cada corrida normal. Brandwatch
 // indexa con retraso (mediana ~3 h web, p90 ~7 h, cola de >24 h): con el cursor
@@ -227,7 +240,7 @@ export const handler = async (
           queryId,
           startDate,
           endDate,
-          pageSize: 100,
+          pageSize: PAGE_SIZE,
           orderBy: 'date',
           orderDirection: 'asc',
         })) {
