@@ -5,7 +5,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { MonitoringStack } from '../lib/monitoring-stack';
 
 test('MonitoringStack creates SNS topic and CloudWatch dashboard', () => {
@@ -97,16 +97,26 @@ test('MonitoringStack creates SNS topic and CloudWatch dashboard', () => {
   template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
 
   // Salud de la ingesta (ING-01): métricas propias del lambda, sin dimensiones.
+  // FILL(…, 0) sobre periodos de 1 min: con datos faltantes a secas CloudWatch
+  // tardó 19.6 min en avisar (simulacro del 13-nov).
   template.hasResourceProperties('AWS::CloudWatch::Alarm', {
     AlarmName: 'eco-ingesta-callada',
-    Namespace: 'ECO/Ingesta',
-    MetricName: 'QueriesSondeadas',
-    Statistic: 'Sum',
-    Period: 300,
-    EvaluationPeriods: 2, // 10 min + evaluación: avisa en menos de 15
+    EvaluationPeriods: 11,
     Threshold: 1,
     ComparisonOperator: 'LessThanThreshold',
-    TreatMissingData: 'breaching', // si el lambda no corre, no hay dato: es fallo
+    TreatMissingData: 'breaching',
+    Metrics: Match.arrayWith([
+      Match.objectLike({ Expression: 'FILL(sondeadas, 0)', ReturnData: true }),
+      Match.objectLike({
+        Id: 'sondeadas',
+        ReturnData: false,
+        MetricStat: Match.objectLike({
+          Metric: Match.objectLike({ Namespace: 'ECO/Ingesta', MetricName: 'QueriesSondeadas' }),
+          Period: 60,
+          Stat: 'Sum',
+        }),
+      }),
+    ]),
   });
   template.hasResourceProperties('AWS::CloudWatch::Alarm', {
     AlarmName: 'eco-ingesta-query-desatendida',
