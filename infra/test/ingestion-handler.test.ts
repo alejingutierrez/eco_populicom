@@ -63,6 +63,8 @@ let cursorWrites: unknown[][];
 let touchWrites: unknown[][];
 let fetchCalls: Array<{ queryId: string; at: number }>;
 let logs: string[];
+/** Líneas EMF que el handler escribió por stdout (una por corrida). */
+let metricLines: Array<Record<string, unknown>>;
 
 /**
  * `cursors` = last_mention_date por query; `lastRuns` = last_run_at por query
@@ -154,6 +156,7 @@ beforeEach(() => {
   touchWrites = [];
   fetchCalls = [];
   logs = [];
+  metricLines = [];
   mockS3Send.mockReset().mockResolvedValue({});
   mockSqsSend.mockReset().mockResolvedValue({ Failed: [] });
   mockSmSend.mockReset().mockResolvedValue({
@@ -164,6 +167,14 @@ beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(grab);
   jest.spyOn(console, 'warn').mockImplementation(grab);
   jest.spyOn(console, 'error').mockImplementation(grab);
+  const realWrite = process.stdout.write.bind(process.stdout);
+  jest.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown, ...rest: unknown[]) => {
+    if (typeof chunk === 'string' && chunk.startsWith('{"_aws"')) {
+      metricLines.push(JSON.parse(chunk));
+      return true;
+    }
+    return (realWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+  }) as typeof process.stdout.write);
 });
 
 afterEach(() => {
@@ -364,21 +375,21 @@ describe('eco-ingestion: refresh diario de 07:00Z', () => {
     expect(res.body).toContain('mode=refresh');
   });
 
-  test('tope de 24 requests: lo que sobra se reporta y la corrida termina limpia', async () => {
-    const ids = Array.from({ length: 30 }, (_, i) => 100 + i);
+  test('tope de 12 requests: lo que sobra se reporta y la corrida termina limpia', async () => {
+    const ids = Array.from({ length: 18 }, (_, i) => 100 + i);
     setupAgencies([{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: ids }]);
     setupFetch(() => ({ status: 200 }));
 
     const res = await run(refresh());
 
-    expect(fetchCalls).toHaveLength(24);
+    expect(fetchCalls).toHaveLength(12);
     expect(Date.now() - NOW).toBeLessThan(12 * MINUTE);
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('ABORTED por cortacircuitos');
-    expect(res.body).toContain('request cap reached (24 requests');
-    // 100..123 se sondearon; el 124 topó con el cap (abre el cortacircuitos) y 125..129 se saltan
-    expect(res.body).toContain('[ddecpr] Query 124: FAILED (cortacircuitos');
-    expect(res.body).toContain('5 queries sin sondear: ddecpr:125, ddecpr:126');
+    expect(res.body).toContain('request cap reached (12 requests');
+    // 100..111 se sondearon; el 112 topó con el cap (abre el cortacircuitos) y 113..117 se saltan
+    expect(res.body).toContain('[ddecpr] Query 112: FAILED (cortacircuitos');
+    expect(res.body).toContain('5 queries sin sondear: ddecpr:113, ddecpr:114');
   });
 
   test('un 429 en el refresh lo abandona igual (reintentos acotados; mañana repite la ventana de 48 h)', async () => {
@@ -553,5 +564,174 @@ describe('eco-ingestion: orden de las queries (la más desatendida primero)', ()
 
     expect(order()).toEqual(['11', '12', '31', '21']);
     expect(touchWrites).toEqual([]);
+  });
+});
+
+describe('eco-ingestion: ceder con la cuota vista (ING-01)', () => {
+  const agencies: AgencyFixture[] = [
+    { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11, 12] },
+    { slug: 'gobernadora', brandwatch_project_id: 2, brandwatch_query_ids: [21] },
+    { slug: 'df', brandwatch_project_id: 3, brandwatch_query_ids: [31] },
+  ];
+  const lastRuns = {
+    11: '2026-10-28T15:00:01Z',
+    12: '2026-10-28T15:00:02Z',
+    21: '2026-10-28T15:00:03Z',
+    31: '2026-10-28T15:00:04Z',
+  };
+
+  test('con la cuenta en 24 tras la segunda petición, la tercera no sale y la corrida cierra con resumen', async () => {
+    setupAgencies(agencies, {}, { ...lastRuns });
+    setupFetch((queryId) => ({
+      status: 200,
+      mentions: [mention(1, '2026-10-28T14:00:00Z')],
+      headers: { 'x-rate-limit-used': queryId === '11' ? '20' : '24' },
+    }));
+
+    const res = await run({});
+
+    expect(fetchCalls.map((c) => c.queryId)).toEqual(['11', '12']);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('ABORTED por cortacircuitos');
+    expect(res.body).toContain('cuota cedida');
+    expect(res.body).toContain('1 queries sin sondear: df:31');
+    expect(logs.join('\n')).toContain('CUOTA-USADA max=24 techo=24');
+    // sin 429 y sin dormir: cedió, no chocó
+    expect(Date.now() - NOW).toBeLessThan(5_000);
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 2, QueriesFallidas: 2, CorridaAbortada: 1, Avisos429: 0, CuotaUsadaMax: 24 });
+  });
+
+  test('lo que cedió va primero en la corrida siguiente', async () => {
+    const runs = { ...lastRuns };
+    setupAgencies(agencies, {}, runs);
+    setupFetch((queryId) => ({
+      status: 200,
+      mentions: [mention(1, '2026-10-28T14:00:00Z')],
+      headers: { 'x-rate-limit-used': queryId === '12' ? '24' : '10' },
+    }));
+    await run({});
+    expect(fetchCalls.map((c) => c.queryId)).toEqual(['11', '12']);
+
+    fetchCalls = [];
+    setupFetch(() => ({ status: 200, mentions: [mention(2, '2026-10-28T14:30:00Z')], headers: { 'x-rate-limit-used': '12' } }));
+    await run({});
+    expect(fetchCalls.map((c) => c.queryId)).toEqual(['21', '31', '11', '12']);
+  });
+
+  test('sin la cabecera todo sigue igual: se sondean las cuatro', async () => {
+    setupAgencies(agencies, {}, { ...lastRuns });
+    setupFetch(() => ({ status: 200, mentions: [mention(1, '2026-10-28T14:00:00Z')] }));
+
+    const res = await run({});
+
+    expect(fetchCalls).toHaveLength(4);
+    expect(res.body).not.toContain('ABORTED');
+    expect(logs.join('\n')).not.toContain('CUOTA-USADA');
+    expect(metricLines[0]).not.toHaveProperty('CuotaUsadaMax');
+  });
+
+  test('el backfill manual no cede aunque la cuenta esté en el techo', async () => {
+    setupAgencies(agencies);
+    setupFetch(() => ({ status: 200, headers: { 'x-rate-limit-used': '29' } }));
+
+    const res = await run({ backfillStartDate: '2026-10-01T00:00:00Z', backfillEndDate: '2026-10-02T00:00:00Z' });
+
+    expect(fetchCalls).toHaveLength(4);
+    expect(res.body).not.toContain('ABORTED');
+  });
+});
+
+describe('eco-ingestion: señal de salud (línea EMF)', () => {
+  const agencies: AgencyFixture[] = [
+    { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11, 12] },
+    { slug: 'df', brandwatch_project_id: 3, brandwatch_query_ids: [31] },
+  ];
+
+  test('corrida normal: una línea con las queries sondeadas, las peticiones y la antigüedad del sondeo más viejo', async () => {
+    setupAgencies(agencies, {}, {
+      11: '2026-10-28T15:00:00Z', // hace 5 min
+      12: '2026-10-28T13:35:00Z', // hace 90 min: la desatendida
+      31: '2026-10-28T15:00:00Z',
+    });
+    setupFetch(() => ({ status: 200, mentions: [mention(1, '2026-10-28T14:00:00Z')] }));
+
+    await run({});
+
+    expect(metricLines).toHaveLength(1);
+    const line = metricLines[0] as Record<string, any>;
+    expect(line).toMatchObject({
+      Modo: 'incremental',
+      QueriesSondeadas: 3,
+      QueriesFallidas: 0,
+      CorridaAbortada: 0,
+      Avisos429: 0,
+      Peticiones: 3,
+      MinutosSinSondeoMax: 90,
+    });
+    const spec = line._aws.CloudWatchMetrics[0];
+    expect(spec.Namespace).toBe('ECO/Ingesta');
+    // sin dimensiones (alarmas) y por modo (diagnóstico)
+    expect(spec.Dimensions).toEqual([[], ['Modo']]);
+    expect(spec.Metrics.map((m: { Name: string }) => m.Name)).toEqual(
+      expect.arrayContaining(['QueriesSondeadas', 'QueriesFallidas', 'CorridaAbortada', 'Avisos429', 'Peticiones', 'MinutosSinSondeoMax']),
+    );
+    expect(line._aws.Timestamp).toBeGreaterThanOrEqual(NOW);
+  });
+
+  test('una corrida sin menciones también cuenta como sondeada', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00Z', 12: '2026-10-28T15:00:00Z', 31: '2026-10-28T15:00:00Z' });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({});
+
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 3, QueriesFallidas: 0 });
+  });
+
+  test('racha de 429: cero sondeadas, la corrida abortada y los avisos contados', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00Z', 12: '2026-10-28T15:00:00Z', 31: '2026-10-28T15:00:00Z' });
+    setupFetch(() => ({ status: 429 }));
+
+    const res = await run({});
+
+    expect(res.statusCode).toBe(200); // el lambda no falla: por eso hace falta la métrica
+    expect(metricLines[0]).toMatchObject({
+      QueriesSondeadas: 0,
+      QueriesFallidas: 3,
+      CorridaAbortada: 1,
+      Avisos429: 3,
+      Peticiones: 3,
+    });
+  });
+
+  test('un 5xx persistente en una query: esa cuenta como fallida y el resto como sondeadas', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00Z', 12: '2026-10-28T15:00:00Z', 31: '2026-10-28T15:00:00Z' });
+    setupFetch((queryId) => (queryId === '12' ? { status: 500 } : { status: 200 }));
+
+    await run({});
+
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 2, QueriesFallidas: 1, CorridaAbortada: 0 });
+  });
+
+  test('si no se puede leer ingestion_cursors, la línea sale sin la antigüedad (no un cero)', async () => {
+    setupAgencies(agencies, {}, {}, { servedAtFails: true });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({});
+
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 3 });
+    expect(metricLines[0]).not.toHaveProperty('MinutosSinSondeoMax');
+  });
+
+  test('el refresh y el backfill también publican su línea, con su modo', async () => {
+    setupAgencies(agencies, {}, { 11: '2026-10-28T15:00:00Z', 12: '2026-10-28T15:00:00Z', 31: '2026-10-28T15:00:00Z' });
+    setupFetch(() => ({ status: 200 }));
+
+    await run({ refreshLastHours: 48 });
+    await run({ backfillStartDate: '2026-10-01T00:00:00Z', backfillEndDate: '2026-10-02T00:00:00Z' });
+
+    expect(metricLines.map((l) => l.Modo)).toEqual(['refresh', 'backfill']);
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 3 });
+    // el backfill no lee cursores: sin antigüedad
+    expect(metricLines[1]).not.toHaveProperty('MinutosSinSondeoMax');
   });
 });

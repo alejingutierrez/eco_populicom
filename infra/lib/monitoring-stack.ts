@@ -89,6 +89,55 @@ export class MonitoringStack extends cdk.Stack {
       dlqAlarm.addAlarmAction(snsAction);
     }
 
+    // ---- Salud de la ingesta (ING-01) ----
+    // eco-ingestion responde 200 aunque el cortacircuitos aborte o fallen
+    // todas las queries, así que Invocations/Errors no dicen si trae datos.
+    // Estas alarmas miran las métricas que el propio lambda publica por EMF al
+    // cierre de cada corrida (infra/lambda/ingestion/run-metrics.ts), en su
+    // versión sin dimensiones: cualquier modo de corrida cuenta.
+    const ingestaMetric = (metricName: string, statistic: string, period: cdk.Duration) =>
+      new cloudwatch.Metric({ namespace: 'ECO/Ingesta', metricName, statistic, period });
+
+    // Ninguna query completó su sondeo en 10 min: el lambda no corre, aborta
+    // todo o no llega a la base. Sin datos = fallo. Avisa en 10–13 min.
+    const ingestaCallada = new cloudwatch.Alarm(this, 'IngestaCalladaAlarm', {
+      alarmName: 'eco-ingesta-callada',
+      metric: ingestaMetric('QueriesSondeadas', 'Sum', cdk.Duration.minutes(5)),
+      threshold: 1,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      alarmDescription:
+        'eco-ingestion: ninguna query completó su sondeo en 10 min (no corre, aborta todo o no llega a la base)',
+    });
+    ingestaCallada.addAlarmAction(snsAction);
+
+    // El lambda corre, pero alguna query lleva más de 1 h sin sondearse (el
+    // caso del 24–26-oct: DDEC entraba y DF/Gobernadora nunca llegaban).
+    const ingestaQueryDesatendida = new cloudwatch.Alarm(this, 'IngestaQueryDesatendidaAlarm', {
+      alarmName: 'eco-ingesta-query-desatendida',
+      metric: ingestaMetric('MinutosSinSondeoMax', 'Maximum', cdk.Duration.minutes(5)),
+      threshold: 60,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'eco-ingestion: alguna query activa lleva más de 60 min sin un sondeo completado',
+    });
+    ingestaQueryDesatendida.addAlarmAction(snsAction);
+
+    // 10 o más respuestas 429 en un día: la cuota compartida con BrandIQ está
+    // apretada aunque la ingesta siga entrando.
+    const ingesta429 = new cloudwatch.Alarm(this, 'Ingesta429DiaAlarm', {
+      alarmName: 'eco-ingesta-429-dia',
+      metric: ingestaMetric('Avisos429', 'Sum', cdk.Duration.days(1)),
+      threshold: 10,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'eco-ingestion: 10 o más respuestas 429 de Brandwatch en 24 h',
+    });
+    ingesta429.addAlarmAction(snsAction);
+
     // CloudWatch Dashboard
     new cloudwatch.Dashboard(this, 'EcoDashboard', {
       dashboardName: 'eco-dashboard',

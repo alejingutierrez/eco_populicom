@@ -54,7 +54,12 @@ export const LONG_RETRY: RetryPolicy = {
 // Un Retry-After de 0 (o negativo) no es permiso para reintentar al instante.
 export const MIN_RETRY_WAIT_MS = 1_000;
 
-export type RateLimitReason = 'attempts-exhausted' | 'retry-after-too-long' | 'budget-exhausted';
+export type RateLimitReason =
+  | 'attempts-exhausted'
+  | 'retry-after-too-long'
+  | 'budget-exhausted'
+  /** La API ya dijo que la cuenta está en el techo de cuota: no se reintenta. */
+  | 'quota-ceiling';
 
 export type RetryDecision =
   | { retry: true; waitMs: number }
@@ -148,7 +153,7 @@ export class BrandwatchRateLimitError extends Error {
 export class BrandwatchBudgetError extends Error {
   readonly code = 'BW_BUDGET' as const;
 
-  constructor(readonly reason: 'deadline' | 'request-cap', message: string) {
+  constructor(readonly reason: 'deadline' | 'request-cap' | 'quota-ceiling', message: string) {
     super(message);
     this.name = 'BrandwatchBudgetError';
   }
@@ -161,8 +166,32 @@ export interface RunBudgetOptions {
   maxRequests?: number;
   /** Separación mínima entre requests (pacing). 0 = sin pacing. */
   minIntervalMs?: number;
+  /**
+   * Techo de cuota de la CUENTA (no de la corrida): con la última lectura de
+   * `x-rate-limit-used` en este valor o más, no sale otro request. Sin él, la
+   * cuota vista se registra pero no limita (backfill manual).
+   */
+  quotaCeiling?: number;
+  /** Cuánto vale una lectura de cuota (la ventana de Brandwatch es móvil). */
+  quotaFreshMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+}
+
+// Una lectura de `x-rate-limit-used` más vieja que esto no bloquea: la ventana
+// de 10 min es móvil y lo gastado va saliendo de ella.
+export const QUOTA_FRESH_MS = 60_000;
+
+/**
+ * `x-rate-limit-used` → peticiones gastadas por la cuenta entera en la ventana
+ * (ECO + BrandIQ + llamadas a mano; los 429 también cuentan). Ausente o
+ * ininteligible → null: no se observa nada y la corrida sigue como siempre.
+ */
+export function parseQuotaUsed(header: string | null | undefined): number | null {
+  if (header === null || header === undefined) return null;
+  const value = header.trim();
+  if (!/^\d+$/.test(value)) return null;
+  return Number(value);
 }
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -178,8 +207,13 @@ export class RunBudget {
   private readonly deadlineMs?: number;
   private readonly maxRequests?: number;
   private readonly minIntervalMs: number;
+  private readonly quotaCeiling?: number;
+  private readonly quotaFreshMs: number;
   private used = 0;
   private lastAtMs: number | null = null;
+  private quotaSeen: { used: number; atMs: number } | null = null;
+  private quotaMax: number | null = null;
+  private rateLimited = 0;
 
   constructor(opts: RunBudgetOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -187,10 +221,44 @@ export class RunBudget {
     this.deadlineMs = opts.deadlineMs;
     this.maxRequests = opts.maxRequests;
     this.minIntervalMs = opts.minIntervalMs ?? 0;
+    this.quotaCeiling = opts.quotaCeiling;
+    this.quotaFreshMs = opts.quotaFreshMs ?? QUOTA_FRESH_MS;
   }
 
   get requestsMade(): number {
     return this.used;
+  }
+
+  /** Respuestas 429 recibidas en la corrida (cada una gastó cupo). */
+  get rateLimitedCount(): number {
+    return this.rateLimited;
+  }
+
+  /** El `x-rate-limit-used` más alto visto en la corrida, o null si no vino. */
+  get quotaUsedMax(): number | null {
+    return this.quotaMax;
+  }
+
+  /** Anota una respuesta 429. */
+  noteRateLimited(): void {
+    this.rateLimited++;
+  }
+
+  /** Registra lo que la API dijo de la cuota de la cuenta (null = sin dato). */
+  observeQuota(used: number | null): void {
+    if (used === null || !Number.isFinite(used)) return;
+    this.quotaSeen = { used, atMs: this.now() };
+    this.quotaMax = this.quotaMax === null ? used : Math.max(this.quotaMax, used);
+  }
+
+  /**
+   * ¿La cuenta está en el techo de cuota según una lectura todavía vigente en
+   * `atMs`? Sin techo configurado o sin lectura, nunca.
+   */
+  quotaBlockedAt(atMs: number = this.now()): boolean {
+    if (this.quotaCeiling === undefined || this.quotaSeen === null) return false;
+    if (atMs - this.quotaSeen.atMs >= this.quotaFreshMs) return false;
+    return this.quotaSeen.used >= this.quotaCeiling;
   }
 
   /** Ms hasta la hora límite (Infinity si no hay). Puede ser ≤ 0. */
@@ -200,8 +268,9 @@ export class RunBudget {
 
   /**
    * Reserva el siguiente request: espera el pacing y lo cuenta. Lanza
-   * BrandwatchBudgetError si ya se alcanzó el tope o si la espera (o el
-   * momento actual) pasa de la hora límite.
+   * BrandwatchBudgetError si ya se alcanzó el tope, si la espera (o el
+   * momento actual) pasa de la hora límite, o si la cuenta está en el techo
+   * de cuota (se cede antes de provocar un 429, que también gasta cupo).
    */
   async acquire(): Promise<void> {
     if (this.maxRequests !== undefined && this.used >= this.maxRequests) {
@@ -216,6 +285,13 @@ export class RunBudget {
       throw new BrandwatchBudgetError(
         'deadline',
         `Brandwatch run time budget exhausted (${this.used} requests made)`,
+      );
+    }
+    if (this.quotaBlockedAt(t + waitMs)) {
+      throw new BrandwatchBudgetError(
+        'quota-ceiling',
+        `Brandwatch quota ceiling reached (cuenta en ${this.quotaSeen!.used}, techo ${this.quotaCeiling}; ` +
+          `${this.used} requests made this run)`,
       );
     }
     if (waitMs > 0) await this.sleep(waitMs);

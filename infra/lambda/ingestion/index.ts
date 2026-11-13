@@ -7,6 +7,7 @@ import { advanceCursorMs, cursorToCommit, shouldTouchCursor } from './cursor';
 import { orderQueryJobs } from './query-order';
 import type { QueryServedAt } from './query-order';
 import { RunBreaker, computeDeadlineMs, planRun, resolveRunMode } from './run-guard';
+import { buildRunMetricsLine, maxMinutesSinceServed } from './run-metrics';
 
 const s3 = new S3Client({});
 const sqs = new SQSClient({});
@@ -116,11 +117,17 @@ export const handler = async (
     deadlineMs,
     maxRequests: plan.maxRequests,
     minIntervalMs: plan.minRequestIntervalMs,
+    quotaCeiling: plan.quotaCeiling,
   });
   // Cortacircuitos: una query que agota sus reintentos por 429 (o el
   // presupuesto) aborta lo que falta de la corrida.
   const breaker = new RunBreaker();
   const skippedQueries: string[] = [];
+  // Señal de salud (ver ./run-metrics): cuántas queries completaron su sondeo
+  // y cuántas fallaron, y cuánto llevaba sin sondearse la más desatendida.
+  let queriesOk = 0;
+  let queriesFailed = 0;
+  let staleMinutes: number | null = null;
   // Translate refreshLastHours to a real backfill window so the cron of
   // LateArrivalRefresh actually re-scans recent history.
   if (evt.refreshLastHours && !evt.backfillStartDate) {
@@ -146,7 +153,8 @@ export const handler = async (
     console.log(
       `Run plan: mode=${plan.mode} maxAttempts=${plan.retry.maxAttempts} ` +
         `budget=${Math.round((deadlineMs - now.getTime()) / 1000)}s ` +
-        `pacing=${plan.minRequestIntervalMs}ms maxRequests=${plan.maxRequests ?? 'none'}`,
+        `pacing=${plan.minRequestIntervalMs}ms maxRequests=${plan.maxRequests ?? 'none'} ` +
+        `techoCuota=${plan.quotaCeiling ?? 'none'}`,
     );
 
     // Lista plana de las queries por servir (todas las agencias). Se recorre de
@@ -169,7 +177,11 @@ export const handler = async (
         jobs.push({ agency, queryId });
       }
     }
-    if (plan.mode !== 'backfill') jobs = await orderByStaleness(client, jobs);
+    if (plan.mode !== 'backfill') {
+      const ordered = await orderByStaleness(client, jobs, now.getTime());
+      jobs = ordered.jobs;
+      staleMinutes = ordered.staleMinutes;
+    }
     console.log(`Query order: ${jobs.map((j) => `${j.agency.slug}:${j.queryId}`).join(', ') || '(none)'}`);
 
     // Un cliente por agencia (project id propio), creado la primera vez que se
@@ -318,7 +330,9 @@ export const handler = async (
         const summary = `[${agency.slug}] Query ${queryId}: ${totalMentions} mentions in ${pageIndex} pages${isBackfill ? ' (backfill)' : ''}`;
         console.log(summary);
         agencySummaries.push(summary);
+        queriesOk++;
       } catch (err) {
+        queriesFailed++;
         const opened = breaker.record(err, `[${agency.slug}] Query ${queryId}`);
         const summary = opened
           ? `[${agency.slug}] Query ${queryId}: FAILED (cortacircuitos: se aborta el resto): ${(err as Error)?.message ?? err}`
@@ -352,9 +366,33 @@ export const handler = async (
     console.error(aborted);
     agencySummaries.push(aborted);
   }
+  if (budget.quotaUsedMax !== null) {
+    console.log(`CUOTA-USADA max=${budget.quotaUsedMax} techo=${plan.quotaCeiling ?? 'none'}`);
+  }
   agencySummaries.push(
     `[run] mode=${plan.mode} requests=${budget.requestsMade} elapsed=${Math.round((Date.now() - now.getTime()) / 1000)}s`,
   );
+
+  // Línea EMF. Va por stdout directo: el console.log de Lambda antepone
+  // timestamp y request id, y CloudWatch solo extrae métricas de una línea que
+  // sea JSON puro. Si algo falla aquí, la corrida ya hizo su trabajo.
+  try {
+    process.stdout.write(
+      `${buildRunMetricsLine({
+        mode: plan.mode,
+        timestampMs: Date.now(),
+        queriesOk,
+        queriesFailed: queriesFailed + skippedQueries.length,
+        aborted: breaker.isOpen,
+        rateLimited: budget.rateLimitedCount,
+        requests: budget.requestsMade,
+        quotaUsedMax: budget.quotaUsedMax,
+        maxMinutesSinceServed: staleMinutes,
+      })}\n`,
+    );
+  } catch (err) {
+    console.warn(`No se pudo escribir la línea de métricas: ${(err as Error)?.message ?? err}`);
+  }
 
   const body = agencySummaries.length > 1
     ? agencySummaries.join('; ')
@@ -438,15 +476,26 @@ async function loadServedAt(client: any, queryIds: number[]): Promise<Map<number
  * una optimización del reparto de cuota, no parte de la ingesta: si no se puede
  * leer ingestion_cursors se conserva el orden de la tabla y la corrida sigue.
  */
-async function orderByStaleness(client: any, jobs: QueryJob[]): Promise<QueryJob[]> {
-  if (jobs.length < 2) return jobs;
+async function orderByStaleness(
+  client: any,
+  jobs: QueryJob[],
+  nowMs: number,
+): Promise<{ jobs: QueryJob[]; staleMinutes: number | null }> {
+  if (jobs.length === 0) return { jobs, staleMinutes: null };
   try {
-    return orderQueryJobs(jobs, await loadServedAt(client, jobs.map((j) => j.queryId)));
+    const queryIds = jobs.map((j) => j.queryId);
+    const served = await loadServedAt(client, queryIds);
+    return {
+      jobs: jobs.length < 2 ? jobs : orderQueryJobs(jobs, served),
+      // De paso, la misma lectura da la antigüedad del sondeo más viejo: es
+      // la métrica de «query desatendida» (ver ./run-metrics).
+      staleMinutes: maxMinutesSinceServed(queryIds, served, nowMs),
+    };
   } catch (err) {
     console.warn(
       `No se pudo leer ingestion_cursors para ordenar las queries (se usa el orden de la tabla): ${(err as Error)?.message ?? err}`,
     );
-    return jobs;
+    return { jobs, staleMinutes: null };
   }
 }
 

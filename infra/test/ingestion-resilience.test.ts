@@ -7,12 +7,14 @@ import {
   RunBudget,
   decideRetry,
   paceDelayMs,
+  parseQuotaUsed,
   parseRetryAfterMs,
 } from '../../packages/brandwatch/src/resilience';
 import type { RetryPolicy } from '../../packages/brandwatch/src/resilience';
 import { cursorToCommit } from '../lambda/ingestion/cursor';
 import {
   RunBreaker,
+  QUOTA_CEILING,
   classifyFailure,
   computeDeadlineMs,
   planRun,
@@ -351,18 +353,20 @@ describe('resolveRunMode / planRun', () => {
     expect(p.budgetMs).toBe(3 * 60_000);
     expect(p.minRequestIntervalMs).toBe(0);
     expect(p.maxRequests).toBeUndefined();
+    expect(p.quotaCeiling).toBe(QUOTA_CEILING);
   });
 
-  test('refresh: reintentos acotados, 30 s entre requests y tope de 24 que cabe en el presupuesto', () => {
+  test('refresh: reintentos acotados, 30 s entre requests y tope de 12 que cabe en el presupuesto', () => {
     const p = planRun('refresh');
     expect(p.retry).toBe(BOUNDED_RETRY);
     expect(p.minRequestIntervalMs).toBe(30_000);
-    expect(p.maxRequests).toBe(24);
+    expect(p.maxRequests).toBe(12);
+    expect(p.quotaCeiling).toBe(QUOTA_CEILING);
     // ≤ 20 req/10 min (deja cupo a biq) y el tope se alcanza dentro del presupuesto
     expect(600_000 / p.minRequestIntervalMs).toBeLessThanOrEqual(20);
     expect((p.maxRequests! - 1) * p.minRequestIntervalMs).toBeLessThan(p.budgetMs);
-    // el refresh de hoy (~19 requests) cabe holgado
-    expect(19).toBeLessThanOrEqual(p.maxRequests!);
+    // el refresh de hoy (6–8 requests con páginas de 500) cabe holgado
+    expect(8).toBeLessThanOrEqual(p.maxRequests!);
     // y deja margen bajo el timeout de 15 min del lambda
     expect(p.budgetMs).toBeLessThan(15 * 60_000);
   });
@@ -372,6 +376,12 @@ describe('resolveRunMode / planRun', () => {
     expect(p.retry).toBe(LONG_RETRY);
     expect(p.minRequestIntervalMs).toBe(0);
     expect(p.maxRequests).toBeUndefined();
+    // a mano y con las ingestas en pausa: no cede por cuota
+    expect(p.quotaCeiling).toBeUndefined();
+  });
+
+  test('el techo deja 6 de los 30 requests de la cuenta como reserva', () => {
+    expect(QUOTA_CEILING).toBe(24);
   });
 });
 
@@ -468,5 +478,205 @@ describe('cursorToCommit', () => {
 
   test('fallo a media paginación con fallos de encolado: tampoco avanza', () => {
     expect(cursorToCommit({ ...base, sendFailures: 1, partial: true })).toBeNull();
+  });
+});
+
+// ---- Cuota vista (x-rate-limit-used) y tiempo máximo por petición (ING-01) ----
+
+describe('parseQuotaUsed', () => {
+  test('entero → número', () => {
+    expect(parseQuotaUsed('24')).toBe(24);
+    expect(parseQuotaUsed(' 7 ')).toBe(7);
+    expect(parseQuotaUsed('0')).toBe(0);
+  });
+
+  test('ausente o ininteligible → null (no se observa nada)', () => {
+    for (const v of [null, undefined, '', '  ', '30/10m', '-1', '2.5', 'abc']) {
+      expect(parseQuotaUsed(v)).toBeNull();
+    }
+  });
+});
+
+describe('RunBudget: techo de cuota', () => {
+  const T0 = ms('2026-11-13T15:00:00Z');
+
+  test('con la cuenta en el techo no sale otro request (quota-ceiling)', async () => {
+    const clock = fakeClock(T0);
+    const budget = new RunBudget({ quotaCeiling: 24, now: clock.now, sleep: clock.sleep });
+    await budget.acquire();
+    budget.observeQuota(23);
+    await budget.acquire(); // 23 < 24: pasa
+    budget.observeQuota(24);
+    const err = await budget.acquire().catch((e) => e);
+    expect(err).toBeInstanceOf(BrandwatchBudgetError);
+    expect(err.reason).toBe('quota-ceiling');
+    expect(classifyFailure(err)).toBe('budget');
+    expect(budget.requestsMade).toBe(2);
+    expect(budget.quotaUsedMax).toBe(24);
+  });
+
+  test('una lectura de más de 60 s ya no bloquea (la ventana es móvil)', async () => {
+    const clock = fakeClock(T0);
+    const budget = new RunBudget({ quotaCeiling: 24, now: clock.now, sleep: clock.sleep });
+    budget.observeQuota(29);
+    expect(budget.quotaBlockedAt()).toBe(true);
+    await clock.sleep(59_999);
+    expect(budget.quotaBlockedAt()).toBe(true);
+    await clock.sleep(1);
+    expect(budget.quotaBlockedAt()).toBe(false);
+    await expect(budget.acquire()).resolves.toBeUndefined();
+  });
+
+  test('con pacing, la vigencia se mide en el momento en que saldría el request', async () => {
+    const clock = fakeClock(T0);
+    const budget = new RunBudget({ quotaCeiling: 24, minIntervalMs: 30_000, now: clock.now, sleep: clock.sleep });
+    await budget.acquire();
+    budget.observeQuota(26);
+    // el siguiente saldría a los 30 s: la lectura sigue vigente → cede sin dormir
+    await expect(budget.acquire()).rejects.toMatchObject({ reason: 'quota-ceiling' });
+    expect(clock.waits).toEqual([]);
+  });
+
+  test('sin techo (backfill) la cuota se registra pero no limita', async () => {
+    const clock = fakeClock(T0);
+    const budget = new RunBudget({ now: clock.now, sleep: clock.sleep });
+    budget.observeQuota(30);
+    await expect(budget.acquire()).resolves.toBeUndefined();
+    expect(budget.quotaUsedMax).toBe(30);
+  });
+
+  test('sin lectura (la API no mandó la cabecera) nunca bloquea', async () => {
+    const clock = fakeClock(T0);
+    const budget = new RunBudget({ quotaCeiling: 24, now: clock.now, sleep: clock.sleep });
+    budget.observeQuota(null);
+    for (let i = 0; i < 40; i++) await budget.acquire();
+    expect(budget.quotaUsedMax).toBeNull();
+  });
+});
+
+describe('BrandwatchClient: cuota vista y tiempo máximo', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const full = Array.from({ length: 100 }, (_, i) => ({ resourceId: `r${i}` }));
+  const used = (n: number) => ({ 'x-rate-limit-used': String(n) });
+
+  test('lee x-rate-limit-used de cada respuesta y cede antes de la petición que cruzaría el techo', async () => {
+    const t = makeClient(
+      BOUNDED_RETRY,
+      [
+        { status: 200, results: full, total: 500, headers: used(22) },
+        { status: 200, results: full, total: 500, headers: used(24) },
+        { status: 200, results: full, total: 500, headers: used(25) },
+      ],
+      { quotaCeiling: 24 },
+    );
+    const pages: unknown[][] = [];
+    const err = await (async () => {
+      for await (const p of t.client.fetchMentionPages(t.query)) pages.push(p);
+    })().catch((e) => e);
+    expect(pages).toHaveLength(2); // las dos páginas leídas se entregan
+    expect(t.calls).toHaveLength(2); // la tercera NO sale
+    expect(err).toBeInstanceOf(BrandwatchBudgetError);
+    expect(err.reason).toBe('quota-ceiling');
+    expect(t.budget.quotaUsedMax).toBe(24);
+  });
+
+  test('un 429 con la cuenta en el techo: se rinde en el acto, sin dormir ni reintentar', async () => {
+    const t = makeClient(BOUNDED_RETRY, [{ status: 429, headers: used(31) }], { quotaCeiling: 24 });
+    const err = await t.client.fetchAllMentions(t.query).catch((e) => e);
+    expect(err).toBeInstanceOf(BrandwatchRateLimitError);
+    expect(err.reason).toBe('quota-ceiling');
+    expect(t.calls).toHaveLength(1);
+    expect(t.clock.waits).toEqual([]);
+    expect(t.budget.rateLimitedCount).toBe(1);
+  });
+
+  test('un 429 sin cabecera de cuota se reintenta como antes', async () => {
+    const t = makeClient(BOUNDED_RETRY, [{ status: 429 }, { status: 200, results: [{ resourceId: 'a' }] }], {
+      quotaCeiling: 24,
+    });
+    await expect(t.client.fetchAllMentions(t.query)).resolves.toHaveLength(1);
+    expect(t.clock.waits).toEqual([15_000]);
+    expect(t.budget.rateLimitedCount).toBe(1);
+    expect(t.budget.quotaUsedMax).toBeNull();
+  });
+
+  test('sin cabecera el comportamiento es idéntico: pagina todo', async () => {
+    const t = makeClient(
+      BOUNDED_RETRY,
+      [
+        { status: 200, results: full, total: 250 },
+        { status: 200, results: full, total: 250 },
+        { status: 200, results: full.slice(0, 50), total: 250 },
+      ],
+      { quotaCeiling: 24 },
+    );
+    await expect(t.client.fetchAllMentions(t.query)).resolves.toHaveLength(250);
+    expect(t.calls).toHaveLength(3);
+  });
+
+  function timeoutClient(retry: RetryPolicy, failures: number, budgetOpts: ConstructorParameters<typeof RunBudget>[0] = {}) {
+    const clock = fakeClock(ms('2026-11-01T03:15:00Z'));
+    const budget = new RunBudget({ ...budgetOpts, now: clock.now, sleep: clock.sleep });
+    const signals: Array<AbortSignal | null | undefined> = [];
+    let n = 0;
+    const impl = (async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal);
+      if (n++ < failures) {
+        const e = new Error('The operation was aborted due to timeout');
+        e.name = 'TimeoutError';
+        throw e;
+      }
+      return new Response(JSON.stringify({ results: [{ resourceId: 'a' }], resultsTotal: 1 }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = new BrandwatchClient({ token: 'tok', projectId: 7, retry, budget, fetch: impl });
+    const query = { queryId: 1, startDate: '2026-11-01T00:00:00Z', endDate: '2026-11-01T03:00:00Z' };
+    return { client, clock, budget, query, signals };
+  }
+
+  test('cada petición lleva una señal de tiempo máximo', async () => {
+    const t = timeoutClient(BOUNDED_RETRY, 0);
+    await t.client.fetchAllMentions(t.query);
+    expect(t.signals).toHaveLength(1);
+    expect(t.signals[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  test('una petición que no responde se reintenta como un 5xx (2 s) y se recupera', async () => {
+    const t = timeoutClient(BOUNDED_RETRY, 1);
+    await expect(t.client.fetchAllMentions(t.query)).resolves.toHaveLength(1);
+    expect(t.clock.waits).toEqual([2_000]);
+    expect(t.budget.requestsMade).toBe(2);
+  });
+
+  test('tres peticiones colgadas: falla como error normal (no abre el cortacircuitos)', async () => {
+    const t = timeoutClient(BOUNDED_RETRY, 99);
+    const err = await t.client.fetchAllMentions(t.query).catch((e) => e);
+    expect(err.message).toMatch(/timed out/);
+    expect(classifyFailure(err)).toBe('other');
+    expect(t.budget.requestsMade).toBe(3);
+  });
+
+  test('un error de red que no es de tiempo se propaga igual que antes', async () => {
+    const clock = fakeClock(ms('2026-11-01T03:15:00Z'));
+    const budget = new RunBudget({ now: clock.now, sleep: clock.sleep });
+    const impl = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const client = new BrandwatchClient({ token: 'tok', projectId: 7, retry: BOUNDED_RETRY, budget, fetch: impl });
+    await expect(
+      client.fetchAllMentions({ queryId: 1, startDate: 'a', endDate: 'b' }),
+    ).rejects.toThrow('fetch failed');
+    expect(budget.requestsMade).toBe(1);
+  });
+});
+
+describe('RunBreaker: cesión por cuota', () => {
+  test('quota-ceiling abre el cortacircuitos y lo nombra', () => {
+    const b = new RunBreaker();
+    expect(b.record(new BrandwatchBudgetError('quota-ceiling', 'techo'), '[df] Query 1')).toBe(true);
+    expect(b.reason).toContain('cuota cedida');
   });
 });
