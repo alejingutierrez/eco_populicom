@@ -23,11 +23,11 @@ produjo corridas de 676 s y 759 s: Gobernadora y DF estuvieron sin ingesta de
 El **modo** de la corrida decide su plan (`infra/lambda/ingestion/run-guard.ts`,
 `planRun`):
 
-| Modo | Cuándo | Intentos por request | Presupuesto de reloj | Pacing | Tope de requests |
-|---|---|---|---|---|---|
-| `incremental` | cron de 5 min (sin parámetros) | 3 (esperas 15 s y 30 s) | 3 min | ninguno | ninguno |
-| `refresh` | cron diario de 07:00Z (`refreshLastHours` ≤ 72; hoy 48) | 3 (esperas 15 s y 30 s) | 12 min | 1 request cada 30 s | 24 |
-| `backfill` | ventana explícita (`backfillStartDate`) o `refreshLastHours` > 72 | 11 (2 s·2ⁿ, tope 45 s: la escalera histórica) | 14 min | ninguno | ninguno |
+| Modo | Cuándo | Intentos por request | Presupuesto de reloj | Pacing | Tope de requests | Techo de cuota |
+|---|---|---|---|---|---|---|
+| `incremental` | cron de 5 min (sin parámetros) | 3 (esperas 15 s y 30 s) | 3 min | ninguno | ninguno | 24 |
+| `refresh` | cron diario de 07:00Z (`refreshLastHours` ≤ 72; hoy 48) | 3 (esperas 15 s y 30 s) | 12 min | 1 request cada 30 s | 12 (era 24; con páginas de 500 pide 6–8) | 24 |
+| `backfill` | ventana explícita (`backfillStartDate`) o `refreshLastHours` > 72 | 11 (2 s·2ⁿ, tope 45 s: la escalera histórica) | 14 min | ninguno | ninguno | ninguno |
 
 Todos los presupuestos se recortan además a lo que le queda al lambda menos 60 s
 (`context.getRemainingTimeInMillis()`), de modo que una corrida termina con
@@ -45,6 +45,40 @@ Detalle de los reintentos (`packages/brandwatch/src/resilience.ts`,
   del presupuesto.
 - 5xx: 2 s · 2ⁿ⁻¹ dentro del mismo límite de intentos. 401/403: sin reintento.
 
+### Ceder con la cuota vista (ING-01, nov-2026)
+
+Brandwatch devuelve en cada respuesta `x-rate-limit-used`: lo que la cuenta
+ENTERA (ECO, BrandIQ y llamadas a mano; los 429 también cuentan) lleva gastado
+en la ventana móvil de 10 min. Es un contador compartido que ya existe, así que
+no hace falta infraestructura para coordinarse: cada ingesta lo lee y deja de
+pedir antes de llegar al límite.
+
+- El cliente lo lee tras CADA respuesta (`parseQuotaUsed`) y lo pasa a
+  `RunBudget.observeQuota`.
+- `RunBudget.acquire()` lanza `BrandwatchBudgetError('quota-ceiling')` si la
+  última lectura es ≥ techo (`QUOTA_CEILING = 24` en `run-guard.ts`) y tiene
+  menos de 60 s. El handler lo trata como cualquier presupuesto agotado: abre
+  el cortacircuitos, lo que falta no se sondea y va primero en la corrida
+  siguiente.
+- Un 429 con la cuenta ya en el techo no se reintenta: se rinde en el acto
+  (`Rate limited: giving up (quota-ceiling)`).
+- La primera petición de cada corrida siempre sale (todavía no hay lectura).
+- **Falla abierto**: sin cabecera, o con un valor que no es un entero, no se
+  observa nada y la corrida se comporta como antes.
+- El backfill manual no tiene techo (se hace con las ingestas en pausa).
+
+El techo de 24 deja 6 de las 30 peticiones como reserva. Es el número que debe
+usar también `biq-ingestion`; el reparto completo está en
+`spec-ing-01-ingesta-limites-brandwatch.md` (sección 2.4), pendiente de acuerdo
+con BrandIQ.
+
+### Tiempo máximo por petición
+
+Cada `fetch` lleva `AbortSignal.timeout` de 45 s, recortado a lo que le queda a
+la corrida. Una petición que no responde se trata como un 5xx: backoff corto
+dentro del mismo límite de intentos, y si se agotan falla solo esa query. Antes
+un `fetch` colgado se saltaba el presupuesto (1-nov: 302 s con tope de 180 s).
+
 ### Cortacircuitos
 
 `RunBreaker` (`run-guard.ts`) se abre con el **primer** fallo que implica que
@@ -52,8 +86,8 @@ ningún request más va a pasar:
 
 - una query agotó sus reintentos por 429 (`BrandwatchRateLimitError`, con
   `reason`: `attempts-exhausted`, `retry-after-too-long` o `budget-exhausted`);
-- se agotó el presupuesto de la corrida (`BrandwatchBudgetError`: `deadline` o
-  `request-cap`).
+- se agotó el presupuesto de la corrida (`BrandwatchBudgetError`: `deadline`,
+  `request-cap` o `quota-ceiling`, la cesión por cuota de arriba).
 
 Abierto, el handler **no sondea** las queries que faltan (sus cursores quedan
 intactos y la próxima corrida las retoma) y las lista en el resumen. Los demás
@@ -219,6 +253,9 @@ Líneas de log (CloudWatch, grupo `/aws/lambda/eco-ingestion`):
 | `Rate limited: giving up (reason) after n/m attempts` | una query agotó sus reintentos |
 | `ABORTED por cortacircuitos (…); N queries sin sondear: …` | el cortacircuitos se abrió; lista lo que no se sondeó |
 | `[run] mode=… requests=N elapsed=Ns` | cierre de cada corrida |
+| `CUOTA-USADA max=N techo=24` | lo más alto que la API dijo de la cuota de la cuenta en la corrida (no sale si no vino la cabecera) |
+| `Request timeout (…ms). Waiting …` | una petición no respondió a tiempo y se reintenta |
+| `{"_aws":{…},"Modo":…}` | línea de métricas (EMF) de la corrida, ver «Señal de salud» |
 | `cursor avanzado a … con las N páginas encoladas antes del fallo` | avance parcial tras un fallo a media paginación |
 
 Para contar corridas abortadas (Logs Insights):
@@ -229,13 +266,47 @@ fields @timestamp, @message
 | sort @timestamp desc
 ```
 
+## Señal de salud y alarmas (ING-01)
+
+El lambda responde 200 aunque aborte o fallen todas las queries, así que
+`Invocations` y `Errors` no dicen si la ingesta trae datos. Al cierre de cada
+corrida el handler escribe una línea EMF (`infra/lambda/ingestion/run-metrics.ts`)
+y CloudWatch saca de ella estas métricas, namespace `ECO/Ingesta`, sin
+dimensiones y también por `Modo`:
+
+| Métrica | Qué es |
+|---|---|
+| `QueriesSondeadas` | queries que completaron su sondeo, con o sin menciones |
+| `QueriesFallidas` | queries con error más las que el cortacircuitos dejó sin sondear |
+| `CorridaAbortada` | 1 si se abrió el cortacircuitos |
+| `Avisos429` | respuestas 429 recibidas |
+| `Peticiones` | peticiones hechas a Brandwatch |
+| `CuotaUsadaMax` | el `x-rate-limit-used` más alto visto (solo si vino la cabecera) |
+| `MinutosSinSondeoMax` | antigüedad del `last_run_at` más viejo entre las queries, medido al empezar (no en backfill) |
+
+La línea va por `process.stdout.write`, no por `console.log`: el `console.log`
+de Lambda antepone timestamp y request id y CloudWatch solo extrae métricas de
+una línea que sea JSON puro.
+
+Alarmas (`infra/lib/monitoring-stack.ts`, a `eco-alerts-ops`):
+
+| Alarma | Condición | Sin datos |
+|---|---|---|
+| `eco-ingesta-callada` | `Sum(QueriesSondeadas) < 1` en 2 periodos de 5 min | fallo |
+| `eco-ingesta-query-desatendida` | `Max(MinutosSinSondeoMax) > 60` en 5 min | no cuenta |
+| `eco-ingesta-429-dia` | `Sum(Avisos429) ≥ 10` en 24 h | no cuenta |
+
+Un backfill manual de más de 10 min publica su línea solo al terminar y puede
+disparar `eco-ingesta-callada` mientras corre: es esperado.
+
 ## Dónde está cada cosa y cómo se prueba
 
 | Qué | Dónde |
 |---|---|
 | Política de reintentos, `Retry-After`, pacing, `RunBudget`, errores tipados | `packages/brandwatch/src/resilience.ts` |
 | Cliente (usa lo anterior; `fetch` inyectable para pruebas) | `packages/brandwatch/src/client.ts` |
-| Modo y plan de la corrida, deadline, cortacircuitos | `infra/lambda/ingestion/run-guard.ts` |
+| Modo y plan de la corrida, deadline, techo de cuota, cortacircuitos | `infra/lambda/ingestion/run-guard.ts` |
+| Línea de métricas de la corrida | `infra/lambda/ingestion/run-metrics.ts` (pruebas: `infra/test/ingestion-run-metrics.test.ts`) |
 | Cursor (incluye `cursorToCommit` y `shouldTouchCursor`) | `infra/lambda/ingestion/cursor.ts` |
 | Orden de las queries (más desatendida primero) | `infra/lambda/ingestion/query-order.ts` |
 | Orquestación | `infra/lambda/ingestion/index.ts` |
@@ -255,7 +326,14 @@ edita la constante correspondiente (`BOUNDED_RETRY` / `LONG_RETRY` en
 esbuild + `update-function-code` (ver `CLAUDE.md`). No hay variables de entorno
 ni cambios de CDK.
 
-## Limitador compartido con `biq-ingestion` (diseño; NO implementado)
+## Limitador compartido con `biq-ingestion` (diseño de oct-2026; sustituido)
+
+> **Nov-2026:** las opciones A y B de abajo (tabla DynamoDB) ya no se van a
+> construir. La cabecera `x-rate-limit-used` es el contador compartido y las dos
+> ingestas ceden al verla en el techo (ver «Ceder con la cuota vista»). Queda
+> vigente la opción C (reparto escrito) y, como ítem aparte, que los crons de
+> ECO pasen por el planificador de BrandIQ (`docs/COLA-BRANDWATCH.md`, fase 5).
+> El texto se conserva como registro del análisis.
 
 ### Problema
 
@@ -347,7 +425,5 @@ Reglas para cualquiera de las opciones:
 - **Timeout del lambda** (CDK): 15 min → 3–4 min para el cron incremental
   (hoy el presupuesto de 3 min lo hace cumplir en código; el timeout es la red
   de seguridad) y alarma de "ingesta callada" (BrandIQ ya la tiene).
-- **Timeout por request** (`fetch` sin `AbortSignal`): un request colgado
-  consume el presupuesto entero.
-- **Métrica propia**: el lambda devuelve 200 aunque aborte; si se quiere alarma
-  por cortacircuitos, un filtro de métrica sobre `ABORTED por cortacircuitos`.
+- ~~Timeout por request~~ y ~~métrica propia~~: hechos en ING-01 (ver «Tiempo
+  máximo por petición» y «Señal de salud y alarmas»).

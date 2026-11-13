@@ -46,6 +46,12 @@ export interface RunPlan {
   minRequestIntervalMs: number;
   /** Tope de requests de la corrida (undefined = sin tope). */
   maxRequests?: number;
+  /**
+   * Techo de cuota de la cuenta (`x-rate-limit-used`): al verlo, la corrida
+   * cede lo que le falta. undefined = no se cede (backfill manual, que se hace
+   * con las ingestas en pausa).
+   */
+  quotaCeiling?: number;
 }
 
 const MINUTE = 60_000;
@@ -59,13 +65,30 @@ const MINUTE = 60_000;
 // deja ~10 de los ~30 de la cuota para biq-ingestion, y 24 requests (≈12 min a
 // ese ritmo) como techo duro. Corre a las 03:00 hora de PR, y como el refresh
 // repite cada día la ventana de 48 h, abandonarlo a medias no pierde nada.
+//
+// Con páginas de 500 (4-nov) el refresh pide 6–8 requests, no ~19: el tope
+// baja de 24 a 12, que sigue siendo holgura y ya no es media cuota.
+//
+// Techo de cuota (ING-01): de los 30 requests por 10 min de la cuenta, 6 son
+// reserva para tropiezos y llamadas a mano. Con `x-rate-limit-used` ≥ 24 la
+// corrida cede en vez de seguir hasta el 429 (que también gasta cupo). Es el
+// mismo número que debe usar biq-ingestion: ver «Reparto de la cuota» en
+// docs/tecnica/ingesta-brandwatch-429.md.
+export const QUOTA_CEILING = 24;
+
 const PLANS: Record<RunMode, Omit<RunPlan, 'mode'>> = {
-  incremental: { retry: BOUNDED_RETRY, budgetMs: 3 * MINUTE, minRequestIntervalMs: 0 },
+  incremental: {
+    retry: BOUNDED_RETRY,
+    budgetMs: 3 * MINUTE,
+    minRequestIntervalMs: 0,
+    quotaCeiling: QUOTA_CEILING,
+  },
   refresh: {
     retry: BOUNDED_RETRY,
     budgetMs: 12 * MINUTE,
     minRequestIntervalMs: 30_000,
-    maxRequests: 24,
+    maxRequests: 12,
+    quotaCeiling: QUOTA_CEILING,
   },
   backfill: { retry: LONG_RETRY, budgetMs: 14 * MINUTE, minRequestIntervalMs: 0 },
 };
@@ -131,7 +154,14 @@ export class RunBreaker {
     const kind = classifyFailure(err);
     if (kind === 'other') return false;
     const detail = (err as Error)?.message ?? String(err);
-    this.openedBy = `${label}: ${kind === 'rate-limit' ? '429 sin reintentos' : 'presupuesto agotado'} (${detail})`;
+    const reason = (err as { reason?: unknown } | null | undefined)?.reason;
+    const what =
+      reason === 'quota-ceiling'
+        ? 'cuota cedida'
+        : kind === 'rate-limit'
+          ? '429 sin reintentos'
+          : 'presupuesto agotado';
+    this.openedBy = `${label}: ${what} (${detail})`;
     return true;
   }
 }

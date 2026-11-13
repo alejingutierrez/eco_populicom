@@ -9,6 +9,8 @@ export interface BrandwatchConfig {
   retry?: RetryPolicy;
   /** Presupuesto (tiempo / requests / pacing) de la corrida, compartido entre clientes. */
   budget?: RunBudget;
+  /** Tiempo máximo de una petición (ms). Por defecto 45 s. */
+  requestTimeoutMs?: number;
   /** Para pruebas: sustituto de `fetch`. */
   fetch?: typeof fetch;
 }

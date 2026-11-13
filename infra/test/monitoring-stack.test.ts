@@ -95,4 +95,35 @@ test('MonitoringStack creates SNS topic and CloudWatch dashboard', () => {
   const template = Template.fromStack(stack);
   template.resourceCountIs('AWS::SNS::Topic', 1);
   template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+
+  // Salud de la ingesta (ING-01): métricas propias del lambda, sin dimensiones.
+  template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+    AlarmName: 'eco-ingesta-callada',
+    Namespace: 'ECO/Ingesta',
+    MetricName: 'QueriesSondeadas',
+    Statistic: 'Sum',
+    Period: 300,
+    EvaluationPeriods: 2, // 10 min + evaluación: avisa en menos de 15
+    Threshold: 1,
+    ComparisonOperator: 'LessThanThreshold',
+    TreatMissingData: 'breaching', // si el lambda no corre, no hay dato: es fallo
+  });
+  template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+    AlarmName: 'eco-ingesta-query-desatendida',
+    Namespace: 'ECO/Ingesta',
+    MetricName: 'MinutosSinSondeoMax',
+    Statistic: 'Maximum',
+    Threshold: 60,
+    ComparisonOperator: 'GreaterThanThreshold',
+    TreatMissingData: 'notBreaching',
+  });
+  template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+    AlarmName: 'eco-ingesta-429-dia',
+    Namespace: 'ECO/Ingesta',
+    MetricName: 'Avisos429',
+    Statistic: 'Sum',
+    Period: 86400,
+    Threshold: 10,
+    ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+  });
 });
