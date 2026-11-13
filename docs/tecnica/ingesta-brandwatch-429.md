@@ -299,7 +299,8 @@ Alarmas (`infra/lib/monitoring-stack.ts`, a `eco-alerts-ops`):
 `eco-ingesta-callada` usa `FILL(…, 0)` a propósito: con «sin datos = fallo» a
 secas y 2 periodos de 5 min tardó 19.6 min en el simulacro del 13-nov, porque
 con datos faltantes CloudWatch espera a que todo su rango de evaluación esté
-vacío. Once minutos en cero toleran una corrida saltada.
+vacío. Once minutos en cero toleran una corrida saltada. Con esta definición
+el segundo simulacro avisó a los 12.3 min de la última corrida.
 
 Un backfill manual de más de 10 min publica su línea solo al terminar y puede
 disparar `eco-ingesta-callada` mientras corre: es esperado.

@@ -219,7 +219,7 @@ se anota en el procedimiento de backfill.
 
 | Alarma | Condición | Datos faltantes | Tiempo hasta avisar |
 |---|---|---|---|
-| `eco-ingesta-callada` | `FILL(Sum(QueriesSondeadas), 0) < 1` en 11 periodos de 1 min (era 2 de 5 min; ver el simulacro) | cuentan como fallo | ~12–14 min desde la última corrida, sin medir aún |
+| `eco-ingesta-callada` | `FILL(Sum(QueriesSondeadas), 0) < 1` en 11 periodos de 1 min (era 2 de 5 min; ver el simulacro) | cuentan como fallo | 12.3 min desde la última corrida (medido en el segundo simulacro) |
 | `eco-ingesta-query-desatendida` | `Max(MinutosSinSondeoMax) > 60` en 1 periodo de 5 min | no cuentan | n/a |
 | `eco-ingesta-429-dia` | `Sum(Avisos429) ≥ 10` en 1 periodo de 24 h | no cuentan | n/a |
 
@@ -260,8 +260,13 @@ faltantes CloudWatch espera a que todo su rango de evaluación esté vacío, no
 solo los 2 periodos pedidos. Arreglo desplegado a las 19:18 UTC: la alarma
 evalúa `FILL(QueriesSondeadas, 0)` en periodos de 1 min y salta con 11 minutos
 seguidos en cero. Sobre los datos del propio simulacro esa condición se cumple
-a los ~12 min de la última corrida. **Falta repetir el simulacro** para medirlo
-de verdad.
+a los ~12 min de la última corrida.
+
+**Segundo simulacro del 13-nov: pasó.** Con la alarma corregida. Última corrida
+23:30:23 UTC, ingesta en pausa a las 23:30:53; la alarma saltó a las 23:42:38 y
+SNS salió en el acto: 11.8 min desde la pausa, 12.3 desde la última corrida.
+Ingesta restaurada a las 23:43:20. El tiempo se cuenta desde la última corrida
+completa, así que no depende de en qué punto del ciclo de 5 min ocurra el paro.
 
 ### WP-3 · Ceder con la cuota vista
 
@@ -370,7 +375,7 @@ El informe se añade al doc técnico con:
 |---|---|---|
 | 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Sin métrica; las 6 queries se sondean cada 5 min |
 | Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov. BrandIQ: sin medir aquí |
-| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | No cumple: la alarma actual tarda 30 min y no detecta corridas abortadas |
+| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2) |
 | Reparto de cuota con BrandIQ escrito y aplicado en los dos productos | WP-5 mergeado en los dos repos; techos iguales | No existe |
 
 ---
@@ -402,8 +407,8 @@ de desplegar (el lambda no tiene versiones publicadas).
    llevarlo a BrandIQ.
 3. **Limitador por cabecera en vez de tabla compartida** (sección 2.3).
    Recomendado: aceptar; el planificador de BrandIQ queda como ítem aparte.
-4. **Simulacro de 15 min con la ingesta en pausa** (WP-2). Hace falta el visto
-   bueno y la hora.
+4. **Simulacro de 15 min con la ingesta en pausa** (WP-2). Hecho el 13-nov,
+   dos veces; el segundo pasó.
 5. **Pedir a Brandwatch más cuota o un segundo usuario de API.** Fuera del spec,
    recomendado hacerlo ya.
 
