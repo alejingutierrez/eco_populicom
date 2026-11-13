@@ -1,0 +1,203 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "El Senado aprieta a Suzanne Roig por un cuarto viaje",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D9, D10, D11, N17, E13) confirman que el Senado exigió información sobre un cuarto viaje de Roig, esta vez a México, y aprobó una resolución al respecto."
+  },
+  {
+   "section": "titular",
+   "claim": "Ella entrega documentos",
+   "verdict": "verdadera",
+   "why": "D20 (usuario_e887cd, viernes 30) indica que 'Suzanne Roig entregó documentos relacionados con la investigación en el Departamento de la Familia'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El senador Juan Oscar Morales reveló un cuarto viaje de la secretaria Suzanne Roig, esta vez a México",
+   "verdict": "verdadera",
+   "why": "D10 (El Vocero) y N17 (usuario_d4b773) confirman que Morales investigó/radicó resolución sobre un cuarto viaje a México."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El costo estimado del viaje fue de $10,092",
+   "verdict": "verdadera",
+   "why": "D10 indica que 'cuyo costo se estimó en $10,092' y D4 menciona '$10,092 a México'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El Senado aprobó por unanimidad una nueva solicitud de información",
+   "verdict": "verdadera",
+   "why": "D19 (Noticias Boricuas) indica que 'El Senado de Puerto Rico aprobó este jueves por unanimidad una nueva solicitud de información'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Roig entregó documentos antes de la fecha límite del viernes",
+   "verdict": "sin_respaldo",
+   "why": "D20 confirma que Roig entregó documentos, y D8 indica que tenía hasta las 5:00 p.m. del viernes. Sin embargo, no hay evidencia explícita de que la entrega fue antes de la fecha límite; D20 cuestiona si entregó toda la información."
+  },
+  {
+   "section": "párrafo",
+   "claim": "usuario_28b025 cuestionó si la entrega fue completa",
+   "verdict": "verdadera",
+   "why": "D20 (usuario_e887cd) pregunta '¿entregó toda la información solicitada?'"
+  },
+  {
+   "section": "párrafo",
+   "claim": "La senadora Nitza Morán le pidió que se separe temporalmente del cargo",
+   "verdict": "verdadera",
+   "why": "D18 (Radio Isla 1320) confirma que 'La senadora Nitza Morán exhortó a la secretaria de la Familia, Suzanne Roig, a separarse temporalmente de su cargo'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La gobernadora González Colón volvió a defenderla y arremetió contra Rivera Schatz",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D14 (NotiCel) dice que 'González Colón defiende nuevamente a Suzanne Roig y arremete contra Rivera Schatz', pero el texto lo atribuye directamente a la gobernadora cuando la mención indica que fue el senador González Colón (no necesariamente la gobernadora). Sin embargo, el contexto general de la semana (E10, portavoz de La Fortaleza defendiendo a Roig) apoya la defensa gubernamental. La atribución directa a la gobernadora no está claramente respaldada; D14 habla de 'González Colón' que podría ser la gobernadora Jenniffer González."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La investigación del viaje a México dominó el viernes",
+   "verdict": "verdadera",
+   "why": "De las 20 menciones del día mostradas, la mayoría (D1, D3, D4, D5, D8, D9, D10, D11, D12, D13, D16, D19, D20) giran en torno a la controversia de contratos/viajes de Roig, incluyendo el viaje a México."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Acumula 136 menciones negativas en la semana, casi todas críticas",
+   "verdict": "sin_respaldo",
+   "why": "Los datos proporcionan week_neg = 172 menciones negativas totales, pero no desglosan por tópico. No se puede verificar que exactamente 136 correspondan al tema de contratos y viajes. Además, decir '136 menciones negativas, casi todas críticas' es redundante/confuso: si son negativas, por definición son críticas."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La administradora de ASUME, María del Mar Mateu, negó en radio que la gobernadora le haya ofrecido dirigir el Departamento de la Familia",
+   "verdict": "verdadera",
+   "why": "D17 (radioislatv) confirma que Mateu 'negó que la gobernadora le haya ofrecido dirigir el Departamento de la Familia'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La especulación sobre un relevo de Roig ya circula en medios",
+   "verdict": "verdadera",
+   "why": "D15 (usuario_926b5b), D17 (radioislatv) y N13 (El Vigía News del sábado 24) muestran que la especulación sobre un relevo circula activamente."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El caso de Félix Plaud y menores en una casa en Sagrado Corazón mantuvo vivo el frente de protección de menores",
+   "verdict": "verdadera",
+   "why": "D6 y N20 (Bonita Radio, viernes 30) mencionan el caso de Félix Plaud y menores en Sagrado Corazón."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El Departamento no actuó mientras ASSMCA sí lo hizo",
+   "verdict": "verdadera",
+   "why": "D6/N20 indica que 'personal de ASSMCA se movió a indagar' mientras 'ni la Policía ni el Departamento de la Familia se han interesado'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen del viernes fue el más alto de los siete días",
+   "verdict": "verdadera",
+   "why": "day_rank = posición 1 de 7 por volumen, y series_2026-10-30 = 69 es el valor más alto de la serie."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La negatividad bajó respecto al jueves",
+   "verdict": "verdadera",
+   "why": "El viernes tuvo 31 negativas vs. 36 del jueves (series_2026-10-29 neg=36, series_2026-10-30 neg=31)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La entrega de documentos y la defensa de González Colón añadieron menciones neutrales que no estaban el día anterior",
+   "verdict": "sin_respaldo",
+   "why": "El viernes tuvo 38 neutrales vs. 32 del jueves (68-36=32), lo que es un aumento modesto. Pero atribuir causalmente ese aumento a la entrega de documentos y la defensa de González Colón no se puede verificar con los datos."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "La investigación del Senado sobre contratos en la ADSEF y los viajes de la secretaria Suzanne Roig dominó la semana con 136 menciones",
+   "verdict": "sin_respaldo",
+   "why": "No hay desglose por tópico en los datos proporcionados. El total semanal es 326 y las negativas son 172, pero no se puede verificar que 136 correspondan específicamente a este tema."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "73% negativas de esas 136 menciones",
+   "verdict": "sin_respaldo",
+   "why": "Sin desglose por tópico, no se puede verificar este porcentaje. Nota: 73% de 136 ≈ 99 menciones negativas del tema, cifra no verificable."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Incluyendo una amenaza de desacato si no entregaba documentos antes del viernes",
+   "verdict": "verdadera",
+   "why": "N2 y N11 (Telemundo PR, miércoles 28) mencionan que 'podría enfrentar un proceso por desacato si la controversia llega a los tribunales'."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Una nueva resolución del senador Juan Oscar Morales sobre un cuarto viaje a México que costó más de $10,000",
+   "verdict": "verdadera",
+   "why": "N17 confirma la resolución de Morales y D10 confirma el costo de $10,092."
+  },
+  {
+   "section": "insights-negative-2",
+   "claim": "usuario_a373c0 y Bonita Radio documentaron que menores removidos de sus hogares duermen en oficinas del Departamento de la Familia",
+   "verdict": "verdadera",
+   "why": "N3 y N4 (sábado 24) confirman la investigación de usuario_a373c0 y Bonita Radio sobre menores durmiendo en oficinas."
+  },
+  {
+   "section": "insights-negative-2",
+   "claim": "Trabajadores sociales becados por la propia agencia denuncian que no los contratan",
+   "verdict": "verdadera",
+   "why": "N10 (usuario_afe703, jueves 29) confirma que 'más de una decena de profesionales becados por la propia agencia' siguen esperando ser contratados."
+  },
+  {
+   "section": "insights-negative-2",
+   "claim": "Los procesos de adopción están paralizados",
+   "verdict": "exagerada",
+   "why": "N1/N15 dicen que 'las adopciones han quedado relegadas' y que cuando preguntaron cuántas adopciones completó este año 'no dio números'. 'Relegadas' no es lo mismo que 'paralizados'; el texto exagera la situación descrita en las fuentes."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "La cobertura noticiosa sin carga se concentró en el tira y jala legislativo: Noticentro, Telenoticias y El Nuevo Día replicaron los plazos del Senado a Roig",
+   "verdict": "verdadera",
+   "why": "E17 (Noticentro), E13/E19 (Telenoticias), E10/D13 (El Nuevo Día) confirman cobertura neutral sobre plazos y solicitudes del Senado."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "Las declaraciones de Norma Burgos y del portavoz de La Fortaleza sin añadir juicio",
+   "verdict": "verdadera",
+   "why": "N6 (El Nuevo Día, lunes 26) cubre declaraciones de Norma Burgos y E10 (El Nuevo Día, lunes 26) cubre al portavoz Jean Peña Payano. E14 (usuario_28b025) también cubre a Burgos en tono neutral."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "El martes y el viernes —los días de mayor volumen— tuvieron más menciones neutrales que negativas",
+   "verdict": "falsa",
+   "why": "El martes tuvo 53 menciones con 22 negativas y (53-22-0)=31 neutrales, así que neutrales > negativas es correcto para el martes. Pero el viernes tuvo 69 menciones con 31 negativas y 38 neutrales, también neutrales > negativas. Sin embargo, los días de mayor volumen son jueves (68) y viernes (69), no martes (53) y viernes (69). El martes (53) empata con el miércoles (53) y ambos están por debajo del jueves (68). La afirmación de que martes y viernes son 'los días de mayor volumen' es incorrecta."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "El propio Departamento de la Familia publicó reuniones de trabajo con la Comisión de la Pobreza",
+   "verdict": "verdadera",
+   "why": "D7/E18 (Departamento de la Familia, viernes 30) confirma reunión con la Comisión de la Pobreza."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "Talleres contra el fraude a adultos mayores junto a la Fiscalía Federal",
+   "verdict": "verdadera",
+   "why": "E9 (Departamento de la Familia, miércoles 28) confirma talleres educativos en colaboración con la Fiscalía Federal sobre explotación financiera de adultos mayores."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "Una actividad deportiva interna",
+   "verdict": "verdadera",
+   "why": "P1 (Departamento de la Familia, lunes 26) menciona una actividad deportiva interna con equipos de distintas administraciones y regiones."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "Sumando 18 menciones que sostienen casi todo el tono neutral institucional de la semana",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos que permitan verificar que exactamente 18 menciones provienen del propio Departamento de la Familia. Los datos no desglosan menciones por autor/fuente."
+  }
+ ],
+ "headline_drama_0_5": 2,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "Las viñetas dicen que el tema de contratos/viajes 'acumula 136 menciones negativas en la semana', pero el insight negativo 1 dice '136 menciones —73% negativas—', lo que implicaría ~99 negativas de 136 totales. Son dos interpretaciones distintas del mismo número 136: en un caso son 136 negativas, en otro son 136 totales con 73% negativas.",
+  "El insight neutral 1 afirma que 'el martes y el viernes —los días de mayor volumen—' pero los datos muestran que los días de mayor volumen son jueves (68) y viernes (69), no martes (53). Las viñetas correctamente identifican al viernes como el día de mayor volumen."
+ ],
+ "notes": "El texto es generalmente preciso en los hechos cualitativos respaldados por las menciones, pero presenta cifras específicas por tópico (136 menciones, 73% negativas, 18 menciones institucionales) que no pueden verificarse con los datos proporcionados, ya que estos no incluyen desglose por tópico ni por autor. Hay una contradicción interna sobre el número 136: las viñetas lo presentan como menciones negativas mientras el insight lo presenta como menciones totales con 73% negativas. La identificación del martes como día de mayor volumen es incorrecta según los datos."
+}

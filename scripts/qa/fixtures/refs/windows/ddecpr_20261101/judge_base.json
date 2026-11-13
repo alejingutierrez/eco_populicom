@@ -1,0 +1,186 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "El Mes de la Manufactura domina el domingo",
+   "verdict": "verdadera",
+   "why": "La gran mayoría de las menciones del domingo (D1-D20) giran en torno a publicaciones del Mes de la Manufactura (El Horno de Pane, Sorullos Mamá Toña y la publicación genérica '¡El desarrollo sigue!')."
+  },
+  {
+   "section": "titular",
+   "claim": "Domingo sin críticas",
+   "verdict": "falsa",
+   "why": "Hubo 4 menciones negativas el domingo (day_neg=4), incluyendo comentarios de usuario_2eb205, usuario_c7af2a, usuario_2c54b7 y usuario_c92906. No fue 'sin críticas'."
+  },
+  {
+   "section": "titular",
+   "claim": "Reacciones favorables del público",
+   "verdict": "exagerada",
+   "why": "Solo 6 de 64 menciones del día fueron positivas (day_pos=6), mientras 54 fueron neutrales. Decir que las reacciones fueron 'favorables' exagera; la inmensa mayoría fue neutral."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Las publicaciones del DDEC por el Mes de la Manufactura —destacando negocios como El Horno de Pane y Sorullos Mamá Toña— generaron la mayor parte de la conversación del domingo",
+   "verdict": "verdadera",
+   "why": "Las menciones del día muestran que casi todas giran en torno a publicaciones sobre El Horno de Pane, Sorullos Mamá Toña y la publicación genérica del DDEC."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El contenido se replicó en Facebook, Instagram y LinkedIn",
+   "verdict": "sin_respaldo",
+   "why": "Las menciones muestran publicaciones en redes de 'desarrollopr' y 'Departamento de Desarrollo Económico y Comercio' (probablemente Facebook e Instagram), pero no hay evidencia de LinkedIn en los datos proporcionados."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Las reacciones del público fueron casi todas positivas: preguntas sobre dónde comprar, felicitaciones a los negocios y elogios a los productos",
+   "verdict": "falsa",
+   "why": "De las 64 menciones del día, solo 6 fueron positivas y 54 neutrales. Las reacciones fueron mayoritariamente neutrales, no 'casi todas positivas'. Las preguntas sobre dónde comprar fueron clasificadas como neutrales."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Solo 4 de las 64 menciones del día fueron negativas",
+   "verdict": "verdadera",
+   "why": "Coincide exactamente con los datos: day_neg=4, day_total=64."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La cifra más baja de la semana [de negativas]",
+   "verdict": "verdadera",
+   "why": "Revisando la serie: lun=3, mar=12, mié=20, jue=9, vie=4, sáb=6, dom=4. El lunes tuvo 3 negativas, que es menor que 4. Pero el viernes también tuvo 4. Así que el domingo empata con el viernes pero no es la cifra más baja (el lunes tuvo 3)."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La cifra más baja de la semana [de negativas] - CORRECCIÓN",
+   "verdict": "falsa",
+   "why": "El lunes 26 tuvo solo 3 menciones negativas, menos que las 4 del domingo. El domingo empata con el viernes (4 cada uno) pero no es la cifra más baja de la semana."
+  },
+  {
+   "section": "viñeta 1",
+   "claim": "El contenido propio del DDEC fue prácticamente lo único que circuló el domingo",
+   "verdict": "verdadera",
+   "why": "Las 20 menciones mostradas del domingo son todas publicaciones propias del DDEC o comentarios en publicaciones del DDEC. No se observa cobertura de prensa externa."
+  },
+  {
+   "section": "viñeta 1",
+   "claim": "Las publicaciones sobre manufactura local se compartieron en al menos tres plataformas",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran publicaciones de 'desarrollopr' (probablemente Instagram) y 'Departamento de Desarrollo Económico y Comercio' (probablemente Facebook), pero no hay evidencia clara de una tercera plataforma el domingo."
+  },
+  {
+   "section": "viñeta 1",
+   "claim": "Acumularon 64 menciones, más del doble que el sábado",
+   "verdict": "verdadera",
+   "why": "day_total=64, prev_day_total=28. 64 es más del doble de 28 (el doble sería 56)."
+  },
+  {
+   "section": "viñeta 2",
+   "claim": "Los comentarios del público pidieron direcciones, preguntaron por envíos al extranjero y elogiaron los productos",
+   "verdict": "verdadera",
+   "why": "D8 pregunta dónde conseguir el producto, D5 dice 'Vengan a Nashville' (extranjero), D20 pregunta por envíos al extranjero, D3/D10/D12 elogian productos."
+  },
+  {
+   "section": "viñeta 2",
+   "claim": "El formato de destacar negocios concretos genera interacción genuina",
+   "verdict": "sin_respaldo",
+   "why": "Es una interpretación/opinión sobre la estrategia de contenido, no un hecho verificable con los datos proporcionados."
+  },
+  {
+   "section": "viñeta 3",
+   "claim": "El tópico de Críticas / Controversias acumula 18 menciones negativas en la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos proporcionan week_neg=58 total pero no desglosan por tópico. De las menciones negativas mostradas, varias son de Críticas/Controversias pero no se puede confirmar que sean exactamente 18."
+  },
+  {
+   "section": "viñeta 3",
+   "claim": "Apenas asomó el domingo con un comentario aislado en Instagram cuestionando la política económica del gobierno",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "usuario_2eb205 (D18/N5) sí cuestionó la política económica, pero hubo también otro comentario negativo de usuario_c92906 (N7) sobre la luz cara, que también es una crítica/controversia. Además, no se puede confirmar que fue en Instagram específicamente."
+  },
+  {
+   "section": "viñeta 4",
+   "claim": "El pico fuerte de la semana fue de lunes a jueves, cuando superaron las cien menciones diarias",
+   "verdict": "verdadera",
+   "why": "Lun=100, Mar=155, Mié=167, Jue=148. Todos son ≥100. Viernes=36, Sábado=28, Domingo=64."
+  },
+  {
+   "section": "viñeta 4",
+   "claim": "El fin de semana bajó a ritmo de redes sociales sin cobertura de prensa",
+   "verdict": "verdadera",
+   "why": "Las menciones del fin de semana (36, 28, 64) son mucho menores que lun-jue, y las menciones mostradas del domingo son todas de redes sociales propias y comentarios, sin medios de prensa."
+  },
+  {
+   "section": "insight negative 1",
+   "claim": "El video del Mes de la Manufactura sobre El Horno de Pane generó una ola de quejas en Facebook porque no incluye la ubicación del negocio",
+   "verdict": "verdadera",
+   "why": "Múltiples comentarios negativos (N4, N8, N9, N10, N11, N16, N17, N18) se quejan de que no se indica la ubicación del negocio."
+  },
+  {
+   "section": "insight negative 1",
+   "claim": "Al menos seis comentarios entre el viernes 30 de octubre y el sábado 31 lo califican de 'botar dinero' y piden que se diga dónde queda",
+   "verdict": "exagerada",
+   "why": "Entre viernes 30 y sábado 31 se ven: N8 (sáb), N9 (sáb), N10 (sáb), N11 (sáb), N16 (vie), N17 (vie). Son 6 comentarios negativos en esos días, pero no todos 'califican de botar dinero' — solo N8 usa esa expresión. Los demás piden ubicación pero con distintas formulaciones. Decir que los seis lo 'califican de botar dinero' es exagerado."
+  },
+  {
+   "section": "insight negative 2",
+   "claim": "Ciudadanos respondieron cuestionando el discurso de desarrollo económico: reclaman que restaurantes están cerrando, que la luz está cara y que los pequeños comerciantes no se benefician",
+   "verdict": "verdadera",
+   "why": "N13 dice 'RESTAURANTES CERRANDO', N7 pide 'bajar la luz', N14 habla de comerciantes cerrando y yéndose del país, N15 dice que el gobierno sofoca al sector."
+  },
+  {
+   "section": "insight negative 2",
+   "claim": "18 menciones enteramente negativas en el tópico de críticas",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos que desglosen las 58 menciones negativas semanales por tópico. No se puede verificar que sean exactamente 18 en Críticas/Controversias."
+  },
+  {
+   "section": "insight neutral 1",
+   "claim": "La campaña del Mes de la Manufactura y el anuncio de PRAK Industries en Aibonito —con inversión de $1.2 millones y 120 empleos— concentraron la mayor parte de las menciones neutrales entre el martes 27 y el jueves 29",
+   "verdict": "verdadera",
+   "why": "E3, E7, E11, E12, E13 cubren PRAK Industries con $1.2M y 120 empleos. Las menciones neutrales de mayor engagement están concentradas en ese período. Los datos de la serie muestran el mayor volumen mar-jue."
+  },
+  {
+   "section": "insight neutral 2",
+   "claim": "El Senado suspendió una vista pública sobre Roosevelt Roads y acordó continuar la investigación en reunión ejecutiva con el secretario del DDEC",
+   "verdict": "verdadera",
+   "why": "E1 de En Contacto 787 Tv del jueves 29 confirma la suspensión de la vista pública y la reunión ejecutiva con el secretario Carlos J. Ríos Pierluisi."
+  },
+  {
+   "section": "insight neutral 2",
+   "claim": "Publicado por En Contacto 787 Tv el jueves 29 de octubre con más de 340 interacciones",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen métricas de interacciones/engagement para las publicaciones. No se puede verificar la cifra de 340 interacciones."
+  },
+  {
+   "section": "insight positive 1",
+   "claim": "La mayoría de las reacciones favorables son comentarios de ciudadanos en Instagram al video de El Horno de Pane",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "Muchos comentarios positivos (P2, P5-P10, P14-P20) son sobre El Horno de Pane en la cuenta 'desarrollopr' (probablemente Instagram), pero también hay positivos en Facebook y sobre otros temas (P1, P3, P4). No se puede confirmar que sea 'la mayoría' sin datos completos."
+  },
+  {
+   "section": "insight positive 1",
+   "claim": "La emoción de gratitud presente en 197 menciones de la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen desglose por emociones. No hay forma de verificar que 197 menciones contengan 'gratitud'."
+  },
+  {
+   "section": "insight positive 2",
+   "claim": "La Asociación Hecho en Puerto Rico publicó el miércoles 28 de octubre un episodio de 'Detrás del Sello' destacando la alianza con el DDEC",
+   "verdict": "verdadera",
+   "why": "P1 confirma la publicación de Hecho en Puerto Rico el miércoles 28 sobre 'Detrás del Sello' mencionando la alianza con el DDEC."
+  },
+  {
+   "section": "insight positive 2",
+   "claim": "Fue la publicación positiva con más interacciones de toda la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen métricas de interacciones. P1 aparece primera en la lista de positivos ordenados por engagement, lo que sugiere que podría ser cierto, pero no se puede confirmar con certeza."
+  }
+ ],
+ "headline_drama_0_5": 3,
+ "old_post_presented_as_day_news": true,
+ "contradictions_between_blocks": [
+  "El párrafo dice 'las reacciones del público fueron casi todas positivas' pero los datos muestran solo 6 positivas de 64 menciones (9.4%), con 54 neutrales (84%). Las viñetas y los insights son más matizados y no hacen esta afirmación tan fuerte.",
+  "El párrafo afirma que las 4 negativas del domingo son 'la cifra más baja de la semana', pero el lunes tuvo solo 3 negativas según los datos de la serie.",
+  "El titular dice 'sin críticas' pero el propio texto en la viñeta 3 reconoce que hubo un comentario de crítica, y los datos muestran 4 menciones negativas."
+ ],
+ "notes": "Muchas de las menciones del domingo son comentarios a publicaciones del lunes 26 de octubre (6+ días antes), lo que el texto presenta como 'conversación del domingo' sin aclarar que son reacciones tardías a contenido viejo. Esto infla artificialmente la percepción de actividad del día. El texto también presenta las reacciones neutrales (preguntas sobre ubicación, dónde comprar) como si fueran positivas, distorsionando el sentimiento real del día. La afirmación sobre LinkedIn carece de respaldo en los datos. La cifra de 197 menciones con 'gratitud' y 340 interacciones no son verificables con los datos proporcionados."
+}

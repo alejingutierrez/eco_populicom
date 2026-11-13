@@ -1,0 +1,210 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Préstamos federales por la sequía dominan el día del DDEC en medios y redes",
+   "verdict": "verdadera",
+   "why": "La gran mayoría de las menciones del jueves 22 de octubre (D1-D3, D6-D8, D10-D15) tratan sobre los préstamos federales por la sequía. Es razonable decir que 'dominaron' el día."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La gobernadora Jenniffer González Colón y el secretario Carlos Ríos Pierluisi anunciaron el jueves 22 de octubre la disponibilidad de préstamos federales de la SBA para comerciantes de 18 municipios afectados por la sequía.",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D1, D3, D6, D7, D14, D15) confirman que ambos funcionarios anunciaron préstamos de la SBA para 18 municipios afectados por la sequía el jueves 22 de octubre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El anuncio concentró la mayor parte de la conversación del día.",
+   "verdict": "verdadera",
+   "why": "De las 26 menciones del día, al menos 12-13 tratan directamente sobre los préstamos por sequía (D1-D3, D6-D8, D10-D15), lo que constituye la mayor parte."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El anuncio fue replicado por Radio Isla, NotiCel, Foro Noticioso y múltiples páginas de Facebook.",
+   "verdict": "verdadera",
+   "why": "D7 es de Radio Isla, D1 de NotiCel, D13 de Foro Noticioso, y D2 (El Nuevo Día), D6 (La Perla del Sur) son publicaciones en redes. Confirmado."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El DDEC publicó sobre su visita a la planta de Bombardier en Toronto como parte de una misión comercial.",
+   "verdict": "verdadera",
+   "why": "D4 y D18 confirman la publicación del DDEC sobre la visita a Bombardier en Toronto como parte de la misión comercial."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La publicación sobre Bombardier generó algunas críticas puntuales de usuarios en redes.",
+   "verdict": "verdadera",
+   "why": "D9 (usuario_25fbea) y D17 (usuario_65217a) son comentarios negativos en respuesta a la publicación sobre Bombardier."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El anuncio de los préstamos de la SBA por la sequía apareció en al menos seis medios digitales.",
+   "verdict": "verdadera",
+   "why": "Se puede contar al menos: NotiCel (D1), El Nuevo Día (D2), Es Noticia PR (D3), La Perla del Sur (D6), Radio Isla (D7), CyberNews (D8/D12), usuario_dc81cf (D15), Foro Noticioso (D13). Más de seis."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Se compartió varias veces en Facebook.",
+   "verdict": "verdadera",
+   "why": "Varias de las menciones son publicaciones en redes sociales (D1, D2, D3, D13), consistente con compartirse en Facebook."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Desarrollo Empresarial acumula 40 menciones en la semana, el tópico más activo.",
+   "verdict": "sin_respaldo",
+   "why": "Los datos proporcionados no incluyen un desglose por tópico del total semanal. No se puede verificar que sean exactamente 40 ni que sea el tópico más activo, aunque parece plausible dada la cantidad de menciones visibles con ese tópico."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La misión comercial en Toronto y la visita a Bombardier provocaron las dos únicas menciones negativas del día.",
+   "verdict": "verdadera",
+   "why": "Los datos muestran day_neg = 2 para el jueves, y ambas menciones negativas del día (D9 y D17) son comentarios en respuesta a la publicación sobre Bombardier/Toronto."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Usuarios en Facebook cuestionaron las prioridades del DDEC frente a la crisis energética.",
+   "verdict": "verdadera",
+   "why": "D17 (usuario_65217a) dice 'Pero necesitamos plantas de generación energética no aviones', cuestionando prioridades frente a la crisis energética. D9 critica falta de resultados económicos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen bajó casi a la mitad respecto al miércoles.",
+   "verdict": "verdadera",
+   "why": "El miércoles tuvo 45 menciones y el jueves 26. La caída es de 42%, lo cual es razonable describir como 'casi a la mitad'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El miércoles la conversación alcanzó su pico semanal con 45 menciones.",
+   "verdict": "verdadera",
+   "why": "Los datos confirman peak_total = 45 y series_2026-10-21 = 45, siendo el miércoles 21 el día pico."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El jueves se mantuvo como el tercer día más activo de los últimos siete.",
+   "verdict": "verdadera",
+   "why": "day_rank = posición 3 de 7 por volumen, confirmado por los datos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Conexión Laboral anunció una feria de reclutamiento en Ceiba para el 29 de octubre.",
+   "verdict": "verdadera",
+   "why": "D16 confirma: 'Conexión Laboral Área Local Noreste... celebrará una feria de reclutamiento' en Ceiba el 29 de octubre."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La feria de reclutamiento pasó sin reacción visible en redes.",
+   "verdict": "sin_respaldo",
+   "why": "Solo se ve una mención (D16, nota de prensa), pero no hay datos sobre reacciones o engagement específico para confirmar que no hubo reacción visible."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Un tribunal ordenó al DDEC revelar nombres, puestos y salarios de sus empleados tras rechazar su reclamo de confidencialidad.",
+   "verdict": "verdadera",
+   "why": "N11 confirma: 'Una jueza ordenó al DDEC entregar nombres, puestos, salarios y correos institucionales de sus empleados y rechazó su reclamo de confidencialidad'."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Fue publicado por El Vocero el viernes 16 de octubre.",
+   "verdict": "verdadera",
+   "why": "N11 indica autor 'Redacción, EL VOCERO' y fecha viernes 16 de octubre."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Es la única mención negativa que no responde a publicaciones propias de la agencia.",
+   "verdict": "verdadera",
+   "why": "Revisando las 11 menciones negativas de la semana (N1-N11): N1 es de Hispanic Federation (externa, no responde a publicación del DDEC). Sin embargo, N11 es una nota de prensa independiente. N1 también es una publicación externa. Pero N1 trata sobre reforma de permisos del Senado, no directamente sobre una publicación del DDEC. Así que hay al menos dos menciones negativas que no responden a publicaciones propias: N1 y N11. La afirmación de que N11 es 'la única' es incorrecta."
+  },
+  {
+   "section": "insights-negative-1",
+   "claim": "Es la única mención negativa que no responde a publicaciones propias de la agencia (revisión).",
+   "verdict": "falsa",
+   "why": "N1 (Hispanic Federation sobre reforma de permisos) también es una mención negativa que no es un comentario en publicaciones propias del DDEC. Son al menos dos menciones negativas externas, no una sola."
+  },
+  {
+   "section": "insights-negative-2",
+   "claim": "Las publicaciones del DDEC sobre la Beca Teodoro Moscoso recibieron réplicas directas de ciudadanos en Facebook e Instagram que reclaman límite de edad en la beca.",
+   "verdict": "verdadera",
+   "why": "N4, N5 y N8 son comentarios de usuario_99fa7e en publicaciones del DDEC sobre la Beca Teodoro Moscoso reclamando que se extienda la edad."
+  },
+  {
+   "section": "insights-negative-2",
+   "claim": "Las publicaciones sobre la misión comercial en Toronto recibieron réplicas de ciudadanos que reclaman falta de resultados económicos visibles y prioridades equivocadas frente a la crisis energética.",
+   "verdict": "verdadera",
+   "why": "D9/N2 (usuario_25fbea: 'No hemos visto avance en nuestro desarrollo económico') y D17/N3 (usuario_65217a: 'necesitamos plantas de generación energética no aviones') confirman ambas críticas."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "La convocatoria de la Beca Teodoro Moscoso ofrece ayudas de hasta $40,000.",
+   "verdict": "verdadera",
+   "why": "E1 y E13 confirman ayudas de hasta $40,000 para estudios universitarios."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "Las paradas de Desarrollo Económico en Ruta en Peñuelas, Lajas y Salinas generaron la mayor parte del volumen neutral.",
+   "verdict": "exagerada",
+   "why": "Hay menciones de Desarrollo Económico en Ruta en Peñuelas (E4), Lajas (N6/N7 contexto), y Salinas (E2, E11, E17), pero la Beca Teodoro Moscoso y la misión comercial a Canadá también generaron volumen neutral significativo. Decir que estas paradas generaron 'la mayor parte' del volumen neutral es exagerado."
+  },
+  {
+   "section": "insights-neutral-1",
+   "claim": "Fueron replicadas por alcaldías y páginas locales sin opinión añadida.",
+   "verdict": "verdadera",
+   "why": "E4 (Municipio de Peñuelas), E11 (Municipio Salinas), E17 (Noticias de Ponce) replican la información sin opinión editorial."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "La misión comercial a Canadá incluyó 11 empresas vía PromoExport.",
+   "verdict": "verdadera",
+   "why": "E18 confirma: 'reunimos a 11 empresas puertorriqueñas... A través de nuestro programa PromoExport'."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "La reunión de la comisionada residente Jenniffer González con el DDEC sobre Zonas de Oportunidad 2.0 completó la agenda institucional.",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "E3 confirma la reunión sobre Zonas de Oportunidad 2.0, pero el texto la describe como 'comisionada residente' cuando en realidad Jenniffer González Colón es la gobernadora de Puerto Rico (como se indica en D6, D7, D14 y otros). La cuenta usuario_827f29 publicó sobre la reunión, y en las menciones se la identifica como gobernadora."
+  },
+  {
+   "section": "insights-neutral-2",
+   "claim": "Los medios reprodujeron esta agenda casi textualmente entre el martes y el miércoles.",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos suficientes para verificar que la reproducción fue 'casi textual' ni que se limitó al martes y miércoles. La reunión de Zonas de Oportunidad fue publicada el lunes (E3)."
+  },
+  {
+   "section": "insights-positive-1",
+   "claim": "El respaldo vino casi todo de cuentas vinculadas a programas del DDEC.",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "Varias menciones positivas vienen de usuario_263acb (P1, P7) y usuarios de Instagram respondiendo a publicaciones del DDEC (P2-P4, P6), pero también hay menciones positivas externas como P5, P8 (hechoenptorico), P9 (usuario_038939/INDUNIV) y P10 (usuario_6af3fe). Decir 'casi todo' exagera la concentración en cuentas vinculadas."
+  },
+  {
+   "section": "insights-positive-1",
+   "claim": "El Centro para Emprendedores celebró el arranque de Digital Store Academy.",
+   "verdict": "verdadera",
+   "why": "P1 confirma que usuario_263acb publicó celebrando los talleres de Digital Store Academy."
+  },
+  {
+   "section": "insights-positive-1",
+   "claim": "Varios usuarios de Instagram compartieron testimonios de la Beca Teodoro Moscoso con expresiones de gratitud.",
+   "verdict": "exagerada",
+   "why": "P2 (usuario_19a2fd), P3 (usuario_19de16) y P4 (usuario_aa21c9) son comentarios positivos sobre la Beca Teodoro Moscoso, pero no son 'testimonios' propiamente dichos; son comentarios en publicaciones del DDEC. Además, P3 y P4 no muestran texto de gratitud explícito en los datos disponibles."
+  },
+  {
+   "section": "insights-positive-2",
+   "claim": "El único elogio externo con nombre propio fue el de un representante de INDUNIV en Facebook.",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "P9 (usuario_038939) menciona INDUNIV y agradece al secretario. Sin embargo, P10 (usuario_6af3fe) también es un elogio externo con nombre propio, y P8 (hechoenptorico) es positivo y externo. Decir que fue 'el único' es inexacto."
+  },
+  {
+   "section": "insights-positive-2",
+   "claim": "El representante de INDUNIV agradeció al secretario Carlos Ríos Pierluisi por su gestión tras la Celebración de Biociencias del sábado 17 de octubre.",
+   "verdict": "verdadera",
+   "why": "P9 confirma el comentario de usuario_038939 agradeciendo liderazgo y gestión, y E12 confirma la participación del secretario en la Celebración de Biociencias el sábado 17."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "El insight neutral 2 describe a Jenniffer González Colón como 'comisionada residente', pero el párrafo principal y múltiples menciones (D6, D7, D14) la identifican como 'gobernadora de Puerto Rico'. Estos roles son incompatibles.",
+  "El insight negative 1 afirma que la nota de El Vocero sobre el tribunal es 'la única mención negativa que no responde a publicaciones propias de la agencia', pero N1 (Hispanic Federation sobre reforma de permisos) también es una mención negativa externa no vinculada a publicaciones del DDEC.",
+  "El insight positive 2 dice que el elogio de INDUNIV fue 'el único elogio externo con nombre propio', pero el insight positive 1 implica que el respaldo vino 'casi todo' de cuentas vinculadas, lo cual contradice la existencia de otros elogios externos como usuario_6af3fe (P10) y hechoenptorico (P8)."
+ ],
+ "notes": "El texto es en general preciso en su descripción de los eventos del día y la semana. Los principales problemas son: (1) llamar a Jenniffer González 'comisionada residente' cuando las menciones la identifican como gobernadora; (2) afirmar que la nota de El Vocero es la 'única' mención negativa no vinculada a publicaciones propias, ignorando N1; (3) algunas exageraciones menores sobre la concentración del volumen neutral y la naturaleza de los comentarios positivos. Las cifras numéricas (45 menciones pico, tercer día más activo, 11 empresas, $40,000, 18 municipios) son todas correctas según los datos."
+}
