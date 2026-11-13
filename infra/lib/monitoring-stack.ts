@@ -98,17 +98,31 @@ export class MonitoringStack extends cdk.Stack {
     const ingestaMetric = (metricName: string, statistic: string, period: cdk.Duration) =>
       new cloudwatch.Metric({ namespace: 'ECO/Ingesta', metricName, statistic, period });
 
-    // Ninguna query completó su sondeo en 10 min: el lambda no corre, aborta
-    // todo o no llega a la base. Sin datos = fallo. Avisa en 10–13 min.
+    // Ninguna query completó su sondeo en 11 min: el lambda no corre, aborta
+    // todo o no llega a la base.
+    //
+    // Por qué FILL y periodos de 1 min: la primera versión (2 periodos de 5 min
+    // con «sin datos = fallo») tardó 19.6 min en el simulacro del 13-nov. Con
+    // datos FALTANTES CloudWatch no evalúa solo los últimos periodos: espera a
+    // que todo su rango de evaluación (más ancho) esté vacío. FILL(m, 0)
+    // convierte el hueco en ceros, así la alarma ve datos y evalúa a tiempo.
+    // 11 minutos seguidos en cero toleran una corrida saltada (el cron es cada
+    // 5 min: una saltada deja 9–10 min sin dato) y avisan a los ~12–13 min de
+    // la última corrida buena.
     const ingestaCallada = new cloudwatch.Alarm(this, 'IngestaCalladaAlarm', {
       alarmName: 'eco-ingesta-callada',
-      metric: ingestaMetric('QueriesSondeadas', 'Sum', cdk.Duration.minutes(5)),
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(sondeadas, 0)',
+        usingMetrics: { sondeadas: ingestaMetric('QueriesSondeadas', 'Sum', cdk.Duration.minutes(1)) },
+        period: cdk.Duration.minutes(1),
+        label: 'Queries sondeadas por minuto (0 si no hubo corrida)',
+      }),
       threshold: 1,
-      evaluationPeriods: 2,
+      evaluationPeriods: 11,
       comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
       alarmDescription:
-        'eco-ingestion: ninguna query completó su sondeo en 10 min (no corre, aborta todo o no llega a la base)',
+        'eco-ingestion: ninguna query completó su sondeo en 11 min (no corre, aborta todo o no llega a la base)',
     });
     ingestaCallada.addAlarmAction(snsAction);
 

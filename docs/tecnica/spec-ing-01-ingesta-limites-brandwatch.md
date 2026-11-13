@@ -219,7 +219,7 @@ se anota en el procedimiento de backfill.
 
 | Alarma | Condición | Datos faltantes | Tiempo hasta avisar |
 |---|---|---|---|
-| `eco-ingesta-callada` | `Sum(QueriesSondeadas) < 1` en 2 periodos de 5 min | cuentan como fallo | 10–13 min |
+| `eco-ingesta-callada` | `FILL(Sum(QueriesSondeadas), 0) < 1` en 11 periodos de 1 min (era 2 de 5 min; ver el simulacro) | cuentan como fallo | ~12–14 min desde la última corrida, sin medir aún |
 | `eco-ingesta-query-desatendida` | `Max(MinutosSinSondeoMax) > 60` en 1 periodo de 5 min | no cuentan | n/a |
 | `eco-ingesta-429-dia` | `Sum(Avisos429) ≥ 10` en 1 periodo de 24 h | no cuentan | n/a |
 
@@ -245,10 +245,23 @@ menciones, con la lectura de cursores fallida).
 **Hecho cuando:** las tres alarmas existen desde CDK, están en OK, y el
 simulacro avisó en menos de 15 min.
 
-**Estado 13-nov:** código y pruebas en la rama `feat/ing-01-salud-cuota`, sin
-desplegar. La línea EMF va por `process.stdout.write`; hay que confirmar tras
-el deploy que las métricas aparecen en `ECO/Ingesta`. Faltan el deploy del
-lambda, crear las alarmas, borrar las dos manuales y el simulacro.
+**Estado 13-nov:** PR #172 mergeado (`ecdc7ca`) y lambda desplegado a las
+18:36 UTC (CodeSha256 `xAjG0Jd2…`; rollback = `5ZSnM4CW…`, guardado en
+`.claude/rollback/eco-ingestion-rollback-pre172.zip`). Las métricas aparecen en
+`ECO/Ingesta` desde la primera corrida. Las tres alarmas se crearon con
+`cdk deploy EcoMonitoring --exclusively` (el diff solo traía las tres) y están
+en OK. Falta borrar las dos alarmas manuales tras 24 h en OK.
+
+**Simulacro del 13-nov: no pasó.** Ingesta en pausa a las 18:56:59 UTC (última
+corrida 18:55:21); la alarma saltó a las 19:16:33 y SNS salió en el acto:
+19.6 min desde la pausa, 21.2 desde la última corrida. Ingesta restaurada a las
+19:16:45; la corrida de las 19:20 sondeó las 6 queries. Causa: con datos
+faltantes CloudWatch espera a que todo su rango de evaluación esté vacío, no
+solo los 2 periodos pedidos. Arreglo desplegado a las 19:18 UTC: la alarma
+evalúa `FILL(QueriesSondeadas, 0)` en periodos de 1 min y salta con 11 minutos
+seguidos en cero. Sobre los datos del propio simulacro esa condición se cumple
+a los ~12 min de la última corrida. **Falta repetir el simulacro** para medirlo
+de verdad.
 
 ### WP-3 · Ceder con la cuota vista
 
@@ -289,10 +302,12 @@ hoy.
 corridas, ninguna corrida incremental pasa de 180 s y las cesiones por techo
 (si las hay) no dejan ninguna query más de 1 hora sin sondeo.
 
-**Estado 13-nov:** código y pruebas en la rama `feat/ing-01-salud-cuota`, sin
-desplegar. Añadido respecto al plan: un 429 con la cuenta ya en el techo no se
-reintenta. Sin verificar todavía que la cabecera llegue en las respuestas a
-ECO: se ve en la primera corrida tras el deploy (`CUOTA-USADA` en el log).
+**Estado 13-nov:** desplegado con WP-2. Añadido respecto al plan: un 429 con
+la cuenta ya en el techo no se reintenta. La cabecera llega: las tres primeras
+corridas registraron `CUOTA-USADA max=8 techo=24`, con 6 peticiones y 6–7 s
+cada una. El 8 es más bajo de lo esperado (ECO sola hace 12 por ventana): hay
+que mirar unos días de `CuotaUsadaMax` antes de fiarse del valor como medida
+de la cuenta entera. Falta la ventana de 48 h.
 
 ### WP-4 · Crons escalonados
 
