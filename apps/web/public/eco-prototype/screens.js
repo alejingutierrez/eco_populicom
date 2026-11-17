@@ -6981,7 +6981,7 @@ function OverviewNivel({ level }) {
       <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>{w.days} días</span>
       {w.enoughBase && w.negPct != null && w.nss != null ? (
         <span>
-          <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 600, color: w.overNegPct ? 'var(--neg)' : 'var(--text)' }}>{w.negPct}%</span>
+          <span className="num" style={{ fontSize: 'var(--fs-num-md)', fontWeight: 600, color: w.overNegPct ? 'var(--neg)' : 'var(--text)' }}>{w.negPct}%</span>
           <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}> negativo · NSS <span className="num">{ovSigned(w.nss)}</span></span>
           <span style={{ display: 'block', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}><span className="num">{ovInt(w.total)}</span> menciones · del {ovShortDay(w.startYmd)} al {ovShortDay(w.endYmd)}</span>
         </span>
