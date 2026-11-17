@@ -576,7 +576,10 @@ render) sin desplegar ni enviar. El Semanal con datos reales necesita el
 `dryRun` del lambda y se hace después del despliegue; hasta entonces lo cubren
 las pruebas de render.
 
-Queda una decisión de la sección 3, WP-1: el bloque del lunes.
+El «bloque del lunes» de WP-1 no pide cambio: del 1 al 15-nov, DDEC y
+Gobernadora tuvieron 3 asuntos abiertos o más todos los días, y DF tuvo 2 en
+tres días (13, 14 y 15-nov) porque el asunto Roig agrupa casi toda su
+conversación, no por el fin de semana.
 
 ### WP-5 · El mismo bloque en el Overview
 
@@ -605,6 +608,46 @@ el bloque.
 
 **Hecho cuando:** el informe está en el doc y INT-01 pasa a 100 % en el
 backlog o lista lo que no se cumplió.
+
+**Avance 16-nov (antes de desplegar).** Con `scripts/int-01-preview-daily.ts`,
+en local y sin enviar:
+
+| Corrida del Diario de DF del 24-oct | Frases de calma | Da el nivel a 14 y 28 días | Dice los días abierto | Avisos de nivel tras el corrector |
+|---|---|---|---|---|
+| 1 | ninguna | sí (63 % y 65 %) | sí (26) | 0 |
+| 2 | ninguna | sí | sí | 0 |
+| 3 | ninguna | sí | sí | 0 |
+| 4 | ninguna | sí | sí | 0 |
+| 5 | ninguna | sí | sí | 0 |
+
+Ejemplo (corrida 3): «El caso de los contratos de ADSEF lleva 26 días abierto
+y acumuló 290 menciones en la semana, con 73 % de negativas. El volumen del
+viernes bajó a 110 menciones frente a las 207 del jueves; la negatividad se
+mantiene en nivel alto: 63 % a 14 días y 65 % a 28 días.»
+
+En 2 de las 5 corridas el primer borrador traía una variación sin nivel (1 y
+3 avisos) y el corrector la resolvió. Cada corrida tardó entre 118 y 126 s
+(el `dryRun` anterior, sin los hechos nuevos, 90 s).
+
+Otras vistas previas, una corrida cada una: DF del 31-oct (volumen de 7 días
+327 contra 1,045; el párrafo da 62 % y 63 %), DDEC del 16-nov (nivel 18 % y
+12 %, no sostenido) y Gobernadora del 16-nov (29 % y 26 %; el texto dice que
+las negativas bajaron en número y que el nivel se mantiene).
+
+Lo que se ve en las vistas previas y no es de este ítem:
+
+- En 4 de las 5 corridas de DF el titular del redactor se cambió por el
+  determinista y la red de seguridad quitó frases, porque citan «$2.5
+  millones» y «$38 millones», que vienen de las muestras y no de los hechos.
+  Es de INT-02.
+- La red cortaba la oración en «Christian W.». Corregido aquí
+  (`splitSentences` ya no parte tras una inicial o un tratamiento).
+- Siguen saliendo signos dobles («un aumento de +85 %», «-78 menos»). INT-02.
+- El párrafo del Diario se alarga con el nivel y el asunto (hasta 8 oraciones
+  en Gobernadora; la tarea pide de 2 a 4).
+
+Falta: las 5 corridas del Semanal y el Semanal de las tres agencias (con el
+`dryRun` del lambda, tras desplegar) y los 7 días en producción.
 
 ---
 

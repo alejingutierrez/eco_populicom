@@ -8,7 +8,7 @@ import {
   buildFactPackage, buildLintContext, buildPromptContext, buildSustainedLevel, codeLint, compose, COMPOSER_PROFILES,
   COMPOSER_PROMPT_VERSION, COMPOSER_VERSION, directionLevelDefects, findCalming, formatDelta, interpretationContext,
   interpretationMethodologyNote, isVariationMarker, issueStageText, issueVoiceText, openIssueFacts, openIssuesSection,
-  renderDailyReportHtml, renderWeeklySummaryHtml, sustainedLevelBox, sustainedLevelFacts, sustainedLevelText,
+  renderDailyReportHtml, renderWeeklySummaryHtml, splitSentences, sustainedLevelBox, sustainedLevelFacts, sustainedLevelText,
   type ComposerInput, type ComposerLlm, type ComposerLlmRequest, type DailyReportRenderData, type Draft, type OpenIssue,
   type OpenIssuesResult, type SustainedLevel, type WeeklySummaryRenderData,
 } from '@eco/shared';
@@ -396,5 +396,16 @@ describe('Diario y Semanal con los bloques', () => {
     expect(iLevel).toBeGreaterThan(iTable);
     expect(iLevel).toBeLessThan(iNext);
     expect(html).toMatch(/26 días abierto/);
+  });
+});
+
+describe('splitSentences', () => {
+  test('una inicial o un tratamiento no cierran la oración', () => {
+    expect(splitSentences('La empresa y el agrónomo Christian W. Torres presentaron una demanda. El Lcdo. Pérez la firmó. ¿Y luego? Nada.')).toEqual([
+      'La empresa y el agrónomo Christian W. Torres presentaron una demanda.', 'El Lcdo. Pérez la firmó.', '¿Y luego?', 'Nada.',
+    ]);
+  });
+  test('una oración que termina en sigla de una letra sigue siendo un caso raro: no se parte', () => {
+    expect(splitSentences('Hubo 3 notas. Otra oración.')).toEqual(['Hubo 3 notas.', 'Otra oración.']);
   });
 });
