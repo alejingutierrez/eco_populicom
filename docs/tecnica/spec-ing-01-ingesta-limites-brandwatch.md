@@ -321,7 +321,15 @@ suscrito y confirmado en `eco-alerts-ops` (1 suscriptor confirmado, 0
 pendientes). Está hecha con `aws sns subscribe`, fuera de CloudFormation, que
 sigue apuntando a la suscripción vieja que ya no existe; el próximo
 `cdk deploy EcoMonitoring` hay que hacerlo mirando el diff de ese recurso.
-**Falta** repetir el simulacro comprobando que el correo llega al buzón.
+
+**Tercer simulacro, 17-nov (ya con suscriptor).** Última corrida 19:00:24 UTC;
+ingesta en pausa a las 19:05:01 (antes de la corrida de las 19:05, que ya no
+entró). La alarma saltó a las 19:12:09 y SNS entregó la acción en el acto
+(`Successfully executed action`): 11.7 min desde la última corrida, 7.1 desde
+la pausa. Ingesta restaurada a las 19:12:23; la corrida de las 19:15:29 sondeó
+las 6 queries con 14.9 min de atraso, sin avisos 429.
+`eco-ingesta-query-desatendida` no saltó (el umbral es 60 min). **Falta** que
+Alejandro confirme a qué hora le llegó el correo.
 
 **Alarmas manuales frente a las de CDK** (comparadas el 17-nov; todas publican
 al mismo tema):
