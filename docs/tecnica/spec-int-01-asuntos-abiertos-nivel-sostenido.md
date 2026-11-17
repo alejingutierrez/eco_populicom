@@ -6,8 +6,9 @@ Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 mergeados
 (#176). WP-3 y WP-4 mergeados (#178) y `eco-weekly-report` desplegado el
 17-nov a las 03:46 UTC, con el visto bueno de Alejandro a las vistas previas
 (ver su estado en la sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
-al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8. WP-5 (Overview) está en
-un PR abierto, verificado en local con datos reales y sin mergear. WP-6: las
+al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8. WP-5 (Overview) se
+mergeó el 17-nov (#180), con la corrección del archivo de los correos, y
+`eco-weekly-report` se redesplegó ese día a las 18:55 UTC. WP-6: las
 corridas de octubre sobre el lambda están hechas y la comprobación diaria de
 los correos reales corre desde el 17-nov (sección 3, WP-6): **el ítem no
 cierra hasta juntar 7 días seguidos en OK**, y el primer día no cuenta porque
@@ -603,7 +604,7 @@ campo con los hechos `issue_*` y `level_*` de la composición del Diario del
 mismo día, y una captura del Overview dentro del marco del dashboard muestra
 el bloque.
 
-**Estado 17-nov: en PR, sin mergear (el merge despliega la web).** Archivos:
+**Estado 17-nov: mergeado (#180, `27c7255`); la web se despliega por CI.** Archivos:
 `apps/web/src/lib/overview/open-issues.ts` (carga y respuesta),
 `apps/web/src/app/api/overview/open-issues/route.ts` y el bloque
 `OverviewAsuntos` en `apps/web/public/eco-prototype/screens.js` (bundle
@@ -790,8 +791,16 @@ lambda queda desplegado antes de las 08:00 UTC del 18-nov (cuando se compone
 el Diario), los 7 días van del 18 al 24-nov, con el Semanal del viernes 20
 dentro. Cada día de retraso corre esa fecha un día.
 
-Falta: desplegar la corrección, los 7 días seguidos en OK y el informe de
-cierre contra la sección 4.
+**Corrección desplegada (17-nov, 18:55 UTC).** El bundle vivo anterior era
+idéntico a `715bf39` (62 archivos propios comparados con el fuente del
+`.map`); el nuevo cambia solo los 4 archivos de la corrección. Verificado con
+la misma acción que falló por la mañana: `{"action":"compose","agencySlug":
+"ddecpr"}` compuso el Diario del 16-nov y lo guardó (`saved: true`, fila
+`complete` en `report_compositions`), sin enviar ningún correo. Para volver
+atrás: recompilar `eco-weekly-report` desde `715bf39`.
+
+Falta: los 7 días seguidos en OK (del 18 al 24-nov si no falla ninguno) y el
+informe de cierre contra la sección 4.
 
 ---
 
@@ -811,7 +820,7 @@ Estado al 17-nov contra cada criterio:
 | Hasta 3 asuntos abiertos con días y voz en el Diario y el Semanal | Cumplido: en producción desde el 17-nov (`dryRun` de los 6 correos y Diarios reales de DF y Gobernadora) |
 | Cada variación con su nivel a 14 y 28 días | Fichas y tabla: cumplido. Prosa: 0 avisos en 9 corridas de octubre (5 locales del Diario y 4 sobre el lambda: 2 del Diario y 2 del Semanal) y en los 2 Diarios reales archivados; faltan los 7 días seguidos |
 | El correo de DF del 24-oct ya no dice «va bajando» | Cumplido: 6 de 6 corridas del Diario, con 63 % y 65 % y 26 días abierto |
-| El Overview muestra el mismo bloque | Hecho y verificado (0 diferencias en las 3 agencias); falta mergear el PR |
+| El Overview muestra el mismo bloque | Cumplido: mergeado en #180 (0 diferencias con el correo en las 3 agencias) |
 
 ---
 
