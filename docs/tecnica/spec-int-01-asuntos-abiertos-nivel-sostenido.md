@@ -1,6 +1,10 @@
 # Spec · INT-01 · Asuntos abiertos y nivel sostenido en los correos
 
-**Versión 0.1 (para aprobar) · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
+**Versión 0.2 · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
+
+Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 hechos (ver
+su estado en la sección 3); tres ajustes respecto a la versión 0.1, marcados
+como «Ajuste al implementar» en las secciones 2.1, 2.5 y 2.7.
 
 Este spec cubre lo que le falta a INT-01. Lo ya hecho (motor de redacción
 «Interpretación v1», PRs #159–#169) no se repite aquí. Las rutas de código son
@@ -153,16 +157,45 @@ leer una baja de volumen como mejora.
 
 ### 2.1 Qué es un «asunto»
 
-Un asunto es una **historia**: el grupo de narrativas del mismo caso según las
-reglas de #131 (`groupStories`), o una narrativa suelta si no agrupa con
-ninguna. Quedan fuera los cajones (`cajonStats`) y las narrativas fusionadas;
-un duplicado (`findDuplicates`) se suma a la mayor.
+Un asunto es un **grupo de narrativas del mismo caso**, o una narrativa suelta
+si no agrupa con ninguna. Quedan fuera los cajones (`cajonStats`) y las
+narrativas fusionadas; un duplicado (`findDuplicates`) se suma a la mayor.
 
-Por qué historia y no narrativa: sección 1.2, punto 1.
+Por qué grupo y no narrativa: sección 1.2, punto 1.
 
-Nombre del asunto: el que ya pone `groupStories` (la palabra clave común a
-dos tercios de las narrativas del grupo o, si no hay, el nombre de la mayor).
-No lo escribe el redactor.
+**Ajuste al implementar.** La regla que decide si dos narrativas son del mismo
+caso es la de #131 (`isStoryEdge`: coseno ≥ 0.65, o ≥ 0.44 con un término
+distintivo en común, vidas a 21 días o menos y picos a 60 o menos). Lo que
+cambia es cómo se arma el grupo. `groupStories` une todo lo que esté
+encadenado, y con narrativas pequeñas en juego la cadena junta casos
+distintos: en Gobernadora al 15-nov el asunto Roig salía unido a la reforma
+judicial y a la de permisos (17 narrativas) a través de las que nombran a
+Rivera Schatz. `groupIssues` arma el grupo alrededor de la narrativa mayor:
+
+1. entran las que tienen arista directa con la mayor;
+2. después, las que tienen arista con 2 o más narrativas ya dentro;
+3. al final, un grupo menor se une a uno mayor si al menos la mitad de sus
+   narrativas tiene arista con él (y hay 2 aristas o más).
+
+Medido con las tres agencias al 23-oct y al 15-nov:
+
+| Caso | Con la cadena de #131 | Con `groupIssues` |
+|---|---|---|
+| DF, 23-oct | Roig: 30 narrativas, 294 menciones | Roig: 27 narrativas, 290 menciones |
+| DF, 15-nov | Roig: 33 narrativas, 121 menciones | Roig: 29 narrativas, 121 menciones |
+| Gobernadora, 15-nov | Roig + reforma judicial + reforma de permisos: 17 narrativas | Roig solo: 7 narrativas, 46 menciones |
+| Gobernadora, 15-nov | Gas natural + energía solar + leyes eléctricas: 11 narrativas | Gas natural y energía: 9 narrativas |
+| DDEC, 23-oct | «Semana en Desarrollo» + misiones + rutas: 12 narrativas | Igual: 12 narrativas |
+
+En DDEC las misiones comerciales siguen unidas al resumen «Semana en
+Desarrollo», que las reseña. Es contenido propio y se dejó así. Sin el paso 3,
+DF mostraba «Coccoloba desmiente a Suzanne Roig» como segundo asunto.
+
+La página Narrativas no cambia: sigue usando `groupStories`.
+
+Nombre del asunto: el de la narrativa mayor de toda la vida, para que no
+cambie de un día a otro. Si la narrativa con más menciones de la semana es
+otra, va en `lead` («lo más activo esta semana»). No lo escribe el redactor.
 
 ### 2.2 Cuándo está «abierto»
 
@@ -213,8 +246,12 @@ las menciones del asunto de los últimos 7 días, con su porcentaje sobre las
 interacciones del asunto. Voces unificadas con `voiceKey` y nombradas con
 `VOICE_LABELS`.
 
-- Si el asunto no tiene interacciones (solo prensa sin métricas), la voz con
-  más menciones, con su número de menciones.
+- **Ajuste al implementar.** Una voz se elige por interacciones solo si tiene
+  10 o más y al menos 10 % de las del asunto. En DDEC al 15-nov una persona
+  con 1 interacción salía con «100 % de las interacciones», y otra con 1 de
+  14.
+- Si no hay una voz así (solo prensa sin métricas, o interacciones mínimas),
+  la voz con más menciones, con su número de menciones.
 - Si la primera voz tiene menos de 3 menciones y no hay interacciones: «sin
   voz dominante» y el número de voces.
 - Siempre se muestra además cuántas voces distintas hablaron.
@@ -258,8 +295,16 @@ la fórmula de `metrics.ts`), sobre el mismo universo del correo
   el nivel no se muestra y el correo dice «base insuficiente». En la medición
   ninguna agencia bajó de 30 en 14 días.
 
-«Sostenido» se define así: el nivel a 14 **y** a 28 días pasa el umbral. En el
-correo siempre va con sus números, nunca como etiqueta sola:
+«Sostenido» se define así: el **% negativo** pasa el umbral a 14 **y** a 28
+días.
+
+**Ajuste al implementar.** El NSS de cada ventana se informa contra su umbral
+(−20), pero no decide «sostenido». La versión 0.1 no decía cuál de los dos
+mandaba; las cifras de la sección 1.3 (49 %, 36 % y 0 %) son del % negativo.
+Con el NSS, Gobernadora quedaría en «sostenido» el 36 % de los días. El
+umbral se compara sin redondear: 29.6 % se muestra «30 %» y no lo pasa.
+
+En el correo siempre va con sus números, nunca como etiqueta sola:
 «14 días: 63 % negativo, NSS −62 · 28 días: 65 %, −65 · umbral 30 % y −20».
 
 Umbral fijo contra «lo usual» de cada agencia: sección 6, punto 3.
@@ -353,6 +398,44 @@ mismo que antes (comparación del JSON de `/api/narrative/overview` antes y
 después para las 3 agencias), y un script de solo lectura imprime los asuntos
 de DF al 23-oct y al 15-nov con las cifras de la sección 1.2.
 
+**Estado 16-nov: código hecho, sin mergear.** Archivos:
+`packages/shared/src/narratives/story-rules.ts` (reglas mudadas sin cambios,
+más `isStoryEdge` extraída de `groupStories`), `open-issues.ts`
+(`buildOpenIssues`, `groupIssues`, `loadOpenIssuesInput`) y
+`scripts/int-01-open-issues-live.ts`. Pruebas: 34 nuevas en
+`apps/web/src/lib/narrative/open-issues.test.ts`; las 31 de Narrativas pasan
+sin tocarse.
+
+Resultado del script contra producción (solo lectura):
+
+| Agencia y fecha | Asuntos abiertos | Los que muestra el bloque |
+|---|---|---|
+| DF, 23-oct | 8 | Roig: sube, 290 esta semana y 89 la previa, 73 % negativas, 26 días, Jay Fonseca 39 % de las interacciones · Bebé con costillas fracturadas: nuevo, 24, 29 %, 2 días · Inglés obligatorio en Head Start: baja, 20 y 66, 5 %, 23 días |
+| DF, 15-nov | 2 | Roig: sube, 121 y 57, 75 %, 49 días, Jay Fonseca 33 % · Trump cancela aumento salarial Head Start: nuevo, 14, 50 %, 3 días |
+| DDEC, 15-nov | 4 | Cierre KFC Taco Bell: baja, 18 y 57, 0 %, 14 días · El Horno de Pane: baja, 11 y 43, 0 %, 46 días, sin voz dominante · Informes anuales negocios exentos: nuevo, 8, 0 %, 3 días |
+| Gobernadora, 15-nov | 10 | Roig: sube, 46 y 18, 48 %, 46 días · Gas natural NFE: sube, 36 y 14, 0 %, 49 días · Jiménez Colón al NMEAD: sube, 25 y 0, 4 %, 4 días (reabierto) |
+
+Lo que no se hizo como decía la versión 0.1:
+
+- **La prueba de calibración con datos reales (punto 5) no se versionó.** El
+  repositorio es público y la prueba necesita los nombres y palabras clave de
+  todas las narrativas de la agencia. La sustituyen las pruebas sintéticas y
+  el script, cuyo resultado queda en la tabla de arriba.
+- **La comparación del JSON de Narrativas antes y después** se hace al
+  desplegar la web (el merge la despliega). Hasta entonces la cubren las 31
+  pruebas existentes.
+
+Dos cosas que se ven en los datos y quedan para decidir en WP-4:
+
+- **El lunes el bloque se queda corto.** DF al domingo 15-nov tiene 2 asuntos
+  abiertos, no 3: «ASUME y pensiones» (10 menciones) y «Menor desaparecida en
+  Canóvanas» (8) no tuvieron menciones de viernes a domingo y la regla de los
+  últimos 3 días los saca.
+- **La voz principal puede ser una persona particular.** La regla de menciones
+  nombra a quien tenga 3 o más, y eso incluye a quien comenta varias veces en
+  una publicación de la agencia. Antes de pintarlo en un correo hay que
+  decidir si solo se nombran medios y cuentas públicas.
+
 ### WP-2 · Nivel sostenido
 
 1. `loadSentimentDaily(client, agencyId, startYmd, endYmd, universe)` para 28
@@ -367,6 +450,23 @@ de DF al 23-oct y al 15-nov con las cifras de la sección 1.2.
 **Hecho cuando:** para DF al 23-oct el script de WP-1 imprime 14 días 63 % y
 −62, 28 días 65 % y −65, `sustained = true`; para Gobernadora al 15-nov,
 `sustained = false`.
+
+**Estado 16-nov: código hecho, sin mergear.**
+`packages/shared/src/narratives/sustained-level.ts` (`buildSustainedLevel`).
+No hizo falta un cargador nuevo: `loadDailySentimentSeries` ya da la serie
+del mismo universo para cualquier rango. Resultado del script:
+
+| Agencia y fecha | 14 días | 28 días | Sostenido |
+|---|---|---|---|
+| DF, 23-oct | 63 % negativo, NSS −62 (1,610 menciones) | 65 %, −65 (4,433) | sí |
+| DF, 15-nov | 57 %, −55 (769) | 61 %, −60 (2,074) | sí |
+| DDEC, 23-oct | 15 %, −9 (267) | 13 %, −6 (520) | no |
+| DDEC, 15-nov | 18 %, −13 (436) | 12 %, +2 (1,303) | no |
+| Gobernadora, 23-oct | 21 %, −19 (1,148) | 20 %, −17 (2,273) | no |
+| Gobernadora, 15-nov | 29 %, −27 (1,326) | 26 %, −25 (2,596) | no |
+
+Gobernadora al 15-nov está a un punto del umbral a 14 días y su NSS ya pasó
+el −20 en las dos ventanas.
 
 ### WP-3 · Hechos nuevos para el redactor
 
