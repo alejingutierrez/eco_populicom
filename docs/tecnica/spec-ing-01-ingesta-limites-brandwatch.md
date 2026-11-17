@@ -268,6 +268,81 @@ SNS salió en el acto: 11.8 min desde la pausa, 12.3 desde la última corrida.
 Ingesta restaurada a las 23:43:20. El tiempo se cuenta desde la última corrida
 completa, así que no depende de en qué punto del ciclo de 5 min ocurra el paro.
 
+**Estado 16-nov.** PR #173 mergeado (`a6233fe`). Tres días con la señal nueva
+(14, 15 y 16-nov): 0 avisos 429 cada día; `MinutosSinSondeoMax` máximo 10, 20
+y 10 min; 6 peticiones por corrida incremental y 7 por refresh.
+
+**Incidente del 15-nov (la alarma avisó de verdad).** El refresh de las 07:00
+UTC trajo las 6 queries en 3 min (última línea a las 07:03:13) y después no
+terminó: el lambda llegó a su timeout de 900 s a las 07:15:10. Como la
+concurrencia es 1, las corridas de 07:05 y 07:10 no entraron.
+`eco-ingesta-callada` saltó a las 07:07:38 (12.3 min después de la corrida de
+las 06:55) y volvió a OK a las 07:16:38; la corrida de las 07:15 sondeó las 6
+queries con 20 min de atraso. No se perdieron menciones (el refresh ya las
+había encolado). Lo que se colgó va después del último sondeo y antes de la
+línea de métricas: el cierre de la conexión a la base (`await client.end()` en
+el `finally` del handler), que no tiene tiempo máximo. Los refresh del 14 y
+del 16 cerraron bien en 184 s. **Arreglado en #175** (desplegado el 17-nov
+00:32 UTC, CodeSha256 `2uHqJyvr…`): el cierre de la base tiene un tope de 5 s
+(`infra/lambda/ingestion/db-close.ts`); si se agota, la corrida sigue y deja la
+marca `DB-CIERRE-COLGADO` en el log. Un cuelgue ahora cuesta segundos, no 12
+minutos. El refresh del 17-nov (07:00 UTC) cerró bien y la marca no ha
+aparecido.
+
+**Estado 17-nov (18:12 UTC).** Cifras de `ECO/Ingesta` por día UTC, sacadas con
+`scripts/ing-01-informe-frescura.py`:
+
+| Día | Corridas | Queries sondeadas | Fallidas | Abortadas | Avisos 429 | Máx. min sin sondeo | Cuota vista máx. | Peticiones |
+|---|---|---|---|---|---|---|---|---|
+| 13-nov (desde 18:40 UTC) | 58 | 348 | 0 | 0 | 0 | 25 (los dos simulacros) | 8 | 349 |
+| 14-nov | 288 | 1728 | 0 | 0 | 0 | 10 | 12 | 1744 |
+| 15-nov | 285 | 1710 | 0 | 0 | 0 | 20 (cuelgue del refresh) | 12 | 1763 |
+| 16-nov | 288 | 1728 | 0 | 0 | 0 | 10 | 12 | 1730 |
+| 17-nov (hasta 18:12 UTC) | 219 | 1314 | 0 | 0 | 0 | 9.9 | 12 | 1405 |
+
+Alarmas: las tres en OK. `eco-ingesta-callada` saltó tres veces desde que
+existe (13-nov 19:16 y 23:42 UTC, los simulacros; 15-nov 07:07 UTC, el
+cuelgue). `eco-ingesta-query-desatendida` y `eco-ingesta-429-dia` no han
+saltado nunca.
+
+**Hallazgo del 17-nov: las alarmas no le llegan a nadie.** El tema SNS
+`eco-alerts-ops`, al que publican las tres alarmas nuevas, las dos manuales y
+las demás de `EcoMonitoring`, tiene **0 suscriptores**. CloudFormation cree que
+la suscripción de correo de `monitoring-stack.ts` existe, pero SNS no la tiene
+(se dio de baja o nunca se confirmó). Los simulacros midieron cuándo cambia de
+estado la alarma y cuándo SNS publica, no que el correo llegue. El criterio de
+los 15 minutos queda cumplido en la detección y **sin cumplir en el aviso**
+hasta que haya un suscriptor confirmado. Arreglo: `aws sns subscribe` sobre el
+tema y confirmar el correo que llega; después, repetir el simulacro mirando el
+buzón. Es un cambio en producción y necesita el visto bueno de Alejandro.
+
+**Suscripción repuesta el 17-nov** (con el visto bueno de Alejandro): un correo
+suscrito y confirmado en `eco-alerts-ops` (1 suscriptor confirmado, 0
+pendientes). Está hecha con `aws sns subscribe`, fuera de CloudFormation, que
+sigue apuntando a la suscripción vieja que ya no existe; el próximo
+`cdk deploy EcoMonitoring` hay que hacerlo mirando el diff de ese recurso.
+
+**Tercer simulacro, 17-nov (ya con suscriptor).** Última corrida 19:00:24 UTC;
+ingesta en pausa a las 19:05:01 (antes de la corrida de las 19:05, que ya no
+entró). La alarma saltó a las 19:12:09 y SNS entregó la acción en el acto
+(`Successfully executed action`): 11.7 min desde la última corrida, 7.1 desde
+la pausa. Ingesta restaurada a las 19:12:23; la corrida de las 19:15:29 sondeó
+las 6 queries con 14.9 min de atraso, sin avisos 429.
+`eco-ingesta-query-desatendida` no saltó (el umbral es 60 min). Alejandro
+confirmó que el correo de la alarma llegó a su buzón (no se anotó la hora
+exacta de llegada). Con esto el aviso queda probado de punta a punta.
+
+**Alarmas manuales frente a las de CDK** (comparadas el 17-nov; todas publican
+al mismo tema):
+
+| Alarma manual | Qué mide | Quién la cubre |
+|---|---|---|
+| `eco-ingestion-not-running` | menos de 1 invocación del lambda en 3 periodos de 10 min (30 min) | `eco-ingesta-callada`: sin invocación no hay línea de métricas, y avisa a los 12 min en vez de a los 30. Además ve lo que la vieja no ve: un lambda que corre y no trae nada |
+| `eco-ingestion-errors-sustained` | 5 o más errores del lambda cada 5 min durante 30 min | `eco-ingesta-callada` (una corrida que revienta no publica métricas: 12 min) y `eco-lambda-ingestion-errors`, de CDK, que se queda (más de 5 errores en 5 min) |
+
+Las nuevas llevan en OK desde el 15-nov 07:16 UTC, más de las 24 h pedidas.
+Las dos manuales se pueden borrar; falta el visto bueno.
+
 ### WP-3 · Ceder con la cuota vista
 
 **Cliente** (`packages/brandwatch/src/client.ts`, `resilience.ts`):
@@ -314,6 +389,22 @@ cada una. El 8 es más bajo de lo esperado (ECO sola hace 12 por ventana): hay
 que mirar unos días de `CuotaUsadaMax` antes de fiarse del valor como medida
 de la cuenta entera. Falta la ventana de 48 h.
 
+**Estado 17-nov:** la ventana de 48 h pasó: `CUOTA-USADA` en todas las corridas,
+ninguna cesión por techo y ninguna corrida incremental por encima de 180 s.
+**Pero la cabecera no mide lo que el spec suponía.** En las 861 corridas del 14
+al 16-nov, `CuotaUsadaMax` fue 8 en 781 y 9 en 66; solo 3 llegaron a 12 y
+ninguna pasó de ahí. ECO sola hace 12 peticiones cada 10 min: si la cabecera
+contara la ventana móvil de 10 min de la cuenta entera, el valor normal sería
+12 más lo de BrandIQ, no 8. Lo que se ve cuadra con una ventana más corta que
+5 min (las 6 peticiones de la corrida más unas 2 de BrandIQ, que arranca 48 s
+antes). Consecuencia: **el techo de 24 sobre la cabecera probablemente no
+salta a tiempo** y no sirve como único reparto. Por eso la propuesta de reparto
+añade un tope propio contado por ECO (7 peticiones por corrida = 14 por
+ventana), que no depende de la cabecera. Hay que contrastarlo con lo que midió
+BrandIQ el 2-nov; el escalonado de WP-4 lo confirma gratis: si con 2 min de
+separación el valor normal baja a 6, la ventana de la cabecera es de menos de
+2 min.
+
 ### WP-4 · Crons escalonados
 
 | Regla | Hoy | Nuevo |
@@ -330,6 +421,12 @@ regla viva con `aws events put-rule` (misma regla, nueva expresión).
 arrastraría. Al quedar el código igual que lo vivo, no hay drift.
 
 Los crons diarios no se tocan: ya están separados (sección 2.4).
+
+**Estado 17-nov:** sin aplicar. Las dos reglas siguen en `rate(5 minutes)`. El
+cambio de ECO está preparado en el PR #179 (rama `feat/ing-01-reparto-cuota-crons`), sin
+desplegar; la propuesta para BrandIQ está en
+`docs/tecnica/propuesta-reparto-cuota-brandwatch-brandiq.md`. Se aplica cuando
+BrandIQ acepte.
 
 **Hecho cuando:** 24 h de logs muestran a ECO arrancando en los minutos 0 y 5 y
 a BrandIQ en los 2 y 7, sin corridas descartadas.
@@ -353,6 +450,11 @@ ver `used ≥ 28`) y lo ajusta si hace falta.
 **Hecho cuando:** el texto está mergeado en los dos repos y los dos techos
 coinciden con él.
 
+**Estado 17-nov:** propuesta escrita
+(`docs/tecnica/propuesta-reparto-cuota-brandwatch-brandiq.md`), sin enviar a
+BrandIQ. Respecto a la sección 2.4 añade el tope propio de ECO (7 peticiones
+por corrida incremental), por lo visto con la cabecera en WP-3.
+
 ### WP-6 · Medición de frescura y cierre
 
 Ventana: 7 días completos desde que WP-2, WP-3 y WP-4 estén en producción.
@@ -367,16 +469,24 @@ El informe se añade al doc técnico con:
 **Hecho cuando:** el informe está en el doc y el ítem ING-01 del backlog pasa a
 100 % o lista lo que no se cumplió.
 
+**Estado 17-nov:** la parte de sondeo y 429 del informe sale de
+`scripts/ing-01-informe-frescura.py` (solo lee CloudWatch; por defecto, del 13
+al 20-nov). Hoy: 4 días con dato, todos cumplen; faltan por cerrar el 17, 18,
+19 y 20-nov. Siete días completos (14 a 20-nov) se pueden leer a partir del
+21-nov 00:00 UTC. La tabla de frescura de la sección 1.3 se repite entonces
+con `eco-migration custom-query`. Ojo: la ventana corre sin WP-4, que sigue sin
+aplicar.
+
 ---
 
 ## 4. Criterios de aceptación
 
 | Backlog | Cómo se mide en este spec | Hoy |
 |---|---|---|
-| 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Sin métrica; las 6 queries se sondean cada 5 min |
-| Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov. BrandIQ: sin medir aquí |
-| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2) |
-| Reparto de cuota con BrandIQ escrito y aplicado en los dos productos | WP-5 mergeado en los dos repos; techos iguales | No existe |
+| 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Va cumpliendo: máximo 20 min en los 3 días completos (14–16 nov) y 9.9 min en lo que va del 17. La ventana de 7 días (14–20 nov) se lee el 21-nov |
+| Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov; 0 al día del 13 al 17-nov con la métrica nueva. BrandIQ: sin medir aquí |
+| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2). El 15-nov detectó sola un cuelgue real, también a los 12.3 min. El tema `eco-alerts-ops` no tenía suscriptores (hallazgo del 17-nov); la suscripción se repuso ese día y un tercer simulacro lo probó de punta a punta: alarma a los 11.7 min de la última corrida y correo recibido |
+| Reparto de cuota con BrandIQ escrito y aplicado en los dos productos | WP-5 mergeado en los dos repos; techos iguales | Propuesta escrita y cambio de ECO preparado sin desplegar (17-nov). Sin enviar ni acordar con BrandIQ |
 
 ---
 
