@@ -3,8 +3,9 @@
 **Versión 0.3 · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
 
 Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 mergeados
-(#176). WP-3 y WP-4 con código hecho y sin desplegar (ver su estado en la
-sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
+(#176). WP-3 y WP-4 mergeados (#178) y `eco-weekly-report` desplegado el
+17-nov a las 03:46 UTC, con el visto bueno de Alejandro a las vistas previas
+(ver su estado en la sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
 al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8.
 
 Este spec cubre lo que le falta a INT-01. Lo ya hecho (motor de redacción
@@ -422,7 +423,7 @@ mismo que antes (comparación del JSON de `/api/narrative/overview` antes y
 después para las 3 agencias), y un script de solo lectura imprime los asuntos
 de DF al 23-oct y al 15-nov con las cifras de la sección 1.2.
 
-**Estado 16-nov: código hecho, sin mergear.** Archivos:
+**Estado 16-nov: mergeado (#176).** Archivos:
 `packages/shared/src/narratives/story-rules.ts` (reglas mudadas sin cambios,
 más `isStoryEdge` extraída de `groupStories`), `open-issues.ts`
 (`buildOpenIssues`, `groupIssues`, `loadOpenIssuesInput`) y
@@ -473,7 +474,7 @@ Dos cosas que se ven en los datos y quedan para decidir en WP-4:
 −62, 28 días 65 % y −65, `sustained = true`; para Gobernadora al 15-nov,
 `sustained = false`.
 
-**Estado 16-nov: código hecho, sin mergear.**
+**Estado 16-nov: mergeado (#176).**
 `packages/shared/src/narratives/sustained-level.ts` (`buildSustainedLevel`).
 No hizo falta un cargador nuevo: `loadDailySentimentSeries` ya da la serie
 del mismo universo para cualquier rango. Resultado del script:
@@ -522,7 +523,7 @@ agencias muestra los hechos nuevos en `composition.facts`; y en 5 corridas
 del caso del 24-oct ninguna oración con variación queda sin nivel después del
 corrector.
 
-**Estado 16-nov: código hecho, sin mergear ni desplegar.** Archivos:
+**Estado 17-nov: mergeado (#178) y desplegado (03:46 UTC).** Archivos:
 `packages/shared/src/composer/interpretation.ts` (hechos, bloque de contexto
 y detectores), y cambios en `facts.ts`, `context.ts`, `compose.ts`,
 `profiles.ts`, `lint.ts` («14» y «28» dejan de ser cifras sin fuente),
@@ -558,7 +559,7 @@ previas de DF, DDEC y Gobernadora (Diario y Semanal). El despliegue del lambda
 va después de ese visto bueno, por esbuild y `update-function-code`, con el
 bundle vivo comparado antes contra `main`.
 
-**Estado 16-nov: código hecho, sin mergear ni desplegar.**
+**Estado 17-nov: mergeado (#178) y desplegado (03:46 UTC).**
 `packages/shared/src/email/interpretation-blocks.ts` pinta la caja de nivel y
 la sección de asuntos; los dos renders los colocan así:
 
@@ -633,6 +634,23 @@ Otras vistas previas, una corrida cada una: DF del 31-oct (volumen de 7 días
 327 contra 1,045; el párrafo da 62 % y 63 %), DDEC del 16-nov (nivel 18 % y
 12 %, no sostenido) y Gobernadora del 16-nov (29 % y 26 %; el texto dice que
 las negativas bajaron en número y que el nivel se mantiene).
+
+**Después de desplegar (17-nov, 03:50 UTC).** `dryRun` del lambda para las
+tres agencias, Diario y Semanal (ventana 9–15 nov), sin envío (0 filas en
+`report_send_log` y 0 en la métrica `Send` de SES):
+
+| Correo | Bloques de nivel y asuntos | El texto da 14 y 28 días | Días abierto en el texto | Avisos de nivel: 1er borrador → enviado | Segundos |
+|---|---|---|---|---|---|
+| Diario DF | sí | sí (57 % y 61 %) | sí (49) | 1 → 0 | 82 |
+| Diario DDEC | sí | sí (18 % y 12 %) | sí | 1 → 0 | 82 |
+| Diario Gobernadora | sí | sí (29 % y 26 %) | sí (46) | 0 → 0 | 89 |
+| Semanal DF | sí | sí (57 % y 61 %) | sí (49) | 6 → 0 | 115 |
+| Semanal DDEC | sí | sí | sí (14) | 4 → 0 | 92 |
+| Semanal Gobernadora | sí | sí | sí (46) | 5 → 0 | 125 |
+
+Ninguno salió degradado ni con frases de calma. El Semanal es donde más
+trabaja el corrector (4 a 6 avisos en el primer borrador). Quedan por hacer las
+corridas con `asOf` del 23 y 24-oct sobre el lambda y los 7 días en producción.
 
 Lo que se ve en las vistas previas y no es de este ítem:
 
