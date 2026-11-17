@@ -78,7 +78,7 @@ dura 5–20 segundos (máximo 83 s del 14 al 17-nov).
 
 ## 3. Qué cambia en cada producto
 
-### ECO (preparado en la rama `feat/ing-01-reparto-cuota-crons`, sin desplegar)
+### ECO (preparado en el PR #179 (rama `feat/ing-01-reparto-cuota-crons`), sin desplegar)
 
 | Qué | Dónde | Antes | Después |
 |---|---|---|---|

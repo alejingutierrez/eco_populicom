@@ -407,7 +407,7 @@ arrastraría. Al quedar el código igual que lo vivo, no hay drift.
 Los crons diarios no se tocan: ya están separados (sección 2.4).
 
 **Estado 17-nov:** sin aplicar. Las dos reglas siguen en `rate(5 minutes)`. El
-cambio de ECO está preparado en la rama `feat/ing-01-reparto-cuota-crons`, sin
+cambio de ECO está preparado en el PR #179 (rama `feat/ing-01-reparto-cuota-crons`), sin
 desplegar; la propuesta para BrandIQ está en
 `docs/tecnica/propuesta-reparto-cuota-brandwatch-brandiq.md`. Se aplica cuando
 BrandIQ acepte.
