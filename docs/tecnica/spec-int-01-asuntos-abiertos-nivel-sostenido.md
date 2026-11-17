@@ -607,7 +607,7 @@ el bloque.
 `apps/web/src/lib/overview/open-issues.ts` (carga y respuesta),
 `apps/web/src/app/api/overview/open-issues/route.ts` y el bloque
 `OverviewAsuntos` en `apps/web/public/eco-prototype/screens.js` (bundle
-`prodc105`). Pruebas: 13 en `apps/web/src/lib/overview/open-issues.test.ts`.
+`prodc105`). Pruebas: 14 en `apps/web/src/lib/overview/open-issues.test.ts`.
 
 Cómo quedó:
 
@@ -780,8 +780,8 @@ componerla de nuevo en el envío (10:02) y al escribir `report_send_log`. La
 causa, confirmada con un `dryRun` del mismo día: una muestra recortada a 420
 caracteres termina en medio emoji, y PostgreSQL no acepta eso en una columna
 `jsonb`. El correo en sí salió bien; lo que falta es la prueba. Mientras esa
-mención siga entre las muestras de la semana (hasta el 22-nov), el Diario de
-DDEC seguirá sin archivo.
+mención siga entre las muestras de la ventana de 7 días, el Diario de DDEC
+puede seguir sin archivo.
 
 Corrección en el mismo PR (`infra/lambda/lib/pg-json.ts` y
 `clipSampleText`): el recorte ya no parte un emoji y lo que se guarda en la
@@ -809,7 +809,7 @@ Estado al 17-nov contra cada criterio:
 | Criterio | Estado |
 |---|---|
 | Hasta 3 asuntos abiertos con días y voz en el Diario y el Semanal | Cumplido: en producción desde el 17-nov (`dryRun` de los 6 correos y Diarios reales de DF y Gobernadora) |
-| Cada variación con su nivel a 14 y 28 días | Fichas y tabla: cumplido. Prosa: 0 avisos en 10 corridas de octubre (6 del Diario, 2 del Semanal y las 2 del 23-oct) y en los 2 Diarios reales archivados; faltan los 7 días seguidos |
+| Cada variación con su nivel a 14 y 28 días | Fichas y tabla: cumplido. Prosa: 0 avisos en 9 corridas de octubre (5 locales del Diario y 4 sobre el lambda: 2 del Diario y 2 del Semanal) y en los 2 Diarios reales archivados; faltan los 7 días seguidos |
 | El correo de DF del 24-oct ya no dice «va bajando» | Cumplido: 6 de 6 corridas del Diario, con 63 % y 65 % y 26 días abierto |
 | El Overview muestra el mismo bloque | Hecho y verificado (0 diferencias en las 3 agencias); falta mergear el PR |
 
