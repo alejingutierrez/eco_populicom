@@ -20,6 +20,7 @@ import {
   clearAccessCache,
   agencyVisibleTo,
   filterAgenciesForCaller,
+  callerCanAccessAgencySlug,
 } from './agency';
 
 jest.mock('next/headers', () => ({ headers: jest.fn() }));
@@ -36,7 +37,7 @@ let mockUserAgenciesRows: Row[] = [];
 
 jest.mock('@eco/database', () => {
   const agencies = { id: 'agencies.id', slug: 'agencies.slug', isActive: 'agencies.isActive', name: 'agencies.name' };
-  const users = { id: 'users.id', cognitoSub: 'users.cognitoSub', email: 'users.email', allAgencies: 'users.allAgencies', agencyId: 'users.agencyId' };
+  const users = { id: 'users.id', cognitoSub: 'users.cognitoSub', email: 'users.email', allAgencies: 'users.allAgencies', agencyId: 'users.agencyId', isActive: 'users.isActive' };
   const userAgencies = { userId: 'user_agencies.userId', agencyId: 'user_agencies.agencyId' };
 
   const field = (col: unknown) => String(col).split('.')[1];
@@ -254,5 +255,36 @@ describe('agencias restringidas', () => {
     session({ sub: 'sub-6', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
     expect(await resolveAgencyId(params('agency=medalla'))).toBe(DDEC);
     expect(await resolveAllowedAgencySlugs()).toEqual(['ddecpr']);
+  });
+});
+
+describe('usuario suspendido (is_active = false)', () => {
+  test('no resuelve ninguna agencia aunque tuviera all_agencies', async () => {
+    mockUsersRows = [{ id: 'u9', cognitoSub: 'sub-9', email: 'a@populicom.com', allAgencies: true, agencyId: DDEC, isActive: false }];
+    session({ sub: 'sub-9', email: 'a@populicom.com', slug: 'ddecpr' });
+    expect(await resolveAgencyId(params('agency=aaa'))).toBeNull();
+    expect(await resolveAllowedAgencySlugs()).toEqual([]);
+    expect(await callerCanAccessAgencySlug('ddecpr')).toBe(false);
+  });
+});
+
+describe('callerCanAccessAgencySlug — rutas que reciben la agencia del cliente', () => {
+  test('sin sesión siempre es no', async () => {
+    noSession();
+    expect(await callerCanAccessAgencySlug('ddecpr')).toBe(false);
+  });
+  test('usuario de una agencia: solo la suya', async () => {
+    mockUsersRows = [{ id: 'u7', cognitoSub: 'sub-7', email: 'cliente@ddec.pr.gov', allAgencies: false, agencyId: DDEC, isActive: true }];
+    session({ sub: 'sub-7', email: 'cliente@ddec.pr.gov', slug: 'ddecpr' });
+    expect(await callerCanAccessAgencySlug('ddecpr')).toBe(true);
+    expect(await callerCanAccessAgencySlug('aaa')).toBe(false);
+    expect(await callerCanAccessAgencySlug('no-existe')).toBe(false);
+    expect(await callerCanAccessAgencySlug('')).toBe(false);
+  });
+  test('staff con all_agencies: cualquiera salvo las restringidas', async () => {
+    mockUsersRows = [{ id: 'u8', cognitoSub: 'sub-8', email: 'otro@populicom.com', allAgencies: true, agencyId: DDEC, isActive: true }];
+    session({ sub: 'sub-8', email: 'otro@populicom.com', slug: 'ddecpr' });
+    expect(await callerCanAccessAgencySlug('aaa')).toBe(true);
+    expect(await callerCanAccessAgencySlug('medalla')).toBe(false);
   });
 });

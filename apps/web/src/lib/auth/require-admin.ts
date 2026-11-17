@@ -11,18 +11,37 @@ import { capabilitiesFor, roleFromGroups, type Role, type Capability } from './r
  * DB: cae a grupos para no romper el auth.
  */
 export async function effectiveRole(user: SessionUser): Promise<Role> {
+  return (await userStanding(user)).role;
+}
+
+/**
+ * Rol efectivo y si el usuario está suspendido (`users.is_active = false`).
+ * Un suspendido conserva su sesión de Cognito hasta que caduque, así que el
+ * corte tiene que estar en cada gate del servidor. Ante fallo de DB no se
+ * marca como suspendido (mismo criterio best-effort que el rol).
+ */
+async function userStanding(user: SessionUser): Promise<{ role: Role; suspended: boolean }> {
   try {
     const db = getDb();
     const [row] = await db
-      .select({ role: users.role })
+      .select({ role: users.role, isActive: users.isActive })
       .from(users)
       .where(eq(users.cognitoSub, user.sub))
       .limit(1);
-    if (row?.role) return row.role as Role;
+    if (row) {
+      return {
+        role: (row.role as Role) || roleFromGroups(user.groups),
+        suspended: row.isActive === false,
+      };
+    }
   } catch {
     /* fall through to group-based bootstrap */
   }
-  return roleFromGroups(user.groups);
+  return { role: roleFromGroups(user.groups), suspended: false };
+}
+
+function suspendedResponse(): NextResponse {
+  return NextResponse.json({ error: 'suspended' }, { status: 403 });
 }
 
 type Gate = { ok: true; user: SessionUser; role: Role } | { ok: false; response: NextResponse };
@@ -33,7 +52,8 @@ export async function requireRole(allowed: Role[]): Promise<Gate> {
   if (!user) {
     return { ok: false, response: NextResponse.json({ error: 'unauthenticated' }, { status: 401 }) };
   }
-  const role = await effectiveRole(user);
+  const { role, suspended } = await userStanding(user);
+  if (suspended) return { ok: false, response: suspendedResponse() };
   if (!allowed.includes(role)) {
     return { ok: false, response: NextResponse.json({ error: 'forbidden', required: allowed }, { status: 403 }) };
   }
@@ -46,7 +66,8 @@ export async function requireCapability(cap: Capability): Promise<Gate> {
   if (!user) {
     return { ok: false, response: NextResponse.json({ error: 'unauthenticated' }, { status: 401 }) };
   }
-  const role = await effectiveRole(user);
+  const { role, suspended } = await userStanding(user);
+  if (suspended) return { ok: false, response: suspendedResponse() };
   if (!capabilitiesFor(role).includes(cap)) {
     return { ok: false, response: NextResponse.json({ error: 'forbidden', required: cap }, { status: 403 }) };
   }
@@ -94,7 +115,8 @@ export async function requireAlertsAccess(): Promise<Gate> {
   if (!canSeeAlerts(user.email)) {
     return { ok: false, response: NextResponse.json({ error: 'forbidden' }, { status: 403 }) };
   }
-  const role = await effectiveRole(user);
+  const { role, suspended } = await userStanding(user);
+  if (suspended) return { ok: false, response: suspendedResponse() };
   return { ok: true, user, role };
 }
 
@@ -107,5 +129,6 @@ export async function requireAuth(): Promise<
   if (!user) {
     return { ok: false, response: NextResponse.json({ error: 'unauthenticated' }, { status: 401 }) };
   }
+  if ((await userStanding(user)).suspended) return { ok: false, response: suspendedResponse() };
   return { ok: true, user };
 }

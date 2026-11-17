@@ -20,8 +20,11 @@ module.exports = {
     '^@eco/database$': '<rootDir>/../../packages/database/src/index.ts',
     '^@eco/database/src/(.*)$': '<rootDir>/../../packages/database/src/$1',
   },
+  // `jose` (v6) se publica solo como ESM: se transpila a CommonJS igual que el
+  // código propio para poder probar la verificación de la sesión.
+  transformIgnorePatterns: ['/node_modules/(?!jose/)'],
   transform: {
-    '^.+\\.tsx?$': [
+    '^.+\\.[tj]sx?$': [
       'ts-jest',
       {
         tsconfig: {
@@ -29,6 +32,7 @@ module.exports = {
           target: 'es2020',
           esModuleInterop: true,
           isolatedModules: true,
+          allowJs: true,
           types: ['jest', 'node'],
         },
       },

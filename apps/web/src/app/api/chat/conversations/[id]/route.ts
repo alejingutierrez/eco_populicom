@@ -23,7 +23,7 @@ type Owned =
   | { ok: true; db: ReturnType<typeof getDb>; conv: { id: string; title: string; status: string } };
 
 async function resolveOwned(request: NextRequest, id: string): Promise<Owned> {
-  const user = getSessionFromRequest(request);
+  const user = await getSessionFromRequest(request);
   if (!user?.sub) return { ok: false, response: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) };
   const agencyId = await resolveAgencyId(new URL(request.url).searchParams);
   if (!agencyId) return { ok: false, response: NextResponse.json({ error: 'No agency resolved' }, { status: 404 }) };

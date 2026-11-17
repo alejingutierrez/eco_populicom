@@ -14,7 +14,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const user = getSessionFromRequest(request);
+  const user = await getSessionFromRequest(request);
   if (!user?.sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const rl = consume('chat-conversations:' + user.sub, { limit: 120, windowMs: 60_000 });

@@ -19,7 +19,7 @@ import type {
   MetricDisplay,
   DeltaDisplay,
 } from '@eco/shared';
-import { resolveAllowedAgencySlugs, listActiveAgencies } from '@/lib/agency';
+import { resolveAllowedAgencySlugs, listActiveAgencies, filterAgenciesForCaller } from '@/lib/agency';
 import { log } from '@/lib/log';
 import { consume, clientKey } from '@/lib/rate-limit';
 import { universeOptsForSlug } from '@/lib/mentions/universe-config';
@@ -249,7 +249,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Agencias activas (id + slug) + sus nombres. listActiveAgencies solo trae
     // id/slug; el nombre lo resolvemos en un query aparte para no cambiar su
     // firma (la reusa resolveAllowedAgencySlugs).
-    const active = await listActiveAgencies();
+    // «Ve todas» no incluye las agencias restringidas a un correo concreto.
+    const active = await filterAgenciesForCaller(await listActiveAgencies());
     if (active.length === 0) {
       return NextResponse.json({ error: 'No active agencies' }, { status: 404 });
     }

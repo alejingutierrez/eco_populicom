@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, users, agencies } from '@eco/database';
 import { eq, and, inArray, type SQL } from 'drizzle-orm';
-import { resolveAllowedAgencySlugs } from '@/lib/agency';
+import { resolveAllowedAgencySlugs, clearAccessCache } from '@/lib/agency';
 import { setUserAgencyAccess } from '@/lib/provision';
 import { requireRole } from '@/lib/auth/require-admin';
 import { isRole, type Role } from '@/lib/auth/roles';
@@ -57,6 +57,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     if (Object.keys(patch).length > 0) {
       await db.update(users).set(patch).where(scope.where);
+      // Suspender o reactivar cambia el acceso: que no espere al TTL del caché.
+      if (patch.isActive !== undefined) clearAccessCache();
     }
     if (allAgencies !== undefined || agencySlugs !== undefined) {
       await setUserAgencyAccess(id, { allAgencies, agencySlugs }, scope.allowedSlugs);
@@ -80,6 +82,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     // Soft-delete (deactivate) rather than dropping the row so history stays.
     const [row] = await db.update(users).set({ isActive: false }).where(scope.where).returning();
     if (!row) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    clearAccessCache();
     return NextResponse.json({ ok: true });
   } catch (err) {
     log.error('users.DELETE', (err as Error).message, { id });

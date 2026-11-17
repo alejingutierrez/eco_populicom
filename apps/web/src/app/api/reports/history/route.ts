@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, reportSendLog } from '@eco/database';
 import { and, desc, eq } from 'drizzle-orm';
 import { requireCapability } from '@/lib/auth/require-admin';
+import { callerCanAccessAgencySlug } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,6 +31,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   if (!agencyRow?.length) return NextResponse.json({ error: 'agency not found' }, { status: 404 });
   const agency = agencyRow[0];
+  if (!(await callerCanAccessAgencySlug(agency.slug))) {
+    return NextResponse.json({ error: 'agency not allowed for this user' }, { status: 403 });
+  }
 
   const rows = await db
     .select()

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { decodeJwt } from 'jose';
-import { SESSION_COOKIE } from '@/lib/session';
+import { SESSION_COOKIE, verifyIdToken } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,17 +24,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'idToken required' }, { status: 400 });
   }
 
-  let ttl = ONE_HOUR;
-  try {
-    const claims = decodeJwt(idToken);
-    const exp = Number(claims.exp ?? 0);
-    if (exp > 0) {
-      const secs = Math.floor(exp - Date.now() / 1000);
-      if (secs > 60) ttl = Math.min(secs, 12 * ONE_HOUR);
-    }
-  } catch {
-    return NextResponse.json({ error: 'Malformed idToken' }, { status: 400 });
+  // Solo se acepta un ID token firmado por nuestro user pool: esta ruta es
+  // pública y lo que guarde en la cookie pasa a ser la identidad del usuario.
+  const user = await verifyIdToken(idToken);
+  if (!user) {
+    return NextResponse.json({ error: 'Invalid idToken' }, { status: 401 });
   }
+  let ttl = ONE_HOUR;
+  const secs = Math.floor(user.exp - Date.now() / 1000);
+  if (secs > 60) ttl = Math.min(secs, 12 * ONE_HOUR);
 
   const res = NextResponse.json({ ok: true, expiresIn: ttl });
   // The ALB in front of ECS runs on plain HTTP today. A `Secure` cookie set

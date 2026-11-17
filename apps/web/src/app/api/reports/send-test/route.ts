@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { requireCapability } from '@/lib/auth/require-admin';
+import { callerCanAccessAgencySlug } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,8 +31,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try { body = (await request.json()) as SendTestBody; }
   catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }); }
 
-  if (!body.agencySlug) {
+  if (!body.agencySlug || typeof body.agencySlug !== 'string') {
     return NextResponse.json({ error: 'agencySlug required' }, { status: 400 });
+  }
+  // Sin esto, un editor de la agencia X podía enviarse el reporte de la Y.
+  if (!(await callerCanAccessAgencySlug(body.agencySlug))) {
+    return NextResponse.json({ error: 'agency not allowed for this user' }, { status: 403 });
   }
 
   if (body.recipients) {
