@@ -268,6 +268,23 @@ SNS salió en el acto: 11.8 min desde la pausa, 12.3 desde la última corrida.
 Ingesta restaurada a las 23:43:20. El tiempo se cuenta desde la última corrida
 completa, así que no depende de en qué punto del ciclo de 5 min ocurra el paro.
 
+**Estado 16-nov.** PR #173 mergeado (`a6233fe`). Tres días con la señal nueva
+(14, 15 y 16-nov): 0 avisos 429 cada día; `MinutosSinSondeoMax` máximo 10, 20
+y 10 min; 6 peticiones por corrida incremental y 7 por refresh.
+
+**Incidente del 15-nov (la alarma avisó de verdad).** El refresh de las 07:00
+UTC trajo las 6 queries en 3 min (última línea a las 07:03:13) y después no
+terminó: el lambda llegó a su timeout de 900 s a las 07:15:10. Como la
+concurrencia es 1, las corridas de 07:05 y 07:10 no entraron.
+`eco-ingesta-callada` saltó a las 07:07:38 (12.3 min después de la corrida de
+las 06:55) y volvió a OK a las 07:16:38; la corrida de las 07:15 sondeó las 6
+queries con 20 min de atraso. No se perdieron menciones (el refresh ya las
+había encolado). Lo que se colgó va después del último sondeo y antes de la
+línea de métricas: el cierre de la conexión a la base (`await client.end()` en
+el `finally` del handler), que no tiene tiempo máximo. Los refresh del 14 y
+del 16 cerraron bien en 184 s. **Pendiente:** ponerle tiempo máximo a ese
+cierre para que un cuelgue cueste segundos y no 12 minutos.
+
 ### WP-3 · Ceder con la cuota vista
 
 **Cliente** (`packages/brandwatch/src/client.ts`, `resilience.ts`):
@@ -373,9 +390,9 @@ El informe se añade al doc técnico con:
 
 | Backlog | Cómo se mide en este spec | Hoy |
 |---|---|---|
-| 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Sin métrica; las 6 queries se sondean cada 5 min |
-| Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov. BrandIQ: sin medir aquí |
-| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2) |
+| 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Va cumpliendo: máximo 20 min en los 3 primeros días (14–16 nov). La ventana de 7 días cierra el 20-nov |
+| Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov; 0 al día del 13 al 16-nov con la métrica nueva. BrandIQ: sin medir aquí |
+| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2). El 15-nov avisó sola de un cuelgue real, también a los 12.3 min |
 | Reparto de cuota con BrandIQ escrito y aplicado en los dos productos | WP-5 mergeado en los dos repos; techos iguales | No existe |
 
 ---
