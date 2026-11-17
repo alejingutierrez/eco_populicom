@@ -302,6 +302,13 @@ con datos faltantes CloudWatch espera a que todo su rango de evaluación esté
 vacío. Once minutos en cero toleran una corrida saltada. Con esta definición
 el segundo simulacro avisó a los 12.3 min de la última corrida.
 
+**Cierre de la base con tiempo máximo.** El 15-nov el refresh de las 07:00 UTC
+terminó sus sondeos en 3 min y se quedó en `client.end()` hasta el timeout de
+900 s: 20 min sin ingesta y una corrida sin línea de métricas. Desde entonces
+el cierre va por `closeClientWithin` (`infra/lambda/ingestion/db-close.ts`):
+espera 5 s, y si no vuelve escribe `DB-CIERRE-COLGADO`, destruye el socket y la
+corrida sigue. Buscar esa marca en los logs dice cuántas veces pasa.
+
 Un backfill manual de más de 10 min publica su línea solo al terminar y puede
 disparar `eco-ingesta-callada` mientras corre: es esperado.
 
