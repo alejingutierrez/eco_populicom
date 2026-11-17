@@ -328,8 +328,9 @@ entró). La alarma saltó a las 19:12:09 y SNS entregó la acción en el acto
 (`Successfully executed action`): 11.7 min desde la última corrida, 7.1 desde
 la pausa. Ingesta restaurada a las 19:12:23; la corrida de las 19:15:29 sondeó
 las 6 queries con 14.9 min de atraso, sin avisos 429.
-`eco-ingesta-query-desatendida` no saltó (el umbral es 60 min). **Falta** que
-Alejandro confirme a qué hora le llegó el correo.
+`eco-ingesta-query-desatendida` no saltó (el umbral es 60 min). Alejandro
+confirmó que el correo de la alarma llegó a su buzón (no se anotó la hora
+exacta de llegada). Con esto el aviso queda probado de punta a punta.
 
 **Alarmas manuales frente a las de CDK** (comparadas el 17-nov; todas publican
 al mismo tema):
@@ -484,7 +485,7 @@ aplicar.
 |---|---|---|
 | 7 días sin que una agencia activa pase más de 1 hora sin menciones nuevas | 7 días con `Max(MinutosSinSondeoMax) ≤ 60` (reescrito, sección 2.1) | Va cumpliendo: máximo 20 min en los 3 días completos (14–16 nov) y 9.9 min en lo que va del 17. La ventana de 7 días (14–20 nov) se lee el 21-nov |
 | Menos de 10 avisos de límite (429) al día | `Sum(Avisos429) < 10` cada día de la ventana, en ECO. BrandIQ reporta el suyo con su propio log | ECO: cumple desde el 5-nov; 0 al día del 13 al 17-nov con la métrica nueva. BrandIQ: sin medir aquí |
-| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2). El 15-nov detectó sola un cuelgue real, también a los 12.3 min. **Aviso sin probar:** el tema `eco-alerts-ops` no tenía suscriptores (hallazgo del 17-nov); la suscripción se repuso y confirmó ese día, falta un simulacro que compruebe que el correo llega |
+| Si la ingesta se detiene, llega una alarma en menos de 15 minutos | Simulacro de WP-2 cronometrado | Cumple: 12.3 min desde la última corrida en el simulacro del 13-nov (el primero, con la alarma original, tardó 21.2). El 15-nov detectó sola un cuelgue real, también a los 12.3 min. El tema `eco-alerts-ops` no tenía suscriptores (hallazgo del 17-nov); la suscripción se repuso ese día y un tercer simulacro lo probó de punta a punta: alarma a los 11.7 min de la última corrida y correo recibido |
 | Reparto de cuota con BrandIQ escrito y aplicado en los dos productos | WP-5 mergeado en los dos repos; techos iguales | Propuesta escrita y cambio de ECO preparado sin desplegar (17-nov). Sin enviar ni acordar con BrandIQ |
 
 ---
