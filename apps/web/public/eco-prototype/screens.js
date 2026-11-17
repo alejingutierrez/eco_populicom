@@ -6355,8 +6355,8 @@ function Field({ label, required, children }) {
 // Petición del sponsor: que el dashboard se lea como el correo. Mismo orden y
 // mismos rótulos que el Diario, con el detalle que el correo no puede dar:
 //   cabecera · 01 Termómetro · 02 Riesgo de crisis · 03 Resumen del periodo ·
-//   04 Tendencia (14 días, picos rotulados, crisis diaria) · 05 Insights ·
-//   06 Tópicos.
+//   04 Asuntos abiertos y nivel de negatividad (INT-01) · 05 Tendencia (14
+//   días, picos rotulados, crisis diaria) · 06 Insights · 07 Tópicos.
 // Las cifras salen de las MISMAS funciones que el correo (buildSentimentReport
 // y loadMetricsForWindow vía /api/overview); el texto de 03 y 05 sale de
 // overview_period_insights (/api/eco-insights), que genera eco-ai-tasks con
@@ -6442,7 +6442,7 @@ function useTopPieces(periodStart, periodEnd, agency) {
   return items;
 }
 
-function OverviewScreen({ period, agency, onMentionClick }) {
+function OverviewScreen({ period, agency, onMentionClick, setActive }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [slice, setSlice] = useState(null);
@@ -6469,6 +6469,7 @@ function OverviewScreen({ period, agency, onMentionClick }) {
 
   const insights = useOverviewInsights(data?.periodStart, data?.periodEnd, agency);
   const pieces = useTopPieces(data?.periodStart, data?.periodEnd, agency);
+  const openIssues = useOverviewOpenIssues(agency);
 
   // El fallo va por EmptyState reason="error" (shell.js: «Nunca se debe
   // pintar como vacío»); la carga, con el tamaño de los otros «Cargando…» de
@@ -6587,6 +6588,12 @@ function OverviewScreen({ period, agency, onMentionClick }) {
         composition={data.composition} onCompPick={openCompositionSlice} />
       <OverviewHighlights metrics={data.currentMetrics} crisis={data.crisis} onOpenInsight={openMetricInsight} />
       <OverviewResumen insights={insights} pieces={pieces} onMentionClick={onMentionClick} />
+      <OverviewAsuntos state={openIssues} onOpenNarrative={(row) => {
+        // A Narrativas, con la narrativa más activa del asunto ya elegida.
+        try { localStorage.setItem('eco.narrative.focus', JSON.stringify(row.narrativeIds || [row.id])); } catch (_) {}
+        ecoTrackScreen('overview_issue_open', { issue_name: row.name });
+        if (setActive) setActive('narrative');
+      }} />
       <OverviewTendencia
         dailySeries={data.dailySeries}
         prevDailySeries={data.prevDailySeries}
@@ -6938,6 +6945,142 @@ function OverviewResumen({ insights, pieces, onMentionClick }) {
   );
 }
 
+// 04 · Asuntos abiertos y nivel de negatividad (INT-01 · WP-5) — el mismo
+// bloque del Diario y del Semanal: /api/overview/open-issues corre las mismas
+// funciones de @eco/shared con la misma fecha (el último día cerrado) y el
+// mismo universo que el correo, y devuelve cada fila ya redactada con el texto
+// del correo. Ventanas FIJAS: el selector de periodo no lo mueve.
+function useOverviewOpenIssues(agency) {
+  const [state, setState] = React.useState({ phase: 'loading', data: null });
+  React.useEffect(() => {
+    setState({ phase: 'loading', data: null });
+    const ctrl = new AbortController();
+    const params = new URLSearchParams();
+    if (agency) params.set('agency', agency);
+    fetch('/api/overview/open-issues?' + params.toString(), { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
+      .then((j) => setState({ phase: 'ready', data: j }))
+      .catch((e) => { if (e?.name !== 'AbortError') setState({ phase: 'error', data: null }); });
+    return () => ctrl.abort();
+  }, [agency]);
+  return state;
+}
+
+const OV_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function ovShortDay(ymd) {
+  const p = String(ymd || '').split('-').map(Number);
+  return p.length === 3 && p[1] ? `${p[2]} ${OV_MONTHS[p[1] - 1]}` : '';
+}
+// Entero completo con separador de miles, como el correo (fmt() abrevia a «2.3K»).
+const ovInt = (n) => Number(n || 0).toLocaleString('en-US');
+const ovSigned = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0');
+
+function OverviewNivel({ level }) {
+  const row = (w) => (
+    <div key={w.days} style={{ display: 'grid', gridTemplateColumns: '64px minmax(0,1fr)', gap: 'var(--sp-2)', alignItems: 'baseline', padding: 'var(--sp-2) 0', borderTop: '1px solid var(--hairline)' }}>
+      <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>{w.days} días</span>
+      {w.enoughBase && w.negPct != null && w.nss != null ? (
+        <span>
+          <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 600, color: w.overNegPct ? 'var(--neg)' : 'var(--text)' }}>{w.negPct}%</span>
+          <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}> negativo · NSS <span className="num">{ovSigned(w.nss)}</span></span>
+          <span style={{ display: 'block', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}><span className="num">{ovInt(w.total)}</span> menciones · del {ovShortDay(w.startYmd)} al {ovShortDay(w.endYmd)}</span>
+        </span>
+      ) : (
+        <span style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>base insuficiente (<span className="num">{ovInt(w.total)}</span> menciones)</span>
+      )}
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', fontWeight: 600 }}>
+        Nivel de negatividad <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· no es la variación</span>
+      </div>
+      <div style={{ marginTop: 'var(--sp-2)' }}>
+        {row(level.d14)}
+        {row(level.d28)}
+        <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: 'var(--sp-2)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
+          umbral <span className="num">{level.thresholds.negPct}%</span> negativo · NSS <span className="num">{ovSigned(level.thresholds.nss)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverviewAsuntos({ state, onOpenNarrative }) {
+  const { phase, data } = state;
+  const asOf = data && data.asOf;
+  const sub = asOf
+    ? `Los 7 días que terminan el ${ovShortDay(asOf)} y el nivel a 14 y 28 días · igual que el correo · no cambia con el selector de periodo`
+    : 'Ventanas fijas que terminan ayer · igual que el correo · no cambia con el selector de periodo';
+  let body;
+  if (phase === 'loading') {
+    body = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        {[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 56 }} />)}
+      </div>
+    );
+  } else if (phase === 'error' || !data) {
+    body = <EmptyState reason="error" title="No se pudieron cargar los asuntos abiertos" detail="Recarga la página en unos segundos. Si persiste, avisa al equipo." />;
+  } else {
+    const issues = data.issues || [];
+    const failedIssues = !data.thresholds;
+    const cov = data.coverage;
+    const more = data.openCount > issues.length ? ` · ${ovInt(data.openCount)} asuntos abiertos en total` : '';
+    const list = failedIssues ? (
+      <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>No se pudieron calcular los asuntos abiertos. Recarga la página en unos segundos.</div>
+    ) : issues.length === 0 ? (
+      <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+        Sin asuntos abiertos esta semana: ninguna historia tuvo {data.thresholds.minWeek} menciones o más en 7 días con actividad en los últimos {data.thresholds.recentDays}.
+      </div>
+    ) : issues.map((it, k) => (
+      <button key={it.id} onClick={() => onOpenNarrative && onOpenNarrative(it)} className="row-hover"
+        title="Abrir la historia en Narrativas"
+        style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', display: 'grid', gridTemplateColumns: '20px minmax(0,1fr) auto', gap: 'var(--sp-3)', padding: 'var(--sp-3) var(--sp-1)', borderTop: k ? '1px solid var(--hairline)' : 'none', alignItems: 'start' }}>
+        <span className="num" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-3)' }}>{k + 1}</span>
+        <span style={{ minWidth: 0, display: 'block' }}>
+          <span style={{ display: 'block', fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--text)' }}>{it.name}</span>
+          {it.lead && <span style={{ display: 'block', fontSize: 'var(--fs-caption)', color: 'var(--text-2)', marginTop: 'var(--sp-05)' }}>Lo más activo: {it.lead.name}</span>}
+          <span className="num" style={{ display: 'block', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)', marginTop: 'var(--sp-1)' }}>
+            {it.daysOpen === 1 ? '1 día abierto' : `${ovInt(it.daysOpen)} días abierto`} <span style={{ color: 'var(--text-3)' }}>· {it.sinceText}</span>
+          </span>
+          <span className="num" style={{ display: 'block', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+            {it.stageText} · <span style={{ color: it.negOver ? 'var(--neg)' : 'var(--text)', fontWeight: 600 }}>{it.negPct}% negativas</span>
+          </span>
+          <span style={{ display: 'block', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>Voz principal: {it.voiceText}</span>
+        </span>
+        <span aria-hidden="true" style={{ fontSize: 'var(--fs-caption)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Narrativas →</span>
+      </button>
+    ));
+    body = (
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('minmax(0,1.85fr) minmax(0,1fr)', '1fr'), gap: 'var(--sp-6)', alignItems: 'start' }}>
+        <div>
+          {list}
+          {cov && cov.pct != null && (
+            <div className="num" style={{ marginTop: 'var(--sp-3)', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)', color: 'var(--text-3)' }}>
+              {cov.pct} de cada 100 menciones de los 7 días pertenecen a un asunto identificado{more}
+            </div>
+          )}
+        </div>
+        {data.level
+          ? <OverviewNivel level={data.level} />
+          : <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>No se pudo calcular el nivel de negatividad.</div>}
+      </div>
+    );
+  }
+  return (
+    <div className="card" data-block="overview-open-issues">
+      <div className="card-hd">
+        <div>
+          <div className="card-hd-title">04 · Asuntos abiertos</div>
+          <div className="card-hd-sub">{sub}</div>
+        </div>
+      </div>
+      <div className="card-bd" title={data && data.methodology ? data.methodology : undefined}>{body}</div>
+    </div>
+  );
+}
+
+
 // Barras apiladas por día con la ventana previa en gris a la izquierda, los
 // días pico rotulados y, debajo del eje, la cinta del riesgo de crisis diario.
 // Una sola escala vertical para las dos ventanas (así se comparan).
@@ -7082,7 +7225,7 @@ function OverviewTendencia({ dailySeries, prevDailySeries, hourlySeries, granula
     <div className="card">
       <div className="card-hd" style={{ flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
         <div>
-          <div className="card-hd-title">04 · Tendencia · {hourly ? 'Hora a hora' : 'Día a día'}</div>
+          <div className="card-hd-title">05 · Tendencia · {hourly ? 'Hora a hora' : 'Día a día'}</div>
           <div className="card-hd-sub">
             {hourly
               ? 'Volumen por sentimiento, hora a hora (TZ Puerto Rico) · click una hora para ver sus menciones'
@@ -7119,13 +7262,13 @@ function OverviewTendencia({ dailySeries, prevDailySeries, hourlySeries, granula
   );
 }
 
-// 05 · Insights — las tres columnas del correo (negativo, neutral, positivo),
+// 06 · Insights — las tres columnas del correo (negativo, neutral, positivo),
 // cada una con su peso en el total. El resumen general ya vive en 03.
 function OverviewInsights({ insights, totals }) {
   const state = insights;
   const T = totals || {};
   const share = (v) => (T.total > 0 ? Math.round(((v || 0) / T.total) * 100) : 0);
-  const eyebrow = <OverviewEyebrow n="05">Insights · análisis IA del periodo</OverviewEyebrow>;
+  const eyebrow = <OverviewEyebrow n="06">Insights · análisis IA del periodo</OverviewEyebrow>;
   if (state.phase === 'error') {
     return (
       <div>
@@ -7235,7 +7378,7 @@ function OverviewTopicos({ rows, totals, onTopicClick }) {
     <div className="card">
       <div className="card-hd">
         <div>
-          <div className="card-hd-title">06 · Tópicos</div>
+          <div className="card-hd-title">07 · Tópicos</div>
           <div className="card-hd-sub">Top 7 + agrupados · cada mención cuenta una vez bajo su tópico de mayor confianza</div>
         </div>
       </div>
@@ -8047,7 +8190,21 @@ function NarrativeScreen({ agency }) {
         const data = { ...raw, byId };
         setState({ loading: false, error: null, data });
         const first = (raw.series || [])[0] || (raw.board ? [...raw.board.emerging, ...raw.board.active, ...raw.board.declining][0] : null) || (raw.lanes || [])[0] || null;
-        setSelected(first);
+        // Llegada desde «Asuntos abiertos» del Overview: se abre la narrativa
+        // más activa del asunto (la primera de la lista que esté en la página).
+        let focus = null;
+        try {
+          const want = JSON.parse(localStorage.getItem('eco.narrative.focus') || 'null');
+          localStorage.removeItem('eco.narrative.focus');
+          if (Array.isArray(want)) focus = want.find((id) => byId[id]) || null;
+        } catch (_) {}
+        setSelected(focus || first);
+        if (focus) {
+          setTimeout(() => {
+            const el = document.getElementById('nx-prop');
+            if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 16, behavior: 'auto' });
+          }, 0);
+        }
       })
       .catch((e) => {
         if (cancelled) return;
