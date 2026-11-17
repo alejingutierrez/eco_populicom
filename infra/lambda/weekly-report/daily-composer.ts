@@ -13,15 +13,19 @@ import {
   allSamples,
   buildFactPackage,
   buildLintContext,
+  buildSustainedLevel,
   commentShare,
   compose,
   fillDraft,
   loadChannels,
+  loadDailySentimentSeries,
   loadEmotions,
   loadMunicipalityPartition,
+  loadOpenIssues,
   prepareSamples,
   safetyNet,
   stripTags,
+  sustainedSeriesStart,
   type AnnotatedSampleSet,
   type ComposeOptions,
   type ComposeResult,
@@ -29,8 +33,10 @@ import {
   type ComposerInput,
   type ComposerLlm,
   type Draft,
+  type OpenIssuesResult,
   type PgClientLike,
   type SentimentReport,
+  type SustainedLevel,
 } from '@eco/shared';
 import { AGENCY_OWN_AUTHORS } from '../lib/mention-kind';
 import type { Queryable } from '../lib/parent-resolver';
@@ -68,6 +74,33 @@ export interface DailyComposerInputResult {
   contextError: string | null;
   /** Composición de la semana y de la previa (comentarios de usuarios en redes propias). */
   share: { week: { total: number; comments: number }; prevWeek: { total: number; comments: number } };
+  /** INT-01: lo que se cargó para el nivel sostenido y los asuntos abiertos. */
+  interpretation: InterpretationData;
+}
+
+export interface InterpretationData {
+  sustainedLevel: SustainedLevel | null;
+  openIssues: OpenIssuesResult | null;
+  /** Por qué falta alguno de los dos (el correo sale sin ese bloque; nunca se retiene). */
+  errors: string[];
+}
+
+/**
+ * Nivel sostenido y asuntos abiertos al último día cerrado (`endYmd`), con el
+ * universo del correo. Cada carga falla por separado y nunca lanza: si una
+ * falla, el correo sale sin ese bloque y queda anotado en `errors`.
+ */
+export async function loadInterpretationData(client: PgClientLike, agencyId: string, endYmd: string): Promise<InterpretationData> {
+  const errors: string[] = [];
+  const msg = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+  const [sustainedLevel, openIssues] = await Promise.all([
+    loadDailySentimentSeries(client, agencyId, sustainedSeriesStart(endYmd), endYmd, MAIL_UNIVERSE)
+      .then((series) => buildSustainedLevel(series, endYmd))
+      .catch((e) => { errors.push(`nivel sostenido: ${msg(e)}`); return null; }),
+    loadOpenIssues(client, agencyId, endYmd, MAIL_UNIVERSE)
+      .catch((e) => { errors.push(`asuntos abiertos: ${msg(e)}`); return null; }),
+  ]);
+  return { sustainedLevel, openIssues, errors };
 }
 
 /**
@@ -100,12 +133,13 @@ export async function buildDailyComposerInput(
 ): Promise<DailyComposerInputResult> {
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
   const pg = client as PgClientLike;
-  const [channels, munis, emotions, shareCur, sharePrev] = await Promise.all([
+  const [channels, munis, emotions, shareCur, sharePrev, interpretation] = await Promise.all([
     loadChannels(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     loadMunicipalityPartition(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     loadEmotions(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     commentShare(pg, agency.id, { startYmd, endYmd }, MAIL_UNIVERSE),
     commentShare(pg, agency.id, { startYmd: prevStartYmd, endYmd: prevEndYmd }, MAIL_UNIVERSE),
+    loadInterpretationData(pg, agency.id, endYmd),
   ]);
 
   let samples: AnnotatedSampleSet = { today: [], negative: [], neutral: [], positive: [], droppedByThreadCap: { today: 0, negative: 0, neutral: 0, positive: 0 } };
@@ -146,8 +180,10 @@ export async function buildDailyComposerInput(
     composition: share,
     samples,
     nameWhitelist: Array.from(new Set(names)),
+    sustainedLevel: interpretation.sustainedLevel,
+    openIssues: interpretation.openIssues,
   };
-  return { input, parentStats, contextError, share };
+  return { input, parentStats, contextError, share, interpretation };
 }
 
 /** Resultado de `composeWithDeadline`: `null` si el motor no terminó a tiempo. */
@@ -307,5 +343,7 @@ export interface DeliveryRecord {
   legacyText?: { headline: string; paragraph: string; highlights: string[]; insights: { negative: string[]; neutral: string[]; positive: string[] } };
   parentStats?: ParentResolutionStats | null;
   contextError?: string | null;
+  /** INT-01: cargas del nivel o de los asuntos que fallaron (el correo salió sin ese bloque). */
+  interpretationErrors?: string[];
   errors?: string[];
 }

@@ -53,9 +53,16 @@ export function deterministicParagraph(pkg: FactPackage, scope: 'day' | 'period'
   return `Entre el ${pkg.startLabel} y el ${pkg.endLabel} hubo ${f.week_total?.display ?? '0'} menciones pertinentes: ${f.week_neg?.display ?? '0'} negativas, ${f.week_neu?.display ?? '0'} neutrales y ${f.week_pos?.display ?? '0'} positivas.`;
 }
 
-/** Divide un párrafo en oraciones (mismo criterio que el prototipo). */
+/**
+ * Divide un párrafo en oraciones. Un punto tras una inicial («Christian W.
+ * Torres») o una abreviatura de tratamiento («Lcdo. Pérez») no cierra la
+ * oración: al quitar una frase con defecto, la red dejaba el párrafo
+ * empezando por «…el agrónomo Christian W.» (DF, 24-oct-2026).
+ */
 export function splitSentences(p: string): string[] {
-  return (p ?? '').split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+  return (p ?? '')
+    .split(/(?<=[.!?])(?<!(?:^|[\s(«"“])(?:\p{Lu}|Sr|Sra|Srta|Dr|Dra|Lcdo|Lcda|Lic|Ing|Hon|Prof|Rev|Gral|Cnel|Tte|núm|art)\.)\s+/u)
+    .filter((s) => s.trim().length > 0);
 }
 
 export interface SafetyNetResult {

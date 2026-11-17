@@ -9,6 +9,7 @@
 import { composeSubject, toSendLogArchive, type ComposerArchiveSink, type Composition } from './archive';
 import { buildPromptContext } from './context';
 import { buildFactPackage, type FactPackage } from './facts';
+import { directionLevelDefects } from './interpretation';
 import { buildLintContext, codeLint, fillDraft, hardDefects, headlineLengthDefects, lintDraft, type LintContext } from './lint';
 import { COMPOSER_PROFILES, getProfile, type ComposerProfile, type ComposerProfileId } from './profiles';
 import { COMPOSER_PROMPT_VERSION, COMPOSER_VERSION } from './prompts';
@@ -118,6 +119,8 @@ export async function compose(
   let netLog: SafetyNetLogEntry[] = [];
   let residual: CodeDefect[] = [];
   let warnings: CodeDefect[] = [];
+  /** Borrador con marcadores que se envió (redactor o corrector), para los avisos de nivel. */
+  let sentRaw: Draft | null = null;
   let degraded = errors.length > 0;
 
   try {
@@ -126,6 +129,7 @@ export async function compose(
     pkg = buildFactPackage(input, { minBase: options.minBase });
     const lintCtx: LintContext = buildLintContext(pkg, input.samples, input.nameWhitelist ?? []);
     const ctx = buildPromptContext(profile, input, pkg, input.samples);
+    const levelCtx = { facts: pkg.facts, sustained: input.sustainedLevel?.sustained };
     stageSeconds.facts = secs(t);
 
     const fallback = () => emptyDraft(profile, deterministicHeadline(pkg!, profile.scope), deterministicParagraph(pkg!, profile.scope));
@@ -168,7 +172,8 @@ export async function compose(
         t = Date.now();
         const f1 = fillDraft(draft1Raw, pkg.facts);
         draft1 = f1.filled;
-        codeProbs = [...f1.problems, ...lintDraft(draft1, lintCtx)];
+        // INT-01: variación sin nivel / mejora con nivel sostenido (avisos, sobre los marcadores).
+        codeProbs = [...f1.problems, ...lintDraft(draft1, lintCtx), ...directionLevelDefects(draft1Raw, levelCtx)];
         stageSeconds.qa_code = secs(t);
 
         // 3b. QA agente.
@@ -207,6 +212,7 @@ export async function compose(
             chosenRaw = { ...chosenRaw, headline: draft1Raw.headline };
           }
         }
+        sentRaw = chosenRaw;
         const f2 = fillDraft(chosenRaw, pkg.facts, { keepInvalid: true });
         const net = safetyNet(f2.filled, pkg, lintCtx, profile.scope);
         final = net.draft;
@@ -217,7 +223,10 @@ export async function compose(
 
     const lintFinal = lintDraft(final, lintCtx);
     residual = hardDefects(lintFinal);
-    warnings = lintFinal.filter((d) => d.severity === 'soft');
+    // Los avisos de nivel que el corrector no resolvió quedan en el archivo
+    // (INT-02 los vuelve regla dura). Se leen del borrador con marcadores.
+    const levelLeft = sentRaw ? directionLevelDefects(sentRaw, levelCtx) : [];
+    warnings = [...lintFinal.filter((d) => d.severity === 'soft'), ...levelLeft];
   } catch (err) {
     // Último recurso: algo inesperado (datos malformados). Texto determinista mínimo.
     degraded = true;

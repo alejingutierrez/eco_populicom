@@ -131,6 +131,9 @@ export function buildLintContext(pkg: FactPackage, samples: AnnotatedSampleSet, 
   for (const f of Object.values(pkg.facts)) numKey(f.value).forEach((k) => allowed.add(k));
   allowed.add('7');
   allowed.add(String(pkg.windowDays));
+  // INT-01: «a 14 días», «a 28 días» son las ventanas del nivel, no cifras sin fuente.
+  if (pkg.facts.level_14_neg_pct) allowed.add('14');
+  if (pkg.facts.level_28_neg_pct) allowed.add('28');
   const ymds = new Set<string>(pkg.seriesDates);
   const names = new Set<string>(extraNames.filter((n) => /\d/.test(n)));
   for (const s of allSamples(samples)) {

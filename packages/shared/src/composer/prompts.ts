@@ -16,10 +16,12 @@ import { LITERAL_VERBS, VETOED_PHRASES } from './vetoed';
  *   v1.0  paridad del laboratorio (corridas r1–r4).
  *   v1.1  el semanal tiene su propio addendum (el correo llega el viernes por
  *         la tarde, no a las 6 AM); el diario no cambia.
+ *   v1.2  INT-01: bloques «NIVEL SOSTENIDO» y «ASUNTOS ABIERTOS» en el
+ *         contexto y regla de nivel en redactor, QA y corrector.
  */
-export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.1';
+export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.2';
 /** Versión del motor (columna `composer_version`, varchar(24)). */
-export const COMPOSER_VERSION = 'composer-1.0.0';
+export const COMPOSER_VERSION = 'composer-1.1.0';
 
 export function buildTeamRules(): string {
   return `REGLAS DE ESTILO Y VERDAD DEL EQUIPO (aplican a todos los roles):
