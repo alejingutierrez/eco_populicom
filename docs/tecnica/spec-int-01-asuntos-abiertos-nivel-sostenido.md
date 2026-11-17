@@ -1,10 +1,11 @@
 # Spec · INT-01 · Asuntos abiertos y nivel sostenido en los correos
 
-**Versión 0.2 · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
+**Versión 0.3 · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
 
-Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 hechos (ver
-su estado en la sección 3); tres ajustes respecto a la versión 0.1, marcados
-como «Ajuste al implementar» en las secciones 2.1, 2.5 y 2.7.
+Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 mergeados
+(#176). WP-3 y WP-4 con código hecho y sin desplegar (ver su estado en la
+sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
+al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8.
 
 Este spec cubre lo que le falta a INT-01. Lo ya hecho (motor de redacción
 «Interpretación v1», PRs #159–#169) no se repite aquí. Las rutas de código son
@@ -252,6 +253,11 @@ interacciones del asunto. Voces unificadas con `voiceKey` y nombradas con
   14.
 - Si no hay una voz así (solo prensa sin métricas, o interacciones mínimas),
   la voz con más menciones, con su número de menciones.
+- **Ajuste al implementar (WP-4).** Solo se nombra un medio (nota de prensa o
+  cuenta de un medio) o una cuenta con 100 interacciones o más en la semana.
+  Una persona particular que comenta varias veces en una publicación de la
+  agencia no sale con nombre: el bloque dice «sin voz dominante» y cuenta las
+  voces. En DDEC al 23-oct salía una persona por 4 comentarios.
 - Si la primera voz tiene menos de 3 menciones y no hay interacciones: «sin
   voz dominante» y el número de voces.
 - Siempre se muestra además cuántas voces distintas hablaron.
@@ -331,6 +337,24 @@ comparación):
   persiste.
 
 INT-02 lo vuelve `hard` y añade la contradicción con un asunto abierto.
+
+**Ajuste al implementar (WP-3).** Tres precisiones:
+
+- **Qué es una variación para la prosa:** los marcadores del volumen, de un
+  sentimiento o de un indicador (`day_delta_*`, `week_*_delta_*`,
+  `ind_*_delta`), o un verbo de dirección aplicado al volumen, las menciones
+  o el sentimiento. Los movimientos de tópicos (`topic_up_*`, `topic_down_*`)
+  no piden nivel: no hablan de la negatividad de la conversación, y pedirlo
+  llenaba el Semanal de niveles repetidos.
+- **Dónde va el nivel:** en el mismo bloque (párrafo, viñeta, insight o ítem
+  de comparación) que la variación, no «en la misma oración o la siguiente».
+  El titular no lleva cifras y no se le pide.
+- **Un segundo detector, `mejora_con_nivel_sostenido`:** con nivel sostenido,
+  cualquier bloque, también el titular, que diga «va bajando», «se calma»,
+  «pierde fuerza», «mejora» y similares. Es el caso exacto del 24-oct.
+
+Los dos detectores leen el borrador con marcadores, van al corrector y, si no
+se resuelven, quedan en `composition.warnings`.
 
 ### 2.9 Un solo cálculo para correo y Overview
 
@@ -431,10 +455,8 @@ Dos cosas que se ven en los datos y quedan para decidir en WP-4:
   abiertos, no 3: «ASUME y pensiones» (10 menciones) y «Menor desaparecida en
   Canóvanas» (8) no tuvieron menciones de viernes a domingo y la regla de los
   últimos 3 días los saca.
-- **La voz principal puede ser una persona particular.** La regla de menciones
-  nombra a quien tenga 3 o más, y eso incluye a quien comenta varias veces en
-  una publicación de la agencia. Antes de pintarlo en un correo hay que
-  decidir si solo se nombran medios y cuentas públicas.
+- **La voz principal podía ser una persona particular.** Resuelto en WP-4:
+  solo se nombran medios y cuentas con alcance (sección 2.5).
 
 ### WP-2 · Nivel sostenido
 
@@ -500,6 +522,19 @@ agencias muestra los hechos nuevos en `composition.facts`; y en 5 corridas
 del caso del 24-oct ninguna oración con variación queda sin nivel después del
 corrector.
 
+**Estado 16-nov: código hecho, sin mergear ni desplegar.** Archivos:
+`packages/shared/src/composer/interpretation.ts` (hechos, bloque de contexto
+y detectores), y cambios en `facts.ts`, `context.ts`, `compose.ts`,
+`profiles.ts`, `lint.ts` («14» y «28» dejan de ser cifras sin fuente),
+`prompts.ts` (motor 1.1.0, prompts v1.2) y en los dos armadores del lambda
+(`daily-composer.ts`, `weekly-composer.ts`), que cargan nivel y asuntos con
+`loadInterpretationData`. Sin nivel ni asuntos en la entrada, el paquete de
+hechos y los prompts de los perfiles que no llevan la regla quedan iguales.
+`evaluateStoredComposition` no necesitó cambios: los hechos nuevos entran en
+el mismo paquete que ya compara.
+
+Las corridas del caso del 24-oct están en WP-6.
+
 ### WP-4 · Bloques en el Diario y el Semanal
 
 1. `DailyReportRenderData` y `WeeklySummaryRenderData` ganan `openIssues` y
@@ -522,6 +557,26 @@ corrector.
 previas de DF, DDEC y Gobernadora (Diario y Semanal). El despliegue del lambda
 va después de ese visto bueno, por esbuild y `update-function-code`, con el
 bundle vivo comparado antes contra `main`.
+
+**Estado 16-nov: código hecho, sin mergear ni desplegar.**
+`packages/shared/src/email/interpretation-blocks.ts` pinta la caja de nivel y
+la sección de asuntos; los dos renders los colocan así:
+
+- Diario: nivel entre las lecturas y el reparto (los dos grupos de
+  variaciones); «Asuntos abiertos» como sección 02, tras el resumen del día.
+- Semanal: nivel bajo las lecturas y bajo la tabla «Semana vs semana»;
+  «Asuntos abiertos» como sección 02, tras el vistazo.
+
+Sin `interpretation` (correo legacy) el HTML es el de antes: la huella del
+Diario legacy de `render-daily-report.test.ts` no cambió.
+
+Vistas previas: `scripts/int-01-preview-daily.ts` corre en local el mismo
+camino del lambda (datos reales por `eco-migration`, motor con Bedrock y
+render) sin desplegar ni enviar. El Semanal con datos reales necesita el
+`dryRun` del lambda y se hace después del despliegue; hasta entonces lo cubren
+las pruebas de render.
+
+Queda una decisión de la sección 3, WP-1: el bloque del lunes.
 
 ### WP-5 · El mismo bloque en el Overview
 

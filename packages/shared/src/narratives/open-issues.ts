@@ -68,6 +68,12 @@ export const OPEN_ISSUE_MERGE_SHARE = 0.5;
 /** Una voz se elige por interacciones solo si tiene al menos estas y este % de las del asunto. */
 export const OPEN_ISSUE_VOICE_MIN_INTERACTIONS = 10;
 export const OPEN_ISSUE_VOICE_MIN_SHARE_PCT = 10;
+/**
+ * Una voz que no es un medio solo se nombra si tiene al menos estas
+ * interacciones en la semana: quien comenta tres veces en una publicación de
+ * la agencia es una persona particular y no va con nombre en un correo.
+ */
+export const OPEN_ISSUE_VOICE_PUBLIC_MIN_INTERACTIONS = 100;
 /** Días hacia atrás (además de la semana) en que una narrativa puede sumarse a un asunto abierto. */
 export const OPEN_ISSUE_LOOKBACK_DAYS = 28;
 /** Una narrativa sin menciones en la semana solo se suma a un asunto si tuvo al menos estas en su vida. */
@@ -88,6 +94,8 @@ export interface OpenIssueVoice {
   sharePct: number;
   /** Menciones de la voz en los 7 días (con cualquiera de las dos bases). */
   mentions: number;
+  /** La voz es un medio (nota de prensa o cuenta de un medio en redes). */
+  media: boolean;
 }
 
 export interface OpenIssue {
@@ -189,12 +197,14 @@ export function currentRunStart(days: string[], gapDays = OPEN_ISSUE_GAP_DAYS): 
 /** Voz principal de las menciones de la semana (spec 2.5). Exportada para pruebas. */
 export function principalVoice(weekRows: NarrRow[], voiceLabels: Record<string, string>): { voice: OpenIssueVoice | null; voices: number } {
   const inter = new Map<string, number>(), count = new Map<string, number>();
+  const media = new Set<string>();
   const all = new Set<string>();
   let totalInter = 0;
   for (const r of weekRows) {
     all.add(r.voice);
     totalInter += r.inter;
     if (r.own) continue;
+    if (r.media) media.add(r.voice);
     inter.set(r.voice, (inter.get(r.voice) ?? 0) + r.inter);
     count.set(r.voice, (count.get(r.voice) ?? 0) + 1);
   }
@@ -205,24 +215,28 @@ export function principalVoice(weekRows: NarrRow[], voiceLabels: Record<string, 
   // Por interacciones solo si la voz pesa de verdad: 1 «me gusta» en un
   // comentario no es «la voz que más lo empuja» (DDEC, 15-nov-2026: una
   // persona con 1 interacción salía con el 100 %).
-  const topInter = pick(inter);
+  // Y con nombre solo un medio o una cuenta con alcance: nunca una persona
+  // particular que comenta (DDEC, 23-oct-2026: salía por 4 comentarios).
+  const nameable = (key: string) => media.has(key) || (inter.get(key) ?? 0) >= OPEN_ISSUE_VOICE_PUBLIC_MIN_INTERACTIONS;
+  const topInter = pick(new Map([...inter].filter(([k]) => nameable(k))));
   if (topInter && topInter[1] >= OPEN_ISSUE_VOICE_MIN_INTERACTIONS
     && (100 * topInter[1]) / totalInter >= OPEN_ISSUE_VOICE_MIN_SHARE_PCT) {
     const [key, value] = topInter;
     return {
       voice: {
         key, label: voiceLabels[key] ?? key, basis: 'interactions', value, total: totalInter,
-        sharePct: Math.round((100 * value) / totalInter), mentions: count.get(key) ?? 0,
+        sharePct: Math.round((100 * value) / totalInter), mentions: count.get(key) ?? 0, media: media.has(key),
       },
       voices,
     };
   }
-  const [key, value] = pick(count);
-  if (value < OPEN_ISSUE_VOICE_MIN_MENTIONS) return { voice: null, voices };
+  const topCount = pick(new Map([...count].filter(([k]) => nameable(k))));
+  if (!topCount || topCount[1] < OPEN_ISSUE_VOICE_MIN_MENTIONS) return { voice: null, voices };
+  const [key, value] = topCount;
   return {
     voice: {
       key, label: voiceLabels[key] ?? key, basis: 'mentions', value, total: weekRows.length,
-      sharePct: Math.round((100 * value) / weekRows.length), mentions: value,
+      sharePct: Math.round((100 * value) / weekRows.length), mentions: value, media: media.has(key),
     },
     voices,
   };

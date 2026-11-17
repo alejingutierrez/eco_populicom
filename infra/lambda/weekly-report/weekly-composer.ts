@@ -32,7 +32,7 @@ import {
 import { AGENCY_OWN_AUTHORS } from '../lib/mention-kind';
 import type { Queryable } from '../lib/parent-resolver';
 import { createPgComposerDataAccess, loadComposerSamples, MAIL_UNIVERSE, MAX_SAMPLES_PER_GROUP, namesWithDigits, type ParentResolutionStats } from './composer-data';
-import { REPORT_TIMEZONE, trimGroups, type DailyComposeAgency, type DailyComposeWindow } from './daily-composer';
+import { loadInterpretationData, REPORT_TIMEZONE, trimGroups, type DailyComposeAgency, type DailyComposeWindow, type InterpretationData } from './daily-composer';
 
 /** Cambio mínimo (menciones) para que un tópico cuente como «sube», «baja», «nuevo» o «sin menciones». */
 export const MIN_TOPIC_MOVE = 3;
@@ -257,6 +257,8 @@ export interface WeeklyComposerInputResult {
   share: { week: { total: number; comments: number }; prevWeek: { total: number; comments: number } };
   /** ¿Hubo comentarios en redes propias en alguna de las dos semanas? (chip y contexto). */
   hasComments: boolean;
+  /** INT-01: nivel sostenido y asuntos abiertos al último día de la semana. */
+  interpretation: InterpretationData;
 }
 
 /** ¿El chip de composición dice algo? Solo si alguna de las dos semanas redondea a más de 0 %. */
@@ -289,12 +291,13 @@ export async function buildWeeklyComposerInput(
 ): Promise<WeeklyComposerInputResult> {
   const { startYmd, endYmd, prevStartYmd, prevEndYmd } = window;
   const pg = client as PgClientLike;
-  const [channels, munis, emotions, shareCur, sharePrev] = await Promise.all([
+  const [channels, munis, emotions, shareCur, sharePrev, interpretation] = await Promise.all([
     loadChannels(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     loadMunicipalityPartition(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     loadEmotions(pg, agency.id, startYmd, endYmd, MAIL_UNIVERSE),
     commentShare(pg, agency.id, { startYmd, endYmd }, MAIL_UNIVERSE),
     commentShare(pg, agency.id, { startYmd: prevStartYmd, endYmd: prevEndYmd }, MAIL_UNIVERSE),
+    loadInterpretationData(pg, agency.id, endYmd),
   ]);
 
   let samples: AnnotatedSampleSet = { today: [], negative: [], neutral: [], positive: [], droppedByThreadCap: { today: 0, negative: 0, neutral: 0, positive: 0 } };
@@ -339,8 +342,10 @@ export async function buildWeeklyComposerInput(
     extraFacts: buildWeeklyExtraFacts({ totals: cur.totals, prevTotals: prev.totals, indicators: data.indicators, topics: data.topics, prevTopics: data.prevTopics }),
     extraContext: weeklyExtraContext({ hasComments, moves }),
     nameWhitelist: Array.from(new Set([...names, ...data.topics.map((t) => t.topic), ...data.prevTopics.map((t) => t.topic)].filter((n) => /\d/.test(n)))),
+    sustainedLevel: interpretation.sustainedLevel,
+    openIssues: interpretation.openIssues,
   };
-  return { input, parentStats, contextError, share, hasComments };
+  return { input, parentStats, contextError, share, hasComments, interpretation };
 }
 
 /** Texto del motor en la forma del render del semanal. El titular va en texto plano (el render lo escapa). */

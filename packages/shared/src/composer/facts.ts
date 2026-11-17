@@ -8,6 +8,7 @@
  * municipios y emociones del mismo universo.
  */
 import { formatLongDay } from '../format-period';
+import { openIssueFacts, sustainedLevelFacts } from './interpretation';
 import type { ComposerDailyPoint, ComposerInput, ComposerTotals, Fact } from './types';
 
 /** Un porcentaje de variación solo se ofrece si la base previa llega a esto (evita «+1400 %»). */
@@ -175,6 +176,10 @@ export function buildFactPackage(input: ComposerInput, opts: BuildFactPackageOpt
   (input.sources ?? []).slice(0, 5).forEach((s, i) => add(f, `source_${i + 1}`, s.mentions, `${s.mentions}`, `menciones en la fuente «${s.source}»`));
   (input.municipalities ?? []).slice(0, 5).forEach((m, i) => add(f, `muni_${i + 1}`, m.total, `${m.total}`, `menciones con municipio «${m.municipality}»`));
   (input.emotions ?? []).slice(0, 5).forEach((e, i) => add(f, `emotion_${i + 1}`, e.count, `${e.count}`, `menciones con la emoción «${e.emotion}»`));
+
+  // INT-01: nivel a 14 y 28 días y asuntos abiertos (si el caller los trae).
+  for (const x of sustainedLevelFacts(input.sustainedLevel)) f[x.id] = x;
+  for (const x of openIssueFacts(input.openIssues)) f[x.id] = x;
 
   for (const x of input.extraFacts ?? []) f[x.id] = x;
 

@@ -14,6 +14,7 @@
 export * from './types';
 export * from './vetoed';
 export * from './facts';
+export * from './interpretation';
 export * from './samples';
 export * from './lint';
 export * from './safety-net';

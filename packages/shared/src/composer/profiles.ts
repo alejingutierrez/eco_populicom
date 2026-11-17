@@ -7,6 +7,7 @@
  */
 import { COMPOSER_EMAIL_SYSTEM_BASE, COMPOSER_WEB_SYSTEM_BASE, COMPOSER_WEEKLY_EMAIL_SYSTEM_BASE } from './prompts';
 import type { DraftShape } from './schemas';
+import { LEVEL_DEFECT_HELP } from './interpretation';
 import type { ComposerRole } from './types';
 
 export type ComposerProfileId = 'daily' | 'weekly' | 'overview' | 'scorecard' | 'light';
@@ -35,9 +36,9 @@ export interface ComposerProfile {
 
 const QA_TASK = `
 
-TAREA (rol QA): revisa cada oración contra las muestras, sus fechas y la lista de hechos. Busca: cifras que no coinciden; cuantificadores que las muestras no respaldan (muchos, la mayoría, casi todos, al menos N; «varios» pide 3 o más muestras, «muchos» 8 o más); atribuciones a quien no lo dijo; días o fechas mal puestos, sobre todo una reacción a una publicación vieja contada como noticia del día; novedades que no se demuestran; afirmaciones de AUSENCIA («no hubo», «sin críticas», «ningún medio») o de EXCLUSIVIDAD («la única», «solo», «casi por completo», «la mayoría») que ningún hecho respalda; verbos dramáticos, figuras, intención atribuida o un titular que añade matices de juicio que la fuente no dijo; contradicciones entre titular, párrafo, viñetas e insights. Si no hay defectos, devuelve lista vacía.`;
+TAREA (rol QA): revisa cada oración contra las muestras, sus fechas y la lista de hechos. Busca: cifras que no coinciden; cuantificadores que las muestras no respaldan (muchos, la mayoría, casi todos, al menos N; «varios» pide 3 o más muestras, «muchos» 8 o más); atribuciones a quien no lo dijo; días o fechas mal puestos, sobre todo una reacción a una publicación vieja contada como noticia del día; novedades que no se demuestran; afirmaciones de AUSENCIA («no hubo», «sin críticas», «ningún medio») o de EXCLUSIVIDAD («la única», «solo», «casi por completo», «la mayoría») que ningún hecho respalda; verbos dramáticos, figuras, intención atribuida o un titular que añade matices de juicio que la fuente no dijo; contradicciones entre titular, párrafo, viñetas e insights; y, si los hechos traen level_*, una variación («sube», «baja») sin el nivel a 14 y 28 días en su mismo bloque, o una afirmación de que la situación mejora, se calma o va bajando cuando el contexto dice «¿Nivel sostenido? SÍ» (tipo 'contradiccion'). Si no hay defectos, devuelve lista vacía.`;
 
-const CORRECTOR_TASK = '\n\nTAREA (rol CORRECTOR): devuelve el borrador completo con esos defectos corregidos (mismos campos, cifras solo con marcadores {{id}}). Si una frase no se puede respaldar, elimínala en lugar de suavizarla. El titular sigue en 16 palabras y 100 caracteres como máximo. No cambies fechas, autores ni cifras que no te señalaron; si al corregir mueves una afirmación, verifica su fecha contra el «escrito el» de las muestras.';
+const CORRECTOR_TASK = '\n\nTAREA (rol CORRECTOR): devuelve el borrador completo con esos defectos corregidos (mismos campos, cifras solo con marcadores {{id}}). Si una frase no se puede respaldar, elimínala en lugar de suavizarla. El titular sigue en 16 palabras y 100 caracteres como máximo. No cambies fechas, autores ni cifras que no te señalaron; si al corregir mueves una afirmación, verifica su fecha contra el «escrito el» de las muestras.' + LEVEL_DEFECT_HELP;
 
 const ANALYST_DAY = `
 
@@ -59,6 +60,14 @@ TAREA (rol ANALISTA): agrupa lo que pasó en el periodo en hilos (threads) y res
 - week: 1 a 3 hallazgos por sentimiento; si el sentimiento de ECO de una muestra no coincide con su texto, no la uses como evidencia de ese sentimiento.
 - 'cautions': cosas que el redactor no debe afirmar (novedades, ausencias o cambios contra el periodo previo que los hechos no demuestran).`;
 
+/** INT-01: regla de nivel y de asuntos abiertos, común a redactor, QA y corrector. */
+export const LEVEL_AND_ISSUES_RULE = `
+
+NIVEL Y ASUNTOS (aplica si los hechos traen marcadores level_* o issue_*):
+- Cada bloque (párrafo, viñeta, insight, ítem de comparación) que diga que el volumen, las menciones, un sentimiento o un indicador sube o baja lleva en ese mismo bloque el nivel a 14 y a 28 días con {{level_14_neg_pct}} y {{level_28_neg_pct}}. Con un bloque basta: no repitas la variación en otros bloques para no repetir el nivel. El titular no lleva cifras ni nivel.
+- Si el contexto dice «¿Nivel sostenido? SÍ», no digas en ningún bloque (tampoco en el titular) que la conversación, la crítica o la situación mejora, se calma, cede, pierde fuerza o va bajando. Puedes decir que el volumen bajó, con su marcador y el nivel al lado.
+- Si lo que cuentas pertenece a un asunto abierto, di cuántos días lleva abierto con su marcador issue_N_days_open y no lo presentes como nuevo si lleva más de tres. No copies la tabla de asuntos: el correo ya la muestra.`;
+
 const WRITER_DAILY = `
 
 TAREA (rol REDACTOR): escribe el análisis completo del correo del día en UNA sola pasada para que todos los bloques sean coherentes:
@@ -66,6 +75,7 @@ TAREA (rol REDACTOR): escribe el análisis completo del correo del día en UNA s
 - paragraph: 2 a 4 oraciones; puedes usar <strong>…</strong> en lo clave; cifras solo con marcadores {{id}}.
 - highlights: 3 o 4 viñetas, cada una cuenta un hecho (no una cifra con etiqueta).
 - insights: 1 o 2 ítems por sentimiento (negative, neutral, positive) sobre la semana, con fechas del post cuando sea reacción a una publicación.
+${LEVEL_AND_ISSUES_RULE}
 Responde con la herramienta.`;
 
 const WRITER_WEEKLY = `
@@ -76,6 +86,7 @@ TAREA (rol REDACTOR): escribe el resumen semanal comparativo en UNA sola pasada 
 - highlights: 3 o 4 viñetas, cada una cuenta un hecho de la semana (no una cifra con etiqueta).
 - insights: 1 o 2 ítems por sentimiento (negative, neutral, positive), con fechas del post cuando sea reacción a una publicación.
 - comparison: 2 a 4 ítems que comparan esta semana con la previa usando SOLO los marcadores del periodo previo y de variación (prev_week_*, week_*_delta_*) y de composición (comment_share_week, comment_share_prev_week). Si el peso de los comentarios cambió mucho entre semanas, dilo: los totales no comparan el mismo tipo de conversación. Si un porcentaje de variación no está en los hechos (base previa pequeña), usa la variación absoluta.
+${LEVEL_AND_ISSUES_RULE}
 Responde con la herramienta.`;
 
 const WRITER_OVERVIEW = `
@@ -85,6 +96,7 @@ TAREA (rol REDACTOR): escribe el lede del periodo para el Overview en UNA sola p
 - paragraph: 3 a 5 oraciones que expliquen qué pasó en el periodo, a raíz de qué y quién lo dijo; puedes usar <strong>…</strong> en lo clave; cifras solo con marcadores {{id}}.
 - highlights: 2 a 4 viñetas, cada una cuenta un hecho (no una cifra con etiqueta).
 - insights: 1 o 2 ítems por sentimiento (negative, neutral, positive), con fechas del post cuando sea reacción a una publicación.
+${LEVEL_AND_ISSUES_RULE}
 Responde con la herramienta.`;
 
 const WRITER_SCORECARD = `

@@ -3,6 +3,7 @@
  * marcadores y muestras anotadas (port de `ctx` y `samples_txt` del prototipo).
  */
 import { factsBlock, type FactPackage } from './facts';
+import { interpretationContext } from './interpretation';
 import type { ComposerProfile } from './profiles';
 import { samplesBlock } from './samples';
 import type { AnnotatedSampleSet, ComposerInput } from './types';
@@ -26,6 +27,8 @@ export function buildPromptContext(profile: ComposerProfile, input: ComposerInpu
     lines.push(p);
   }
   let header = `${lines.join('\n')}\n\nHECHOS (únicas cifras permitidas; refiérelas con el marcador):\n${factsBlock(pkg.facts)}\n\n`;
+  const interp = interpretationContext(input.sustainedLevel, input.openIssues);
+  if (interp) header += `${interp}\n\n`;
   if (input.extraContext?.trim()) header += `CONTEXTO ADICIONAL:\n${input.extraContext.trim()}\n\n`;
   const s = samplesBlock(samples, { includeToday: profile.includeTodaySamples, windowDays: pkg.windowDays });
   return { header, samples: s };

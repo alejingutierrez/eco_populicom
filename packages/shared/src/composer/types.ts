@@ -1,3 +1,6 @@
+import type { OpenIssuesResult } from '../narratives/open-issues';
+import type { SustainedLevel } from '../narratives/sustained-level';
+
 /**
  * Tipos del motor de redacción (composer). Spec interpretación v1, sección 10
  * y Anexo B.
@@ -119,6 +122,13 @@ export interface ComposerInput {
   extraContext?: string | null;
   /** Nombres propios con dígitos que el lint no debe tratar como cifras. */
   nameWhitelist?: string[];
+  /**
+   * INT-01: nivel de negatividad a 14 y 28 días y asuntos abiertos, calculados
+   * por código (`buildSustainedLevel`, `buildOpenIssues`). Opcionales: sin
+   * ellos el motor se comporta como antes.
+   */
+  sustainedLevel?: SustainedLevel | null;
+  openIssues?: OpenIssuesResult | null;
 }
 
 // ------------------------------------------------------------------ esquemas (Anexo B)
@@ -193,7 +203,15 @@ export interface QaDefect {
   fix: string;
 }
 
-export type CodeDefectType = 'marcador_invalido' | 'tono_dramatico' | 'cifra_sin_fuente' | 'titular_largo';
+export type CodeDefectType =
+  | 'marcador_invalido'
+  | 'tono_dramatico'
+  | 'cifra_sin_fuente'
+  | 'titular_largo'
+  /** INT-01: una variación sin el nivel a 14 y 28 días en el mismo bloque (aviso). */
+  | 'direccion_sin_nivel'
+  /** INT-01: dice que la situación mejora o se calma con el nivel sostenido (aviso). */
+  | 'mejora_con_nivel_sostenido';
 
 /**
  * Defecto detectado por código. `hard`: la red de seguridad actúa (quita la

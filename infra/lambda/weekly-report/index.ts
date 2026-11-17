@@ -1080,7 +1080,13 @@ async function buildDailyEmailWithComposer(
         dayLabel: formatLongDay(endDate),
         minDeltaBase: FACT_MIN_DELTA_BASE,
       }),
+      // INT-01: los mismos datos que recibió el redactor (o que se compararon
+      // contra la composición guardada). Si la carga falló, van en null y el
+      // correo sale sin ese bloque.
+      sustainedLevel: fresh?.interpretation.sustainedLevel ?? null,
+      openIssues: fresh?.interpretation.openIssues ?? null,
     };
+    if (fresh?.interpretation.errors.length) delivery.interpretationErrors = fresh.interpretation.errors;
   }
 
   const renderData: DailyReportRenderData = {
@@ -1590,7 +1596,11 @@ async function buildWeeklyEmailWithComposer(
         ? { weekPct: pct(share.week), prevWeekPct: share.prevWeek.total > 0 ? pct(share.prevWeek) : null }
         : null,
       methodologyNote: buildWeeklyMethodologyNote({ weekLabel: B.weekLabel, prevWeekLabel: B.prevWeekLabel, minDeltaBase: FACT_MIN_DELTA_BASE }),
+      // INT-01: nivel sostenido y asuntos abiertos al último día de la semana.
+      sustainedLevel: fresh?.interpretation.sustainedLevel ?? null,
+      openIssues: fresh?.interpretation.openIssues ?? null,
     };
+    if (fresh?.interpretation.errors.length) delivery.interpretationErrors = fresh.interpretation.errors;
     renderData = {
       ...B,
       // Deltas con base mínima: sin «+400 %» sobre una base previa chica.

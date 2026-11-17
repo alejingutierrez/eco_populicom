@@ -39,6 +39,9 @@ import {
   stackedBar,
   swatch,
 } from './instrument';
+import { interpretationMethodologyNote, openIssuesSection, sustainedLevelRow } from './interpretation-blocks';
+import type { OpenIssuesResult } from '../narratives/open-issues';
+import type { SustainedLevel } from '../narratives/sustained-level';
 
 export interface DailyReportRenderData {
   agencyName: string;
@@ -161,6 +164,13 @@ export interface DailyInterpretation {
   composition?: { weekPct: number; prevWeekPct: number | null } | null;
   /** Nota de metodología al pie del contenido (texto plano). */
   methodologyNote?: string | null;
+  /**
+   * INT-01: nivel de negatividad a 14 y 28 días (va bajo las lecturas, junto a
+   * las variaciones) y asuntos abiertos (sección propia tras el resumen).
+   * Ausentes, el correo no cambia.
+   */
+  sustainedLevel?: SustainedLevel | null;
+  openIssues?: OpenIssuesResult | null;
 }
 // ------------------------------------------------------------
 // Helpers locales
@@ -279,7 +289,7 @@ function compositionChip(data: DailyReportRenderData): string {
 }
 
 /** 3 · Resumen del día: titular, foto opcional, párrafo y viñetas numeradas. */
-function renderSummary(data: DailyReportRenderData): string {
+function renderSummary(data: DailyReportRenderData, sec: string): string {
   const s = data.dailySummary;
   const headline = (s.headline ?? '').trim();
   const h2 = headline
@@ -288,7 +298,7 @@ function renderSummary(data: DailyReportRenderData): string {
   const img = heroImage(data.heroImage ? { ...data.heroImage, alt: data.heroImage.alt ?? headline } : null);
   const list = numberedList(s.highlights ?? [], { marginTop: 14 });
   return sectionRow(`
-              ${sectionLabel(`01 · ${s.label}`)}
+              ${sectionLabel(`${sec} · ${s.label}`)}
               ${h2}
               ${img}
               <p style="margin:0;font-size:15px;line-height:1.6;color:${T.ink2};">${s.paragraph}</p>
@@ -296,10 +306,10 @@ function renderSummary(data: DailyReportRenderData): string {
 }
 
 /** 4 · Tendencia día a día — columnas apiladas; el día pico va resaltado. */
-function renderTrend(data: DailyReportRenderData): string {
+function renderTrend(data: DailyReportRenderData, sec: string): string {
   const series = data.dailySeries;
   if (!series.length) {
-    return sectionRow(`${sectionLabel('02 · Tendencia día a día')}
+    return sectionRow(`${sectionLabel(`${sec} · Tendencia día a día`)}
               <div style="font-size:13px;color:${T.text2};">Sin datos en el periodo.</div>`);
   }
   const totals = series.map((d) => d.negative + d.neutral + d.positive);
@@ -319,12 +329,12 @@ function renderTrend(data: DailyReportRenderData): string {
     { height: 120, barWidth: 36, alt },
   );
   return sectionRow(`
-              ${sectionLabel('02 · Tendencia día a día')}
+              ${sectionLabel(`${sec} · Tendencia día a día`)}
               ${chart}`);
 }
 
 /** 5 · Insights: un bloque por sentimiento con señal; si ninguno, una línea. */
-function renderInsights(data: DailyReportRenderData): string {
+function renderInsights(data: DailyReportRenderData, sec: string): string {
   const { totals } = data;
   const blocks = SENTIMENTS
     .map((s) => ({ ...s, items: data.insights[s.key].filter((x) => x && x.trim().length > 0) }))
@@ -341,12 +351,12 @@ function renderInsights(data: DailyReportRenderData): string {
     : `<div style="font-size:13px;color:${T.text2};">Sin señal suficiente para insights en este periodo.</div>`;
   const win = data.interpretation?.insightsWindowLabel?.trim();
   return sectionRow(`
-              ${sectionLabel(win ? `03 · Insights · ${win}` : '03 · Insights')}
+              ${sectionLabel(win ? `${sec} · Insights · ${win}` : `${sec} · Insights`)}
               ${body}`);
 }
 
 /** 6 · Tópicos: top 5 con nombre; el resto se pliega en "Otros tópicos". */
-function renderTopics(data: DailyReportRenderData): string {
+function renderTopics(data: DailyReportRenderData, sec: string): string {
   const namedTopics = data.topicsTable.filter((t) => !t.isOther && !t.isUnclassified);
   const foldedTopics = namedTopics.slice(5);
   const prevOther = data.topicsTable.find((t) => t.isOther);
@@ -370,7 +380,7 @@ function renderTopics(data: DailyReportRenderData): string {
     ...data.topicsTable.filter((t) => t.isUnclassified),
   ];
   if (!list.length) {
-    return sectionRow(`${sectionLabel('04 · Tópicos')}
+    return sectionRow(`${sectionLabel(`${sec} · Tópicos`)}
               <div style="font-size:13px;color:${T.text2};">Sin menciones clasificadas por tópico en este periodo.</div>`);
   }
   const rows = list.map((t) => {
@@ -394,7 +404,7 @@ function renderTopics(data: DailyReportRenderData): string {
                   <td class="hide-mobile" style="padding:10px 0 0 0;font-family:${FONT_MONO};font-size:11px;color:${T.text2};text-align:right;">${pct(totals.negative, totals.total)} · ${pct(totals.neutral, totals.total)} · ${pct(totals.positive, totals.total)}%</td>
                 </tr>`;
   return sectionRow(`
-              ${sectionLabel('04 · Tópicos')}
+              ${sectionLabel(`${sec} · Tópicos`)}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                 ${rows}
                 ${footer}
@@ -407,7 +417,8 @@ function renderTopics(data: DailyReportRenderData): string {
  * `interpretation.methodologyNote` (legacy).
  */
 function renderMethodology(data: DailyReportRenderData): string {
-  const note = data.interpretation?.methodologyNote?.trim();
+  const it = data.interpretation;
+  const note = [it?.methodologyNote?.trim(), interpretationMethodologyNote(it?.sustainedLevel, it?.openIssues)].filter(Boolean).join(' ');
   if (!note) return '';
   return sectionRow(`
               ${sectionLabel('Cómo se lee este correo')}
@@ -448,14 +459,21 @@ export function dailyPreheader(data: DailyReportRenderData): string {
 // ------------------------------------------------------------
 
 export function renderDailyReportHtml(data: DailyReportRenderData): string {
+  // Las secciones se numeran en orden; «Asuntos abiertos» (INT-01) solo
+  // existe con el motor, así que sin él la numeración es la de siempre.
+  let n = 0;
+  const next = () => String(++n).padStart(2, '0');
+  const it = data.interpretation;
   const rows = [
     renderReadouts(data),
+    sustainedLevelRow(it?.sustainedLevel),
     renderDistribution(data),
-    renderSummary(data),
-    renderTrend(data),
-    renderInsights(data),
-    renderTopics(data),
-  ];
+    renderSummary(data, next()),
+    it?.openIssues ? openIssuesSection(it.openIssues, next(), { negThresholdPct: it.sustainedLevel?.thresholds.negPct }) : '',
+    renderTrend(data, next()),
+    renderInsights(data, next()),
+    renderTopics(data, next()),
+  ].filter(Boolean);
   // Solo con el motor (interpretation); en legacy no hay fila extra.
   const methodology = renderMethodology(data);
   if (methodology) rows.push(methodology);

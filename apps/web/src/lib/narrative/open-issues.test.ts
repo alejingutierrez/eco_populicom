@@ -107,6 +107,21 @@ describe('principalVoice', () => {
     expect(principalVoice(small.rows, small.voiceLabels)).toEqual({ voice: null, voices: 2 });
   });
 
+  test('una persona particular no se nombra: ni por comentar mucho ni por pocas interacciones', () => {
+    // 4 comentarios en Facebook (no es un medio) y un medio con 3 notas: gana el medio.
+    const a = rowsOf([
+      ...many(4, 'n1', END, { author: 'Mara Particular', domain: 'facebook.com', page_type: 'facebook' }),
+      ...many(3, 'n1', END, { author: 'NotiCel', domain: 'noticel.com' }),
+    ]);
+    expect(principalVoice(a.rows, a.voiceLabels).voice).toMatchObject({ key: 'noticel', basis: 'mentions', media: true });
+    // Solo la persona: sin voz dominante, pero cuenta como voz.
+    const b = rowsOf(many(5, 'n1', END, { author: 'Mara Particular', domain: 'facebook.com', page_type: 'facebook', inter: 9 }));
+    expect(principalVoice(b.rows, b.voiceLabels)).toEqual({ voice: null, voices: 1 });
+    // Una cuenta que no es un medio pero con alcance (100 interacciones o más) sí se nombra.
+    const c = rowsOf([raw('n1', END, { author: 'Jay Fonseca', domain: 'facebook.com', page_type: 'facebook', inter: 100 })]);
+    expect(principalVoice(c.rows, c.voiceLabels).voice).toMatchObject({ key: 'jayfonseca', basis: 'interactions', media: false });
+  });
+
   test('sin interacciones y sin una voz con 3 menciones: sin voz dominante', () => {
     const { rows, voiceLabels } = rowsOf([
       ...many(2, 'n1', END, { author: 'El Vocero', domain: 'elvocero.com' }),

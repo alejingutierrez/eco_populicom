@@ -17,42 +17,12 @@
  * valores salen de este script, nunca de un usuario.
  */
 import { writeFileSync } from 'node:fs';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { createEcoMigrationClient } from './lib/eco-migration-client.ts';
 import { loadDailySentimentSeries } from '../packages/shared/src/aggregations/sentiment-report.ts';
 import { buildOpenIssues, loadOpenIssuesInput, type OpenIssue } from '../packages/shared/src/narratives/open-issues.ts';
 import { buildSustainedLevel, sustainedSeriesStart, type SustainedWindow } from '../packages/shared/src/narratives/sustained-level.ts';
 
-const lambda = new LambdaClient({});
-
-const lit = (v: unknown): string => {
-  if (Array.isArray(v)) return `ARRAY[${v.map(lit).join(',')}]`;
-  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
-  if (typeof v === 'string') return `'${v.replace(/'/g, "''")}'`;
-  throw new Error(`Parámetro no admitido: ${typeof v}`);
-};
-
-/** `$N` → literal. De mayor a menor para que `$1` no pise a `$10`. */
-function inline(sql: string, params: unknown[] = []): string {
-  let out = sql;
-  for (let i = params.length; i >= 1; i--) out = out.split(`$${i}`).join(lit(params[i - 1]));
-  return out;
-}
-
-const client = {
-  async query<T = any>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
-    // custom-query exige que el texto empiece por SELECT: los CTE van envueltos.
-    const query = `SELECT * FROM (${inline(sql, params)}) z`;
-    const res = await lambda.send(new InvokeCommand({
-      FunctionName: 'eco-migration',
-      Payload: Buffer.from(JSON.stringify({ action: 'custom-query', query })),
-    }));
-    const payload = JSON.parse(Buffer.from(res.Payload!).toString('utf8'));
-    if (payload.errorMessage) throw new Error(`custom-query: ${payload.errorMessage}`);
-    const body = typeof payload.body === 'string' ? JSON.parse(payload.body) : payload.body;
-    if (!body || body.error) throw new Error(`custom-query: ${body?.error ?? 'sin body'}`);
-    return { rows: body.rows ?? [] };
-  },
-};
+const client = createEcoMigrationClient();
 
 const STAGE: Record<OpenIssue['stage'], string> = { new: 'nuevo', rising: 'sube', falling: 'baja', steady: 'se mantiene' };
 

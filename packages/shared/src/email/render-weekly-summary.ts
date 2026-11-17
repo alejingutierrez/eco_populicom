@@ -38,6 +38,10 @@ import {
   swatch,
 } from './instrument';
 
+import { interpretationMethodologyNote, openIssuesSection, sustainedLevelBox, sustainedLevelRow } from './interpretation-blocks';
+import type { OpenIssuesResult } from '../narratives/open-issues';
+import type { SustainedLevel } from '../narratives/sustained-level';
+
 export interface SentimentTotalsLite {
   negative: number;
   neutral: number;
@@ -165,6 +169,13 @@ export interface WeeklyInterpretation {
   composition?: { weekPct: number; prevWeekPct: number | null } | null;
   /** Nota de metodología al pie del contenido (texto plano). */
   methodologyNote?: string | null;
+  /**
+   * INT-01: nivel de negatividad a 14 y 28 días (bajo las lecturas y bajo la
+   * tabla «Semana vs semana») y asuntos abiertos (sección propia tras el
+   * vistazo). Ausentes, el correo no cambia.
+   */
+  sustainedLevel?: SustainedLevel | null;
+  openIssues?: OpenIssuesResult | null;
 }
 
 // ------------------------------------------------------------
@@ -275,7 +286,7 @@ function renderWeekVsWeek(data: WeeklySummaryRenderData, sec: string): string {
                     changeHtml: deltaOrDash(data.sentimentDelta[s.key], s.key !== 'neutral'),
                   })),
                 ],
-              })}${compositionChip(data)}`);
+              })}${compositionChip(data)}${sustainedLevelBox(data.interpretation?.sustainedLevel, { marginTop: 12 })}`);
 }
 
 function renderRhythm(data: WeeklySummaryRenderData, sec: string): string {
@@ -334,7 +345,8 @@ function renderWeeklyInsights(data: WeeklySummaryRenderData, sec: string): strin
  * base mínima de los porcentajes. Vacía sin `interpretation.methodologyNote`.
  */
 function renderMethodology(data: WeeklySummaryRenderData): string {
-  const note = data.interpretation?.methodologyNote?.trim();
+  const it = data.interpretation;
+  const note = [it?.methodologyNote?.trim(), interpretationMethodologyNote(it?.sustainedLevel, it?.openIssues)].filter(Boolean).join(' ');
   if (!note) return '';
   return sectionRow(`
               ${sectionLabel('Cómo se lee este correo')}
@@ -437,9 +449,14 @@ export function renderWeeklySummaryHtml(data: WeeklySummaryRenderData): string {
   let n = 0;
   const next = () => String(++n).padStart(2, '0');
 
+  const it = data.interpretation;
   const sections = [
     renderReadouts(data),
+    // INT-01: el nivel junto a las variaciones de los indicadores, y los
+    // asuntos abiertos tras el vistazo (solo con el motor).
+    data.metrics ? sustainedLevelRow(it?.sustainedLevel) : '',
     renderGlance(data, next()),
+    it?.openIssues ? openIssuesSection(it.openIssues, next(), { negThresholdPct: it.sustainedLevel?.thresholds.negPct }) : '',
     renderWeekVsWeek(data, next()),
   ];
   const rhythm = (data.dailyCompare ?? []).length ? renderRhythm(data, next()) : '';
