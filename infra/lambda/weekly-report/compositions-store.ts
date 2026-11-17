@@ -10,6 +10,7 @@
  */
 import type { Composition } from '@eco/shared';
 import type { Queryable } from '../lib/parent-resolver';
+import { pgJson } from '../lib/pg-json';
 
 export type CompositionReportType = 'daily' | 'weekly';
 
@@ -66,7 +67,8 @@ export async function saveComposition(
       row.reportType,
       row.periodEnd,
       row.composition.composerVersion,
-      JSON.stringify(row.composition),
+      // pgJson: un emoji cortado en una muestra tumbaba el guardado entero.
+      pgJson(row.composition),
       row.status ?? compositionStatus(row.composition),
     ]);
     return true;
