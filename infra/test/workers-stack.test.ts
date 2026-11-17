@@ -28,7 +28,7 @@ jest.mock('aws-cdk-lib/aws-lambda-nodejs', () => {
   };
 });
 
-test('WorkersStack creates 4 Lambda functions', () => {
+function buildTemplate(): Template {
   const app = new cdk.App();
   const env = { account: '123456789012', region: 'us-east-1' };
 
@@ -56,6 +56,24 @@ test('WorkersStack creates 4 Lambda functions', () => {
     alertsQueue,
   });
 
-  const template = Template.fromStack(stack);
-  template.resourceCountIs('AWS::Lambda::Function', 4);
+  return Template.fromStack(stack);
+}
+
+test('WorkersStack creates 4 Lambda functions', () => {
+  buildTemplate().resourceCountIs('AWS::Lambda::Function', 4);
+});
+
+test('el cron de ingesta corre en minutos fijos (0, 5, 10…), no con rate(5 minutes)', () => {
+  const template = buildTemplate();
+  const rules = Object.values(template.findResources('AWS::Events::Rule')) as Array<{
+    Properties: { ScheduleExpression?: string; Targets?: Array<{ Input?: string }> };
+  }>;
+  const expressions = rules.map((r) => r.Properties.ScheduleExpression);
+  expect(expressions).toContain('cron(0/5 * * * ? *)');
+  // el refresh diario de las 07:00 UTC no cambia
+  expect(expressions).toContain('cron(0 7 * * ? *)');
+  // la regla de ingesta sigue sin parámetros (corrida incremental)
+  const ingestion = rules.find((r) => r.Properties.ScheduleExpression === 'cron(0/5 * * * ? *)')!;
+  expect(ingestion.Properties.Targets).toHaveLength(1);
+  expect(ingestion.Properties.Targets![0].Input).toBeUndefined();
 });

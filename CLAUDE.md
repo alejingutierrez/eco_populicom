@@ -217,6 +217,15 @@ llama a Brandwatch, y tú tampoco la llames al probar.
 
 ---
 
+**Reparto de la cuota con BrandIQ (propuesto 17-nov-2026):** ECO 14, BrandIQ
+10 y 6 de reserva sobre 30 peticiones por 10 min. En código: 7 peticiones por
+corrida incremental (`INCREMENTAL_MAX_REQUESTS`), techo de cesión 24, cron en
+los minutos 0, 5, 10… (`infra/lib/ingestion-schedule.ts`; BrandIQ en los 2, 7,
+12…). Una query nueva cuesta 2 por ventana: cabe una séptima, no una octava.
+Llamadas a mano: hasta 5 por ventana; para más, pausar las dos ingestas y
+esperar 11 min. El cron vivo se cambia con `aws events put-rule`, nunca con
+`cdk deploy EcoWorkers`. Detalle en `docs/tecnica/ingesta-brandwatch-429.md`.
+
 ## Migraciones de DB
 
 Drizzle vive en `packages/database/src/migrations/`. **NO** corre

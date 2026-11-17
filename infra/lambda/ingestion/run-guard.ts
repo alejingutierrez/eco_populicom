@@ -76,11 +76,26 @@ const MINUTE = 60_000;
 // docs/tecnica/ingesta-brandwatch-429.md.
 export const QUOTA_CEILING = 24;
 
+// Cupo propio de ECO (ING-01, reparto con BrandIQ): 14 de las 30 peticiones
+// por 10 min; BrandIQ tiene 10 y quedan 6 de reserva. El cron corre cada
+// 5 min, así que en una ventana caben 2 corridas: 7 peticiones por corrida.
+// Este tope lo cuenta ECO y no depende de `x-rate-limit-used`, que en
+// producción marca ~8 con ECO sola gastando 12 por ventana (no se comporta
+// como el contador de 10 min de la cuenta). Hoy una corrida pide 6 (una por
+// query) y 7 en horas de volumen; la que necesite más deja el resto para la
+// corrida siguiente (el cursor guarda lo ya encolado). Una séptima query
+// activa cabe; la octava no. El refresh diario tiene su propio tope (12, con
+// pacing) y corre a una hora sin trabajo de fondo de BrandIQ.
+export const ECO_QUOTA_SHARE = 14;
+export const INCREMENTAL_RUNS_PER_WINDOW = 2;
+export const INCREMENTAL_MAX_REQUESTS = Math.floor(ECO_QUOTA_SHARE / INCREMENTAL_RUNS_PER_WINDOW);
+
 const PLANS: Record<RunMode, Omit<RunPlan, 'mode'>> = {
   incremental: {
     retry: BOUNDED_RETRY,
     budgetMs: 3 * MINUTE,
     minRequestIntervalMs: 0,
+    maxRequests: INCREMENTAL_MAX_REQUESTS,
     quotaCeiling: QUOTA_CEILING,
   },
   refresh: {
