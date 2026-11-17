@@ -115,13 +115,17 @@ async function getUserAccess(
   if (sub) conds.push(eq(users.cognitoSub, sub));
   if (email) conds.push(eq(users.email, email));
   const [u] = await db
-    .select({ id: users.id, allAgencies: users.allAgencies, agencyId: users.agencyId })
+    .select({ id: users.id, allAgencies: users.allAgencies, agencyId: users.agencyId, isActive: users.isActive })
     .from(users)
     .where(conds.length === 1 ? conds[0] : or(...conds))
     .limit(1);
 
   let access: Access;
-  if (u) {
+  if (u && u.isActive === false) {
+    // Usuario suspendido: no ve ninguna agencia. «Suspender» solo marcaba la
+    // fila y el usuario seguía entrando con su rol y sus agencias.
+    access = { allowedIds: new Set<string>(), primaryId: null };
+  } else if (u) {
     if (u.allAgencies) {
       access = { allowedIds: 'all', primaryId: u.agencyId };
     } else {
@@ -241,6 +245,23 @@ export async function resolveAllowedAgencySlugs(): Promise<string[] | null> {
 export async function filterAgenciesForCaller<T extends { slug: string }>(rows: T[]): Promise<T[]> {
   const { email } = await sessionFromHeaders();
   return rows.filter((a) => agencyVisibleTo(a.slug, email));
+}
+
+/**
+ * ¿El llamante puede operar sobre esta agencia? Para las rutas que reciben la
+ * agencia del cliente (`agencySlug` / `agencyId`) en vez de resolverla con
+ * `resolveAgencyId`. Sin sesión la respuesta es siempre no: a diferencia de las
+ * lecturas públicas, aquí no existe un contexto «seed».
+ */
+export async function callerCanAccessAgencySlug(agencySlug: string | null | undefined): Promise<boolean> {
+  if (!agencySlug) return false;
+  const { sub, email, slug } = await sessionFromHeaders();
+  const access = await getUserAccess(sub, email, slug);
+  if (!access) return false;
+  if (!agencyVisibleTo(agencySlug, email)) return false;
+  if (access.allowedIds === 'all') return true;
+  const id = await slugToId(agencySlug);
+  return !!id && access.allowedIds.has(id);
 }
 
 /**

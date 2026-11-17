@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, reportConfigs, users } from '@eco/database';
 import { eq, sql } from 'drizzle-orm';
 import { requireCapability } from '@/lib/auth/require-admin';
+import { callerCanAccessAgencySlug } from '@/lib/agency';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -62,6 +63,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!agencyRow.length) return NextResponse.json({ error: 'agency not found' }, { status: 404 });
   const agency = agencyRow[0];
+  // La capacidad (rol) no basta: la agencia llega del cliente.
+  if (!(await callerCanAccessAgencySlug(agency.slug))) {
+    return NextResponse.json({ error: 'agency not allowed for this user' }, { status: 403 });
+  }
 
   const cfgRow = await db.select().from(reportConfigs).where(eq(reportConfigs.agencyId, agency.id)).limit(1);
   const cfg = cfgRow[0] ?? null;
@@ -106,6 +111,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
   if (!agencyRow?.length) return NextResponse.json({ error: 'agency not found' }, { status: 404 });
   const agency = agencyRow[0];
+  if (!(await callerCanAccessAgencySlug(agency.slug))) {
+    return NextResponse.json({ error: 'agency not allowed for this user' }, { status: 403 });
+  }
 
   // Validación
   const errors: string[] = [];

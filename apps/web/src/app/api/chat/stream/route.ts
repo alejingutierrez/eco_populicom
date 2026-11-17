@@ -54,7 +54,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Auth primero para poder limitar por usuario (no por IP): el X-Forwarded-For
   // izquierdo es spoofeable detrás del ALB, así que keyear por Cognito sub evita
   // que un usuario evada el cap de la ruta cara rotando IPs.
-  const user = getSessionFromRequest(request);
+  const user = await getSessionFromRequest(request);
   if (!user?.sub) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }

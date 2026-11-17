@@ -46,6 +46,10 @@ const PROTECTED_PATHS = [
   // El reporte exportable devuelve el período completo de una agencia: nunca
   // puede servirse sin sesión.
   /^\/api\/export(\/.*)?$/,
+  // Configuración, historial, vista previa y envío de prueba de los reportes.
+  // Estaban fuera del middleware: sin él no hay cabeceras de identidad y el
+  // chequeo de agencia de cada ruta se quedaba sin datos con los que decidir.
+  /^\/api\/reports(\/.*)?$/,
   // Importación de exportes (Configuración → Importar menciones) y panel de
   // calidad. Solo estas rutas de /api/admin: /api/admin/diagnostics se
   // autentica con el secreto del cron, no con sesión.
@@ -110,13 +114,19 @@ function addSecurityHeaders(response: NextResponse, request: NextRequest): NextR
   return response;
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   if (!isProtected(pathname)) return NextResponse.next();
 
-  const session = getSessionFromRequest(request);
+  const session = await getSessionFromRequest(request);
   if (session) {
     const headers = new Headers(request.headers);
+    // Las cabeceras de identidad solo las fija el middleware. Se borran las que
+    // traiga el cliente: si el token no tenía correo o agencia, la cabecera del
+    // cliente sobrevivía y pasaba por identidad verificada.
+    headers.delete('x-eco-user-sub');
+    headers.delete('x-eco-user-email');
+    headers.delete('x-eco-user-agency');
     headers.set('x-eco-user-sub', session.sub);
     if (session.email) headers.set('x-eco-user-email', session.email);
     if (session.agencySlug) headers.set('x-eco-user-agency', session.agencySlug);
@@ -199,6 +209,8 @@ export const config = {
     '/api/sentiment/:path*',
     '/api/chat/:path*',
     '/api/export/:path*',
+    '/api/reports',
+    '/api/reports/:path*',
     '/api/admin/imports',
     '/api/admin/imports/:path*',
     '/api/admin/quality',

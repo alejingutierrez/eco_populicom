@@ -90,7 +90,10 @@ export async function setUserAgencyAccess(
 ): Promise<void> {
   const db = getDb();
 
-  if (typeof opts.allAgencies === 'boolean') {
+  // Solo quien ve todas las agencias (callerAllowedSlugs === null) puede
+  // conceder «ve todas». Un admin de agencia sí puede quitarlo.
+  const mayGrantAll = callerAllowedSlugs === null;
+  if (typeof opts.allAgencies === 'boolean' && (opts.allAgencies === false || mayGrantAll)) {
     await db.update(users).set({ allAgencies: opts.allAgencies }).where(eq(users.id, userId));
   }
 
