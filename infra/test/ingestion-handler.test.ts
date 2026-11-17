@@ -6,6 +6,7 @@ const mockS3Send = jest.fn();
 const mockSqsSend = jest.fn();
 const mockSmSend = jest.fn();
 const mockPgQuery = jest.fn();
+const mockPgEnd = jest.fn();
 
 jest.mock('@aws-sdk/client-s3', () => ({
   S3Client: class {
@@ -38,7 +39,7 @@ jest.mock(
     default: {
       Client: class {
         connect = async () => undefined;
-        end = async () => undefined;
+        end = () => mockPgEnd();
         query = (sql: string, params?: unknown[]) => mockPgQuery(sql, params);
       },
     },
@@ -163,6 +164,7 @@ beforeEach(() => {
     SecretString: JSON.stringify({ username: 'u', password: 'p', host: 'h', port: 5432, dbname: 'd', token: 'tok' }),
   });
   mockPgQuery.mockReset();
+  mockPgEnd.mockReset().mockResolvedValue(undefined);
   const grab = (...a: unknown[]) => void logs.push(a.map(String).join(' '));
   jest.spyOn(console, 'log').mockImplementation(grab);
   jest.spyOn(console, 'warn').mockImplementation(grab);
@@ -283,6 +285,25 @@ describe('eco-ingestion: corrida normal (sin regresiones)', () => {
     expect(cursorWrites).toEqual([[11, '2026-10-28T14:40:00.000Z', 4]]);
     expect(res.body).toContain('Query 11: 4 mentions in 1 pages');
     expect(res.body).toMatch(/\[run\] mode=incremental requests=1 elapsed=\d+s/);
+  });
+});
+
+describe('eco-ingestion: cierre de la base colgado (incidente 15-nov)', () => {
+  test('si client.end() no vuelve, la corrida termina igual y publica su línea de métricas', async () => {
+    setupAgencies([{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] }], {
+      11: '2026-10-28T14:00:00.000Z',
+    });
+    setupFetch(() => ({ status: 200, mentions: [mention(1, '2026-10-28T14:10:00.000+0000')] }));
+    mockPgEnd.mockReturnValue(new Promise(() => undefined));
+
+    const res = await run({});
+
+    expect(res.body).toContain('Query 11: 1 mentions in 1 pages');
+    expect(logs.join('\n')).toContain('DB-CIERRE-COLGADO');
+    expect(metricLines).toHaveLength(1);
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 1, QueriesFallidas: 0 });
+    // 5 s de espera al cierre, no los 900 s del timeout del lambda.
+    expect(Date.now() - NOW).toBeLessThan(10_000);
   });
 });
 

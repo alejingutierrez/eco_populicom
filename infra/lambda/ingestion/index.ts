@@ -3,6 +3,7 @@ import { SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { BrandwatchClient, RunBudget } from '@eco/brandwatch';
 import type { BrandwatchMention } from '@eco/shared';
+import { closeClientWithin } from './db-close';
 import { advanceCursorMs, cursorToCommit, shouldTouchCursor } from './cursor';
 import { orderQueryJobs } from './query-order';
 import type { QueryServedAt } from './query-order';
@@ -356,7 +357,9 @@ export const handler = async (
       }
     }
   } finally {
-    await client.end();
+    // Con tiempo máximo: un `end()` que no vuelve dejó el refresh del 15-nov
+    // colgado hasta el timeout del lambda (ver ./db-close).
+    await closeClientWithin(client);
   }
 
   if (breaker.isOpen) {
