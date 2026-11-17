@@ -116,6 +116,7 @@ import {
   type StoredEvaluation,
 } from './daily-composer';
 import { compositionStatus, loadStoredComposition, saveComposition, type StoredComposition } from './compositions-store';
+import { pgJson } from '../lib/pg-json';
 import {
   buildWeeklyComposerInput,
   draftToWeeklyText,
@@ -2692,7 +2693,7 @@ async function logSend(client: any, agencyId: string, entry: LogEntry): Promise<
           entry.triggeredBy ?? null,
           entry.archive.subject,
           entry.archive.headline,
-          JSON.stringify(entry.archive.composition),
+          pgJson(entry.archive.composition),
           entry.archive.composerVersion,
         ],
       );

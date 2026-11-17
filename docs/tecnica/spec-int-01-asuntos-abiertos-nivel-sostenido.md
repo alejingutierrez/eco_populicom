@@ -1,11 +1,17 @@
 # Spec · INT-01 · Asuntos abiertos y nivel sostenido en los correos
 
-**Versión 0.3 · 16 de noviembre de 2026 · cierre previsto 25 de noviembre**
+**Versión 0.4 · 17 de noviembre de 2026 · cierre previsto 25 de noviembre**
 
 Decisiones 1 a 7 aprobadas por Alejandro el 16-nov. WP-1 y WP-2 mergeados
-(#176). WP-3 y WP-4 con código hecho y sin desplegar (ver su estado en la
-sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
-al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8.
+(#176). WP-3 y WP-4 mergeados (#178) y `eco-weekly-report` desplegado el
+17-nov a las 03:46 UTC, con el visto bueno de Alejandro a las vistas previas
+(ver su estado en la sección 3). Los cambios respecto a la versión 0.1 están marcados como «Ajuste
+al implementar» en las secciones 2.1, 2.5, 2.7 y 2.8. WP-5 (Overview) está en
+un PR abierto, verificado en local con datos reales y sin mergear. WP-6: las
+corridas de octubre sobre el lambda están hechas y la comprobación diaria de
+los correos reales corre desde el 17-nov (sección 3, WP-6): **el ítem no
+cierra hasta juntar 7 días seguidos en OK**, y el primer día no cuenta porque
+el Diario de DDEC no dejó archivo.
 
 Este spec cubre lo que le falta a INT-01. Lo ya hecho (motor de redacción
 «Interpretación v1», PRs #159–#169) no se repite aquí. Las rutas de código son
@@ -422,7 +428,7 @@ mismo que antes (comparación del JSON de `/api/narrative/overview` antes y
 después para las 3 agencias), y un script de solo lectura imprime los asuntos
 de DF al 23-oct y al 15-nov con las cifras de la sección 1.2.
 
-**Estado 16-nov: código hecho, sin mergear.** Archivos:
+**Estado 16-nov: mergeado (#176).** Archivos:
 `packages/shared/src/narratives/story-rules.ts` (reglas mudadas sin cambios,
 más `isStoryEdge` extraída de `groupStories`), `open-issues.ts`
 (`buildOpenIssues`, `groupIssues`, `loadOpenIssuesInput`) y
@@ -473,7 +479,7 @@ Dos cosas que se ven en los datos y quedan para decidir en WP-4:
 −62, 28 días 65 % y −65, `sustained = true`; para Gobernadora al 15-nov,
 `sustained = false`.
 
-**Estado 16-nov: código hecho, sin mergear.**
+**Estado 16-nov: mergeado (#176).**
 `packages/shared/src/narratives/sustained-level.ts` (`buildSustainedLevel`).
 No hizo falta un cargador nuevo: `loadDailySentimentSeries` ya da la serie
 del mismo universo para cualquier rango. Resultado del script:
@@ -522,7 +528,7 @@ agencias muestra los hechos nuevos en `composition.facts`; y en 5 corridas
 del caso del 24-oct ninguna oración con variación queda sin nivel después del
 corrector.
 
-**Estado 16-nov: código hecho, sin mergear ni desplegar.** Archivos:
+**Estado 17-nov: mergeado (#178) y desplegado (03:46 UTC).** Archivos:
 `packages/shared/src/composer/interpretation.ts` (hechos, bloque de contexto
 y detectores), y cambios en `facts.ts`, `context.ts`, `compose.ts`,
 `profiles.ts`, `lint.ts` («14» y «28» dejan de ser cifras sin fuente),
@@ -558,7 +564,7 @@ previas de DF, DDEC y Gobernadora (Diario y Semanal). El despliegue del lambda
 va después de ese visto bueno, por esbuild y `update-function-code`, con el
 bundle vivo comparado antes contra `main`.
 
-**Estado 16-nov: código hecho, sin mergear ni desplegar.**
+**Estado 17-nov: mergeado (#178) y desplegado (03:46 UTC).**
 `packages/shared/src/email/interpretation-blocks.ts` pinta la caja de nivel y
 la sección de asuntos; los dos renders los colocan así:
 
@@ -597,6 +603,72 @@ campo con los hechos `issue_*` y `level_*` de la composición del Diario del
 mismo día, y una captura del Overview dentro del marco del dashboard muestra
 el bloque.
 
+**Estado 17-nov: en PR, sin mergear (el merge despliega la web).** Archivos:
+`apps/web/src/lib/overview/open-issues.ts` (carga y respuesta),
+`apps/web/src/app/api/overview/open-issues/route.ts` y el bloque
+`OverviewAsuntos` en `apps/web/public/eco-prototype/screens.js` (bundle
+`prodc105`). Pruebas: 14 en `apps/web/src/lib/overview/open-issues.test.ts`.
+
+Cómo quedó:
+
+- **Un solo cálculo.** El endpoint llama a `loadOpenIssues` y
+  `buildSustainedLevel` con la fecha del correo (el último día cerrado) y con
+  el universo del correo, no con el de la bandera `UNIVERSE_STRICT_AGENCIES`
+  del resto del dashboard. Los textos de cada fila («sube · 255 en 7 días…»,
+  la voz, la línea de nivel) los escriben las mismas funciones que pintan el
+  correo; la SPA no redacta nada.
+- **Dónde va.** Bloque «04 · Asuntos abiertos», entre el Resumen y la
+  Tendencia, con el nivel a 14 y 28 días a la derecha. Tendencia, Insights y
+  Tópicos pasan a 05, 06 y 07.
+- **Ventanas fijas.** El 7D del Overview hoy incluye el día en curso; el
+  bloque termina ayer, como el correo, y lo dice en su subtítulo («no cambia
+  con el selector de periodo»).
+- **Enlace.** Cada asunto abre Narrativas con su narrativa más activa ya
+  elegida (`localStorage eco.narrative.focus`).
+- **Sesión.** `/api/overview/*` ya estaba en las dos listas del middleware; la
+  ruta lleva además `requireAuth`. Caché de 10 minutos por agencia y día; una
+  carga fallida no se guarda.
+
+Decisión que el spec dejaba abierta: el endpoint devuelve también los hechos
+`level_*` e `issue_*` tal como entran al paquete del redactor (`facts`), para
+que la comparación con el correo sea mecánica.
+
+Comparación del 17-nov (`scripts/int-01-overview-vs-mail.ts`, solo lectura),
+Overview contra un `dryRun` del Diario hecho en el mismo momento:
+
+| Agencia | Hechos de nivel y de asuntos | Iguales | Distintos |
+|---|---|---|---|
+| DF | 26 | 26 | 0 |
+| DDEC | 23 | 23 | 0 |
+| Gobernadora | 26 | 26 | 0 |
+
+Contra el Diario enviado a las 6 a. m. sí hay diferencias, y son esperadas: el
+Overview se recalcula cada 10 minutos y el correo es una foto de la mañana. El
+17-nov a las 2 p. m., DF tenía 7 hechos distintos de 26 (el asunto Roig, 241
+menciones en el correo y 255 en el Overview; el nivel a 14 días, 58 % y 59 %)
+y Gobernadora 3. En Gobernadora uno es grande: las menciones de los 7 días
+previos del primer asunto pasaron de 15 a 100, porque el agrupador de
+narrativas movió narrativas entre la mañana y la tarde y el asunto quedó
+armado con otras. No es un error del bloque; es el límite que ya describe la
+sección 2.11 (la asignación de narrativas es la del momento).
+
+Verificación visual: la SPA completa servida en local, con `/api/overview`,
+`/api/overview/open-issues` y `/api/narrative/overview` corriendo el código
+real contra producción en solo lectura (a través de `eco-migration`). Se
+revisó en escritorio y a 375 px, para DF, DDEC y Gobernadora, y el salto a
+Narrativas. En esa prueba el texto del Resumen es el último guardado y las
+«piezas que movieron la ventana» salen vacías: el arnés no los genera.
+
+Lo que se vio al verificar y no es de este paquete:
+
+- En DF, «Renuncia de Suzanne Roig por corrupción» (nueva el 16-nov, 19
+  menciones) salió como tercer asunto, separada del asunto Roig: nació de una
+  nota de agencia en inglés y no agrupó. Es el riesgo 1 de la sección 7.
+- La voz principal de ese asunto es «Danica Coto» (periodista de AP, cuenta
+  como medio) con 79 % de las menciones.
+- En Narrativas, si la propagación de una narrativa falla siempre, la pantalla
+  la vuelve a pedir sin parar. Ya pasaba antes de este cambio.
+
 ### WP-6 · Caso del 24-oct y cierre
 
 1. 5 corridas `dryRun` del Diario de DF con `asOf` 24-oct 10:00 UTC y 5 del
@@ -634,6 +706,23 @@ Otras vistas previas, una corrida cada una: DF del 31-oct (volumen de 7 días
 12 %, no sostenido) y Gobernadora del 16-nov (29 % y 26 %; el texto dice que
 las negativas bajaron en número y que el nivel se mantiene).
 
+**Después de desplegar (17-nov, 03:50 UTC).** `dryRun` del lambda para las
+tres agencias, Diario y Semanal (ventana 9–15 nov), sin envío (0 filas en
+`report_send_log` y 0 en la métrica `Send` de SES):
+
+| Correo | Bloques de nivel y asuntos | El texto da 14 y 28 días | Días abierto en el texto | Avisos de nivel: 1er borrador → enviado | Segundos |
+|---|---|---|---|---|---|
+| Diario DF | sí | sí (57 % y 61 %) | sí (49) | 1 → 0 | 82 |
+| Diario DDEC | sí | sí (18 % y 12 %) | sí | 1 → 0 | 82 |
+| Diario Gobernadora | sí | sí (29 % y 26 %) | sí (46) | 0 → 0 | 89 |
+| Semanal DF | sí | sí (57 % y 61 %) | sí (49) | 6 → 0 | 115 |
+| Semanal DDEC | sí | sí | sí (14) | 4 → 0 | 92 |
+| Semanal Gobernadora | sí | sí | sí (46) | 5 → 0 | 125 |
+
+Ninguno salió degradado ni con frases de calma. El Semanal es donde más
+trabaja el corrector (4 a 6 avisos en el primer borrador). Quedan por hacer las
+corridas con `asOf` del 23 y 24-oct sobre el lambda y los 7 días en producción.
+
 Lo que se ve en las vistas previas y no es de este ítem:
 
 - En 4 de las 5 corridas de DF el titular del redactor se cambió por el
@@ -646,8 +735,63 @@ Lo que se ve en las vistas previas y no es de este ítem:
 - El párrafo del Diario se alarga con el nivel y el asunto (hasta 8 oraciones
   en Gobernadora; la tarea pide de 2 a 4).
 
-Falta: las 5 corridas del Semanal y el Semanal de las tres agencias (con el
-`dryRun` del lambda, tras desplegar) y los 7 días en producción.
+**Corridas de octubre sobre el lambda (17-nov, 18:19–18:27 UTC).** `dryRun`
+de `eco-weekly-report` para DF, una corrida por caso, sin envío ni guardado:
+
+| Corrida | Ventana | Nivel 14 y 28 días | Asunto Roig | Frases de calma | El texto da el nivel | El texto da los días abierto | Avisos de nivel enviados | Segundos |
+|---|---|---|---|---|---|---|---|---|
+| Diario, `asOf` 24-oct 10:00 UTC | 17–23 oct | 63 % y 65 % (NSS −62 y −65) | 26 días · 290 esta semana, 89 la previa · 73 % negativas | ninguna | sí | sí | 0 | 119 |
+| Diario, `asOf` 23-oct 10:00 UTC | 16–22 oct | 64 % y 65 % (NSS −63 y −64) | 25 días · 298 y 48 · 73 % | ninguna | sí | sí | 0 | 99 |
+| Semanal, `asOf` 23-oct 19:00 UTC | 16–22 oct | 64 % y 65 % | 25 días · 298 y 48 · 73 % | ninguna | sí | sí | 0 | 115 |
+| Semanal, `asOf` 24-oct 19:00 UTC | 17–23 oct | 63 % y 65 % | 26 días · 290 y 89 · 73 % | ninguna | sí | sí | 0 | 132 |
+
+Los cuatro HTML llevan la sección «Asuntos abiertos» y la caja de nivel.
+Diario del 24-oct: «El volumen del viernes bajó a 110 menciones frente a las
+207 del jueves, pero la negatividad se mantiene alta: a 14 días el porcentaje
+de negativas es 63 % y a 28 días es 65 %, ambos por encima del umbral.» Con
+las 5 corridas locales del 16-nov, el caso del 24-oct suma 6 de 6 sin frases
+de calma. No se hicieron las 5 corridas del Semanal que pedía el punto 1: hay
+2, las dos limpias.
+
+**Comprobación diaria de los correos reales.** `scripts/int-01-wp6-check.ts`
+(solo lectura: `report_send_log` por `eco-migration` y los logs del lambda con
+el CLI de AWS). Por cada envío programado dice si salió con el motor 1.1.0,
+con el nivel a 14 y 28 días y los asuntos en los hechos archivados, y sin
+`direccion_sin_nivel` ni `mejora_con_nivel_sostenido` después del corrector.
+Un día cuenta solo si todos sus envíos están en OK.
+
+```bash
+set -a && source /Users/alegut/MyApps/eco_populicom/.env && set +a
+node_modules/.bin/tsx scripts/int-01-wp6-check.ts
+```
+
+Primer resultado (17-nov):
+
+| Día | Correo | Resultado |
+|---|---|---|
+| 17-nov | Diario Gobernadora | OK: motor 1.1.0, nivel y asuntos, 0 avisos de nivel |
+| 17-nov | Diario DF | OK: motor 1.1.0, nivel y asuntos, 0 avisos de nivel |
+| 17-nov | Diario DDEC | Sin evidencia: el correo salió (9 destinatarios, compuesto por el motor en el momento) pero no dejó archivo |
+
+**El 17-nov no cuenta para los 7 días.** El Diario de DDEC no se pudo
+archivar: la base rechazó la composición («invalid input syntax for type
+json») tres veces, al guardarla 2 horas antes del envío (08:02 UTC), al
+componerla de nuevo en el envío (10:02) y al escribir `report_send_log`. La
+causa, confirmada con un `dryRun` del mismo día: una muestra recortada a 420
+caracteres termina en medio emoji, y PostgreSQL no acepta eso en una columna
+`jsonb`. El correo en sí salió bien; lo que falta es la prueba. Mientras esa
+mención siga entre las muestras de la ventana de 7 días, el Diario de DDEC
+puede seguir sin archivo.
+
+Corrección en el mismo PR (`infra/lambda/lib/pg-json.ts` y
+`clipSampleText`): el recorte ya no parte un emoji y lo que se guarda en la
+base se sanea antes. **Necesita redesplegar `eco-weekly-report`.** Si el
+lambda queda desplegado antes de las 08:00 UTC del 18-nov (cuando se compone
+el Diario), los 7 días van del 18 al 24-nov, con el Semanal del viernes 20
+dentro. Cada día de retraso corre esa fecha un día.
+
+Falta: desplegar la corrección, los 7 días seguidos en OK y el informe de
+cierre contra la sección 4.
 
 ---
 
@@ -659,6 +803,15 @@ Falta: las 5 corridas del Semanal y el Semanal de las tres agencias (con el
 | Cada variación va acompañada del nivel a 14 y 28 días | Fichas y tabla: prueba de render. Prosa: 0 oraciones con variación y sin nivel después del corrector en las 10 corridas de WP-6 y en los correos de 7 días seguidos en producción (`residualCodeProblems` sin `direccion_sin_nivel`) | No existe; el paquete no trae niveles |
 | Regenerar el correo de DF del 24-oct ya no produce «va bajando» | En 5 de 5 corridas: ninguna frase dice que la conversación baja, mejora o se calma; el correo muestra 14 días 63 % y 28 días 65 % con el umbral, y el asunto Roig con 26 días abierto | 1 de 1 corrida sin «va bajando», pero sin nivel ni días abierto y sin nada que lo garantice |
 | El Overview muestra el mismo bloque que el correo | JSON del endpoint igual a los hechos de la composición del mismo día en las 3 agencias; captura del bloque | No existe |
+
+Estado al 17-nov contra cada criterio:
+
+| Criterio | Estado |
+|---|---|
+| Hasta 3 asuntos abiertos con días y voz en el Diario y el Semanal | Cumplido: en producción desde el 17-nov (`dryRun` de los 6 correos y Diarios reales de DF y Gobernadora) |
+| Cada variación con su nivel a 14 y 28 días | Fichas y tabla: cumplido. Prosa: 0 avisos en 9 corridas de octubre (5 locales del Diario y 4 sobre el lambda: 2 del Diario y 2 del Semanal) y en los 2 Diarios reales archivados; faltan los 7 días seguidos |
+| El correo de DF del 24-oct ya no dice «va bajando» | Cumplido: 6 de 6 corridas del Diario, con 63 % y 65 % y 26 días abierto |
+| El Overview muestra el mismo bloque | Hecho y verificado (0 diferencias en las 3 agencias); falta mergear el PR |
 
 ---
 

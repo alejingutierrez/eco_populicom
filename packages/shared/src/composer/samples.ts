@@ -107,8 +107,11 @@ export function deriveSampleKind(s: RawComposerSample & SampleContext, agencyAut
   return 'social_post';
 }
 
-function clip(s: string | null | undefined, n: number): string {
-  return (s ?? '').slice(0, n);
+/** Recorta a `n` caracteres sin partir un emoji (un sustituto suelto no cabe en `jsonb`). */
+export function clipSampleText(s: string | null | undefined, n: number): string {
+  const out = (s ?? '').slice(0, n);
+  const last = out.charCodeAt(out.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? out.slice(0, -1) : out;
 }
 
 function dayOf(iso: string, tz: string): string {
@@ -134,7 +137,7 @@ export function annotateOne(raw: RawComposerSample, group: SampleGroup, ctx: Sam
     parent = pPub || pText || m.parentAuthor
       ? {
           key,
-          text: pText ? clip(pText, 220) : null,
+          text: pText ? clipSampleText(pText, 220) : null,
           author: m.parentAuthor ?? null,
           publishedAt: pPub,
           dayYmd: pDay,
@@ -142,9 +145,9 @@ export function annotateOne(raw: RawComposerSample, group: SampleGroup, ctx: Sam
           ageDays: age !== null && Number.isFinite(age) ? age : null,
         }
       : null;
-    text = clip(m.snippet || raw.text, 320);
+    text = clipSampleText(m.snippet || raw.text, 320);
   } else {
-    text = clip(raw.text, 420);
+    text = clipSampleText(raw.text, 420);
   }
   return {
     sid: '',
