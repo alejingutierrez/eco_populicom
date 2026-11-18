@@ -348,6 +348,34 @@ definición quedó guardada en
 si hubiera que recrearlas con `put-metric-alarm`. De ingesta quedan las tres
 de CDK y `eco-lambda-ingestion-errors`.
 
+**Caída de Brandwatch del 17 al 18-nov (rompe la racha de 7 días).** Entre las
+23:35 UTC del 17 y las 04:28 UTC del 18, la API de Brandwatch respondió
+`502 Bad Gateway` (400 reintentos registrados) y dejó peticiones sin respuesta
+hasta el tope de 45 s (68 reintentos). No hubo ningún 429: no fue la cuota.
+En esas 5 horas hubo 75 corridas; se sondearon 228 queries y fallaron 222.
+Las corridas pidieron 12 peticiones de media (máximo 18) por los reintentos,
+y 12 agotaron el presupuesto de 180 s. La query más desatendida llegó a
+**108.4 min sin sondeo** (el criterio es 60). A las 05:00 UTC la ingesta volvió
+sola a 6 queries por corrida, y el refresh de las 07:00 UTC repasó las 48 h.
+
+Las alarmas avisaron, ya con suscriptor: `eco-ingesta-callada` a las 23:48,
+04:10 y 04:25 UTC, y `eco-ingesta-query-desatendida` a las 02:54 UTC (la
+primera vez que salta). Todo lo que ING-01 construyó funcionó; lo que falló
+fue el proveedor.
+
+Consecuencias:
+
+- **Criterio de 7 días:** el 18-nov no cumple. Contado estrictamente, la racha
+  empieza de nuevo el 19-nov y se leería el 26-nov. Decisión pendiente de
+  Alejandro: reiniciar la ventana, o aceptar que una caída del proveedor sin
+  ningún 429 no cuenta contra un criterio que mide el manejo de la cuota.
+- **Para el PR #179 (tope de 7 peticiones por corrida):** cada query que falla
+  con 502 gasta 3 peticiones en reintentos, y las que fallan van primero en la
+  corrida siguiente. Con el tope de 7, dos o tres queries caídas se comerían la
+  corrida y las sanas quedarían sin sondear. Antes de aplicar el #179 hay que
+  resolverlo (por ejemplo, un solo intento ante 5xx en la corrida incremental:
+  el reintento es la corrida de 5 min después).
+
 ### WP-3 · Ceder con la cuota vista
 
 **Cliente** (`packages/brandwatch/src/client.ts`, `resilience.ts`):

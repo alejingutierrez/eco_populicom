@@ -214,14 +214,16 @@ def main() -> int:
     print("\n**Lectura.**")
     print(f"- Días cerrados con dato: {len(cerrados)} de {len(dias)} "
           f"({len(completos)} completos, {len(cerrados) - len(completos)} parciales).")
-    if cerrados:
-        peor = max(cerrados, key=lambda r: max(r["sin_sondeo"] or 0, r["hueco_min"]))
+    # La lectura incluye el día en curso: un incumplimiento de hoy ya es un hecho.
+    con_dato = [r for r in filas if r["con_datos"]]
+    if con_dato:
+        peor = max(con_dato, key=lambda r: max(r["sin_sondeo"] or 0, r["hueco_min"]))
         print(f"- Más de 1 hora sin sondeo: "
-              f"{'NO' if all(r['cumple_sondeo'] for r in cerrados) else 'SÍ'}. Peor día "
+              f"{'NO' if all(r['cumple_sondeo'] for r in con_dato) else 'SÍ'}. Peor día "
               f"{peor['dia']:%d-%b}: {fmt(peor['sin_sondeo'])} min sin sondeo, "
               f"hueco de {peor['hueco_min']} min entre corridas.")
-        print(f"- Avisos 429: {sum(r['avisos429'] for r in cerrados)} en total; "
-              f"máximo en un día {max(r['avisos429'] for r in cerrados)} (límite: menos de {LIMITE_429_DIA}).")
+        print(f"- Avisos 429: {sum(r['avisos429'] for r in con_dato)} en total; "
+              f"máximo en un día {max(r['avisos429'] for r in con_dato)} (límite: menos de {LIMITE_429_DIA}).")
     if fallan:
         print("- **No cumplen:** " + ", ".join(f"{r['dia']:%d-%b}" for r in fallan) + ".")
     if faltan:
