@@ -25,7 +25,7 @@ El **modo** de la corrida decide su plan (`infra/lambda/ingestion/run-guard.ts`,
 
 | Modo | Cuándo | Intentos por request | Presupuesto de reloj | Pacing | Tope de requests | Techo de cuota |
 |---|---|---|---|---|---|---|
-| `incremental` | cron de 5 min (sin parámetros) | 3 (esperas 15 s y 30 s) | 3 min | ninguno | ninguno | 24 |
+| `incremental` | cron de 5 min, minutos 0, 5, 10… (sin parámetros) | 3 (esperas 15 s y 30 s) | 3 min | ninguno | 7 (cupo de ECO: 14 por ventana de 10 min; era «ninguno») | 24 |
 | `refresh` | cron diario de 07:00Z (`refreshLastHours` ≤ 72; hoy 48) | 3 (esperas 15 s y 30 s) | 12 min | 1 request cada 30 s | 12 (era 24; con páginas de 500 pide 6–8) | 24 |
 | `backfill` | ventana explícita (`backfillStartDate`) o `refreshLastHours` > 72 | 11 (2 s·2ⁿ, tope 45 s: la escalera histórica) | 14 min | ninguno | ninguno | ninguno |
 
@@ -71,6 +71,39 @@ El techo de 24 deja 6 de las 30 peticiones como reserva. Es el número que debe
 usar también `biq-ingestion`; el reparto completo está en
 `spec-ing-01-ingesta-limites-brandwatch.md` (sección 2.4), pendiente de acuerdo
 con BrandIQ.
+
+### Reparto de la cuota de Brandwatch (propuesto 17-nov-2026; pendiente de BrandIQ)
+
+Sobre las 30 peticiones por 10 min de la cuenta:
+
+| Quién | Cupo |
+|---|---|
+| ECO en vivo | 14 |
+| BrandIQ en vivo | 10 |
+| Reserva: tropiezos y llamadas a mano | 6 |
+
+- **Tope propio de ECO:** 7 peticiones por corrida incremental
+  (`INCREMENTAL_MAX_REQUESTS` en `run-guard.ts` = `ECO_QUOTA_SHARE` 14 entre 2
+  corridas por ventana). Lo cuenta ECO y no depende de la cabecera: en
+  producción `x-rate-limit-used` marca ~8 con ECO sola gastando 12 por ventana,
+  así que el techo de 24 por sí solo no reparte. La corrida que necesita una
+  octava petición se corta ahí (`request cap reached (7 requests`), la query a
+  medias guarda lo encolado y lo que falta va primero en la corrida siguiente.
+  Una corrida cortada cuenta en `CorridaAbortada`: si pasa a diario, el cupo se
+  quedó corto.
+- **Techo de cesión:** 24 en los dos productos (BrandIQ hoy usa 28).
+- **Una query nueva** cuesta 2 peticiones por ventana: con 6 queries ECO gasta
+  12; cabe una séptima, no una octava.
+- **Llamadas a mano:** hasta 5 por ventana sin pausar nada; para más, las dos
+  ingestas en concurrencia 0 y 11 min de espera.
+- **Crons:** ECO en los minutos 0, 5, 10… (`cron(0/5 * * * ? *)`), BrandIQ en
+  los 2, 7, 12… (`cron(2/5 * * * ? *)`); `infra/lib/ingestion-schedule.ts`.
+  Trabajo de fondo: ECO 07:00 UTC; BrandIQ 09:30, 12:00 y 12:15 UTC.
+- **Quién lo cambia:** Alejandro y quien lleve BrandIQ, en los dos repos a la
+  vez.
+
+La propuesta completa, con lo que se le pide a BrandIQ y cómo se verifica, está
+en `propuesta-reparto-cuota-brandwatch-brandiq.md`.
 
 ### Tiempo máximo por petición
 

@@ -14,6 +14,9 @@ import type { RetryPolicy } from '../../packages/brandwatch/src/resilience';
 import { cursorToCommit } from '../lambda/ingestion/cursor';
 import {
   RunBreaker,
+  ECO_QUOTA_SHARE,
+  INCREMENTAL_MAX_REQUESTS,
+  INCREMENTAL_RUNS_PER_WINDOW,
   QUOTA_CEILING,
   classifyFailure,
   computeDeadlineMs,
@@ -346,14 +349,25 @@ describe('resolveRunMode / planRun', () => {
     expect(resolveRunMode({ refreshLastHours: -5 })).toBe('incremental');
   });
 
-  test('incremental: ~3 intentos, presupuesto de 3 min, sin pacing ni tope', () => {
+  test('incremental: ~3 intentos, presupuesto de 3 min, sin pacing y tope de 7 peticiones', () => {
     const p = planRun('incremental');
     expect(p.retry).toBe(BOUNDED_RETRY);
     expect(p.retry.maxAttempts).toBe(3);
     expect(p.budgetMs).toBe(3 * 60_000);
     expect(p.minRequestIntervalMs).toBe(0);
-    expect(p.maxRequests).toBeUndefined();
+    expect(p.maxRequests).toBe(INCREMENTAL_MAX_REQUESTS);
     expect(p.quotaCeiling).toBe(QUOTA_CEILING);
+  });
+
+  test('reparto: el cupo de ECO (14) da 7 peticiones por corrida y cabe con BrandIQ bajo el techo', () => {
+    expect(ECO_QUOTA_SHARE).toBe(14);
+    expect(INCREMENTAL_MAX_REQUESTS).toBe(7);
+    // dos corridas incrementales por ventana de 10 min no pasan del cupo
+    expect(INCREMENTAL_MAX_REQUESTS * INCREMENTAL_RUNS_PER_WINDOW).toBeLessThanOrEqual(ECO_QUOTA_SHARE);
+    // ECO (14) + BrandIQ (10) = techo de cesión; lo demás es la reserva
+    expect(ECO_QUOTA_SHARE + 10).toBeLessThanOrEqual(QUOTA_CEILING);
+    // las 6 queries de hoy (una petición cada una) caben, con una de holgura
+    expect(6).toBeLessThan(INCREMENTAL_MAX_REQUESTS);
   });
 
   test('refresh: reintentos acotados, 30 s entre requests y tope de 12 que cabe en el presupuesto', () => {
