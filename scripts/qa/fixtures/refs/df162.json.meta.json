@@ -1,0 +1,8 @@
+{
+ "set": "df162",
+ "model": "us.anthropic.claude-opus-4-6-v1",
+ "seed": null,
+ "limit": null,
+ "temperature": 0.1,
+ "note": "corrida de referencia del laboratorio (2-nov-2026)"
+}

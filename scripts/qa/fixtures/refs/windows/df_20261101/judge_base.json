@@ -1,0 +1,179 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Fortaleza se deslinda de Suzanne Roig",
+   "verdict": "exagerada",
+   "why": "Los datos muestran que Fortaleza dijo que Roig debe aclarar sus contradicciones (D2, D4, D6, D20), pero la gobernadora también la defendió y acusó a Rivera Schatz (D5). 'Deslindarse' implica un distanciamiento más fuerte que lo evidenciado; fue un mensaje mixto, no un deslinde claro."
+  },
+  {
+   "section": "titular",
+   "claim": "Fortaleza le traslada la carga de explicar las contradicciones",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D2, D4, D6, D20) confirman que Jean Peña Payano declaró que corresponde a Suzanne Roig aclarar los señalamientos."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La Fortaleza dejó el domingo en manos de Suzanne Roig Fuertes la responsabilidad de aclarar las contradicciones sobre quién pagó las cenas durante el viaje a Luisiana",
+   "verdict": "verdadera",
+   "why": "Confirmado por D2, D4, D6 y D20, todas del domingo 1 de noviembre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Documentos de NOLA Education al Senado reportaron gastos por $13,500 que chocan con el testimonio bajo juramento de la secretaria",
+   "verdict": "verdadera",
+   "why": "D3, N1, N9, N12 confirman que NOLA reportó $13,525.05 (redondeado a $13,500 en varias notas) en gastos, contradiciendo el testimonio de Roig de haber pagado en efectivo."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La gobernadora Jenniffer González Colón defendió a Roig y acusó al senador Rivera Schatz de intentar desmantelar su gabinete",
+   "verdict": "verdadera",
+   "why": "D5 y E18 confirman que la gobernadora defendió a la secretaria y acusó a Rivera Schatz de intentar desmantelar su gabinete."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El secretario de Asuntos Públicos, Jean Peña Payano, subrayó que corresponde a la secretaria responder",
+   "verdict": "verdadera",
+   "why": "D6 y D20 confirman que Jean Peña Payano indicó que corresponde a Roig aclarar las contradicciones."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Columnas de opinión en medios como NotiCel y El Nuevo Día pidieron abiertamente su renuncia",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D11 (El Nuevo Día) es una columna de opinión que pide la renuncia de Roig. Sin embargo, no hay evidencia en las menciones de que NotiCel publicara una columna de opinión pidiendo su renuncia; NotiCel reportó la noticia (D4) pero no se ve un editorial pidiendo renuncia. El texto atribuye a NotiCel algo no respaldado en los datos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen cayó al punto más bajo de la semana",
+   "verdict": "verdadera",
+   "why": "day_rank = posición 7 de 7 por volumen, y day_total = 29 es el menor de los 7 días."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Casi siete de cada diez menciones del domingo fueron negativas",
+   "verdict": "verdadera",
+   "why": "day_neg = 20 de day_total = 29, lo que equivale a ~69%, es decir, casi 7 de cada 10."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Lo que queda cuando baja la cobertura general es el cuestionamiento a Roig",
+   "verdict": "sin_respaldo",
+   "why": "Es una interpretación causal (que la proporción de negatividad sube porque lo que queda es el cuestionamiento). Los datos muestran que la negatividad del domingo fue alta (~69%), pero no se puede confirmar la causalidad implícita."
+  },
+  {
+   "section": "viñetas",
+   "claim": "NOLA Education contradijo directamente a la secretaria ante el Senado sobre el pago de cenas en Luisiana",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D3, D17, N1, N9, N12, N13) confirman que NOLA reportó haber pagado gastos que Roig dijo haber costeado en efectivo."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Esa discrepancia alimentó la cobertura de NotiCel, medios en Facebook y columnas de opinión durante todo el día",
+   "verdict": "verdadera",
+   "why": "Las menciones del domingo muestran cobertura en NotiCel (D4), El Nuevo Día (D6, D11, D19), Es Noticia PR (D17), Noticentro (D3), entre otros, sobre esta discrepancia."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La gobernadora intentó cerrar el tema culpando a Rivera Schatz",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D5 confirma que la gobernadora acusó a Rivera Schatz de intentar desmantelar su gabinete, pero decir que 'intentó cerrar el tema' es una interpretación que atribuye intención no explícita en los datos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Fortaleza misma se desmarcó al decir que Roig debe aclarar sus contradicciones, lo que dejó a la secretaria sin respaldo público claro",
+   "verdict": "exagerada",
+   "why": "Fortaleza sí dijo que Roig debe aclarar (D6, D20), pero la gobernadora también la defendió (D5). Decir que quedó 'sin respaldo público claro' exagera; hubo un mensaje contradictorio, no una ausencia total de respaldo."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Fuera de la controversia de NOLA, casi no hubo conversación sobre el Departamento",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "Hubo también menciones sobre la demanda contra Félix Plaud y la residencia bajo investigación (D10), además de las notas de ASUME y sinhogarismo. El texto omite D10 que trata protección de menores, no NOLA."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Una nota sobre el programa Prospera de ASUME y una propuesta legislativa sobre sinhogarismo fueron las únicas menciones ajenas al caso",
+   "verdict": "falsa",
+   "why": "También hubo menciones ajenas al caso NOLA: D10 (demanda contra Félix Plaud/residencia bajo investigación de ASSMCA), D14 (feria de servicios con participación de ADFAN/ADSEF/ASUME), D18 (publicación del Departamento de la Familia). No fueron las únicas."
+  },
+  {
+   "section": "insights",
+   "claim": "El miércoles se le fijó plazo para entregar documentos sobre contratos de ADSEF",
+   "verdict": "verdadera",
+   "why": "E20 y N3 (miércoles 28 de octubre) confirman que Roig tenía plazo hasta el viernes para entregar documentos al Senado sobre procesos de contratación."
+  },
+  {
+   "section": "insights",
+   "claim": "El jueves el senador Morales radicó resolución pidiendo datos de un cuarto viaje, esta vez a México",
+   "verdict": "verdadera",
+   "why": "N17 y E1 (jueves 29 de octubre) confirman que el senador Juan Oscar Morales radicó resolución sobre un cuarto viaje de Roig a México."
+  },
+  {
+   "section": "insights",
+   "claim": "El sábado NOLA Education contradijo su testimonio jurado al reportar $13,525 en gastos de la delegación a Luisiana",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "La cifra exacta reportada fue $13,525.05 (N9), y la contradicción se reportó el viernes 30 de octubre según N1/N13 ('este viernes, NOLA Education desmintió esa versión'), aunque las notas de Noticentro se publicaron el sábado 31. La información de NOLA llegó al Senado antes del sábado; las notas del sábado son réplicas."
+  },
+  {
+   "section": "insights",
+   "claim": "Ella dijo haber pagado en efectivo",
+   "verdict": "verdadera",
+   "why": "Múltiples menciones (D3, N1, N9, N12) confirman que Roig aseguró bajo juramento haber pagado en efectivo."
+  },
+  {
+   "section": "insights",
+   "claim": "usuario_a373c0 y Bonita Radio publicaron que menores removidos de sus hogares pasan semanas durmiendo en oficinas de Familia",
+   "verdict": "verdadera",
+   "why": "N14 confirma: 'Una investigación de usuario_a373c0 PR junto a Bonita Radio reveló... menores removidos de sus hogares pasan semanas durmiendo en oficinas de Familia'."
+  },
+  {
+   "section": "insights",
+   "claim": "Trabajadores sociales becados por la propia agencia denuncian que llevan meses graduados sin ser contratados",
+   "verdict": "verdadera",
+   "why": "N8 confirma: 'más de una decena de profesionales becados por la propia agencia' que se graduaron y siguen esperando ser contratados."
+  },
+  {
+   "section": "insights",
+   "claim": "Lo que alimentó 55 menciones sobre protección de menores con 42% negativas",
+   "verdict": "sin_respaldo",
+   "why": "Los datos proporcionados no incluyen desglose por tópico (número de menciones ni porcentaje de negatividad por tópico). No se puede verificar las 55 menciones ni el 42% de negatividad en protección de menores."
+  },
+  {
+   "section": "insights",
+   "claim": "El Departamento de la Familia fue el segundo autor con más volumen de la semana —18 menciones neutrales—",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen un ranking de autores por volumen ni el número exacto de menciones por autor. No se puede verificar que fue el segundo ni que tuvo exactamente 18 menciones neutrales."
+  },
+  {
+   "section": "insights",
+   "claim": "Posts sobre reuniones de la secretaria con administradores y talleres contra fraude a adultos mayores junto a la Fiscalía Federal",
+   "verdict": "verdadera",
+   "why": "E3 confirma reunión con administradores, y E5/E8/E10 confirman talleres sobre fraude a adultos mayores en colaboración con la Fiscalía Federal."
+  },
+  {
+   "section": "insights",
+   "claim": "ASUME difundió el viernes que adultos mayores de 60 años pueden reclamar pensión alimentaria a sus hijos",
+   "verdict": "mal_fechada",
+   "why": "Las menciones sobre este tema (D8, D9, E6) son del domingo 1 de noviembre y del viernes 30 de octubre (E6). E6 es de Puerto Rico La Isla, no de ASUME directamente. No hay evidencia clara de que ASUME lo difundió el viernes específicamente."
+  },
+  {
+   "section": "insights",
+   "claim": "Esa información circuló sin opinión en Facebook e Instagram",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran menciones en redes (D8, D9, E6) clasificadas como neutrales, pero no hay datos sobre Instagram específicamente ni confirmación de que no hubo opinión en esas plataformas."
+  },
+  {
+   "section": "insights",
+   "claim": "El tópico de asistencia nutricional y económica apenas tiene 7% de negatividad en sus 29 menciones",
+   "verdict": "sin_respaldo",
+   "why": "Los datos no incluyen desglose por tópico con número de menciones y porcentaje de negatividad. No se puede verificar las 29 menciones ni el 7%."
+  }
+ ],
+ "headline_drama_0_5": 3,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "El párrafo dice que 'Fortaleza se deslinda' y que Roig quedó sin respaldo, pero las viñetas reconocen que la gobernadora la defendió. El titular y párrafo enfatizan el deslinde mientras las viñetas matizan con la defensa de la gobernadora, creando una tensión interna.",
+  "Las viñetas afirman que 'una nota sobre el programa Prospera de ASUME y una propuesta legislativa sobre sinhogarismo fueron las únicas menciones ajenas al caso', pero las menciones del día incluyen también D10 (demanda contra Félix Plaud), D14 (feria de servicios) y D18 (publicación institucional del Departamento), que no son sobre NOLA."
+ ],
+ "notes": "El texto captura bien la narrativa central del día (contradicciones de Roig, posición de Fortaleza, cobertura mediática), pero el titular dramatiza al usar 'se deslinda' cuando la postura de Fortaleza fue ambivalente (defendió y a la vez trasladó responsabilidad). La afirmación de que solo hubo dos menciones ajenas al caso NOLA es falsa según las propias menciones del día. Varias cifras de los insights (55 menciones, 42% negatividad, 18 menciones neutrales, 29 menciones, 7%) no son verificables con los datos proporcionados."
+}

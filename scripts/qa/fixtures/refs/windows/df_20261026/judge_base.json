@@ -1,0 +1,197 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Norma Burgos descarta renunciar",
+   "verdict": "verdadera",
+   "why": "D1 y D13 confirman que Norma Burgos descartó haber considerado renunciar el lunes 26 de octubre."
+  },
+  {
+   "section": "titular",
+   "claim": "Coccoloba demanda al Departamento de la Familia",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "La demanda de Coccoloba es real (D5, D7, D16, N12, E4), pero fue radicada el viernes 23 de octubre, no el lunes 26. El lunes los abogados detallaron los fundamentos, pero el titular da la impresión de que la demanda se presentó ese día."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Norma Burgos negó el lunes 26 de octubre haber considerado renunciar y rechazó deberle disculpas a nadie tras los señalamientos sobre contratos en la ADSEF",
+   "verdict": "verdadera",
+   "why": "D1 y D13 confirman estas declaraciones de Burgos el lunes 26 de octubre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Los abogados de Coccoloba detallaron su demanda de 2.5 millones de dólares contra el Departamento de la Familia el mismo día (lunes 26)",
+   "verdict": "verdadera",
+   "why": "D5 y D7 del lunes 26 confirman que los abogados de Coccoloba revelaron detalles de la demanda de $2.5 millones ese día."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El Senado busca interrogar a la compañía que evaluó las propuestas del contrato de rezago académico",
+   "verdict": "verdadera",
+   "why": "D12 (Teleonce, lunes 26) confirma que el Senado busca interrogar a la compañía que evaluó propuestas de rezago académico."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La Fortaleza catalogó las pesquisas sobre miembros de la administración como 'distracciones'",
+   "verdict": "verdadera",
+   "why": "D6 (El Vocero, lunes 26) confirma que La Fortaleza catalogó como 'distracciones' las pesquisas sobre miembros de su administración."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La Fortaleza reafirmó a Suzanne Roig al frente de la agencia",
+   "verdict": "verdadera",
+   "why": "D3, D6 y D10 confirman que Fortaleza reafirmó que Roig se mantiene al frente del Departamento de la Familia."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La controversia de contratos en la ADSEF sigue dominando la semana con más de cuatrocientas menciones",
+   "verdict": "sin_respaldo",
+   "why": "No se proporcionan datos desglosados por tópico. El total semanal es 893, pero no hay cifra específica de menciones sobre la controversia ADSEF para verificar si supera 400."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Casi siete de cada diez menciones son negativas",
+   "verdict": "verdadera",
+   "why": "week_neg_pct = 67%, que es cercano a 7 de cada 10 (70%). 'Casi siete de cada diez' es una descripción razonable del 67%."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El lunes sumó nuevos frentes: la demanda de Coccoloba y el anuncio de una posible segunda demanda contra Roig",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "La demanda de Coccoloba fue radicada el viernes 23 (N12, E4), no el lunes. El lunes se detallaron sus fundamentos. La posible segunda demanda sí se anunció el lunes (D19). Presentar la demanda de Coccoloba como 'nuevo frente' del lunes es engañoso."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Una investigación de usuario_a373c0 y Bonita Radio sobre menores removidos que duermen en oficinas del Departamento de la Familia circuló el lunes en Facebook",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D2 (Puerto Rico La Isla, lunes 26) menciona la investigación de usuario_a373c0 y Bonita Radio. Sin embargo, la investigación original fue publicada antes del lunes: N14 (usuario_d4b773, miércoles 21) y N19 (usuario_d4b773, sábado 24) ya la difundían. El lunes circuló una réplica, no la publicación original."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El tema de protección de menores acumula más de cien menciones negativas en la semana",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos desglosados por tópico para verificar cuántas menciones negativas corresponden específicamente a protección de menores."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La Cámara de Representantes anunció que buscará mejorar las condiciones laborales de los trabajadores sociales",
+   "verdict": "verdadera",
+   "why": "D11 (Notiséis WIPR) y D20 (Noticias RTZ) del lunes 26 confirman el anuncio del presidente de la Cámara, Carlos 'Johnny' Méndez."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen del lunes se duplicó frente al domingo",
+   "verdict": "verdadera",
+   "why": "day_total = 48, prev_day_total = 21. 48/21 ≈ 2.29, lo que efectivamente es más del doble."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El lunes sigue muy por debajo de los picos de martes a jueves",
+   "verdict": "verdadera",
+   "why": "Martes=212, miércoles=281, jueves=207 vs. lunes=48. El lunes está muy por debajo."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La cobertura de la controversia ADSEF estaba en su punto más alto de martes a jueves con 48 menciones contra un promedio superior a doscientas esos tres días",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "El promedio de martes a jueves es (212+281+207)/3 ≈ 233, que es superior a 200. Sin embargo, estas son menciones totales del Departamento de la Familia, no solo de la controversia ADSEF. El texto mezcla las 48 menciones totales del lunes con el promedio de los tres días como si fueran comparables en el mismo contexto de la controversia ADSEF."
+  },
+  {
+   "section": "insights",
+   "claim": "Documentos obtenidos por El Nuevo Día revelaron que el equipo de Suzanne Roig evaluó cómo adelantar $37.5 millones a NOLA Education meses antes de adjudicar el contrato",
+   "verdict": "verdadera",
+   "why": "N5, N6, N8, N10, N13 confirman que documentos de El Nuevo Día revelaron que el equipo de Roig evaluó cómo adelantar $37.5 millones a NOLA Education antes de adjudicar."
+  },
+  {
+   "section": "insights",
+   "claim": "Esto disparó el pico de la semana el miércoles con 281 menciones",
+   "verdict": "verdadera",
+   "why": "peak_total = 281 y corresponde al miércoles 21 de octubre según los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "El pico del miércoles tuvo un 74% negativo",
+   "verdict": "verdadera",
+   "why": "Miércoles: 281 menciones, 209 negativas. 209/281 ≈ 74.4%. Correcto."
+  },
+  {
+   "section": "insights",
+   "claim": "El Colegio de Profesionales del Trabajo Social denunció que hay menores durmiendo en oficinas de la agencia",
+   "verdict": "verdadera",
+   "why": "N3 (telemundopr, miércoles 21) confirma la denuncia del Colegio de Profesionales del Trabajo Social sobre menores durmiendo en oficinas."
+  },
+  {
+   "section": "insights",
+   "claim": "Trabajadoras sociales compran de su bolsillo comida y ropa para niños bajo custodia",
+   "verdict": "verdadera",
+   "why": "N14 (usuario_d4b773, miércoles 21) confirma que trabajadoras sociales compran de su bolsillo comida, artículos de higiene y ropa interior para menores bajo custodia."
+  },
+  {
+   "section": "insights",
+   "claim": "El tema de protección de menores suma 113 menciones con dos tercios adversas",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos desglosados por tópico para verificar la cifra de 113 menciones ni la proporción de dos tercios adversas en protección de menores."
+  },
+  {
+   "section": "insights",
+   "claim": "La demanda de Coccoloba por $2.5 millones contra Roig y LAP Consulting fue el viernes",
+   "verdict": "verdadera",
+   "why": "N12 (usuario_68f97c, viernes 23) y E4 (Telemundo PR, viernes 23) confirman que la demanda se radicó el viernes."
+  },
+  {
+   "section": "insights",
+   "claim": "La demanda civil de la exdirectora regional de Arecibo fue presentada",
+   "verdict": "verdadera",
+   "why": "E3 y E7 confirman la demanda civil de Blanca R. García Sostre, exdirectora regional de Arecibo, presentada el 17 de octubre de 2026."
+  },
+  {
+   "section": "insights",
+   "claim": "El Departamento de Justicia abrió una investigación",
+   "verdict": "verdadera",
+   "why": "N4 (usuario_a373c0, martes 20) y E17, E18 confirman la apertura de investigación por el Departamento de Justicia."
+  },
+  {
+   "section": "insights",
+   "claim": "La gobernadora evitó contestar si Roig cuenta con su confianza",
+   "verdict": "verdadera",
+   "why": "N7, N9, N11 (Telemundo PR, martes 20) confirman que la gobernadora evitó contestar la pregunta sobre la confianza en Roig."
+  },
+  {
+   "section": "insights",
+   "claim": "Telemundo, usuario_28b025 y usuario_a373c0 reprodujeron la evasiva sin editorializarla",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran que estos medios cubrieron el tema, pero no es posible verificar con certeza que no editorializaron, ya que los textos están truncados."
+  },
+  {
+   "section": "insights",
+   "claim": "Casi un tercio de las menciones de la semana quedó en tono plano (neutral)",
+   "verdict": "verdadera",
+   "why": "week_neu = 288 de 893 total = 32.3%, que es aproximadamente un tercio."
+  },
+  {
+   "section": "insights",
+   "claim": "Las únicas menciones favorables de la semana vinieron de visitas legislativas y municipales a centros Head Start en Coamo, San Sebastián y Lajas, y de una actividad deportiva interna del propio Departamento",
+   "verdict": "verdadera",
+   "why": "P1 (Head Start Coamo), P2 (Head Start San Sebastián), P4 (Head Start Lajas), P3/D8 (actividad deportiva del Departamento), P5 (Centro 2Gen Juana Díaz). La mayoría coincide, aunque P5 es sobre un Centro 2Gen en Juana Díaz, no un Head Start ni actividad deportiva, lo que se omite pero no invalida la afirmación general."
+  },
+  {
+   "section": "insights",
+   "claim": "Cinco menciones positivas en total",
+   "verdict": "verdadera",
+   "why": "week_pos = 5 según los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "Todas las menciones positivas son de cuentas institucionales o de funcionarios electos, ninguna de ciudadanos",
+   "verdict": "verdadera",
+   "why": "P1 es de un representante (Pablo José Hernández Rivera), P2 del Municipio de San Sebastián, P3 del Departamento de la Familia, P4 del Gobierno Municipal de Lajas, P5 del Municipio de Juana Díaz. Todas son cuentas institucionales o de funcionarios."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "En las viñetas se presenta la demanda de Coccoloba como un 'nuevo frente' del lunes, pero en los insights se indica correctamente que la demanda fue radicada el viernes.",
+  "Las viñetas dicen que la investigación de usuario_a373c0 y Bonita Radio 'circuló el lunes en Facebook', sugiriendo que es contenido del día, pero las menciones muestran que la investigación ya circulaba desde el miércoles 21 y sábado 24."
+ ],
+ "notes": "El texto es en general preciso en sus cifras y descripciones. Las principales debilidades son: (1) la demanda de Coccoloba se presenta en el titular y viñetas como si fuera un evento del lunes cuando fue radicada el viernes 23; (2) las cifras de menciones por tópico (más de 400 en ADSEF, 113 en protección de menores) no son verificables con los datos proporcionados; (3) la investigación de usuario_a373c0/Bonita Radio se presenta como contenido del lunes cuando ya circulaba días antes. El titular es sobrio y factual, con drama mínimo (nivel 1)."
+}

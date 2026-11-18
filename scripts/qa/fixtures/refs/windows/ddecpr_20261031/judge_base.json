@@ -1,0 +1,161 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "La publicación sobre El Horno de Pane genera elogios",
+   "verdict": "verdadera",
+   "why": "Múltiples comentarios positivos visibles en los datos (D3, D8, D16, D18, P3, P6, P7, P8, P9, P10, P11, etc.) elogian al negocio."
+  },
+  {
+   "section": "titular",
+   "claim": "La publicación sobre El Horno de Pane genera reclamos por falta de ubicación",
+   "verdict": "verdadera",
+   "why": "Varios comentarios negativos (D2, D4, D5, D6, D10, D11, D12, N4, N5, N6, N11, N13, N20) reclaman que no se incluyó la dirección del negocio."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El DDEC publicó en Facebook e Instagram un video de El Horno de Pane como parte de la serie del Mes de la Manufactura",
+   "verdict": "verdadera",
+   "why": "Las menciones E3, E18 muestran publicaciones en las cuentas de Facebook (Departamento de Desarrollo Económico y Comercio) e Instagram (desarrollopr) sobre El Horno de Pane en el Mes de la Manufactura."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La reacción del público se dividió: varios usuarios felicitaron al negocio, pero una porción notable reclamó que la publicación no incluía la dirección ni el municipio donde opera",
+   "verdict": "verdadera",
+   "why": "Los datos muestran tanto comentarios positivos (elogios, felicitaciones) como negativos (quejas por falta de ubicación), confirmando la división."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El sábado fue uno de los días más flojos de la semana, con 28 menciones",
+   "verdict": "verdadera",
+   "why": "day_total = 28 y day_rank = posición 6 de 7, confirmando que fue uno de los días con menos volumen."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Casi toda la actividad del sábado giró alrededor de esa sola publicación (El Horno de Pane)",
+   "verdict": "verdadera",
+   "why": "De las 20 menciones del día mostradas (D1-D20), la gran mayoría (D1-D12, D15-D18) son comentarios a la publicación de El Horno de Pane. Solo D13 (nota de prensa), D14 (Sorullos mamá Toña), D17 (gestionespr), D19 y D20 (publicaciones del DDEC) son sobre otros temas."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Una nota de prensa anunció el VII Simposio de Comercio Internacional en la UPR de Humacao",
+   "verdict": "verdadera",
+   "why": "D13 es una nota de prensa que anuncia el VII Simposio de Comercio Internacional en la UPR en Humacao."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El DDEC recordó que el plazo para radicar los informes anuales bajo Ley 60 vence a mediados de noviembre",
+   "verdict": "verdadera",
+   "why": "D17 (gestionespr) menciona que los IANE bajo el Código de Incentivos vencen el 15 de noviembre (corrido al 16 por caer domingo)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Varios usuarios en Facebook preguntaron repetidamente dónde queda El Horno de Pane y criticaron que el DDEC no incluyera la ubicación",
+   "verdict": "verdadera",
+   "why": "Múltiples comentarios (D2, D4, D5, D6, D10, D11, D12, N4, N5, N6, N11, N13, N20) preguntan por la ubicación o critican su ausencia."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Al menos 6 de las reacciones visibles son variantes de esa misma queja (falta de ubicación)",
+   "verdict": "verdadera",
+   "why": "Se pueden contar al menos 8-9 comentarios con esa queja: D2, D4, D5, D6, D10, D11, D12, N11, N13, N20. Decir 'al menos 6' es correcto."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La serie del Mes de la Manufactura sigue siendo el motor de casi toda la conversación del DDEC en redes: el sábado no hubo otra noticia propia que generara volumen",
+   "verdict": "verdadera",
+   "why": "Las menciones del sábado están dominadas por comentarios a publicaciones del Mes de la Manufactura. Las únicas excepciones son D13 (nota de prensa externa), D17 (recordatorio IANE) y D19/D20 (resumen de semana)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El aviso sobre la fecha límite del informe anual de negocios exentos bajo Ley 60 circuló en Instagram sin generar debate",
+   "verdict": "sin_respaldo",
+   "why": "D17 es de la cuenta 'gestionespr', no de 'desarrollopr' (la cuenta de Instagram del DDEC). No hay evidencia de que sea Instagram específicamente, y no se puede confirmar que no generó debate más allá de lo mostrado."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El pico de la semana fue entre el martes y el jueves, con más de 150 menciones diarias",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "El martes tuvo 155, el miércoles 167 y el jueves 148. El jueves tuvo 148, que es menos de 150, no 'más de 150'. Decir 'más de 150 menciones diarias' para los tres días es inexacto para el jueves."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El sábado bajó a 28, lo típico de un fin de semana sin evento nuevo",
+   "verdict": "verdadera",
+   "why": "day_total = 28 es correcto. El domingo anterior (25 oct) tuvo solo 13 menciones, lo que apoya que los fines de semana son más bajos."
+  },
+  {
+   "section": "insights",
+   "claim": "Varios usuarios en Facebook respondieron a las publicaciones del DDEC sobre el Mes de la Manufactura señalando que el video de El Horno de Pane no incluía la ubicación del negocio",
+   "verdict": "verdadera",
+   "why": "Confirmado por múltiples comentarios negativos en los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "Al menos seis comentarios entre el jueves y el sábado repiten la misma queja con tono de frustración (sobre falta de ubicación)",
+   "verdict": "verdadera",
+   "why": "Contando desde el jueves (29 oct) al sábado (31 oct): N13 (jueves), N18 (jueves), N20 (jueves), N4 (sábado), N5 (sábado), N6 (sábado), N11 (viernes), N12 (viernes), D5, D6, D10, D11, D12. Hay más de 6."
+  },
+  {
+   "section": "insights",
+   "claim": "Un usuario relató en Facebook su experiencia con el programa Tu Casa Eficiente: dice que tras un año de trámites y una inspección le aprobaron artículos menores que nunca llegaron",
+   "verdict": "sin_respaldo",
+   "why": "N14, N16, N17 muestran a usuario_56ac94 relatando una experiencia negativa con un programa de incentivos (bombillas, receptáculo, cabeza de ducha que nunca llegaron), pero el nombre 'Tu Casa Eficiente' no aparece en ninguna mención. El texto atribuye un nombre de programa que no está respaldado por los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "Otros comentarios bajo la misma publicación del DDEC cuestionan la credibilidad del incentivo",
+   "verdict": "verdadera",
+   "why": "N15 (usuario_56ac94: 'Se lo llevan y nadie se beneficia') y N2 (usuario_88278c: 'se tardan de 2 a 3 años') cuestionan la credibilidad bajo la misma publicación."
+  },
+  {
+   "section": "insights",
+   "claim": "La expansión de PRAK Industries en Aibonito —$1.2 millones de inversión y 120 empleos en manufactura textil— fue cubierta por Noticias RTZ, Notiséis WIPR y las cuentas del DDEC entre el martes y el miércoles",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "Noticias RTZ (E4, martes) y las cuentas del DDEC (E11, E12, E15, martes) sí cubrieron PRAK Industries. Sin embargo, Notiséis WIPR (E5) habló de $3 millones para apoyo energético a PYMEs el viernes, no de PRAK Industries específicamente. La mención E7 de Notiséis WIPR (martes) es sobre apoyo general del gobierno, no específicamente PRAK. La atribución a Notiséis WIPR como cobertura de PRAK es incorrecta."
+  },
+  {
+   "section": "insights",
+   "claim": "El Senado suspendió una vista pública sobre Roosevelt Roads y acordó continuar la investigación en reunión ejecutiva con el secretario del DDEC, según En Contacto 787 Tv el jueves",
+   "verdict": "verdadera",
+   "why": "E1 (En Contacto 787 Tv, jueves 29 de octubre) describe exactamente esto: suspensión de vista pública, acuerdo de reunión ejecutiva con el secretario del DDEC Carlos J. Ríos Pierluisi sobre Roosevelt Roads."
+  },
+  {
+   "section": "insights",
+   "claim": "La mención sobre Roosevelt Roads fue la mención neutral con más interacción de la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran las menciones neutrales ordenadas por engagement y E1 aparece primera en la lista, lo que sugiere que es la de más engagement. Sin embargo, no se proporcionan cifras de engagement explícitas para confirmarlo con certeza."
+  },
+  {
+   "section": "insights",
+   "claim": "La publicación del DDEC en Instagram destacando a El Horno de Pane generó decenas de comentarios de apoyo de ciudadanos comunes entre el lunes y el jueves",
+   "verdict": "verdadera",
+   "why": "Múltiples comentarios positivos en Instagram (desarrollopr) entre lunes y jueves: P3, P6, P7, P8, P9, P10, P11, P12, P15, P16, P17, P19, P20, etc. Hay más de una docena visible, y los datos muestran 135 positivos en la semana."
+  },
+  {
+   "section": "insights",
+   "claim": "Gratitud es la emoción dominante de la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos proporcionan sentimiento (positivo/negativo/neutral) pero no desglosan emociones específicas como 'gratitud'. No hay datos que confirmen que 'gratitud' sea la emoción dominante frente a otras emociones positivas como 'orgullo' o 'entusiasmo'."
+  },
+  {
+   "section": "insights",
+   "claim": "La asociación Hecho en Puerto Rico publicó el miércoles un video de su serie Detrás del Sello que menciona al DDEC como aliado",
+   "verdict": "verdadera",
+   "why": "P1 (Hecho en Puerto Rico, miércoles 28 de octubre) describe la serie Detrás del Sello y menciona al DDEC como aliado en el impulso a empresarios locales."
+  },
+  {
+   "section": "insights",
+   "claim": "La publicación de Hecho en Puerto Rico fue la publicación positiva con más interacción de toda la semana",
+   "verdict": "sin_respaldo",
+   "why": "P1 aparece primera en la lista de menciones positivas ordenadas por engagement, lo que lo sugiere, pero no se proporcionan cifras de engagement explícitas."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": true,
+ "contradictions_between_blocks": [
+  "La viñeta dice 'más de 150 menciones diarias' entre martes y jueves, pero el jueves tuvo 148 menciones según los datos, lo cual contradice esa afirmación.",
+  "El insight atribuye la cobertura de PRAK Industries a Notiséis WIPR, pero en las menciones Notiséis WIPR (E5) habla de apoyo energético a PYMEs, no de PRAK Industries."
+ ],
+ "notes": "La mayoría de la actividad del sábado 31 de octubre consiste en comentarios a una publicación del DDEC del lunes 26 de octubre (5+ días antes). El texto no aclara que la publicación original es de 5 días atrás, presentando la actividad como si fuera contenido fresco del día. Esto constituye old_post_presented_as_day_news. El titular es descriptivo y sobrio (drama=1), reflejando adecuadamente el contenido. El nombre 'Tu Casa Eficiente' para el programa de incentivos mencionado por usuario_56ac94 no aparece en los datos proporcionados."
+}

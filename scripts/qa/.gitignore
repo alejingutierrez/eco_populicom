@@ -1,0 +1,4 @@
+# salidas de run-all.sh y de los scripts (corridas, veredictos, tablas): se regeneran
+out/
+__pycache__/
+*.pyc

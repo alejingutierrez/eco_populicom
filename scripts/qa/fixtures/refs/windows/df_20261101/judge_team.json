@@ -1,0 +1,160 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "La Fortaleza deja en manos de Suzanne Roig aclarar las contradicciones sobre el viaje a Luisiana",
+   "verdict": "verdadera",
+   "why": "Coincide con D2, D4, D6 y D20: La Fortaleza/Jean Peña Payano declaró que corresponde a Roig aclarar los señalamientos sobre el viaje a Luisiana."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El secretario de Asuntos Públicos, Jean Peña Payano, declaró el domingo 1 de noviembre que le corresponde a Suzanne Roig responder por las contradicciones sobre quién pagó los gastos del viaje a Luisiana",
+   "verdict": "verdadera",
+   "why": "Confirmado por D2 (El Vocero), D4 (NotiCel), D6 (El Nuevo Día) y D20 (Notiuno), todos del domingo 1 de noviembre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Lo informaron El Vocero, NotiCel, El Nuevo Día y Notiuno",
+   "verdict": "verdadera",
+   "why": "D2 es de El Vocero, D4 de NotiCel, D6 de El Nuevo Día y D20 de Notiuno.com. Los cuatro cubren la declaración de Peña Payano."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El mismo día, El Nuevo Día publicó un editorial pidiendo la renuncia de la secretaria",
+   "verdict": "verdadera",
+   "why": "D11 es un editorial de El Nuevo Día del domingo 1 de noviembre titulado 'Por el bien del país, Suzanne Roig debe renunciar'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La gobernadora Jenniffer González Colón la defendió acusando a Rivera Schatz de querer afectar su gabinete",
+   "verdict": "verdadera",
+   "why": "D5 (NOTICIAS DE PONCE, 1 de noviembre): 'Gobernadora defiende a secretaria de la Familia y acusa a Rivera Schatz de intentar desmantelar su gabinete'."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Fue el día de menor volumen de la semana, con 29 menciones",
+   "verdict": "verdadera",
+   "why": "day_total = 29 y day_rank = posición 7 de 7 por volumen, confirmando que fue el día de menor volumen."
+  },
+  {
+   "section": "párrafo",
+   "claim": "20 negativas de las 29 menciones del día",
+   "verdict": "verdadera",
+   "why": "day_neg = 20, coincide exactamente."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Generó piezas propias: las declaraciones de La Fortaleza, el editorial y una columna de opinión de Mayra Montero sobre la situación de Familia, ADSEF y ASSMCA",
+   "verdict": "verdadera",
+   "why": "D2/D4/D6/D20 cubren las declaraciones de La Fortaleza, D11 es el editorial, y D19 es la columna de Mayra Montero sobre Familia, ADSEF y ASSMCA."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La Fortaleza se distanció de Roig sin destituirla: Peña Payano dijo que las contradicciones sobre el viaje las aclara ella",
+   "verdict": "verdadera",
+   "why": "Confirmado por D2, D4, D6 y D20. La expresión 'se distanció' es una interpretación razonable del hecho de dejar en sus manos la aclaración."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El Nuevo Día y La Fortaleza confirmaron que la gobernadora negó haber pedido reuniones o donativos a NOLA Education",
+   "verdict": "verdadera",
+   "why": "D6 (El Nuevo Día): 'La Fortaleza niega que Jenniffer González pidiera una reunión o donativos a NOLA Education'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El editorial de El Nuevo Día pidió la renuncia de Roig, y la columnista Mayra Montero criticó la situación del Departamento de la Familia, ADSEF y ASSMCA; ambas piezas se publicaron el domingo 1 de noviembre",
+   "verdict": "verdadera",
+   "why": "D11 es el editorial de El Nuevo Día del 1 de noviembre pidiendo la renuncia. D19 es la columna de Mayra Montero del 1 de noviembre sobre Familia, ADSEF y ASSMCA."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Lo único ajeno a la controversia de Roig fue la cobertura de Telenoticias PR y Telemundo PR sobre el programa Prospera de ASUME, que permite a adultos mayores solicitar pensión alimentaria a sus hijos",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D8 y D9 cubren el programa Prospera, pero también hubo otras menciones ajenas a la controversia de Roig ese día: D10 (demanda contra Félix Plaud/ASSMCA), D14 (feria de servicios con ADFAN/ADSEF), D16 (proyecto de sinhogarismo de Barlucea), D18 (publicación del Departamento de la Familia). Decir que fue 'lo único' es inexacto."
+  },
+  {
+   "section": "insights",
+   "claim": "NOLA Education informó al Senado que pagó miles de dólares en gastos de la delegación durante el viaje a Luisiana, lo que contradice el testimonio bajo juramento de Roig",
+   "verdict": "verdadera",
+   "why": "Confirmado por N1, N9, N12, N13, D3, D7, D17: NOLA reportó $13,525.05 en gastos, contradiciendo el testimonio de Roig de que pagó en efectivo."
+  },
+  {
+   "section": "insights",
+   "claim": "Noticentro por WAPA, Telemundo PR, Es Noticia PR y la periodista Milly Méndez lo difundieron entre el viernes 30 de octubre y el domingo 1 de noviembre",
+   "verdict": "verdadera",
+   "why": "N1/N12 (Noticentro, 31 oct), N19 (Telemundo PR, 31 oct), D17 (Es Noticia PR, 1 nov), D7 (usuario_926b5b, 1 nov). Las fechas van del 31 de octubre al 1 de noviembre, no desde el viernes 30. Sin embargo, D3 (Noticentro, 1 nov) y N9 (noticentrowapa, 31 oct) también cubren el tema. La afirmación de que empezó el viernes 30 no tiene respaldo claro en las muestras para esos medios específicos, pero el rango general es aproximado."
+  },
+  {
+   "section": "insights",
+   "claim": "Legisladores exigieron la renuncia de la secretaria",
+   "verdict": "verdadera",
+   "why": "N19 (Telemundo PR, 31 oct): 'NOLA entrega recibos y legisladores exigen la renuncia de Suzanne Roig'."
+  },
+  {
+   "section": "insights",
+   "claim": "El lunes 26 y el martes 27 de octubre, usuario_a373c0 y Bonita Radio publicaron que menores bajo custodia de Familia pasan semanas durmiendo en oficinas",
+   "verdict": "verdadera",
+   "why": "N14 (Puerto Rico La Isla, 26 oct) menciona la investigación de usuario_a373c0 y Bonita Radio; N2/N15 (usuario_a373c0, 27 oct) también cubren el tema de menores durmiendo en oficinas."
+  },
+  {
+   "section": "insights",
+   "claim": "Las adopciones están relegadas según las publicaciones de usuario_a373c0",
+   "verdict": "verdadera",
+   "why": "N2/N15 (usuario_a373c0, 27 oct): 'trabajadores sociales denuncian que las adopciones han quedado relegadas' y que Familia no dio números de adopciones completadas."
+  },
+  {
+   "section": "insights",
+   "claim": "El jueves 29 de octubre usuario_afe703 denunció que trabajadores sociales becados por la agencia siguen sin ser contratados",
+   "verdict": "verdadera",
+   "why": "N8 (usuario_afe703, 29 oct): 'más de una decena de profesionales becados por la propia agencia' siguen esperando ser contratados."
+  },
+  {
+   "section": "insights",
+   "claim": "Ninguna de esas denuncias tuvo respuesta visible de la agencia durante la semana",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran las menciones monitoreadas pero no necesariamente capturan todas las respuestas de la agencia. No hay evidencia de respuesta en las muestras, pero tampoco se puede confirmar que no existió ninguna."
+  },
+  {
+   "section": "insights",
+   "claim": "Telenoticias PR, Telemundo PR y Puerto Rico La Isla informaron entre el viernes 30 de octubre y el domingo 1 de noviembre sobre el programa Prospera de ASUME",
+   "verdict": "verdadera",
+   "why": "D8 (Telenoticias PR, 1 nov), D9 (Telemundo PR, 1 nov), E6 (Puerto Rico La Isla, 30 oct) cubren el programa Prospera de ASUME."
+  },
+  {
+   "section": "insights",
+   "claim": "Fue el único contenido de servicio con presencia sostenida en la semana",
+   "verdict": "sin_respaldo",
+   "why": "No hay datos suficientes para confirmar que no hubo otro contenido de servicio con presencia sostenida; las muestras son parciales."
+  },
+  {
+   "section": "insights",
+   "claim": "La senadora Jamie Barlucea presentó el domingo 1 de noviembre un proyecto para crear un sistema integrado de prevención y atención al sinhogarismo que incluye al Departamento de la Familia",
+   "verdict": "verdadera",
+   "why": "D16 (NOTICIAS DE PONCE, 1 nov): 'Senadora Barlucea propone crear un sistema integrado para prevenir y atender el sinhogarismo en Puerto Rico', mencionando al Departamento de la Familia."
+  },
+  {
+   "section": "insights",
+   "claim": "De los 362 registros de la semana, solo 1 fue positivo",
+   "verdict": "verdadera",
+   "why": "week_pos = 1, coincide exactamente con los datos."
+  },
+  {
+   "section": "insights",
+   "claim": "El registro positivo provino del propio Departamento de la Familia el lunes 26 de octubre, sobre un torneo deportivo interno entre equipos de sus administraciones y regiones",
+   "verdict": "verdadera",
+   "why": "P1 es del Departamento de la Familia, del lunes 26 de octubre, sobre un torneo deportivo con equipos de ADSEF, Región de Humacao, etc. Series confirman: solo el lunes 26 tuvo 1 mención positiva."
+  },
+  {
+   "section": "insights",
+   "claim": "Ninguna voz externa generó contenido favorable",
+   "verdict": "verdadera",
+   "why": "El único registro positivo (P1) proviene de la propia página del Departamento de la Familia, no de una fuente externa."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "La viñeta 3 dice que 'lo único ajeno a la controversia de Roig' fue la cobertura de Prospera/ASUME, pero el propio texto en los insights menciona el proyecto de sinhogarismo de la senadora Barlucea como contenido separado del domingo 1 de noviembre, y en las menciones del día también aparecen D10 (demanda Félix Plaud), D14 (feria de servicios) y D18 (publicación institucional de ADFAN), todos ajenos a la controversia de Roig."
+ ],
+ "notes": "El texto es en general preciso y bien respaldado por los datos. El titular es sobrio y descriptivo (drama 1/5). La principal debilidad es la viñeta que afirma que la cobertura de Prospera fue 'lo único' ajeno a la controversia de Roig, cuando hubo varias otras menciones no relacionadas ese día. No se presenta contenido viejo como noticia del día."
+}

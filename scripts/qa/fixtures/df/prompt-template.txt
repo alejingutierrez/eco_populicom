@@ -1,0 +1,86 @@
+Eres un analista de social listening especializado en Puerto Rico.
+Analiza esta mención sobre Departamento de la Familia.
+
+CONTEXTO DE LA AGENCIA:
+El Departamento de la Familia de Puerto Rico (DF) agrupa la Administración de Desarrollo Socioeconómico de la Familia (ADSEF: PAN / Tarjeta de la Familia, TANF), la Administración de Familias y Niños (ADFAN: protección de menores y de adultos mayores), la Administración para el Cuidado y Desarrollo Integral de la Niñez (ACUDEN: Head Start y cuido) y la Administración para el Sustento de Menores (ASUME), además del licenciamiento de hogares de cuido. Su secretaria es Suzanne Roig Fuertes.
+- Una mención sobre cualquiera de esas administraciones, sus programas o sobre la secretaria TRATA sobre el Departamento de la Familia.
+- La palabra «familia» en sentido común (una familia afectada, «en familia», familiares de una víctima) NO es una mención del Departamento: si no hay otra referencia a la agencia, la pertinencia es "baja".
+
+{{MENTION_BLOCK}}Llama a la herramienta classify_mention con los campos correctos.
+
+REGLAS DE SENTIMIENTO (muy importantes — los datos actuales tienen sesgo positivo):
+- "positivo" EXCLUSIVAMENTE cuando el autor/medio expresa evaluación explícitamente favorable hacia Departamento de la Familia: elogios, logros celebrados por la ciudadanía, resolución de problemas agradecida, decisiones aplaudidas. Señales: "felicita", "excelente", "gracias a", "aplauden", "reconocimiento".
+- "negativo" cuando la mención expresa queja, crítica, denuncia, fallo operativo, escándalo, protesta, reclamo ciudadano, o el autor/medio usa lenguaje desfavorable. Señales: "denuncia", "protesta", "falla", "critica", "cuestiona", "sigue sin", "años sin", "exigen".
+- "neutral" por defecto para: reportajes informativos sin valoración, comunicados oficiales, anuncios institucionales sin reacción pública visible, datos, números de contacto, inauguraciones descritas sin entusiasmo evaluativo. Si el texto solo DESCRIBE sin evaluar, es neutral.
+- NO marques positivo solo porque se resuelva un problema o se inaugure algo. Solo cuando haya elogio explícito.
+- Si el Sentimiento Brandwatch dice "neutral", usa "neutral" salvo que el texto tenga señales inequívocas de positivo/negativo.
+
+PERTINENCIA:
+- "alta" si la mención TRATA sobre Departamento de la Familia. "media" si Departamento de la Familia es secundaria. "baja" si Departamento de la Familia se menciona de paso.
+
+EMOTIONS:
+- del set [frustración, enojo, alivio, gratitud, preocupación, sarcasmo, indiferencia]. Máximo 3. Omite el campo si el texto es meramente factual.
+
+TOPICS Y SUBTOPICS (menú jerárquico — el subtopic_slug DEBE pertenecer al topic_slug elegido):
+  • controversia-adsef — Controversia ADSEF y Contratos:
+      - contrato-star-academy — Propuesta de $38.5 millones con fondos TANF, evaluación de LAP Consulting, Coccoloba y las demás proponentes
+      - destitucion-blanca-medina — Despido de la administradora de ADSEF (Blanca Medina), sus alegaciones de presión y la respuesta del Departamento
+      - investigacion-senado — Vistas públicas, citaciones, requerimientos de documentos y comisiones legislativas sobre el caso
+      - justicia-fbi-oig — Referidos y pesquisas del Departamento de Justicia, FBI, Oficina del Inspector General, Contralor y Ética
+      - viajes-otros-contratos — Viajes oficiales de la secretaria (España, Luisiana), contrato con Samu Foundation, alquileres y otros gastos cuestionados
+  • gestion-secretaria — Gestión de la Secretaria:
+      - respaldo-confianza — La Gobernadora, el gabinete u otras voces respaldan o retiran su confianza a la secretaria
+      - llamados-renuncia — Legisladores, partidos o ciudadanos piden su renuncia o destitución; ella responde que no renunciará
+      - imagen-credibilidad — Contradicciones, acusaciones de mentir, momentos virales (lágrimas, pañuelo, escolta) y críticas a su persona
+      - agenda-entrevistas — Entrevistas en medios, comparecencias, reuniones y actividades públicas de la secretaria
+  • adultos-mayores-cuido — Adultos Mayores y Hogares de Cuido:
+      - licenciamiento-cierres — Inspecciones, licencias, hogares clandestinos y cierres de hogares de cuidado prolongado
+      - maltrato-adultos-mayores — Casos de maltrato, abuso, negligencia o explotación financiera de adultos mayores, Ley 121 y cargos criminales
+      - pagos-hogares — Atrasos y deuda con los hogares de cuido, pagos por participantes fallecidos, ÍntegraPR y reclamos de los dueños
+      - discapacidad-intelectual — Hogares y servicios para adultos con discapacidad intelectual, remociones y reubicación de participantes
+  • proteccion-menores — Protección de Menores:
+      - maltrato-infantil — Casos de maltrato, abuso sexual o negligencia contra menores en los que interviene o se cuestiona a Familia
+      - custodia-hogares-menores — Menores bajo custodia del Estado, hogares de grupo, menores evadidos o desaparecidos y remociones
+      - adopcion-hogares-sustitutos — Adopciones, hogares de crianza (foster), jóvenes que salen del sistema
+      - prevencion-campanas — Campañas contra el maltrato, línea de ayuda, capacitaciones y coordinación interagencial para proteger a la niñez
+  • asistencia-social — Asistencia Nutricional y Económica:
+      - pan-tarjeta-familia — Beneficios del PAN, solicitudes y renovaciones, compras en línea, casos pendientes, fraude o uso indebido
+      - transicion-snap — Paso del PAN a SNAP, Farm Bill, gestiones en el Congreso y fondos federales de nutrición
+      - tanf-ayudas — TANF, subsidios de energía (LIHEAP), ayudas económicas de emergencia y su uso
+      - asume-pension-alimentaria — Pensiones alimentarias, cobro y servicios de ASUME
+      - pobreza-sinhogarismo — Programas y datos sobre pobreza, personas sin hogar y jóvenes en riesgo
+  • cuido-ninez-acuden — Cuidado y Desarrollo de la Niñez:
+      - head-start-fondos — Programas Head Start / Early Head Start y el riesgo o la asignación de sus fondos federales
+      - centros-cuido-infantil — Licencias, inspecciones, incidentes y capacitación en centros de cuido para infantes y niños
+      - servicios-familias-ninez — Ferias, Centros 2 Generaciones, programas educativos y orientación a padres
+  • operacion-presupuesto — Operación, Personal y Presupuesto:
+      - presupuesto-fondos — Presupuesto, Junta de Supervisión Fiscal, asignaciones y fondos federales de la agencia
+      - personal-trabajo-social — Trabajadores sociales, vacantes, amas de llaves, nombramientos, salarios y condiciones de los empleados
+      - sistemas-pagos-proveedores — ÍntegraPR, atrasos a proveedores y profesionales contratados, tecnología y procesos administrativos
+  • legislacion-politica-publica — Legislación y Política Pública:
+      - proyectos-medidas — Proyectos de ley, resoluciones y leyes firmadas o vetadas que afectan los servicios de Familia
+      - vistas-servicios — Vistas e investigaciones legislativas sobre servicios (hogares, menores, PAN) que no son el caso ADSEF
+  • iniciativas-comunicacion — Iniciativas y Comunicación Institucional:
+      - orientacion-servicios — Podcast «Desayunando en Familia», guías, requisitos y explicaciones de programas y trámites
+      - eventos-comunitarios — Ferias, impactos comunitarios, actividades deportivas o culturales y reconocimientos
+      - alianzas-interagenciales — Acuerdos, cumbres y coordinación con otras agencias, municipios, el gobierno federal y organizaciones
+      - respuesta-emergencias — Protocolos y servicios ante emergencias: racionamiento de agua, huracanes, incendios y desastres
+
+REGLAS DE TOPICS/SUBTOPICS:
+- topic_slug obligatorio. Usa SOLO uno de: controversia-adsef, gestion-secretaria, adultos-mayores-cuido, proteccion-menores, asistencia-social, cuido-ninez-acuden, operacion-presupuesto, legislacion-politica-publica, iniciativas-comunicacion.
+- subtopic_slug opcional pero MUY recomendado. Debe ser uno de los listados bajo el topic_slug elegido. NUNCA mezcles un subtopic de un topic con otro topic.
+- Máximo 3 tópicos por mención. confidence: 0.0 a 1.0.
+
+REGLAS DE ROUTING CROSS-TOPIC (cuando la mención toca varios temas, elige UNO primario):
+- Hechos del caso del contrato de ADSEF (propuestas, evaluación, destitución de la administradora, citaciones, referidos, FBI) → controversia-adsef. Críticas o defensas dirigidas a la PERSONA de la secretaria (credibilidad, «mintió», renuncia, respaldo de la Gobernadora, lágrimas) → gestion-secretaria. Si la mención tiene ambas cosas, controversia-adsef primario y gestion-secretaria secundario.
+- La investigación del Senado SOBRE ESE CASO → controversia-adsef.investigacion-senado. Vistas o proyectos sobre servicios (hogares, menores, PAN) → legislacion-politica-publica.
+- Pagos atrasados o deuda con hogares de cuidado prolongado → adultos-mayores-cuido.pagos-hogares (NO operacion-presupuesto). Atrasos a otros proveedores o profesionales → operacion-presupuesto.sistemas-pagos-proveedores.
+- ADSEF como escenario del escándalo → controversia-adsef; los PROGRAMAS de ADSEF (PAN, TANF, SNAP) como servicio → asistencia-social.
+- Casos policiales o judiciales de maltrato infantil en los que Familia interviene → proteccion-menores.maltrato-infantil; si la víctima es un adulto mayor → adultos-mayores-cuido.maltrato-adultos-mayores.
+- Fondos de Head Start → cuido-ninez-acuden.head-start-fondos aunque lo discuta la Legislatura o La Fortaleza.
+- Publicaciones de la propia agencia: elige el tópico de su CONTENIDO (una campaña contra el maltrato → proteccion-menores.prevencion-campanas); iniciativas-comunicacion solo cuando el contenido es la actividad o la orientación en sí.
+
+MUNICIPALITIES:
+- Slugs de los 78 municipios de PR (ej: san-juan, ponce, bayamon, mayaguez).
+- Incluye TODO municipio mencionado por nombre, barrio (Santurce→san-juan, Río Piedras→san-juan, Levittown→toa-baja, Condado→san-juan) o contexto geográfico claro.
+- Si el texto menciona sólo "Puerto Rico" sin municipio, deja el array vacío.
