@@ -341,7 +341,12 @@ al mismo tema):
 | `eco-ingestion-errors-sustained` | 5 o más errores del lambda cada 5 min durante 30 min | `eco-ingesta-callada` (una corrida que revienta no publica métricas: 12 min) y `eco-lambda-ingestion-errors`, de CDK, que se queda (más de 5 errores en 5 min) |
 
 Las nuevas llevan en OK desde el 15-nov 07:16 UTC, más de las 24 h pedidas.
-Las dos manuales se pueden borrar; falta el visto bueno.
+**Las dos manuales se borraron el 17-nov** con el visto bueno de Alejandro,
+después de reponer la suscripción del tema y de pasar el tercer simulacro. Su
+definición quedó guardada en
+`.claude/rollback/alarmas-manuales-ingesta-2026-11-17.json` (fuera de git) por
+si hubiera que recrearlas con `put-metric-alarm`. De ingesta quedan las tres
+de CDK y `eco-lambda-ingestion-errors`.
 
 ### WP-3 · Ceder con la cuota vista
 
