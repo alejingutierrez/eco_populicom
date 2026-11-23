@@ -96,6 +96,14 @@ Despliegue: `eco-weekly-report` por esbuild y `update-function-code`, tras compa
 - **B4. La lectura del periodo, más corta.** Llevar al motor las reglas del prompt que Carla probó: titular de hasta 15 palabras, resumen de hasta 3 oraciones, oraciones de hasta 20 palabras, cifras en los datos clave y no en el resumen, cambios con su base («pasó de 500 a 6,000») en vez de porcentaje suelto, sin rayas ni paréntesis, fechas completas. Las que se pueden medir (largo de oración, largo del resumen, porcentaje sin base, raya o paréntesis) van como chequeo por código; el resto, al prompt del redactor. Se prueba con el caso de DF a 90 días que viene en la tarea.
 - **B5. Muestra para revisión humana.** 30 correos reales (10 por agencia, Diario y Semanal) en una hoja a ciegas para que una persona de comunicaciones marque defectos. El criterio pide menos de 10 %.
 
+**Resultado de B2 y B3 (23-nov, en el PR de este paquete; sin desplegar).**
+
+- Medido sobre los 64 correos programados enviados del 5 al 23-nov: 17 signos dobles en 15 correos (todos Diarios; el Semanal ya escribe sus variaciones sin signo), 2 bloques con «% %», 0 palabras vetadas, 0 afirmaciones de dirección contra su cifra, 0 defectos duros residuales y 0 correcciones sin archivo.
+- B2: el relleno de cifras (`fillPlaceholders`) escribe la variación sin signo cuando el texto ya dice el sentido («bajó 18 %», «62 % más»), quita el «%» repetido y, si el texto dice lo contrario de la cifra, lo marca como defecto duro `direccion_contradice_cifra`: va al corrector y, si sobrevive, la red de seguridad quita la oración.
+- B3: `scripts/int-02-enviados-check.ts` recorre lo enviado y cuenta los cinco indicadores por día.
+- «Titular que contradice el párrafo» no tiene chequeo por código: sigue a cargo del revisor por modelo.
+- B4: el texto de la tarea de Carla tiene la forma del lede del Overview (titular, párrafo, puntos numerados y foto). Ese bloque lo escribe `eco-ai-tasks`, cuyo código en producción es del 8-oct y no usa el motor nuevo (`COMPOSER_WEB_AGENCIES` sin definir). Aplicar sus reglas pide primero llevar el motor nuevo al Overview; queda como decisión aparte.
+
 Aceptación: los cuatro criterios del ítem; B5 depende de que alguien revise (decisión D6).
 
 Antes de B4 hay que confirmar a qué texto se refiere «La lectura del periodo»: el bloque del Overview (`overview_period_insights`), el del PDF o ambos. Si es más de uno, las reglas van en la pieza compartida.

@@ -80,7 +80,53 @@ export function draftText(d: Draft): string {
 
 // ------------------------------------------------------------------ marcadores
 
-/** Reemplaza `{{id}}` por el valor mostrado del hecho; un id inexistente se quita y se reporta. */
+// Palabras que ya dicen hacia dónde fue una variación. Con una de ellas al lado,
+// el signo de la cifra sobra («bajó -18 %», «+56 % más»): INT-02.
+const UP_WORDS = 'sub(?:e|en|ió|ieron|ida)|aument(?:a|an|ó|aron|o)|alza|incremento|crecimiento|creci(?:ó|eron)|crecen?|más|mayor';
+const DOWN_WORDS = 'baj(?:a|an|ó|aron)|ca(?:e|en|yó|yeron|ída)|descenso|reducción|disminución|disminu(?:ye|yen|yó|yeron)|se redu(?:ce|cen|jo|jeron)|descend(?:ió|ieron)|menos|menor';
+const wordRe = (alt: string, flags = 'iu') => new RegExp(`(?<![\\p{L}])(?:${alt})(?![\\p{L}])`, flags);
+const UP_RE = /* @__PURE__ */ wordRe(UP_WORDS);
+const DOWN_RE = /* @__PURE__ */ wordRe(DOWN_WORDS);
+/** «más»/«menos» justo después de la cifra: «{{x}} menos que el viernes», «{{x}} menciones menos». */
+const AFTER_RE = /^\s*(?:%\s*)?(?:de\s+)?(?:\p{L}+\s+)?(más|mayor|menos|menor)(?![\p{L}])/iu;
+/** Hasta 5 palabras antes del marcador, sin cruzar un punto, punto y coma o dos puntos. */
+const BEFORE_WINDOW_RE = /(?:[^\s.;:!?]+\s+){0,5}[^\s.;:!?]*$/u;
+
+/** Una variación con signo en lo que se muestra: `day_delta_pct` = «-76 %». */
+const isSignedVariation = (id: string, f: Fact) => /_delta(_|$)/.test(id) && /^[+\-−]/.test(f.display) && f.value !== 0;
+
+/**
+ * Sentido que el texto ya le da a la cifra de este marcador: la palabra de
+ * dirección más cercana antes de él («bajó», «un aumento de») o «más»/«menos»
+ * justo después. `null` si el texto no dice nada («32 menciones ({{day_delta_pct}})»).
+ * «bajó de {{a}} a {{b}}» es un recorrido entre dos niveles, no una variación.
+ */
+export function statedDirection(before: string, after: string): 'up' | 'down' | null {
+  const aft = after.match(AFTER_RE)?.[1]?.toLowerCase();
+  if (aft) return aft === 'más' || aft === 'mayor' ? 'up' : 'down';
+  if (/^\s*(?:%\s*)?a\s+(?:\{\{|[+\-−]?\d)/u.test(after)) return null;
+  // Un marcador previo cuenta como una palabra: «bajó a {{day_total}} menciones, un {{day_delta_pct}}».
+  const win = before.replace(/\{\{[^{}]*\}\}/g, 'N').match(BEFORE_WINDOW_RE)?.[0] ?? '';
+  let last: { dir: 'up' | 'down'; at: number } | null = null;
+  for (const [dir, re] of [['up', UP_RE], ['down', DOWN_RE]] as const) {
+    for (const m of win.matchAll(new RegExp(re.source, 'giu'))) {
+      // «más» y «menos» antes de la cifra no son verbo («el día con menos menciones, {{x}}»).
+      if (/^(más|mayor|menos|menor)$/i.test(m[0])) continue;
+      if (!last || m.index! > last.at) last = { dir, at: m.index! };
+    }
+  }
+  return last?.dir ?? null;
+}
+
+/**
+ * Reemplaza `{{id}}` por el valor mostrado del hecho; un id inexistente se
+ * quita y se reporta.
+ *
+ * Una variación con signo se escribe SIN signo cuando el texto ya dice el
+ * sentido y coincide («bajó {{day_delta_pct}}» → «bajó 18 %»). Si el texto dice
+ * lo contrario de la cifra («subió» con −18 %), se deja el signo y se reporta
+ * `direccion_contradice_cifra`. Un «%» repetido tras el marcador se quita.
+ */
 export function fillPlaceholders(
   text: string,
   facts: Record<string, Fact>,
@@ -88,13 +134,23 @@ export function fillPlaceholders(
   problems: CodeDefect[] = [],
   keepInvalid = false,
 ): string {
-  return (text ?? '').replace(MARKER_RE, (m, id: string) => {
+  const src = text ?? '';
+  const out = src.replace(MARKER_RE, (m, id: string, offset: number) => {
     const f = facts[id];
-    if (f) return f.display;
-    problems.push({ where, type: 'marcador_invalido', quote: m, severity: 'hard' });
-    // Para la red de seguridad se deja el marcador: el lint lo ve y quita la frase entera.
-    return keepInvalid ? m : '';
+    if (!f) {
+      problems.push({ where, type: 'marcador_invalido', quote: m, severity: 'hard' });
+      // Para la red de seguridad se deja el marcador: el lint lo ve y quita la frase entera.
+      return keepInvalid ? m : '';
+    }
+    if (!isSignedVariation(id, f)) return f.display;
+    const said = statedDirection(stripTags(src.slice(0, offset)), stripTags(src.slice(offset + m.length)));
+    if (!said) return f.display;
+    if ((said === 'up') === (f.value > 0)) return f.display.replace(/^[+\-−]\s*/, '');
+    problems.push({ where, type: 'direccion_contradice_cifra', quote: m, severity: 'hard' });
+    return f.display;
   });
+  // «{{week_neg_pct}} %»: el valor mostrado ya trae su «%».
+  return out.replace(/%(?:\s*%)+/g, '%');
 }
 
 export function fillDraft(d: Draft, facts: Record<string, Fact>, opts: { keepInvalid?: boolean } = {}): { filled: Draft; problems: CodeDefect[] } {
@@ -170,6 +226,27 @@ export function countWords(s: string): number {
   return stripTags(s).trim().split(/\s+/).filter(Boolean).length;
 }
 
+/**
+ * En un texto ya rellenado, porcentajes con signo junto a una palabra que ya
+ * dice el sentido. `contradice`: el signo es el contrario («subió -18 %»).
+ * `signo_doble`: coincide y el signo sobra («bajó -18 %», «+56 % más»); desde
+ * INT-02 `fillPlaceholders` ya no los produce, así que solo aparecen en textos
+ * anteriores.
+ */
+export function findSignedDirections(text: string): Array<{ quote: string; kind: 'contradice' | 'signo_doble' }> {
+  const out: Array<{ quote: string; kind: 'contradice' | 'signo_doble' }> = [];
+  for (const m of text.matchAll(/([+\-−])\s?\d[\d.,]*\s?%/gu)) {
+    const said = statedDirection(text.slice(0, m.index!), text.slice(m.index! + m[0].length));
+    if (said) out.push({ quote: m[0], kind: (said === 'up') === (m[1] === '+') ? 'signo_doble' : 'contradice' });
+  }
+  return out;
+}
+
+/** Solo las contradicciones: lo que el lint trata como defecto duro. */
+export function findSignContradictions(text: string): string[] {
+  return findSignedDirections(text).filter((x) => x.kind === 'contradice').map((x) => x.quote);
+}
+
 /** Lint de un texto ya rellenado (sin marcadores). Port de `code_lint`. */
 export function codeLint(text: string, where: string, ctx: LintContext): CodeDefect[] {
   const probs: CodeDefect[] = [];
@@ -178,6 +255,7 @@ export function codeLint(text: string, where: string, ctx: LintContext): CodeDef
   txt = txt.replace(/\{\{[^{}]*\}\}/g, ' ');
   for (const nm of ctx.nameWhitelist) txt = txt.split(nm).join(' ');
   for (const v of findVetoed(txt)) probs.push({ where, type: 'tono_dramatico', quote: v, severity: 'hard' });
+  for (const q of findSignContradictions(txt)) probs.push({ where, type: 'direccion_contradice_cifra', quote: q, severity: 'hard' });
   const clean = txt.replace(DATE_RE, ' ').replace(YEAR_RE, ' ');
   for (const n of clean.match(NUMBER_RE) ?? []) {
     const n2 = n.replace(/[.,]+$/, '');

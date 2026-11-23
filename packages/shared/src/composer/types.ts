@@ -210,6 +210,8 @@ export type CodeDefectType =
   | 'titular_largo'
   /** INT-01: una variación sin el nivel a 14 y 28 días en el mismo bloque (aviso). */
   | 'direccion_sin_nivel'
+  /** INT-02: el texto dice «sube» y la cifra es negativa, o «baja» y es positiva. */
+  | 'direccion_contradice_cifra'
   /** INT-01: dice que la situación mejora o se calma con el nivel sostenido (aviso). */
   | 'mejora_con_nivel_sostenido';
 

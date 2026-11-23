@@ -162,7 +162,7 @@ describe('contexto y reglas para los roles', () => {
 
   test('las versiones del motor y de los prompts subieron', () => {
     expect(COMPOSER_VERSION).toBe('composer-1.1.0');
-    expect(COMPOSER_PROMPT_VERSION).toBe('composer-prompts-v1.2');
+    expect(COMPOSER_PROMPT_VERSION).toBe('composer-prompts-v1.3');
   });
 });
 
@@ -260,7 +260,7 @@ describe('compose con nivel y asuntos', () => {
     expect(calls.map((c) => c.role)).toEqual(['analyst', 'writer', 'qa', 'corrector']);
     expect(r.composition.qa.code).toEqual([{ where: 'párrafo', type: 'direccion_sin_nivel', quote: '{{day_delta_pct}}', severity: 'soft' }]);
     expect(calls[3].user).toMatch(/direccion_sin_nivel/);
-    expect(r.final.paragraph).toBe('El volumen del día bajó -47 % respecto al jueves; a 14 días el 65 % de las menciones es negativo y a 28 días el 65 %. El asunto lleva 26 días abierto.');
+    expect(r.final.paragraph).toBe('El volumen del día bajó 47 % respecto al jueves; a 14 días el 65 % de las menciones es negativo y a 28 días el 65 %. El asunto lleva 26 días abierto.');
     expect(r.composition.warnings).toEqual([]);
     expect(r.composition.residualCodeProblems).toEqual([]);
     expect(r.composition.composerVersion).toBe('composer-1.1.0');
@@ -269,7 +269,7 @@ describe('compose con nivel y asuntos', () => {
   test('si el corrector no lo arregla, el código añade el nivel y lo deja archivado', async () => {
     const { llm } = mock({ analyst: () => FINDINGS, writer: () => BAD, qa: () => ({ defects: [] }), corrector: () => BAD });
     const r = await compose('daily', inp(), { llm, ...fast });
-    expect(r.final.paragraph).toBe('El volumen del día bajó -47 % respecto al jueves. A 14 días el 65 % de las menciones es negativo y a 28 días el 65 %.');
+    expect(r.final.paragraph).toBe('El volumen del día bajó 47 % respecto al jueves. A 14 días el 65 % de las menciones es negativo y a 28 días el 65 %.');
     expect(r.composition.warnings).toEqual([]);
     expect(r.composition.residualCodeProblems).toEqual([]);
     // El borrador del corrector se archiva tal cual; el antes y el después, en el registro.
