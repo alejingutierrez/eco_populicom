@@ -1,4 +1,4 @@
-import { compose, type ComposerLlm, type ComposerLlmRequest } from '@eco/shared';
+import { buildSustainedLevel, compose, type ComposerLlm, type ComposerLlmRequest } from '@eco/shared';
 import { fixtureInput } from '../../packages/shared/src/composer/test-fixtures';
 import { planDailyText } from '../lambda/weekly-report/composer-mode';
 import { compositionStatus, type StoredComposition } from '../lambda/weekly-report/compositions-store';
@@ -55,6 +55,34 @@ describe('composición guardada vs datos del envío', () => {
     const ev = evaluateStoredComposition(stored, fixtureInput(), WINDOW);
     expect(ev.state).toBe('fresh');
     expect(ev.final?.paragraph).toBe('El domingo hubo 64 menciones. Varios usuarios preguntaron por la panadería.');
+  });
+
+  test('el re-relleno conserva el nivel que añadió el código (INT-01)', async () => {
+    // El corrector deja una variación sin nivel: `compose` añade el nivel por código.
+    const withLevel = () => {
+      const i = fixtureInput();
+      const series = Array.from({ length: 28 }, (_, k) => ({
+        date: new Date(Date.parse('2026-11-01T00:00:00Z') - k * 86_400_000).toISOString().slice(0, 10), negative: 13, neutral: 6, positive: 1,
+      }));
+      return { ...i, sustainedLevel: buildSustainedLevel(series, '2026-11-01') };
+    };
+    const bad = { ...DRAFT, paragraph: 'El domingo el volumen bajó a {{day_total}} menciones.' };
+    const llm: ComposerLlm = {
+      async invokeTool(req) {
+        if (req.role === 'analyst') return FINDINGS;
+        if (req.role === 'writer' || req.role === 'corrector') return bad;
+        return { defects: [] };
+      },
+    };
+    const r = await compose('daily', withLevel(), { llm, dryRun: true, ...fast });
+    expect(r.final.paragraph).toBe('El domingo el volumen bajó a 64 menciones. A 14 días el 65 % de las menciones es negativo y a 28 días el 65 %.');
+    expect(r.composition.warnings.filter((w) => w.type === 'direccion_sin_nivel')).toEqual([]);
+    const stored: StoredComposition = { agencyId: 'ag', reportType: 'daily', periodEnd: '2026-11-01', composerVersion: r.composition.composerVersion, composition: r.composition, status: compositionStatus(r.composition), createdAt: null };
+    const later = withLevel();
+    later.dailySeries = later.dailySeries.map((d) => (d.date === '2026-11-01' ? { ...d, neutral: d.neutral + 2 } : d));
+    const ev = evaluateStoredComposition(stored, later, WINDOW);
+    expect(ev.state).toBe('refreshable');
+    expect(ev.final?.paragraph).toBe('El domingo el volumen bajó a 66 menciones. A 14 días el 65 % de las menciones es negativo y a 28 días el 65 %.');
   });
 
   test('una llegada tardía mueve la cifra citada: se re-rellena por código', async () => {

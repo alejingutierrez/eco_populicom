@@ -9,7 +9,7 @@
 import { composeSubject, toSendLogArchive, type ComposerArchiveSink, type Composition } from './archive';
 import { buildPromptContext } from './context';
 import { buildFactPackage, type FactPackage } from './facts';
-import { directionLevelDefects } from './interpretation';
+import { directionLevelDefects, enforceLevelRules } from './interpretation';
 import { buildLintContext, codeLint, fillDraft, hardDefects, headlineLengthDefects, lintDraft, type LintContext } from './lint';
 import { COMPOSER_PROFILES, getProfile, type ComposerProfile, type ComposerProfileId } from './profiles';
 import { COMPOSER_PROMPT_VERSION, COMPOSER_VERSION } from './prompts';
@@ -212,19 +212,21 @@ export async function compose(
             chosenRaw = { ...chosenRaw, headline: draft1Raw.headline };
           }
         }
-        sentRaw = chosenRaw;
-        const f2 = fillDraft(chosenRaw, pkg.facts, { keepInvalid: true });
+        // Nivel: lo que el corrector no resolvió (o introdujo) lo resuelve el código.
+        const lvl = enforceLevelRules(chosenRaw, levelCtx);
+        sentRaw = lvl.draft;
+        const f2 = fillDraft(sentRaw, pkg.facts, { keepInvalid: true });
         const net = safetyNet(f2.filled, pkg, lintCtx, profile.scope);
         final = net.draft;
-        netLog = [...reverted, ...net.log];
+        netLog = [...reverted, ...lvl.log, ...net.log];
         stageSeconds.safety_net = secs(t);
       }
     }
 
     const lintFinal = lintDraft(final, lintCtx);
     residual = hardDefects(lintFinal);
-    // Los avisos de nivel que el corrector no resolvió quedan en el archivo
-    // (INT-02 los vuelve regla dura). Se leen del borrador con marcadores.
+    // Tras `enforceLevelRules` no debe quedar ninguno; si quedara, va al archivo
+    // y la comprobación diaria lo marca. Se leen del borrador con marcadores.
     const levelLeft = sentRaw ? directionLevelDefects(sentRaw, levelCtx) : [];
     warnings = [...lintFinal.filter((d) => d.severity === 'soft'), ...levelLeft];
   } catch (err) {

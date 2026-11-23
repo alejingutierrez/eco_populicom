@@ -16,6 +16,7 @@ import {
   buildSustainedLevel,
   commentShare,
   compose,
+  enforceLevelRules,
   fillDraft,
   loadChannels,
   loadDailySentimentSeries,
@@ -295,7 +296,10 @@ export function evaluateStoredComposition(
   // titular revertido si la red lo revirtió) + cifras de ahora + red de seguridad.
   const reverted = (c.safetyNetLog ?? []).some((e) => e.action === 'titular_revertido');
   const base = (c.draft2Raw ?? c.draft1Raw) as Draft;
-  const chosen: Draft = reverted && c.draft1Raw ? { ...base, headline: c.draft1Raw.headline } : base;
+  const picked: Draft = reverted && c.draft1Raw ? { ...base, headline: c.draft1Raw.headline } : base;
+  // La misma red de nivel que aplicó `compose` (determinista): sin ella el
+  // re-relleno perdería el nivel que el código añadió.
+  const chosen = enforceLevelRules(picked, { facts: pkg.facts, sustained: fresh.sustainedLevel?.sustained }).draft;
   const samples = (c.samples ?? fresh.samples) as AnnotatedSampleSet;
   const names = Array.from(new Set([
     ...(fresh.nameWhitelist ?? []),
