@@ -14,12 +14,16 @@ export type SafetyNetAction =
   | 'titular_reemplazado'
   | 'parrafo_reemplazado'
   | 'titular_revertido'
+  | 'nivel_añadido'
   | 'aviso';
 
 export interface SafetyNetLogEntry {
   action: SafetyNetAction;
   where: string;
+  /** Texto antes del cambio. */
   text: string;
+  /** Texto después del cambio, con marcadores (solo la red de nivel, `enforceLevelRules`). */
+  after?: string;
   reasons: CodeDefect[];
 }
 

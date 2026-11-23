@@ -31,7 +31,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import {
-  AGENCY_SHORT_LABEL, addDaysYmd, buildDailyMethodologyNote, buildSentimentReport, compose, directionLevelDefects,
+  AGENCY_SHORT_LABEL, addDaysYmd, buildDailyMethodologyNote, buildSentimentReport, compose, directionLevelDefects, enforceLevelRules,
   FACT_MIN_DELTA_BASE, findCalming, formatDelta, formatLongDay, formatMetric, formatPeriodLabel, formatShortDay,
   loadMetricsForWindow, renderDailyReportHtml, type DailyReportRenderData,
 } from '@eco/shared';
@@ -85,8 +85,11 @@ async function main() {
     const res = await compose('daily', fresh.input, { llm, dryRun: true });
     const c = res.composition;
     const text = draftToDailyText(res.final);
-    const sentRaw = (c.draft2Raw ?? c.draft1Raw) as any;
-    const left = sentRaw ? directionLevelDefects(sentRaw, { facts: c.facts, sustained: lv?.sustained }) : [];
+    const levelCtx = { facts: c.facts, sustained: lv?.sustained };
+    const chosenRaw = (c.draft2Raw ?? c.draft1Raw) as any;
+    // Lo enviado es el borrador elegido tras la red de nivel (como en `compose`).
+    const sentRaw = chosenRaw ? enforceLevelRules(chosenRaw, levelCtx).draft : null;
+    const left = sentRaw ? directionLevelDefects(sentRaw, levelCtx) : [];
     const all = [text.headline, text.paragraph, ...text.highlights, ...text.insights.negative, ...text.insights.neutral, ...text.insights.positive].join(' \n ');
     const row = {
       corrida: r,

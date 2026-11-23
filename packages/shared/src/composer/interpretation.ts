@@ -19,7 +19,8 @@
 import { formatLongDay } from '../format-period';
 import type { OpenIssue, OpenIssuesResult, OpenIssueStage } from '../narratives/open-issues';
 import type { SustainedLevel, SustainedWindow } from '../narratives/sustained-level';
-import { listDraftUnits } from './lint';
+import { listDraftUnits, mapDraft } from './lint';
+import { splitSentences, type SafetyNetLogEntry } from './safety-net';
 import type { CodeDefect, Draft, Fact } from './types';
 
 const fact = (id: string, value: number, display: string, label: string): Fact => ({ id, value, display, label });
@@ -145,7 +146,13 @@ export function isVariationMarker(id: string): boolean {
 export const LEVEL_MARKERS = ['level_14_neg_pct', 'level_28_neg_pct'] as const;
 
 const SUBJECT_RE = /(volumen|menciones|negativ|positiv|conversaci[oó]n|cr[ií]ticas?|tono|sentimiento|riesgo de crisis|negatividad)/iu;
-const DIRECTION_RE = /(?<![\p{L}])(sub(?:e|en|i[oó]|ieron)|baj(?:a|an|[oó]|aron)|aument(?:a|an|[oó]|aron)|ca(?:e|en|y[oó]|yeron)|creci(?:[oó]|eron)|crece[n]?|disminu(?:ye|yen|y[oó]|yeron)|se redu(?:ce|cen|jo|jeron)|descend(?:i[oó]|ieron)|desciende[n]?|se duplic(?:[oó]|aron)|se triplic(?:[oó]|aron))(?![\p{L}])/iu;
+/**
+ * «bajó» y «aumentó» piden la tilde: sin ella son la preposición «bajo» y el
+ * sustantivo «aumento» («aumento salarial», DF 23-nov-2026).
+ */
+const DIRECTION_RE = /(?<![\p{L}])(sub(?:e|en|i[oó]|ieron)|baj(?:a|an|ó|aron)|aument(?:a|an|ó|aron)|ca(?:e|en|y[oó]|yeron)|creci(?:[oó]|eron)|crece[n]?|disminu(?:ye|yen|y[oó]|yeron)|se redu(?:ce|cen|jo|jeron)|descend(?:i[oó]|ieron)|desciende[n]?|se duplic(?:[oó]|aron)|se triplic(?:[oó]|aron))(?![\p{L}])/iu;
+/** Nombres citados entre comillas (un asunto, un tópico): no son prosa del redactor. */
+const QUOTED_NAME_RE = /«[^»]*»/g;
 
 /**
  * Frases que dicen que la situación mejora o se calma. Con nivel sostenido,
@@ -200,6 +207,21 @@ export interface LevelLintContext {
 }
 
 /**
+ * ¿Este bloque (sin HTML) cita una variación sin los marcadores de nivel?
+ * Devuelve la cita (el marcador o el verbo) y los marcadores que faltan.
+ */
+function unitDirectionDefect(text: string, required: readonly string[]): { quote: string; missing: string[] } | null {
+  const ids = Array.from(text.matchAll(MARKER_ID_RE), (m) => m[1]);
+  const variation = ids.find(isVariationMarker);
+  const plain = text.replace(MARKER_ID_RE, ' ');
+  const verb = !variation && SUBJECT_RE.test(plain) ? plain.replace(QUOTED_NAME_RE, ' ').match(DIRECTION_RE)?.[0] : undefined;
+  if (!variation && !verb) return null;
+  const missing = required.filter((id) => !ids.includes(id));
+  if (!missing.length) return null;
+  return { quote: variation ? `{{${variation}}}` : verb!, missing };
+}
+
+/**
  * Detectores sobre el borrador CON MARCADORES (antes de rellenar):
  *
  *  - `direccion_sin_nivel`: un bloque (párrafo, viñeta, insight, ítem de
@@ -227,19 +249,8 @@ export function directionLevelDefects(raw: Draft, ctx: LevelLintContext): CodeDe
       }
     }
     if (u.kind === 'headline') continue;
-    const ids = Array.from(text.matchAll(MARKER_ID_RE), (m) => m[1]);
-    const variation = ids.find(isVariationMarker);
-    const plain = text.replace(MARKER_ID_RE, ' ');
-    const verb = !variation && SUBJECT_RE.test(plain) ? plain.match(DIRECTION_RE)?.[0] : undefined;
-    if (!variation && !verb) continue;
-    const missing = required.filter((id) => !ids.includes(id));
-    if (!missing.length) continue;
-    out.push({
-      where: u.where,
-      type: 'direccion_sin_nivel',
-      quote: variation ? `{{${variation}}}` : verb!,
-      severity: 'soft',
-    });
+    const d = unitDirectionDefect(text, required);
+    if (d) out.push({ where: u.where, type: 'direccion_sin_nivel', quote: d.quote, severity: 'soft' });
   }
   return out;
 }
@@ -248,3 +259,69 @@ export function directionLevelDefects(raw: Draft, ctx: LevelLintContext): CodeDe
 export const LEVEL_DEFECT_HELP = `
 - defecto de código 'direccion_sin_nivel': ese bloque cita una variación (sube, baja, un marcador *_delta_*) sin el nivel. Añade en ese mismo bloque el nivel a 14 y a 28 días con {{level_14_neg_pct}} y {{level_28_neg_pct}} (por ejemplo: «…; a 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}»), o quita la variación si no aporta.
 - defecto de código 'mejora_con_nivel_sostenido': el nivel de negatividad es sostenido y ese bloque dice que la situación mejora, se calma o va bajando. Quita esa afirmación. Puedes decir que el volumen o las menciones bajaron, con su marcador y con el nivel al lado.`;
+
+// ------------------------------------------------------------------ red de seguridad de nivel
+
+/** Oración con el nivel que falta, con marcadores (las cifras las pone `fillDraft`). */
+export function levelSentence(missing: readonly string[]): string {
+  const days = (id: string) => (id === 'level_14_neg_pct' ? 14 : 28);
+  if (missing.length >= 2) {
+    return 'A 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}.';
+  }
+  return `A ${days(missing[0])} días el {{${missing[0]}}} de las menciones es negativo.`;
+}
+
+const hasPhrase = (text: string, phrase: string) => phraseRes([phrase])[0].re.test(stripHtml(text).replace(MARKER_ID_RE, ' ').normalize('NFC'));
+const closed = (s: string) => (/[.!?…]["”»)]?$/.test(stripHtml(s).trim()) ? s : `${s.trimEnd()}.`);
+
+/**
+ * Lo que el corrector no resolvió lo resuelve el código, antes de rellenar y
+ * de enviar (INT-01 criterio 2, INT-02): ningún correo sale con una variación
+ * sin su nivel ni con una frase de calma cuando el nivel es sostenido.
+ *
+ *  - `mejora_con_nivel_sostenido`: se quita la oración que lo dice. Un titular
+ *    queda vacío y la red de seguridad pone el determinista.
+ *  - `direccion_sin_nivel`: tras la oración que cita la variación se añade el
+ *    nivel a 14 y a 28 días (los marcadores que falten).
+ *
+ * Trabaja sobre el borrador CON MARCADORES y es determinista: el re-relleno de
+ * una composición guardada lo aplica igual y obtiene el mismo texto. Cada
+ * cambio queda en el registro con el antes (`text`) y el después (`after`).
+ */
+export function enforceLevelRules(raw: Draft, ctx: LevelLintContext): { draft: Draft; log: SafetyNetLogEntry[] } {
+  const defects = directionLevelDefects(raw, ctx);
+  if (!defects.length) return { draft: raw, log: [] };
+  const required = LEVEL_MARKERS.filter((id) => ctx.facts[id]);
+  const log: SafetyNetLogEntry[] = [];
+  const draft = mapDraft(raw, (text, where, kind) => {
+    const mine = defects.filter((d) => d.where === where);
+    if (!mine.length) return text;
+    let out = text;
+
+    const calm = mine.filter((d) => d.type === 'mejora_con_nivel_sostenido');
+    if (calm.length) {
+      const before = out;
+      out = kind === 'headline'
+        ? ''
+        : splitSentences(out).filter((s) => !calm.some((d) => hasPhrase(s, d.quote))).join(' ');
+      log.push({ action: 'frase_removida', where, text: before, after: out, reasons: calm });
+    }
+
+    if (kind === 'headline') return out;
+    const dir = unitDirectionDefect(stripHtml(out), required);
+    if (dir) {
+      const before = out;
+      const sentences = splitSentences(out);
+      const at = Math.max(0, sentences.findIndex((s) => stripHtml(s).includes(dir.quote)));
+      sentences[at] = closed(sentences[at] ?? '');
+      sentences.splice(at + 1, 0, levelSentence(dir.missing));
+      out = sentences.join(' ').trim();
+      log.push({
+        action: 'nivel_añadido', where, text: before, after: out,
+        reasons: [{ where, type: 'direccion_sin_nivel', quote: dir.quote, severity: 'soft' }],
+      });
+    }
+    return out;
+  });
+  return { draft, log };
+}

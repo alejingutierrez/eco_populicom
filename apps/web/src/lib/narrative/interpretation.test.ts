@@ -6,7 +6,7 @@
  */
 import {
   buildFactPackage, buildLintContext, buildPromptContext, buildSustainedLevel, codeLint, compose, COMPOSER_PROFILES,
-  COMPOSER_PROMPT_VERSION, COMPOSER_VERSION, directionLevelDefects, findCalming, formatDelta, interpretationContext,
+  COMPOSER_PROMPT_VERSION, COMPOSER_VERSION, directionLevelDefects, enforceLevelRules, findCalming, formatDelta, interpretationContext,
   interpretationMethodologyNote, isVariationMarker, issueStageText, issueVoiceText, openIssueFacts, openIssuesSection,
   renderDailyReportHtml, renderWeeklySummaryHtml, splitSentences, sustainedLevelBox, sustainedLevelFacts, sustainedLevelText,
   type ComposerInput, type ComposerLlm, type ComposerLlmRequest, type DailyReportRenderData, type Draft, type OpenIssue,
@@ -266,12 +266,29 @@ describe('compose con nivel y asuntos', () => {
     expect(r.composition.composerVersion).toBe('composer-1.1.0');
   });
 
-  test('si el corrector no lo arregla, el correo sale igual y el aviso queda archivado', async () => {
+  test('si el corrector no lo arregla, el código añade el nivel y lo deja archivado', async () => {
     const { llm } = mock({ analyst: () => FINDINGS, writer: () => BAD, qa: () => ({ defects: [] }), corrector: () => BAD });
     const r = await compose('daily', inp(), { llm, ...fast });
-    expect(r.final.paragraph).toBe('El volumen del día bajó -47 % respecto al jueves.');
-    expect(r.composition.warnings).toEqual([{ where: 'párrafo', type: 'direccion_sin_nivel', quote: '{{day_delta_pct}}', severity: 'soft' }]);
+    expect(r.final.paragraph).toBe('El volumen del día bajó -47 % respecto al jueves. A 14 días el 65 % de las menciones es negativo y a 28 días el 65 %.');
+    expect(r.composition.warnings).toEqual([]);
     expect(r.composition.residualCodeProblems).toEqual([]);
+    // El borrador del corrector se archiva tal cual; el antes y el después, en el registro.
+    expect(r.composition.draft2Raw!.paragraph).toBe(BAD.paragraph);
+    expect(r.composition.safetyNetLog).toEqual([{
+      action: 'nivel_añadido', where: 'párrafo', text: BAD.paragraph,
+      after: 'El volumen del día bajó {{day_delta_pct}} respecto al jueves. A 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}.',
+      reasons: [{ where: 'párrafo', type: 'direccion_sin_nivel', quote: '{{day_delta_pct}}', severity: 'soft' }],
+    }]);
+  });
+
+  test('si el corrector deja una frase de calma con nivel sostenido, el código la quita', async () => {
+    const calm: Draft = { ...GOOD, paragraph: `${GOOD.paragraph} La conversación va bajando.` };
+    const { llm } = mock({ analyst: () => FINDINGS, writer: () => calm, qa: () => ({ defects: [] }), corrector: () => calm });
+    const r = await compose('daily', inp(), { llm, ...fast });
+    expect(r.final.paragraph).not.toMatch(/va bajando/);
+    expect(r.final.paragraph).toMatch(/a 14 días el 65 %/);
+    expect(r.composition.warnings).toEqual([]);
+    expect(r.composition.safetyNetLog.map((l) => l.action)).toEqual(['frase_removida']);
   });
 
   test('con el nivel desde el primer borrador no corre el corrector', async () => {
@@ -279,6 +296,79 @@ describe('compose con nivel y asuntos', () => {
     const r = await compose('daily', inp(), { llm, ...fast });
     expect(calls.map((c) => c.role)).toEqual(['analyst', 'writer', 'qa']);
     expect(r.composition.correctorRan).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------ red de seguridad de nivel
+
+describe('enforceLevelRules', () => {
+  const pkg = buildFactPackage(input({ sustainedLevel: SUSTAINED }));
+  const ctx = { facts: pkg.facts, sustained: true as boolean | null };
+  const draft = (over: Partial<Draft>): Draft => ({ headline: 'Coccoloba demandó a la secretaria', paragraph: '', highlights: [], ...over });
+
+  test('Gobernadora, 22-nov-2026: el corrector metió la variación contra el viernes sin el nivel', () => {
+    // Párrafo real que dejó el corrector (con marcadores), recortado tras la tercera oración.
+    const paragraph = 'El sábado 21 de noviembre fue el día con menos actividad de la semana, con {{day_total}} menciones frente a las {{prev_day_total}} del viernes 20 ({{day_delta_pct}}) y las {{peak_total}} del pico del jueves 19. La mayor parte de la conversación retomó temas de días anteriores, aunque también circularon nuevos anuncios. <strong>Jay Fonseca</strong> siguió difundiendo una encuesta que muestra empate técnico entre la gobernadora y Thomas Rivera Schatz.';
+    const d = draft({ paragraph });
+    expect(directionLevelDefects(d, ctx).map((x) => x.type)).toEqual(['direccion_sin_nivel']);
+    const r = enforceLevelRules(d, ctx);
+    // El nivel va justo después de la oración que cita la variación, no al final.
+    expect(r.draft.paragraph).toBe(paragraph.replace(
+      'del pico del jueves 19. ',
+      'del pico del jueves 19. A 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}. ',
+    ));
+    expect(directionLevelDefects(r.draft, ctx)).toEqual([]);
+    expect(r.log).toHaveLength(1);
+    expect(r.log[0]).toMatchObject({ action: 'nivel_añadido', where: 'párrafo', text: paragraph, after: r.draft.paragraph });
+    // Es determinista: aplicarla otra vez no cambia nada (el re-relleno del lambda depende de eso).
+    expect(enforceLevelRules(r.draft, ctx)).toEqual({ draft: r.draft, log: [] });
+  });
+
+  test('DF, 23-nov-2026: «aumento salarial» en el nombre de un asunto no es una variación', () => {
+    // Viñeta 2 real: el aviso era un falso positivo.
+    const real = 'Una nota de prensa recogió que la OATRH advirtió que no procede el alza salarial para Roig si regresa a ASSMCA. Esa nota es la mención más reciente del asunto rastreado como «Suzanne Roig aumento salarial Assmca», que lleva {{issue_2_days_open}} días abierto con {{issue_2_week}} menciones en la semana; Jay Fonseca concentra {{issue_2_voice_share}} de las interacciones.';
+    const d = draft({ highlights: ['WKAQ 580 republicó el domingo un resumen.', real] });
+    expect(directionLevelDefects(d, ctx)).toEqual([]);
+    expect(enforceLevelRules(d, ctx)).toEqual({ draft: d, log: [] });
+    // Sin tilde, «aumento» y «bajo» son sustantivo y preposición; con tilde siguen siendo el verbo.
+    expect(directionLevelDefects(draft({ highlights: ['El aumento de sueldo dominó las menciones bajo el sello de la OATRH.'] }), ctx)).toEqual([]);
+    expect(directionLevelDefects(draft({ highlights: ['El volumen de menciones aumentó tras la vista.'] }), ctx).map((x) => x.quote)).toEqual(['aumentó']);
+    // Un verbo dentro de un nombre citado tampoco cuenta.
+    expect(directionLevelDefects(draft({ highlights: ['El asunto «Sube la luz» tuvo {{issue_1_week}} menciones.'] }), ctx)).toEqual([]);
+  });
+
+  test('un verbo sin marcador en una viñeta: se añade el nivel y la viñeta queda cerrada con punto', () => {
+    const d = draft({ highlights: ['Las menciones negativas cayeron a la mitad en dos días'] });
+    const r = enforceLevelRules(d, ctx);
+    expect(r.draft.highlights).toEqual(['Las menciones negativas cayeron a la mitad en dos días. A 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}.']);
+    expect(directionLevelDefects(r.draft, ctx)).toEqual([]);
+  });
+
+  test('si ya cita uno de los dos niveles, solo se añade el que falta', () => {
+    const d = draft({ paragraph: 'El volumen bajó {{day_delta_pct}}; a 14 días el {{level_14_neg_pct}} es negativo.' });
+    const r = enforceLevelRules(d, ctx);
+    expect(r.draft.paragraph).toBe('El volumen bajó {{day_delta_pct}}; a 14 días el {{level_14_neg_pct}} es negativo. A 28 días el {{level_28_neg_pct}} de las menciones es negativo.');
+    expect(directionLevelDefects(r.draft, ctx)).toEqual([]);
+  });
+
+  test('frase de calma con nivel sostenido: sale la oración; el titular queda vacío para la red', () => {
+    const d = draft({
+      headline: 'La controversia se calma tras la vista',
+      paragraph: 'El Senado citó a la secretaria. La conversación va bajando desde el martes. Jay Fonseca publicó el contrato.',
+    });
+    const r = enforceLevelRules(d, ctx);
+    expect(r.draft.headline).toBe('');
+    expect(r.draft.paragraph).toBe('El Senado citó a la secretaria. Jay Fonseca publicó el contrato.');
+    expect(directionLevelDefects(r.draft, ctx)).toEqual([]);
+    expect(r.log.map((l) => `${l.where}:${l.action}`)).toEqual(['titular:frase_removida', 'párrafo:frase_removida']);
+    // Sin nivel sostenido, la misma frase no se toca.
+    const calmCtx = { facts: buildFactPackage(input({ sustainedLevel: CALM })).facts, sustained: false as boolean | null };
+    expect(enforceLevelRules(d, calmCtx).draft.headline).toBe(d.headline);
+  });
+
+  test('sin hechos de nivel en el paquete no hace nada', () => {
+    const d = draft({ paragraph: 'El volumen bajó {{day_delta_pct}}.' });
+    expect(enforceLevelRules(d, { facts: buildFactPackage(input({})).facts, sustained: null })).toEqual({ draft: d, log: [] });
   });
 });
 
