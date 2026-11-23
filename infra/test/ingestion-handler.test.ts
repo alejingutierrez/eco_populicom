@@ -425,6 +425,86 @@ describe('eco-ingestion: cupo propio de ECO (reparto con BrandIQ)', () => {
   });
 });
 
+describe('eco-ingestion: queries caídas y el tope de 7 (caída de Brandwatch del 17 al 18-nov)', () => {
+  // Brandwatch respondió 502 durante 5 horas. Con 3 intentos por query, dos o tres queries
+  // caídas gastaban las 7 peticiones de la corrida y las sanas quedaban sin sondear.
+  const seis = { slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11, 12, 13, 14, 15, 16] };
+  const cursores = Object.fromEntries(seis.brandwatch_query_ids.map((q) => [q, '2026-10-28T14:00:00.000Z']));
+  const sana = { status: 200, mentions: [mention(9000, '2026-10-28T14:12:00.000+0000')] };
+
+  test('tres queries con 502 cuestan tres peticiones: las tres sanas se sondean en la misma corrida', async () => {
+    setupAgencies([seis], cursores);
+    setupFetch((q) => (['11', '12', '13'].includes(q) ? { status: 502 } : sana));
+
+    const res = await run({});
+
+    expect(fetchCalls.map((c) => c.queryId)).toEqual(['11', '12', '13', '14', '15', '16']);
+    expect(res.body).not.toContain('ABORTED');
+    expect(res.body).not.toContain('request cap reached');
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 3, QueriesFallidas: 3, CorridaAbortada: 0, Peticiones: 6 });
+    // sin esperas de reintento: la corrida no duerme
+    expect(Date.now() - NOW).toBeLessThan(5_000);
+  });
+
+  test('caída total: las seis se intentan una vez (6 peticiones, no 18) y la corrida cierra sin abortar', async () => {
+    setupAgencies([seis], cursores);
+    setupFetch(() => ({ status: 502 }));
+
+    const res = await run({});
+
+    expect(fetchCalls).toHaveLength(6);
+    expect(res.body).not.toContain('ABORTED');
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 0, QueriesFallidas: 6, CorridaAbortada: 0, Peticiones: 6 });
+    expect(cursorWrites).toHaveLength(0);
+  });
+
+  test('las caídas van primero en la corrida siguiente y aun así las sanas caben, también con una página extra', async () => {
+    const lastRuns = Object.fromEntries(seis.brandwatch_query_ids.map((q) => [q, '2026-10-28T15:00:00Z']));
+    setupAgencies([seis], cursores, lastRuns);
+    const llena = Array.from({ length: PAGINA }, (_, i) => mention(i, '2026-10-28T14:10:00.000+0000'));
+    setupFetch((q, n) => {
+      if (['12', '14', '15'].includes(q)) return { status: 502 };
+      // en la segunda corrida la 16 trae dos páginas
+      if (q === '16' && n === 1) return { status: 200, total: 700, mentions: llena };
+      return sana;
+    });
+
+    await run({});
+    fetchCalls = [];
+    metricLines = [];
+    jest.setSystemTime(NOW + 5 * MINUTE);
+    const res = await run({});
+
+    // las tres caídas (no anotaron last_run_at) abren la corrida
+    expect(fetchCalls.slice(0, 3).map((c) => c.queryId)).toEqual(['12', '14', '15']);
+    expect(new Set(fetchCalls.map((c) => c.queryId))).toEqual(new Set(['11', '12', '13', '14', '15', '16']));
+    expect(fetchCalls).toHaveLength(7);
+    expect(res.body).not.toContain('ABORTED');
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 3, QueriesFallidas: 3, CorridaAbortada: 0, Peticiones: 7 });
+  });
+
+  test('un 429 sí conserva sus reintentos en la corrida incremental', async () => {
+    setupAgencies([seis], cursores);
+    setupFetch((q, n) => (q === '11' && n === 0 ? { status: 429 } : sana));
+
+    const res = await run({});
+
+    expect(fetchCalls.filter((c) => c.queryId === '11')).toHaveLength(2);
+    expect(res.body).not.toContain('ABORTED');
+    expect(metricLines[0]).toMatchObject({ QueriesSondeadas: 6, QueriesFallidas: 0, Peticiones: 7, Avisos429: 1 });
+  });
+
+  test('el refresh diario conserva los reintentos ante un 502', async () => {
+    setupAgencies([{ slug: 'ddecpr', brandwatch_project_id: 1, brandwatch_query_ids: [11] }], cursores);
+    setupFetch((_q, n) => (n === 0 ? { status: 502 } : sana));
+
+    const res = await run({ refreshLastHours: 48 });
+
+    expect(fetchCalls).toHaveLength(2);
+    expect(res.body).toContain('Query 11: 1 mentions');
+  });
+});
+
 describe('eco-ingestion: refresh diario de 07:00Z', () => {
   // El handler muta el evento (traduce refreshLastHours a una ventana): uno nuevo por prueba.
   const refresh = () => ({ refreshLastHours: 48 });

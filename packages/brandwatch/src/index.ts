@@ -1,6 +1,7 @@
 export { BrandwatchClient } from './client';
 export {
   BOUNDED_RETRY,
+  INCREMENTAL_RETRY,
   LONG_RETRY,
   BrandwatchBudgetError,
   BrandwatchRateLimitError,

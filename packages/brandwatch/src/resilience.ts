@@ -16,6 +16,11 @@
 export interface RetryPolicy {
   /** Intentos totales por request (el primero + los reintentos). */
   maxAttempts: number;
+  /**
+   * Intentos totales ante un 5xx o una petición sin respuesta. Sin él valen
+   * los de `maxAttempts`. Los 429 siempre usan `maxAttempts`.
+   */
+  maxServerErrorAttempts?: number;
   /** Espera tras un 429 sin Retry-After: base · 2^(intento-1). */
   rateLimitBaseDelayMs: number;
   /** Espera tras un 5xx: base · 2^(intento-1). */
@@ -39,6 +44,18 @@ export const BOUNDED_RETRY: RetryPolicy = {
   serverErrorBaseDelayMs: 2_000,
   maxDelayMs: 30_000,
   truncateRetryAfter: false,
+};
+
+// Incremental con tope de peticiones (ING-01, reparto con BrandIQ): ante un
+// 5xx o una petición sin respuesta NO se reintenta dentro de la corrida. El
+// reintento es la corrida de 5 min después. Con 3 intentos, dos o tres queries
+// caídas gastaban las 7 peticiones de la corrida y las sanas quedaban sin
+// sondear (caída de Brandwatch del 17 al 18-nov: 502 y peticiones colgadas,
+// 12 peticiones por corrida de media). Los 429 conservan sus 3 intentos: ahí
+// la espera sí puede servir y, si no, el cortacircuitos corta la corrida.
+export const INCREMENTAL_RETRY: RetryPolicy = {
+  ...BOUNDED_RETRY,
+  maxServerErrorAttempts: 1,
 };
 
 // Backfill manual: la política histórica (MAX_RETRIES = 10 → 11 intentos,
@@ -102,7 +119,9 @@ export function decideRetry(
   ctx: RetryContext,
   remainingBudgetMs: number = Infinity,
 ): RetryDecision {
-  if (ctx.attempt >= policy.maxAttempts) return { retry: false, reason: 'attempts-exhausted' };
+  const maxAttempts =
+    ctx.status === 429 ? policy.maxAttempts : (policy.maxServerErrorAttempts ?? policy.maxAttempts);
+  if (ctx.attempt >= maxAttempts) return { retry: false, reason: 'attempts-exhausted' };
 
   let waitMs: number;
   if (ctx.status === 429 && ctx.retryAfterMs !== null) {

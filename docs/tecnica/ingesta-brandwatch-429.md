@@ -82,6 +82,15 @@ Sobre las 30 peticiones por 10 min de la cuenta:
 | BrandIQ en vivo | 10 |
 | Reserva: tropiezos y llamadas a mano | 6 |
 
+- **Una query caída cuesta una petición:** la corrida incremental no reintenta
+  un 5xx ni una petición sin respuesta (`INCREMENTAL_RETRY`,
+  `maxServerErrorAttempts: 1`); el reintento es la corrida de 5 min después.
+  Con 3 intentos, en la caída de Brandwatch del 17 al 18-nov (502 durante 5
+  horas) dos o tres queries caídas habrían gastado las 7 peticiones y dejado
+  sin sondear a las sanas. Los 429 conservan sus 3 intentos; el refresh diario
+  y el backfill no cambian. Límite conocido: una petición colgada tarda 45 s en
+  rendirse, así que cuatro colgadas en una corrida agotan los 180 s de
+  presupuesto y las dos últimas esperan a la siguiente.
 - **Tope propio de ECO:** 7 peticiones por corrida incremental
   (`INCREMENTAL_MAX_REQUESTS` en `run-guard.ts` = `ECO_QUOTA_SHARE` 14 entre 2
   corridas por ventana). Lo cuenta ECO y no depende de la cabecera: en

@@ -1,6 +1,7 @@
 import { BrandwatchClient } from '../../packages/brandwatch/src/client';
 import {
   BOUNDED_RETRY,
+  INCREMENTAL_RETRY,
   BrandwatchBudgetError,
   BrandwatchRateLimitError,
   LONG_RETRY,
@@ -97,6 +98,20 @@ describe('decideRetry', () => {
       waitMs: 4_000,
     });
     expect(decideRetry(BOUNDED_RETRY, { status: 503, attempt: 3, retryAfterMs: null }).retry).toBe(false);
+  });
+
+  test('incremental con tope: un 5xx o una petición sin respuesta no se reintenta; un 429 sí', () => {
+    expect(decideRetry(INCREMENTAL_RETRY, { status: 502, attempt: 1, retryAfterMs: null })).toEqual({
+      retry: false,
+      reason: 'attempts-exhausted',
+    });
+    // 504 = como trata el cliente una petición que no respondió en 45 s
+    expect(decideRetry(INCREMENTAL_RETRY, { status: 504, attempt: 1, retryAfterMs: null }).retry).toBe(false);
+    expect(decideRetry(INCREMENTAL_RETRY, rl(1))).toEqual({ retry: true, waitMs: 15_000 });
+    expect(decideRetry(INCREMENTAL_RETRY, rl(2))).toEqual({ retry: true, waitMs: 30_000 });
+    expect(decideRetry(INCREMENTAL_RETRY, rl(3)).retry).toBe(false);
+    // refresh y backfill conservan sus reintentos ante 5xx
+    expect(decideRetry(BOUNDED_RETRY, { status: 502, attempt: 1, retryAfterMs: null }).retry).toBe(true);
   });
 });
 
@@ -349,10 +364,11 @@ describe('resolveRunMode / planRun', () => {
     expect(resolveRunMode({ refreshLastHours: -5 })).toBe('incremental');
   });
 
-  test('incremental: ~3 intentos, presupuesto de 3 min, sin pacing y tope de 7 peticiones', () => {
+  test('incremental: 3 intentos ante 429 y 1 ante 5xx, presupuesto de 3 min, sin pacing y tope de 7 peticiones', () => {
     const p = planRun('incremental');
-    expect(p.retry).toBe(BOUNDED_RETRY);
+    expect(p.retry).toBe(INCREMENTAL_RETRY);
     expect(p.retry.maxAttempts).toBe(3);
+    expect(p.retry.maxServerErrorAttempts).toBe(1);
     expect(p.budgetMs).toBe(3 * 60_000);
     expect(p.minRequestIntervalMs).toBe(0);
     expect(p.maxRequests).toBe(INCREMENTAL_MAX_REQUESTS);
