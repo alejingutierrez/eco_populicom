@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, users, agencies } from '@eco/database';
-import { desc, inArray } from 'drizzle-orm';
+import { desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { resolveAgencyId, resolveAllowedAgencySlugs, resolveCallerAgencyId } from '@/lib/agency';
 import { setUserAgencyAccess, agencySlugsByUser } from '@/lib/provision';
 import { requireRole } from '@/lib/auth/require-admin';
@@ -95,32 +95,80 @@ export async function POST(request: NextRequest) {
     if (firstId) primaryAgencyId = firstId;
   }
 
-  // Provisión real en Cognito: crea la cuenta + envía la invitación por email y
-  // asigna el grupo del rol. Si no se puede (SDK/permiso/pool ausente, o ya
-  // existe), realSub = null y caemos al placeholder 'invited:' que el JIT
-  // reconcilia al primer login — el invitar nunca falla en duro.
-  const realSub = await provisionCognitoUser(body.email, role);
+  // Provisión real en Cognito: crea la cuenta + envía la invitación por email
+  // (o la REENVÍA si la cuenta ya existía sin activar) y asigna el grupo del
+  // rol. Si no se puede (SDK/permiso/pool ausente), sub = null y caemos al
+  // placeholder 'invited:' que el JIT reconcilia al primer login — el invitar
+  // nunca falla en duro.
+  const email = body.email.trim();
+  const { sub: realSub, invitation } = await provisionCognitoUser(email, role);
 
   const db = getDb();
   try {
+    // ¿Ya hay fila para esta persona (por sub real o por correo)? Reinvitar
+    // ACTUALIZA esa fila: insertar otra dejaba un duplicado huérfano que el
+    // login nunca reclamaba (gana la fila con el sub real) y el rol/agencias
+    // de la reinvitación se perdían.
+    const matches = await db
+      .select()
+      .from(users)
+      .where(
+        realSub
+          ? or(eq(users.cognitoSub, realSub), sql`lower(${users.email}) = ${email.toLowerCase()}`)
+          : sql`lower(${users.email}) = ${email.toLowerCase()}`,
+      );
+    const existing =
+      matches.find((u) => realSub && u.cognitoSub === realSub) ??
+      matches.find((u) => !u.cognitoSub.startsWith('invited:')) ??
+      matches[0];
+
+    if (existing) {
+      // Un admin de agencia no puede tocar (ni re-rolear) a un usuario cuya
+      // agencia primaria no ve — mismo alcance que el GET.
+      if (callerAllowed !== null) {
+        const allowedIds = await idsForSlugs(callerAllowed);
+        if (!allowedIds.includes(existing.agencyId)) {
+          return NextResponse.json({ error: 'El usuario ya existe en otra agencia' }, { status: 409 });
+        }
+      }
+      const claimSub = realSub && existing.cognitoSub.startsWith('invited:') ? realSub : undefined;
+      const [row] = await db
+        .update(users)
+        .set({
+          role,
+          isActive: true,
+          ...(name ? { name } : {}),
+          ...(allowedPages !== undefined ? { allowedPages } : {}),
+          ...(agencySlugs && agencySlugs.length > 0 ? { agencyId: primaryAgencyId } : {}),
+          ...(claimSub ? { cognitoSub: claimSub } : {}),
+        })
+        .where(eq(users.id, existing.id))
+        .returning();
+      if (agencySlugs || allAgencies !== undefined) {
+        await setUserAgencyAccess(row.id, { allAgencies, agencySlugs }, callerAllowed);
+      }
+      log.info('users.POST', 'reinvitación: fila existente actualizada', { email, role, invitation });
+      return NextResponse.json({ user: row, invitation, existing: true }, { status: 200 });
+    }
+
     const [row] = await db
       .insert(users)
       .values({
-        email: body.email,
-        name: name || body.email.split('@')[0],
+        email,
+        name: name || email.split('@')[0],
         role,
         agencyId: primaryAgencyId,
         allAgencies: allAgencies ?? false,
         allowedPages: allowedPages ?? null,
         // sub real de Cognito si se provisionó; si no, placeholder 'invited:'
         // (NOT NULL) que ensureUserProvisioned reclama en el primer sign-in.
-        cognitoSub: realSub ?? `invited:${body.email}`,
+        cognitoSub: realSub ?? `invited:${email}`,
       })
       .returning();
     if (agencySlugs || allAgencies !== undefined) {
       await setUserAgencyAccess(row.id, { allAgencies, agencySlugs }, callerAllowed);
     }
-    return NextResponse.json({ user: row }, { status: 201 });
+    return NextResponse.json({ user: row, invitation, existing: false }, { status: 201 });
   } catch (err) {
     log.error('users.POST', (err as Error).message, { email: body?.email, role });
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
