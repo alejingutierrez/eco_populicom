@@ -19,7 +19,7 @@ import { LITERAL_VERBS, VETOED_PHRASES } from './vetoed';
  *   v1.2  INT-01: bloques «NIVEL SOSTENIDO» y «ASUNTOS ABIERTOS» en el
  *         contexto y regla de nivel en redactor, QA y corrector.
  */
-export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.2';
+export const COMPOSER_PROMPT_VERSION = 'composer-prompts-v1.3';
 /** Versión del motor (columna `composer_version`, varchar(24)). */
 export const COMPOSER_VERSION = 'composer-1.1.0';
 

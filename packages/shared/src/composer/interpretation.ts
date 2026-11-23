@@ -258,6 +258,7 @@ export function directionLevelDefects(raw: Draft, ctx: LevelLintContext): CodeDe
 /** Texto que explica al corrector qué hacer con cada defecto de este módulo. */
 export const LEVEL_DEFECT_HELP = `
 - defecto de código 'direccion_sin_nivel': ese bloque cita una variación (sube, baja, un marcador *_delta_*) sin el nivel. Añade en ese mismo bloque el nivel a 14 y a 28 días con {{level_14_neg_pct}} y {{level_28_neg_pct}} (por ejemplo: «…; a 14 días el {{level_14_neg_pct}} de las menciones es negativo y a 28 días el {{level_28_neg_pct}}»), o quita la variación si no aporta.
+- defecto de código 'direccion_contradice_cifra': el texto dice que algo sube y su marcador es negativo, o que baja y es positivo. Corrige el verbo para que coincida con la cifra del marcador; no cambies el marcador.
 - defecto de código 'mejora_con_nivel_sostenido': el nivel de negatividad es sostenido y ese bloque dice que la situación mejora, se calma o va bajando. Quita esa afirmación. Puedes decir que el volumen o las menciones bajaron, con su marcador y con el nivel al lado.`;
 
 // ------------------------------------------------------------------ red de seguridad de nivel
