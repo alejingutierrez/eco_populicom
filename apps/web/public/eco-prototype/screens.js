@@ -4889,7 +4889,7 @@ function AlertsScreen({ onMentionClick }) {
                 que el API devuelve SIEMPRE 0 (eco-data/route.ts: triggered: 0), y
                 era la tercera ventana distinta de la pantalla. Y el campo se llama
                 "Prioridad" aquí y "Severidad" en el historial: un solo término. */}
-            <span>Regla</span><span>Severidad</span><span style={{ textAlign: 'right' }}>Activaciones</span><span>Estado</span><span>Canales</span><span>Último</span><span />
+            <span>Regla</span><span>Severidad</span><span style={{ textAlign: 'right' }}>Activaciones · 30 d</span><span>Estado</span><span>Canales</span><span>Último disparo</span><span />
           </div>
           {D.ALERTS.map((a) => (
             <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)' }}>
@@ -4898,7 +4898,9 @@ function AlertsScreen({ onMentionClick }) {
               {/* a.triggered viene hardcodeado a 0 del API (eco-data/route.ts), así
                   que un "0" aquí no significa "cero activaciones" sino "sin dato":
                   se rinde como raya hasta que el endpoint lo calcule. */}
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{a.triggered ? a.triggered : '—'}</span>
+              {/* COR-04: el API ya cuenta las activaciones reales de 30 días; un 0
+                  es un cero. La raya queda solo si el dato no llegó. */}
+              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{typeof a.triggered === 'number' ? a.triggered : '—'}</span>
               {/* Sin manage_alert_rules el PATCH responde 403, así que el
                   switch no se ofrece: se muestra el estado y ya. */}
               {canRules ? (
@@ -4924,7 +4926,7 @@ function AlertsScreen({ onMentionClick }) {
                   return <span key={c} title={c} style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IconC size={11} color="var(--text-2)" /></span>;
                 })}
               </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{a.lastFired}</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{a.lastFiredAt ? window.ecoFmtDateTime(a.lastFiredAt) : 'sin disparos'}</span>
               <Icons.More size={14} color="var(--text-3)" />
             </div>
           ))}
@@ -4964,11 +4966,23 @@ function AlertsScreen({ onMentionClick }) {
 }
 
 // --- AlertRuleEditor ---
-function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  // Reglas de MÉTRICA sobre el snapshot diario (decisión: estandarizar en reglas
-  // de métrica). Cada métrica trae dirección + umbral por defecto sensatos.
+function AlertRuleEditor({ topics, onClose, onSaved, onError, initial }) {
+  const init = initial || {};
+  const [name, setName] = useState(init.name || '');
+  const [description, setDescription] = useState(init.description || '');
+  // Tipo de regla (COR-04): antes el editor solo creaba reglas de métrica.
+  // Los cuatro tipos son los que algún proceso evalúa de verdad: la de
+  // métrica, sobre el cálculo diario; las otras tres, al llegar cada mención.
+  // La regla de crisis no está aquí: es una por agencia y tiene su pestaña.
+  const RULE_TYPES = {
+    metric_threshold:   { label: 'Indicador cruza un umbral', note: 'Se evalúa con el cálculo de indicadores de la agencia. Al cruzar el umbral envía un correo y respeta el cooldown.' },
+    keyword:            { label: 'Aparece una palabra clave', note: 'Se evalúa al llegar cada mención: avisa cuando el título o el texto contiene alguna de las palabras.' },
+    volume_spike:       { label: 'Pico de volumen', note: 'Se evalúa al llegar cada mención: avisa cuando las menciones de la ventana alcanzan el umbral.' },
+    negative_sentiment: { label: 'Proporción negativa alta', note: 'Se evalúa al llegar una mención negativa: avisa cuando el porcentaje de negativas de la ventana alcanza el umbral, con al menos 10 menciones.' },
+  };
+  const [ruleType, setRuleType] = useState(RULE_TYPES[init.type] ? init.type : 'metric_threshold');
+  // Reglas de MÉTRICA sobre el snapshot diario. Cada métrica trae dirección +
+  // umbral por defecto sensatos.
   const METRIC_DEFAULTS = {
     crisis:               { comparator: 'gte', threshold: 0.40, label: 'Crisis Score (0–1)',           hint: '≥ 0.40 = banda ALERTA' },
     bhi:                  { comparator: 'lte', threshold: 0.45, label: 'Brand Health Index (0–1)',     hint: '≤ 0.45 = salud baja' },
@@ -4979,10 +4993,41 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
   const [metric, setMetric] = useState('crisis');
   const [comparator, setComparator] = useState(METRIC_DEFAULTS.crisis.comparator);
   const [threshold, setThreshold] = useState(METRIC_DEFAULTS.crisis.threshold);
-  const [cooldownHours, setCooldownHours] = useState(12);
-  const [emailsText, setEmailsText] = useState('');
+  // Campos de las reglas por mención.
+  const [keywordsText, setKeywordsText] = useState('');
+  const [keywordSentiment, setKeywordSentiment] = useState('');
+  const [volumeThreshold, setVolumeThreshold] = useState(50);
+  const [volumeWindow, setVolumeWindow] = useState(60);
+  const [negativePct, setNegativePct] = useState(50);
+  const [negativeWindow, setNegativeWindow] = useState(24);
+  // Cooldown por defecto según el tipo (los mismos del proceso que evalúa).
+  const COOLDOWN_DEFAULT = { metric_threshold: 12, keyword: 1, volume_spike: 6, negative_sentiment: 6 };
+  const [cooldownHours, setCooldownHours] = useState(COOLDOWN_DEFAULT[RULE_TYPES[init.type] ? init.type : 'metric_threshold']);
+  const onTypeChange = (t) => { setRuleType(t); setCooldownHours(COOLDOWN_DEFAULT[t]); };
+  // Destinatarios: se propone el correo de quien crea la regla. Una regla sin
+  // destinatarios no avisa a nadie, así que no se deja guardar vacía.
+  const ownEmail = (() => { try { const u = typeof ecoSession === 'function' ? ecoSession() : null; return (u && u.email) || ''; } catch (_) { return ''; } })();
+  const [emailsText, setEmailsText] = useState(ownEmail);
   const [saving, setSaving] = useState(false);
   const onMetricChange = (m) => { setMetric(m); const d = METRIC_DEFAULTS[m]; if (d) { setComparator(d.comparator); setThreshold(d.threshold); } };
+
+  function buildConfig() {
+    const cd = Number(cooldownHours);
+    if (ruleType === 'keyword') {
+      const keywords = keywordsText.split(',').map((k) => k.trim()).filter((k) => k.length >= 2);
+      if (keywords.length === 0) return { error: 'Escribe al menos una palabra clave' };
+      const cfg = { type: 'keyword', keywords, cooldownHours: cd };
+      if (keywordSentiment) cfg.sentiment = keywordSentiment;
+      return { config: cfg };
+    }
+    if (ruleType === 'volume_spike') {
+      return { config: { type: 'volume_spike', threshold: Number(volumeThreshold), window_minutes: Number(volumeWindow), cooldownHours: cd } };
+    }
+    if (ruleType === 'negative_sentiment') {
+      return { config: { type: 'negative_sentiment', threshold_pct: Number(negativePct), window_hours: Number(negativeWindow), cooldownHours: cd } };
+    }
+    return { config: { type: 'metric_threshold', metric, comparator, threshold: Number(threshold), cooldownHours: cd } };
+  }
 
   // Cerrar con Escape (mismo patrón que CommandPalette).
   useEffect(() => {
@@ -4995,6 +5040,9 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
     if (!name.trim()) { onError && onError('El nombre es obligatorio'); return; }
     setSaving(true);
     const emails = emailsText.split(/[\s,]+/).map(s => s.trim()).filter(s => /.+@.+\..+/.test(s));
+    if (emails.length === 0) { setSaving(false); onError && onError('Añade al menos un correo: sin destinatarios la regla no avisa a nadie'); return; }
+    const built = buildConfig();
+    if (built.error) { setSaving(false); onError && onError(built.error); return; }
     try {
       const res = await fetch('/api/alerts', {
         method: 'POST',
@@ -5003,18 +5051,12 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || undefined,
-          config: {
-            type: 'metric_threshold',
-            metric,
-            comparator,
-            threshold: Number(threshold),
-            cooldownHours: Number(cooldownHours),
-          },
+          config: built.config,
           notifyEmails: emails,
         }),
       });
       if (res.ok) {
-        ecoTrackScreen('alert_rule_create', { alert_type: 'metric_threshold', origin: 'editor', metric });
+        ecoTrackScreen('alert_rule_create', { alert_type: ruleType, origin: init.origin || 'editor', metric: ruleType === 'metric_threshold' ? metric : undefined });
         onSaved && onSaved();
       }
       else {
@@ -5056,6 +5098,13 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-3)' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+              <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Tipo de regla</span>
+              <select className="input" value={ruleType} onChange={(e) => onTypeChange(e.target.value)}>
+                {Object.entries(RULE_TYPES).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}
+              </select>
+            </label>
+            {ruleType === 'metric_threshold' && (<>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
               <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Métrica</span>
               <select className="input" value={metric} onChange={(e) => onMetricChange(e.target.value)}>
                 {Object.entries(METRIC_DEFAULTS).map(([k, d]) => <option key={k} value={k}>{d.label}</option>)}
@@ -5073,6 +5122,43 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
               <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Umbral</span>
               <input className="input" type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
             </label>
+            </>)}
+            {ruleType === 'keyword' && (<>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Palabras clave (separadas por coma)</span>
+                <input className="input" value={keywordsText} onChange={(e) => setKeywordsText(e.target.value)} placeholder="permisos, incentivos, Ley 60" />
+                <span style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>Basta con que aparezca una. No distingue mayúsculas.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Solo si la mención es</span>
+                <select className="input" value={keywordSentiment} onChange={(e) => setKeywordSentiment(e.target.value)}>
+                  <option value="">Cualquier sentimiento</option>
+                  <option value="negativo">Negativa</option>
+                  <option value="neutral">Neutral</option>
+                  <option value="positivo">Positiva</option>
+                </select>
+              </label>
+            </>)}
+            {ruleType === 'volume_spike' && (<>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Menciones en la ventana (≥)</span>
+                <input className="input" type="number" min="5" value={volumeThreshold} onChange={(e) => setVolumeThreshold(e.target.value)} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Ventana · minutos</span>
+                <input className="input" type="number" min="15" max="1440" value={volumeWindow} onChange={(e) => setVolumeWindow(e.target.value)} />
+              </label>
+            </>)}
+            {ruleType === 'negative_sentiment' && (<>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Negativas en la ventana (≥ %)</span>
+                <input className="input" type="number" min="5" max="100" value={negativePct} onChange={(e) => setNegativePct(e.target.value)} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Ventana · horas</span>
+                <input className="input" type="number" min="1" max="168" value={negativeWindow} onChange={(e) => setNegativeWindow(e.target.value)} />
+              </label>
+            </>)}
             <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', gridColumn: '1 / -1' }}>
               <span style={{ fontSize: 'var(--fs-overline)', fontWeight: 600, color: 'var(--text-2)' }}>Cooldown entre activaciones · horas</span>
               <input className="input" type="number" min="1" max="168" value={cooldownHours} onChange={(e) => setCooldownHours(e.target.value)} />
@@ -5083,7 +5169,7 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
             </label>
           </div>
           <div style={{ fontSize: 'var(--fs-overline)', color: 'var(--text-3)' }}>
-            Se evalúa sobre el snapshot diario de la agencia (cron de métricas). Al cruzar el umbral envía un correo a los destinatarios y respeta el cooldown.
+            {RULE_TYPES[ruleType].note} Entre un aviso y el siguiente pasan al menos las horas de cooldown.
           </div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid var(--hairline)', display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
@@ -5096,6 +5182,9 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError }) {
     </>
   );
 }
+
+// shell.js abre este editor desde «Crear alerta» en un detalle.
+window.AlertRuleEditor = AlertRuleEditor;
 
 function AlertsHistory({ onMentionClick }) {
   const [rows, setRows] = React.useState(null); // null = loading

@@ -54,3 +54,4 @@ export * from './narratives/sustained-level';
 export * from './composer';
 export * from './crisis/episode';
 export * from './ops/freshness';
+export * from './alerts/rule-eval';

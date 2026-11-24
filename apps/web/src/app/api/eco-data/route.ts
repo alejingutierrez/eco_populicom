@@ -1262,15 +1262,47 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(alertRules.createdAt))
       .limit(20);
 
-    const ALERTS = alertRows.map((a) => ({
-      id: a.id,
-      name: a.name,
-      active: a.isActive,
-      priority: 'media',
-      triggered: 0,
-      lastFired: '—',
-      channels: a.notifyEmails && a.notifyEmails.length > 0 ? ['email'] : [],
-    }));
+    // Activaciones y último disparo REALES por regla (COR-04): antes eran
+    // literales (0 y «—») y la tabla de reglas no decía nada. 30 días fijos,
+    // rotulados así en la tabla, para que no dependan del selector de periodo.
+    const fireStats = new Map<string, { fired: number; lastFiredAt: string | null }>();
+    if (alertRows.length > 0) {
+      try {
+        const fired = await db.execute(sql`
+          SELECT alert_rule_id,
+                 COUNT(*) FILTER (WHERE triggered_at > NOW() - INTERVAL '30 days')::int AS fired_30d,
+                 MAX(triggered_at) AS last_fired
+            FROM alert_history
+           WHERE agency_id = ${agencyId}
+           GROUP BY alert_rule_id
+        `);
+        for (const r of fired.rows as Array<{ alert_rule_id: string; fired_30d: number; last_fired: string | Date | null }>) {
+          fireStats.set(r.alert_rule_id, {
+            fired: Number(r.fired_30d) || 0,
+            lastFiredAt: r.last_fired ? new Date(r.last_fired).toISOString() : null,
+          });
+        }
+      } catch (err) {
+        log.error('eco-data.alerts', (err as Error).message);
+      }
+    }
+
+    const ALERTS = alertRows.map((a) => {
+      const cfg = (a.config ?? {}) as { type?: string; metric?: string };
+      const stats = fireStats.get(a.id);
+      return {
+        id: a.id,
+        name: a.name,
+        active: a.isActive,
+        type: cfg.type ?? null,
+        // Severidad derivada del tipo: lo que mide una crisis es alto; el resto, medio.
+        priority: cfg.type === 'crisis_threshold' || (cfg.type === 'metric_threshold' && cfg.metric === 'crisis') ? 'alta' : 'media',
+        triggered: stats?.fired ?? 0,
+        lastFiredAt: stats?.lastFiredAt ?? null,
+        lastFired: '—',
+        channels: a.notifyEmails && a.notifyEmails.length > 0 ? ['email'] : [],
+      };
+    });
 
     // ---- HOUR_HEATMAP (7 days × 24 hours, Mon=0..Sun=6) ----
     // Convert the UTC-stored `published_at` into Puerto Rico local time

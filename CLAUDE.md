@@ -521,6 +521,24 @@ aws lambda invoke --function-name eco-weekly-report \
 dirigido (`"trigger":"test"` + `recipients`) tampoco marca la fila: solo el
 barrido programado lo hace.
 
+## Pantalla de Alertas (COR-04, nov 2026)
+
+- **Quién la ve**: ya no hay lista de correos. `requireAlertsAccess` deja pasar
+  a cualquier usuario activo con la página `alerts` permitida
+  (`users.allowed_pages` vacía = todas). Para dejar a alguien fuera, quítale la
+  página en Configuración → Usuarios. Crear o editar exige además
+  `manage_alert_rules` (admin y editor).
+- **Agencia**: las rutas que reciben la agencia del cliente
+  (`/api/alerts/crisis-config`) la validan con `callerCanAccessAgencySlug`.
+- **Tipos de regla**: `metric_threshold` y `crisis_threshold` los evalúa
+  `eco-metrics-calculator`; `keyword`, `volume_spike` y `negative_sentiment`
+  los evalúa `eco-alerts` por mención, con cooldown por regla
+  (`cooldownHours`; por defecto 1 h, 6 h y 6 h). La lógica y la validación al
+  guardar viven en `packages/shared/src/alerts/rule-eval.ts`. Sin el cooldown
+  una regla mandaba un correo por mención: no lo quites.
+- **Tabla de reglas**: activaciones de 30 días y último disparo salen de
+  `alert_history` (en `/api/eco-data`).
+
 ## Alarmas de operación (OPS-04, nov 2026)
 
 Todas en `infra/lib/monitoring-stack.ts`, al canal SNS `eco-alerts-ops`:

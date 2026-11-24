@@ -18,7 +18,7 @@ function bandToSeverity(band: unknown): 'alta' | 'media' | 'baja' | null {
 }
 
 export async function GET(request: NextRequest) {
-  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  // Permiso de la página de Alertas (ver requireAlertsAccess).
   const gate = await requireAlertsAccess();
   if (!gate.ok) return gate.response;
   const { searchParams } = request.nextUrl;

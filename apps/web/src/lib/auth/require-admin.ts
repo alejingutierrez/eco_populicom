@@ -20,11 +20,11 @@ export async function effectiveRole(user: SessionUser): Promise<Role> {
  * corte tiene que estar en cada gate del servidor. Ante fallo de DB no se
  * marca como suspendido (mismo criterio best-effort que el rol).
  */
-async function userStanding(user: SessionUser): Promise<{ role: Role; suspended: boolean }> {
+async function userStanding(user: SessionUser): Promise<{ role: Role; suspended: boolean; allowedPages: string[] | null }> {
   try {
     const db = getDb();
     const [row] = await db
-      .select({ role: users.role, isActive: users.isActive })
+      .select({ role: users.role, isActive: users.isActive, allowedPages: users.allowedPages })
       .from(users)
       .where(eq(users.cognitoSub, user.sub))
       .limit(1);
@@ -32,12 +32,13 @@ async function userStanding(user: SessionUser): Promise<{ role: Role; suspended:
       return {
         role: (row.role as Role) || roleFromGroups(user.groups),
         suspended: row.isActive === false,
+        allowedPages: (row.allowedPages as string[] | null) ?? null,
       };
     }
   } catch {
     /* fall through to group-based bootstrap */
   }
-  return { role: roleFromGroups(user.groups), suspended: false };
+  return { role: roleFromGroups(user.groups), suspended: false, allowedPages: null };
 }
 
 function suspendedResponse(): NextResponse {
@@ -84,39 +85,42 @@ export async function requireAdmin(): Promise<Gate> {
 }
 
 /**
- * Correos con acceso a la página de Alertas.
- *
- * Decisión del usuario (ago 2026): "Solo el usuario agutierrez@populicom puede
- * ver esta página, de resto no". Es una lista literal en código a propósito —
- * gatearlo por `users.allowed_pages` sería configurable sin deploy, pero se
- * revierte en cuanto alguien edita el usuario desde el panel, y el requisito es
- * que NADIE más la vea. Para añadir gente hay que tocar esta constante.
- *
- * Se exporta para que el gate del servidor y /api/auth/me (que decide qué
- * páginas ve el SPA) lean la MISMA fuente.
+ * ¿El usuario puede ver una página? Misma regla que el SPA (`ecoCanSeePage`):
+ * `allowed_pages` vacía o nula significa «todas»; con contenido, solo las
+ * listadas.
  */
-export const ALERTS_ALLOWED_EMAILS = ['agutierrez@populicom.com'];
+export function pageAllowed(allowedPages: string[] | null | undefined, key: string): boolean {
+  if (!Array.isArray(allowedPages) || allowedPages.length === 0) return true;
+  return allowedPages.includes(key);
+}
 
-export function canSeeAlerts(email: string | null | undefined): boolean {
-  if (!email) return false;
-  return ALERTS_ALLOWED_EMAILS.includes(email.trim().toLowerCase());
+/** ¿Puede ver Alertas? Lo usa /api/auth/me para el flag `canSeeAlerts` del SPA. */
+export function canSeeAlerts(allowedPages: string[] | null | undefined): boolean {
+  return pageAllowed(allowedPages, 'alerts');
 }
 
 /**
- * Gate de las rutas de Alertas. Ocultar la página en el SPA no basta: los
- * endpoints /api/alerts/* siguen siendo alcanzables a mano, así que el corte
- * real va aquí.
+ * Gate de las rutas de Alertas (COR-04, nov 2026).
+ *
+ * De agosto a noviembre de 2026 esto era una lista de correos en código con
+ * una sola dirección. Ahora es el permiso normal: cualquier usuario activo
+ * cuya lista de páginas incluya «alerts» (o esté vacía = todas). Ver es esto;
+ * crear o editar reglas exige además la capacidad `manage_alert_rules`, y la
+ * agencia la acota cada ruta con `resolveAgencyId` / `resolveCallerAgencyId`.
+ *
+ * Ocultar la página en el SPA no basta: los endpoints /api/alerts/* son
+ * alcanzables a mano, así que el corte real va aquí.
  */
 export async function requireAlertsAccess(): Promise<Gate> {
   const user = await getSession();
   if (!user) {
     return { ok: false, response: NextResponse.json({ error: 'unauthenticated' }, { status: 401 }) };
   }
-  if (!canSeeAlerts(user.email)) {
+  const { role, suspended, allowedPages } = await userStanding(user);
+  if (suspended) return { ok: false, response: suspendedResponse() };
+  if (!pageAllowed(allowedPages, 'alerts')) {
     return { ok: false, response: NextResponse.json({ error: 'forbidden' }, { status: 403 }) };
   }
-  const { role, suspended } = await userStanding(user);
-  if (suspended) return { ok: false, response: suspendedResponse() };
   return { ok: true, user, role };
 }
 

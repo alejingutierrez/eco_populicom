@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, agencies, alertRules, users } from '@eco/database';
 import { and, eq, sql } from 'drizzle-orm';
+import { callerCanAccessAgencySlug } from '@/lib/agency';
 import { requireCapability, requireAlertsAccess } from '@/lib/auth/require-admin';
 import type { CrisisThresholdConfig } from '@eco/shared';
 
@@ -28,7 +29,7 @@ interface ConfigBody {
  * en blanco con defaults razonables.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  // Permiso de la página de Alertas (ver requireAlertsAccess).
   const access = await requireAlertsAccess();
   if (!access.ok) return access.response;
   const auth = await requireCapability('manage_alert_rules');
@@ -47,6 +48,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     : await db.select().from(agencies).where(eq(agencies.slug, agencySlug!)).limit(1);
   if (!agencyRow.length) return NextResponse.json({ error: 'agency not found' }, { status: 404 });
   const agency = agencyRow[0];
+  // Aislamiento por agencia (COR-04): la agencia llega en la URL, así que hay
+  // que comprobar que quien pregunta la tiene asignada. Mientras Alertas era
+  // de una sola persona esto no se notaba; sin esta línea un editor de una
+  // agencia leería la regla y los destinatarios de otra.
+  if (!(await callerCanAccessAgencySlug(agency.slug))) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
 
   // Buscamos cualquier regla del agency cuyo config.type sea crisis_threshold.
   // Usamos SQL crudo para acceder al JSONB key porque drizzle no expone helpers
@@ -98,7 +106,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * cambios — ya lee las reglas en cada cron.
  */
 export async function PUT(request: NextRequest): Promise<NextResponse> {
-  // Alertas restringida por correo (ver ALERTS_ALLOWED_EMAILS).
+  // Permiso de la página de Alertas (ver requireAlertsAccess).
   const access = await requireAlertsAccess();
   if (!access.ok) return access.response;
   const auth = await requireCapability('manage_alert_rules');
@@ -119,6 +127,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
   if (!agencyRow?.length) return NextResponse.json({ error: 'agency not found' }, { status: 404 });
   const agency = agencyRow[0];
+  // Mismo aislamiento que en el GET: no se edita la regla de otra agencia.
+  if (!(await callerCanAccessAgencySlug(agency.slug))) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
 
   // Validación
   const errors: string[] = [];
