@@ -17,6 +17,7 @@
  *   crisis-alert-preview.html    primer aviso
  *   crisis-reaviso-preview.html  reaviso, con el bloque «Episodio abierto»
  *   crisis-cierre-preview.html   cierre del episodio
+ *   crisis-dia-cerrado-preview.html  aviso por un día que cruzó el umbral ya cerrado
  *
  * Uso: tsx scripts/preview-crisis-alert.ts
  *      → escribe en apps/web/public/emails/
@@ -196,9 +197,18 @@ const close: CrisisCloseRenderData = {
   dashboardUrl: data.dashboardUrl,
 };
 
+// Aviso por un día ya cerrado: el día cruzó el umbral con menciones tardías y
+// el correo sale a la mañana siguiente, con la nota que lo explica.
+const closedDay: CrisisAlertRenderData = {
+  ...data,
+  detectedAtLabel: '19 may · 8:05 a.m. AST',
+  triggerDayClosed: true,
+};
+
 const outputs: Array<[string, string]> = [
   ['crisis-alert-preview.html', renderCrisisAlertHtml(data)],
   ['crisis-reaviso-preview.html', renderCrisisAlertHtml(followup)],
+  ['crisis-dia-cerrado-preview.html', renderCrisisAlertHtml(closedDay)],
   ['crisis-cierre-preview.html', renderCrisisCloseHtml(close)],
 ];
 for (const [name, html] of outputs) {

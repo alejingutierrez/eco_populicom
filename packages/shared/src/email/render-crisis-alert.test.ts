@@ -120,3 +120,17 @@ test('el prompt del primer aviso no cambia; el del reaviso lleva el contexto', (
   assert.ok(again.includes('ESTE CORREO ES UN REAVISO (aviso n.º 2)'));
   assert.ok(again.includes('Crisis Score 52%. Ahora: 61% (subió 9 puntos)'));
 });
+
+test('aviso por un día ya cerrado: lo dice arriba y en la línea de detección', () => {
+  const html = renderCrisisAlertHtml({ ...BASE, triggerDayClosed: true });
+  assert.ok(html.includes('Este aviso es por el 19 nov, un día ya cerrado.'));
+  assert.ok(html.includes('día detonante 19 nov (cerrado)'));
+  assert.ok(!renderCrisisAlertHtml(BASE).includes('un día ya cerrado'));
+});
+
+test('el prompt de un día cerrado no habla del día en curso', () => {
+  const p = buildCrisisEditorialPrompt({ ...INPUTS, triggerDayClosed: true });
+  assert.ok(p.includes('un día ya CERRADO (completo), NO el día en curso'));
+  assert.ok(!p.includes('el día EN CURSO (parcial)'));
+  assert.ok(buildCrisisEditorialPrompt(INPUTS).includes('el día EN CURSO (parcial)'));
+});
