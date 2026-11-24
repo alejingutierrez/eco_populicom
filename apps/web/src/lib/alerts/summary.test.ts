@@ -1,4 +1,4 @@
-import { daysOverWithoutAlert, groupEpisodes, type AlertRow } from './summary';
+import { daysOverWithoutAlert, groupEpisodes, resolveAlertsWindow, type AlertRow } from './summary';
 
 const mk = (id: string, day: string, hour = '18'): AlertRow => ({
   id, at: `${day}T${hour}:00:00.000Z`, day, ruleId: 'r', ruleName: 'Crisis', ruleType: 'crisis_threshold',
@@ -51,5 +51,41 @@ describe('días sobre el umbral sin aviso', () => {
       { date: '2026-11-05', score: 0.9 },
     ];
     expect(daysOverWithoutAlert(series, new Set(['2026-11-02']), 0.4, '2026-11-05')).toEqual(['2026-10-31', '2026-11-01']);
+  });
+});
+
+describe('ventana de la pantalla según el selector de fechas', () => {
+  const today = '2026-11-24';
+
+  it('sin fechas: los últimos 31 días hasta hoy', () => {
+    expect(resolveAlertsWindow(null, null, today)).toEqual({
+      from: '2026-10-25', to: today, days: 31, seriesFrom: '2026-10-25', seriesExtended: false, seriesTruncated: false,
+    });
+  });
+
+  it('un periodo de 30 días se usa tal cual', () => {
+    const w = resolveAlertsWindow('2026-10-26', '2026-11-24', today);
+    expect([w.from, w.to, w.days, w.seriesFrom]).toEqual(['2026-10-26', '2026-11-24', 30, '2026-10-26']);
+  });
+
+  it('«Ayer» lista solo ese día, pero el gráfico muestra la semana', () => {
+    const w = resolveAlertsWindow('2026-11-23', '2026-11-23', today);
+    expect([w.from, w.to, w.days]).toEqual(['2026-11-23', '2026-11-23', 1]);
+    expect(w.seriesFrom).toBe('2026-11-17');
+    expect(w.seriesExtended).toBe(true);
+  });
+
+  it('un año lista todo el año, pero el gráfico se queda con los 120 días más recientes', () => {
+    const w = resolveAlertsWindow('2025-11-25', '2026-11-24', today);
+    expect(w.days).toBe(365);
+    expect(w.seriesFrom).toBe('2026-07-28');
+    expect(w.seriesTruncated).toBe(true);
+  });
+
+  it('un fin futuro se recorta a hoy y unas fechas inválidas caen al periodo por defecto', () => {
+    expect(resolveAlertsWindow('2026-11-20', '2026-12-31', today).to).toBe(today);
+    expect(resolveAlertsWindow('2026-11-20', '2026-11-10', today).days).toBe(31);
+    expect(resolveAlertsWindow('ayer', 'hoy', today).days).toBe(31);
+    expect(resolveAlertsWindow('2027-01-01', '2027-01-05', today).days).toBe(31);
   });
 });

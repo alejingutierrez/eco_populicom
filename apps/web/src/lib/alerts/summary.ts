@@ -96,3 +96,55 @@ export function daysOverWithoutAlert(
     .filter((p) => p.date !== today && p.score != null && Math.round(p.score * 100) >= Math.round(threshold * 100) && !alertDays.has(p.date))
     .map((p) => p.date);
 }
+
+export interface AlertsWindow {
+  /** Bordes del periodo elegido (YYYY-MM-DD, días de Puerto Rico, inclusivos). */
+  from: string;
+  to: string;
+  days: number;
+  /** Primer día del gráfico: puede abrir antes que `from` o después (ver abajo). */
+  seriesFrom: string;
+  /** El periodo es más corto que el gráfico mínimo y se le añadió contexto. */
+  seriesExtended: boolean;
+  /** El periodo es más largo que el gráfico máximo y se recortó a lo más reciente. */
+  seriesTruncated: boolean;
+}
+
+export const ALERTS_DEFAULT_DAYS = 31;
+/** Un gráfico de una o dos columnas no dice nada: mínimo una semana. */
+export const ALERTS_MIN_SERIES_DAYS = 7;
+/** Más de 120 columnas no se leen en 1,100 px. */
+export const ALERTS_MAX_SERIES_DAYS = 120;
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Ventana de la pantalla a partir del selector de fechas del encabezado.
+ * `from`/`to` válidos mandan; sin ellos, los últimos 31 días hasta hoy. Un
+ * `to` futuro se recorta a hoy. Los AVISOS se listan con el periodo exacto;
+ * el GRÁFICO se ajusta para ser legible: mínimo 7 columnas (con días de
+ * contexto anteriores al periodo) y máximo 120 (las más recientes).
+ */
+export function resolveAlertsWindow(fromParam: string | null, toParam: string | null, today: string): AlertsWindow {
+  let from: string;
+  let to: string;
+  if (fromParam && toParam && YMD.test(fromParam) && YMD.test(toParam) && fromParam <= toParam && fromParam <= today) {
+    from = fromParam;
+    to = toParam > today ? today : toParam;
+  } else {
+    to = today;
+    from = shiftYmd(today, -(ALERTS_DEFAULT_DAYS - 1));
+  }
+  const days = dayDiff(from, to) + 1;
+  let seriesFrom = from;
+  const seriesExtended = days < ALERTS_MIN_SERIES_DAYS;
+  const seriesTruncated = days > ALERTS_MAX_SERIES_DAYS;
+  if (seriesExtended) seriesFrom = shiftYmd(to, -(ALERTS_MIN_SERIES_DAYS - 1));
+  if (seriesTruncated) seriesFrom = shiftYmd(to, -(ALERTS_MAX_SERIES_DAYS - 1));
+  return { from, to, days, seriesFrom, seriesExtended, seriesTruncated };
+}

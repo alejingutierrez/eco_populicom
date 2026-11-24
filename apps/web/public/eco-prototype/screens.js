@@ -4905,7 +4905,11 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
 
   React.useEffect(() => {
     const agency = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
-    fetch('/api/alerts/summary?' + new URLSearchParams({ agency }).toString(), { credentials: 'same-origin', cache: 'no-store' })
+    // La pantalla sigue el selector de fechas del encabezado. Cambiar de
+    // periodo recarga la aplicación (app.js), así que basta leerlo al montar.
+    const w = (typeof window.ecoResolvedWindow === 'function') ? window.ecoResolvedWindow() : null;
+    const qs = new URLSearchParams(Object.assign({ agency }, w && w.from && w.to ? { from: w.from, to: w.to } : {}));
+    fetch('/api/alerts/summary?' + qs.toString(), { credentials: 'same-origin', cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
       .then((j) => {
         setData(j);
@@ -4952,6 +4956,9 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
   const above = nowPct != null && nowPct >= thrPct;
   const byId = {};
   (data.alerts || []).forEach((a) => { byId[a.id] = a; });
+  // Periodo elegido en el encabezado, para rotular cada bloque con sus fechas.
+  const win = data.window || null;
+  const winLabel = !win ? 'periodo' : (win.from === win.to ? alertsDayLabel(win.from) : `${alertsDayLabel(win.from)} – ${alertsDayLabel(win.to)}`);
   const overline = { fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' };
   const mono = { fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' };
 
@@ -5027,12 +5034,12 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
         <div style={cell}>
           <div style={overline}>Último aviso</div>
           <div style={bigNum}>{alertsAgo(data.lastAlertAt)}</div>
-          <div style={{ ...mono, marginTop: 4 }}>{data.lastAlertAt ? window.ecoFmtDateTime(data.lastAlertAt) : 'sin avisos en 45 días'}</div>
+          <div style={{ ...mono, marginTop: 4 }}>{data.lastAlertAt ? window.ecoFmtDateTime(data.lastAlertAt) : 'esta agencia no ha tenido avisos'}</div>
         </div>
         <div style={cell}>
-          <div style={overline}>Avisos · 30 días</div>
-          <div style={bigNum}>{data.alerts30d}</div>
-          <div style={{ ...mono, marginTop: 4 }}>avisos de crisis</div>
+          <div style={overline}>Avisos del periodo</div>
+          <div style={bigNum}>{data.alertsInPeriod}</div>
+          <div style={{ ...mono, marginTop: 4 }}>de crisis · {winLabel}</div>
         </div>
         <div style={cell}>
           <div style={overline}>Reciben los avisos</div>
@@ -5045,8 +5052,12 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
       {series.length >= 2 && (
         <div className="card">
           <div className="card-hd"><div>
-            <div className="card-hd-title">Riesgo de crisis y avisos · últimos {series.length} días</div>
-            <div className="card-hd-sub">Cada columna es el cierre de un día. El punto marca los días en que salió un correo.</div>
+            <div className="card-hd-title">Riesgo de crisis y avisos · {series.length ? `${alertsDayLabel(series[0].date)} – ${alertsDayLabel(series[series.length - 1].date)}` : winLabel}</div>
+            <div className="card-hd-sub">
+              Cada columna es el cierre de un día. El punto marca los días en que salió un correo.
+              {win && win.seriesExtended && ' El periodo elegido es más corto que una semana: se muestran los 7 días hasta su final, para dar contexto.'}
+              {win && win.seriesTruncated && ` El periodo elegido tiene ${win.days} días: el gráfico muestra los 120 más recientes.`}
+            </div>
           </div></div>
           <div className="card-bd scroll-x">
             <div style={{ minWidth: mobile ? 0 : 620, position: 'relative' }}
@@ -5096,10 +5107,10 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
       <div className="card">
         <div className="card-hd"><div>
           <div className="card-hd-title">Qué avisó ECO</div>
-          <div className="card-hd-sub">Los avisos de los últimos 45 días, agrupados por episodio. Cada uno dice lo que decía el correo.</div>
+          <div className="card-hd-sub">Los avisos del periodo ({winLabel}), agrupados por episodio. Cada uno dice lo que decía el correo.</div>
         </div></div>
         {(data.episodes || []).length === 0 && (data.otherAlertIds || []).length === 0 && (
-          <div style={box}>Sin avisos en los últimos 45 días.</div>
+          <div style={box}>Sin avisos en el periodo ({winLabel}).</div>
         )}
         {(data.episodes || []).map((ep) => (
           <div key={ep.from + ep.to} style={{ borderTop: '1px solid var(--hairline)' }}>
@@ -5146,7 +5157,7 @@ function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay 
                 <div style={overline}>{s.kind} · {r.name}</div>
                 <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.5, marginTop: 4, color: on && !s.broken ? 'var(--text)' : 'var(--text-2)' }}>{s.body}</div>
                 <div style={{ ...mono, marginTop: 8 }}>
-                  {r.fired30d > 0 ? <>Disparó {alertsPlural(r.fired30d, 'vez', 'veces')} en 30 días · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : (r.lastFiredAt ? <>Sin disparos en 30 días · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : 'Nunca ha disparado')}
+                  {r.firedInPeriod > 0 ? <>Disparó {alertsPlural(r.firedInPeriod, 'vez', 'veces')} en el periodo · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : (r.lastFiredAt ? <>Sin disparos en el periodo · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : 'Nunca ha disparado')}
                   {r.notifyCount === 0 && <span style={{ color: 'var(--warn)' }}> · sin destinatarios: no avisa a nadie</span>}
                 </div>
               </div>
