@@ -4769,57 +4769,17 @@ function ReportsTab() {
 
 // =============== ALERTS ===============
 function AlertsScreen({ onMentionClick }) {
-  // Por defecto 'history' (datos reales). El "Feed en vivo" estaba vacío porque
-  // eco-data nunca pobla ALERT_FEED; ahora muestra estado vacío honesto.
-  const [tab, setTab] = useState('history');
+  // Rediseño nov-2026. La pantalla anterior contaba eventos (mezcla de
+  // severidad, ranking de reglas, activaciones por día) y no decía qué había
+  // pasado: con una regla por agencia los gráficos eran una sola barra y el
+  // historial no mostraba ni el titular del aviso. Ahora una sola vista
+  // responde, en orden: ¿pasa algo ahora?, ¿cómo se movió el riesgo?, ¿qué
+  // avisó ECO? y ¿qué vigila?. La configuración queda en sus dos pestañas.
+  const [tab, setTab] = useState('summary');
   const [slice, setSlice] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [toast, setToast] = useState(null); // { kind, text }
-  // Local overrides for rule active toggle (not yet persisted to backend).
-  const [ruleActive, setRuleActive] = useState(() => {
-    const m = {};
-    (D.ALERTS || []).forEach((a) => { m[a.id] = a.active; });
-    return m;
-  });
-
-  // KPIs reales (antes eran literales 6/4/7/8m). Reglas/activas salen de D.ALERTS;
-  // activaciones y última-alerta de /api/alerts/history.
-  //
-  // VENTANA ÚNICA: la del selector global del header, la misma que consultan el
-  // historial y el histograma de abajo. Antes este KPI pedía `period=1D` y se
-  // rotulaba "· 24h" mientras las cards de la misma pantalla contaban 7 días, así
-  // que el mismo dígito (11) aparecía dos veces a 60 px de distancia significando
-  // un día y una semana. Cambiar de período recarga la página (app.js), así que
-  // basta leerlo una vez por montaje.
-  const [fireStats, setFireStats] = useState({ fired: null, lastFired: null });
-  // Regla cuyo toggle está en vuelo, para no encadenar clics sobre la misma.
-  const [savingRule, setSavingRule] = useState(null);
-  const firePeriod = (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams().period : '7D';
-  React.useEffect(() => {
-    const ag = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
-    const qs = new URLSearchParams(Object.assign(
-      { agency: ag, agencySlug: ag, limit: '200' },
-      (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams() : { period: '7D' },
-    ));
-    fetch(`/api/alerts/history?${qs.toString()}`, { credentials: 'same-origin', cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : { history: [] }))
-      .then((j) => { const h = j.history || []; setFireStats({ fired: h.length, lastFired: h[0] ? h[0].triggeredAt : null }); })
-      .catch(() => {});
-  }, []);
-  const rulesTotal = (D.ALERTS || []).length;
-  const rulesActive = (D.ALERTS || []).filter((a) => a.active).length;
-  // Sin `timeZone` esto rendía la hora del navegador: el MISMO evento salía 9:00
-  // en este KPI y 10:00 en la fila del historial. Helper único (data.js).
-  const lastFiredLabel = window.ecoFmtDateTime(fireStats.lastFired);
-  // "Última alerta" era la única de las cuatro KPI cuyo valor no es un conteo: la
-  // cadena de fecha en --fs-num-xl (30 px, lineHeight 1) envolvía a dos líneas,
-  // rompía el eje inferior de la fila y dejaba 2,7 px de aire entre renglones. Y
-  // una fecha no se compara con un 11: el valor pasa a ser la magnitud
-  // (antigüedad) y el instante exacto baja a `sub`, que es texto y no cifra.
-  const lastFiredAgeDays = fireStats.lastFired
-    ? Math.max(0, Math.floor((Date.now() - new Date(fireStats.lastFired).getTime()) / 86400000))
-    : null;
-  const lastFiredAge = lastFiredAgeDays == null ? '—' : (lastFiredAgeDays === 0 ? 'hoy' : `hace ${lastFiredAgeDays} d`);
+  const [reloadKey, setReloadKey] = useState(0);
   const canRules = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_alert_rules') : true;
   const canTemplates = (typeof window !== 'undefined' && typeof window.ecoHasCap === 'function') ? window.ecoHasCap('manage_templates') : true;
 
@@ -4828,46 +4788,10 @@ function AlertsScreen({ onMentionClick }) {
     setTimeout(() => setToast(null), 3600);
   }
 
-  // El toggle Activa/Inactiva de la tabla de reglas solo movía estado local: se
-  // veía como un control que guarda, se quedaba puesto hasta recargar y la regla
-  // seguía disparando igual. Ahora escribe en PATCH /api/alerts/[id].
-  // Optimista —el switch responde al instante— con vuelta atrás y aviso si el
-  // servidor lo rechaza, que es lo que pasaba en silencio hasta ahora.
-  async function toggleRule(id) {
-    if (savingRule) return;
-    const next = !ruleActive[id];
-    setSavingRule(id);
-    setRuleActive((s) => ({ ...s, [id]: next }));
-    try {
-      const res = await fetch('/api/alerts/' + encodeURIComponent(id), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ isActive: next }),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      ecoTrackScreen('alert_rule_toggle', { is_active: next });
-      fireToast('ok', next ? 'Regla activada.' : 'Regla desactivada.');
-    } catch (e) {
-      setRuleActive((s) => ({ ...s, [id]: !next }));
-      fireToast('err', 'No se pudo cambiar la regla (' + (e.message || e) + ')');
-    } finally {
-      setSavingRule(null);
-    }
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('repeat(4, 1fr)', 'repeat(2, 1fr)'), gap: 'var(--sp-3)' }}>
-        <KpiCard label="Reglas configuradas" value={String(rulesTotal)} icon="Shield" accent="var(--text-2)" />
-        <KpiCard label="Reglas activas" value={String(rulesActive)} icon="Bell" accent="var(--text-2)" />
-        <KpiCard label={`Activaciones · ${firePeriod}`} value={fireStats.fired == null ? '—' : String(fireStats.fired)} icon="Zap" accent="var(--text-2)" />
-        <KpiCard label="Última alerta" value={lastFiredAge} sub={lastFiredLabel} icon="Activity" accent="var(--text-2)" />
-      </div>
-
       <div style={{ display: 'flex', gap: 'var(--sp-15)', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={() => setTab('history')} className={`chip ${tab === 'history' ? 'active' : ''}`}>Historial</button>
-        <button onClick={() => setTab('rules')} className={`chip ${tab === 'rules' ? 'active' : ''}`}>Reglas</button>
+        <button onClick={() => setTab('summary')} className={`chip ${tab === 'summary' ? 'active' : ''}`}>Avisos y reglas</button>
         {(canRules || canTemplates) && (
           <>
             <span aria-hidden style={{ width: 1, height: 18, background: 'var(--hairline-strong)', margin: '0 6px' }} />
@@ -4876,64 +4800,24 @@ function AlertsScreen({ onMentionClick }) {
             {canTemplates && <button onClick={() => setTab('reports')} className={`chip ${tab === 'reports' ? 'active' : ''}`}>Reportes por correo</button>}
           </>
         )}
-        <div style={{ flex: 1 }} />
-        {tab !== 'reports' && tab !== 'crisis' && canRules && (
-          <button className="btn btn-primary" onClick={() => setEditorOpen(true)}><Icons.Plus size={13} /> Nueva regla</button>
-        )}
       </div>
 
-      {tab === 'rules' && (
-        <div className="card scroll-x">
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', padding: '10px 16px', fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)', borderBottom: '1px solid var(--hairline)' }}>
-            {/* "Activaciones 30d" prometía una ventana de 30 días para un número
-                que el API devuelve SIEMPRE 0 (eco-data/route.ts: triggered: 0), y
-                era la tercera ventana distinta de la pantalla. Y el campo se llama
-                "Prioridad" aquí y "Severidad" en el historial: un solo término. */}
-            <span>Regla</span><span>Severidad</span><span style={{ textAlign: 'right' }}>Activaciones · 30 d</span><span>Estado</span><span>Canales</span><span>Último disparo</span><span />
-          </div>
-          {D.ALERTS.map((a) => (
-            <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 80px 80px 120px 120px 30px', minWidth: 740, gap: 'var(--sp-3)', alignItems: 'center', padding: '14px 16px', borderTop: '1px solid var(--hairline)', fontSize: 'var(--fs-caption)' }}>
-              <span style={{ fontWeight: 500 }}>{a.name}</span>
-              <span className={`pill ${a.priority === 'alta' ? 'pill-neg' : a.priority === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{a.priority}</span>
-              {/* a.triggered viene hardcodeado a 0 del API (eco-data/route.ts), así
-                  que un "0" aquí no significa "cero activaciones" sino "sin dato":
-                  se rinde como raya hasta que el endpoint lo calcule. */}
-              {/* COR-04: el API ya cuenta las activaciones reales de 30 días; un 0
-                  es un cero. La raya queda solo si el dato no llegó. */}
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{typeof a.triggered === 'number' ? a.triggered : '—'}</span>
-              {/* Sin manage_alert_rules el PATCH responde 403, así que el
-                  switch no se ofrece: se muestra el estado y ya. */}
-              {canRules ? (
-                <button
-                  onClick={() => toggleRule(a.id)}
-                  disabled={savingRule === a.id}
-                  aria-pressed={!!ruleActive[a.id]}
-                  title={ruleActive[a.id] ? 'Desactivar esta regla' : 'Activar esta regla'}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', cursor: savingRule === a.id ? 'wait' : 'pointer', background: 'none', border: 0, padding: 0, opacity: savingRule === a.id ? 0.6 : 1 }}>
-                  <div style={{ width: 28, height: 16, borderRadius: 'var(--r-lg)', background: ruleActive[a.id] ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
-                    <div style={{ position: 'absolute', top: 2, left: ruleActive[a.id] ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
-                  </div>
-                  <span style={{ color: ruleActive[a.id] ? 'var(--pos)' : 'var(--text-3)' }}>{ruleActive[a.id] ? 'Activa' : 'Inactiva'}</span>
-                </button>
-              ) : (
-                <span className={`pill ${ruleActive[a.id] ? 'pill-pos' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>
-                  {ruleActive[a.id] ? 'Activa' : 'Inactiva'}
-                </span>
-              )}
-              <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
-                {a.channels.map((c) => {
-                  const IconC = { email: Icons.Mail, slack: Icons.Slack, sms: Icons.Phone }[c];
-                  return <span key={c} title={c} style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: 'var(--canvas-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IconC size={11} color="var(--text-2)" /></span>;
-                })}
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 'var(--fs-overline)' }}>{a.lastFiredAt ? window.ecoFmtDateTime(a.lastFiredAt) : 'sin disparos'}</span>
-              <Icons.More size={14} color="var(--text-3)" />
-            </div>
-          ))}
-        </div>
+      {tab === 'summary' && (
+        <AlertsOverview
+          key={reloadKey}
+          canRules={canRules}
+          onNewRule={() => setEditorOpen(true)}
+          onEditCrisis={() => setTab('crisis')}
+          onToast={fireToast}
+          onOpenDay={(alert) => setSlice({
+            eyebrow: alertsDayLabel(alert.day),
+            title: 'Menciones negativas del día',
+            accent: 'var(--neg)',
+            mentions: [],
+            _filter: { day: alert.day, sentiment: 'negativo' },
+          })}
+        />
       )}
-
-      {tab === 'history' && <AlertsHistory onMentionClick={onMentionClick} />}
 
       {tab === 'crisis' && canRules && <CrisisAlertsTab />}
 
@@ -4944,7 +4828,7 @@ function AlertsScreen({ onMentionClick }) {
         <AlertRuleEditor
           topics={D.TOPICS || []}
           onClose={() => setEditorOpen(false)}
-          onSaved={() => { setEditorOpen(false); fireToast('ok', 'Regla creada.'); setTab('rules'); }}
+          onSaved={() => { setEditorOpen(false); fireToast('ok', 'Regla creada.'); setTab('summary'); setReloadKey((k) => k + 1); }}
           onError={(m) => fireToast('err', m || 'No se pudo guardar la regla')}
         />
       )}
@@ -4961,6 +4845,330 @@ function AlertsScreen({ onMentionClick }) {
           {toast.text}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Helpers de la vista de Alertas ---
+const ALERTS_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// 'YYYY-MM-DD' → '18 nov'. Se corta como cadena: new Date('YYYY-MM-DD') es
+// medianoche UTC y en Puerto Rico (UTC−4) saldría el día anterior.
+function alertsDayLabel(ymd) {
+  const p = String(ymd || '').split('-').map(Number);
+  if (p.length !== 3 || !p[1] || !p[2]) return String(ymd || '');
+  return `${p[2]} ${ALERTS_MONTHS[p[1] - 1]}`;
+}
+function alertsPct(v) { return v == null ? '—' : `${Math.round(v * 100)}%`; }
+function alertsAgo(iso) {
+  if (!iso) return 'nunca';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return 'hoy';
+  return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+}
+function alertsPlural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
+
+// Una regla dicha en una oración. Devuelve { kind, parts } donde parts es JSX.
+function alertsRuleSentence(rule) {
+  const c = rule.config || {};
+  const who = <b>{alertsPlural(rule.notifyCount, 'persona', 'personas')}</b>;
+  const cd = c.cooldownHours || c.cooldown_hours;
+  const every = cd ? <> Entre un aviso y el siguiente pasan al menos <b>{alertsPlural(cd, 'hora', 'horas')}</b>.</> : null;
+  if (c.type === 'crisis_threshold') {
+    return { kind: 'Crisis', body: <>Avisa a {who} cuando el <b>riesgo de crisis llega a {alertsPct(c.crisis_min != null ? c.crisis_min : 0.4)}</b> y la severidad a {alertsPct(c.severity_min != null ? c.severity_min : 0.5)}. Mientras siga arriba, vuelve a avisar <b>cada {alertsPlural(c.cooldown_hours || 12, 'hora', 'horas')}</b> con lo que cambió, y manda un correo de cierre cuando baja.</> };
+  }
+  if (c.type === 'metric_threshold') {
+    const names = { crisis: 'el riesgo de crisis', bhi: 'la salud de marca', polarization: 'la polarización', engagement_velocity: 'la velocidad de interacción', volume_anomaly: 'la anomalía de volumen' };
+    return { kind: 'Indicador', body: <>Avisa a {who} cuando <b>{names[c.metric] || c.metric} {c.comparator === 'lte' ? 'baja a' : 'llega a'} {c.threshold}</b>.{every}</> };
+  }
+  if (c.type === 'keyword') {
+    const kws = Array.isArray(c.keywords) ? c.keywords.join(', ') : '';
+    const only = c.sentiment ? <> en una mención <b>{c.sentiment === 'negativo' ? 'negativa' : c.sentiment === 'positivo' ? 'positiva' : 'neutral'}</b></> : null;
+    return { kind: 'Palabra clave', body: <>Avisa a {who} cuando aparece <b>{kws || '(sin palabras)'}</b>{only}.{every}</> };
+  }
+  if (c.type === 'volume_spike') {
+    return typeof c.threshold === 'number'
+      ? { kind: 'Volumen', body: <>Avisa a {who} cuando llegan <b>{c.threshold} menciones o más en {alertsPlural(c.window_minutes || 60, 'minuto', 'minutos')}</b>.{every}</> }
+      : { kind: 'Volumen', broken: true, body: <>Esta regla se creó sin un umbral válido y <b>no puede dispararse</b>. Desactívala y crea una nueva.</> };
+  }
+  if (c.type === 'negative_sentiment') {
+    return { kind: 'Proporción negativa', body: <>Avisa a {who} cuando <b>{c.threshold_pct || 50}% o más de las menciones de {alertsPlural(c.window_hours || 24, 'hora', 'horas')}</b> son negativas.{every}</> };
+  }
+  return { kind: 'Regla', body: <>{rule.name}</> };
+}
+
+// --- AlertsOverview: la vista única de avisos y reglas ---
+function AlertsOverview({ canRules, onNewRule, onEditCrisis, onToast, onOpenDay }) {
+  const [data, setData] = React.useState(null); // null = cargando
+  const [error, setError] = React.useState(null);
+  const [active, setActive] = React.useState({});
+  const [saving, setSaving] = React.useState(null);
+
+  React.useEffect(() => {
+    const agency = localStorage.getItem('eco.agency') || (window.ECO_DATA && window.ECO_DATA.USER_AGENCY_SLUG) || '';
+    fetch('/api/alerts/summary?' + new URLSearchParams({ agency }).toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+      .then((j) => {
+        setData(j);
+        const m = {};
+        (j.rules || []).forEach((r) => { m[r.id] = r.isActive; });
+        setActive(m);
+      })
+      .catch((e) => setError(e.message || 'error'));
+  }, []);
+
+  // Mismo patrón que el toggle anterior: optimista, con vuelta atrás si el
+  // servidor lo rechaza.
+  async function toggleRule(id) {
+    if (saving) return;
+    const next = !active[id];
+    setSaving(id);
+    setActive((s) => ({ ...s, [id]: next }));
+    try {
+      const res = await fetch('/api/alerts/' + encodeURIComponent(id), {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ isActive: next }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      ecoTrackScreen('alert_rule_toggle', { is_active: next });
+      onToast('ok', next ? 'Regla activada.' : 'Regla desactivada.');
+    } catch (e) {
+      setActive((s) => ({ ...s, [id]: !next }));
+      onToast('err', 'No se pudo cambiar la regla (' + (e.message || e) + ')');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const box = { padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' };
+  if (error) return <div className="card card-bd" style={box}>No se pudo cargar la vista de alertas ({error}).</div>;
+  if (!data) return <div className="card card-bd" style={box}>Cargando alertas…</div>;
+
+  const mobile = window.ecoIsMobile();
+  const thr = data.threshold != null ? data.threshold : 0.4;
+  const thrPct = Math.round(thr * 100);
+  const nowScore = data.now && data.now.score;
+  const nowPct = nowScore == null ? null : Math.round(nowScore * 100);
+  const open = data.now && data.now.openEpisode;
+  const above = nowPct != null && nowPct >= thrPct;
+  const byId = {};
+  (data.alerts || []).forEach((a) => { byId[a.id] = a; });
+  const overline = { fontSize: 'var(--fs-overline)', fontWeight: 500, color: 'var(--text-3)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)', letterSpacing: 'var(--tracking-overline)' };
+  const mono = { fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-caption)', color: 'var(--text-2)' };
+
+  // La frase de estado: lo primero que debe leerse.
+  let lead;
+  if (open) {
+    lead = <>Hay un episodio abierto desde el {alertsDayLabel(open.openedDay)}. El riesgo de crisis de hoy está en <b style={{ color: above ? 'var(--neg)' : 'inherit' }}>{nowPct == null ? 'sin lectura' : nowPct + '%'}</b>; el umbral es {thrPct}%.</>;
+  } else if (nowPct == null) {
+    lead = <>Sin episodio abierto. Hoy todavía no hay conversación suficiente para calcular el riesgo de crisis.</>;
+  } else if (above) {
+    lead = <>El riesgo de crisis de hoy está en <b style={{ color: 'var(--neg)' }}>{nowPct}%</b>, sobre el umbral de {thrPct}%.</>;
+  } else {
+    lead = <>Sin episodio abierto. El riesgo de crisis de hoy está en <b>{nowPct}%</b>, {thrPct - nowPct >= 15 ? 'lejos del' : 'bajo el'} umbral de {thrPct}%.</>;
+  }
+
+  // En móvil caben 14 columnas legibles; 31 obligaban a desplazar el gráfico
+  // hacia los lados y lo más reciente quedaba fuera de la vista.
+  const series = window.ecoIsMobile() ? (data.series || []).slice(-14) : (data.series || []);
+  const CH = 150; // alto del área de columnas, en px = 100 %
+  const cell = { padding: 'var(--sp-4)', borderLeft: mobile ? 0 : '1px solid var(--hairline)', borderTop: mobile ? '1px solid var(--hairline)' : 0 };
+  const bigNum = { fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-num-xl)', fontWeight: 600, lineHeight: 1.1, marginTop: 'var(--sp-15)' };
+
+  function AlertItem({ a }) {
+    const negPct = a.total ? Math.round((a.negative / a.total) * 100) : null;
+    const isCrisis = a.band === 'CRISIS';
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('190px 1fr 150px', '1fr'), gap: window.ecoCols('var(--sp-4)', 'var(--sp-2)'), padding: '14px 16px', borderTop: '1px solid var(--hairline)' }}>
+        <div>
+          <div style={mono}>{window.ecoFmtDateTime(a.at)}</div>
+          {a.band && (
+            <span style={{ display: 'inline-block', marginTop: 6, fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-overline)', fontWeight: 600, letterSpacing: '0.06em', padding: '2px 6px', border: '1px solid var(--neg)', color: isCrisis ? 'var(--canvas)' : 'var(--neg)', background: isCrisis ? 'var(--neg)' : 'transparent' }}>
+              {a.band} · {alertsPct(a.score)}
+            </span>
+          )}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 'var(--fs-body-lg)', fontWeight: 600, lineHeight: 1.35, color: 'var(--text)' }}>{a.headline || a.ruleName}</div>
+          <div style={{ ...mono, marginTop: 5 }}>
+            {a.total != null && <>{a.total.toLocaleString('es-PR')} menciones · <span style={{ color: 'var(--neg)' }}>{(a.negative || 0).toLocaleString('es-PR')} negativas{negPct != null ? ` (${negPct}%)` : ''}</span></>}
+            {a.closedScore != null && a.day !== data.today && <> · el día cerró en <b style={{ color: Math.round(a.closedScore * 100) >= thrPct ? 'var(--neg)' : 'inherit' }}>{alertsPct(a.closedScore)}</b></>}
+            {a.sent != null && <>{a.total != null ? ' · ' : ''}enviado a {a.sent}</>}
+            {a.total == null && a.sent == null && <>Regla: {a.ruleName}</>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: mobile ? 'flex-start' : 'flex-end' }}>
+          <button className="btn" onClick={() => onOpenDay(a)} title="Abrir las menciones negativas de ese día">Menciones del día</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+      {/* 1 · ¿Pasa algo ahora? */}
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1.6fr 1fr 1fr 1fr', '1fr'), borderTop: `3px solid ${open || above ? 'var(--neg)' : 'var(--text)'}` }}>
+        <div style={{ padding: 'var(--sp-4)' }}>
+          <div style={overline}>Ahora</div>
+          <div style={{ fontSize: 'var(--fs-title-lg)', fontWeight: 600, lineHeight: 1.3, marginTop: 'var(--sp-15)', fontFamily: 'var(--ff-display)' }}>{lead}</div>
+          {nowPct != null && (
+            <div role="img" aria-label={`Riesgo de crisis de hoy ${nowPct}%; umbral ${thrPct}%`}>
+              <div style={{ position: 'relative', height: 8, background: 'var(--canvas-2)', border: '1px solid var(--hairline)', marginTop: 'var(--sp-3)' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, nowPct)}%`, background: above ? 'var(--neg)' : 'var(--text)' }} />
+                <div style={{ position: 'absolute', left: `${thrPct}%`, top: -5, bottom: -5, width: 2, background: 'var(--neg)' }} />
+              </div>
+              <div style={{ ...mono, color: 'var(--text-3)', marginTop: 4, position: 'relative', height: 18 }}>
+                <span>0%</span>
+                <span style={{ position: 'absolute', left: `${thrPct}%`, transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>umbral {thrPct}%</span>
+                <span style={{ position: 'absolute', right: 0 }}>100%</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={cell}>
+          <div style={overline}>Último aviso</div>
+          <div style={bigNum}>{alertsAgo(data.lastAlertAt)}</div>
+          <div style={{ ...mono, marginTop: 4 }}>{data.lastAlertAt ? window.ecoFmtDateTime(data.lastAlertAt) : 'sin avisos en 45 días'}</div>
+        </div>
+        <div style={cell}>
+          <div style={overline}>Avisos · 30 días</div>
+          <div style={bigNum}>{data.alerts30d}</div>
+          <div style={{ ...mono, marginTop: 4 }}>avisos de crisis</div>
+        </div>
+        <div style={cell}>
+          <div style={overline}>Reciben los avisos</div>
+          <div style={bigNum}>{data.crisisRecipients}</div>
+          <div style={{ ...mono, marginTop: 4 }}>{data.crisisRecipients === 1 ? 'persona' : 'personas'}{canRules && <> · <a onClick={onEditCrisis} style={{ textDecoration: 'underline', cursor: 'pointer' }}>ver lista</a></>}</div>
+        </div>
+      </div>
+
+      {/* 2 · ¿Cómo se movió el riesgo? */}
+      {series.length >= 2 && (
+        <div className="card">
+          <div className="card-hd"><div>
+            <div className="card-hd-title">Riesgo de crisis y avisos · últimos {series.length} días</div>
+            <div className="card-hd-sub">Cada columna es el cierre de un día. El punto marca los días en que salió un correo.</div>
+          </div></div>
+          <div className="card-bd scroll-x">
+            <div style={{ minWidth: mobile ? 0 : 620, position: 'relative' }}
+              role="img"
+              aria-label={`Riesgo de crisis diario, umbral ${thrPct}%. ` + series.filter((p) => p.score != null && Math.round(p.score * 100) >= thrPct).map((p) => `${alertsDayLabel(p.date)}: ${alertsPct(p.score)}`).join('; ')}>
+              {/* Línea del umbral: 16 px de rótulos arriba + el alto de columnas. */}
+              <div style={{ position: 'absolute', left: 0, right: 0, top: 16 + CH - (thrPct / 100) * CH, borderTop: '1px dashed var(--neg)', pointerEvents: 'none' }}>
+                <span style={{ position: 'absolute', right: 0, top: -17, fontFamily: 'var(--ff-mono)', fontSize: 'var(--fs-overline)', color: 'var(--neg)', background: 'var(--canvas)', paddingLeft: 4 }}>umbral {thrPct}%</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${series.length}, 1fr)`, gap: 4 }}>
+                {series.map((p, i) => {
+                  const pct = p.score == null ? 0 : Math.round(p.score * 100);
+                  const over = p.score != null && pct >= thrPct;
+                  const isToday = p.date === data.today;
+                  const showLabel = over || isToday;
+                  const showTick = i === 0 || i === series.length - 1 || p.date.slice(8) === '01' || i % 7 === 0;
+                  return (
+                    <div key={p.date} title={`${alertsDayLabel(p.date)} · ${p.score == null ? 'sin lectura' : pct + '%'} · ${p.total} menciones, ${p.negative} negativas${p.alerted ? ' · se envió aviso' : ''}${isToday ? ' · día en curso' : ''}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ height: 16, fontFamily: 'var(--ff-mono)', fontSize: 11, color: 'var(--text-2)', lineHeight: '16px', whiteSpace: 'nowrap', position: 'relative', top: CH - Math.max(2, (pct / 100) * CH) }}>{showLabel ? pct + '%' : ''}</div>
+                      <div style={{ height: CH, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                        <div style={{ width: '100%', height: Math.max(2, (pct / 100) * CH), background: over ? 'var(--neg)' : 'var(--hairline-strong)', outline: isToday ? '2px solid var(--text)' : 'none', outlineOffset: 1 }} />
+                      </div>
+                      <div style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, background: p.alerted ? 'var(--text)' : 'transparent' }} />
+                      <div style={{ height: 16, fontFamily: 'var(--ff-mono)', fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap', marginTop: 2 }}>{showTick ? alertsDayLabel(p.date) : ''}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)', flexWrap: 'wrap', ...mono, marginTop: 'var(--sp-2)' }}>
+              <span><span style={{ display: 'inline-block', width: 9, height: 9, background: 'var(--neg)', marginRight: 6 }} />día en o sobre el umbral</span>
+              <span><span style={{ display: 'inline-block', width: 9, height: 9, background: 'var(--hairline-strong)', marginRight: 6 }} />día bajo el umbral</span>
+              <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--text)', marginRight: 6 }} />se envió aviso</span>
+              <span><span style={{ display: 'inline-block', width: 9, height: 9, background: 'var(--hairline-strong)', outline: '2px solid var(--text)', marginRight: 8 }} />hoy (día en curso)</span>
+            </div>
+            {(data.overWithoutAlert || []).length > 0 && (
+              <div style={{ marginTop: 'var(--sp-3)', padding: '10px 14px', background: 'var(--canvas-2)', borderLeft: '3px solid var(--warn)', fontSize: 'var(--fs-body-sm)', color: 'var(--text-2)' }}>
+                <b style={{ color: 'var(--text)' }}>{data.overWithoutAlert.length === 1 ? 'Un día cerró' : `${data.overWithoutAlert.length} días cerraron`} en o sobre el umbral sin aviso: {data.overWithoutAlert.map(alertsDayLabel).join(', ')}.</b>{' '}
+                El aviso se decide mientras el día está en curso. Un día puede terminar sobre el umbral sin haberlo cruzado a tiempo, por ejemplo cuando lo suben menciones que llegan después.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3 · ¿Qué avisó ECO? */}
+      <div className="card">
+        <div className="card-hd"><div>
+          <div className="card-hd-title">Qué avisó ECO</div>
+          <div className="card-hd-sub">Los avisos de los últimos 45 días, agrupados por episodio. Cada uno dice lo que decía el correo.</div>
+        </div></div>
+        {(data.episodes || []).length === 0 && (data.otherAlertIds || []).length === 0 && (
+          <div style={box}>Sin avisos en los últimos 45 días.</div>
+        )}
+        {(data.episodes || []).map((ep) => (
+          <div key={ep.from + ep.to} style={{ borderTop: '1px solid var(--hairline)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 'var(--sp-4)', padding: '16px 16px 10px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ ...overline, color: ep.open ? 'var(--neg)' : 'var(--text-3)' }}>{ep.open ? 'Episodio abierto' : 'Episodio cerrado'}</div>
+                <div style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, marginTop: 2 }}>{ep.from === ep.to ? alertsDayLabel(ep.from) : `${alertsDayLabel(ep.from)} – ${alertsDayLabel(ep.to)}`}</div>
+              </div>
+              <div style={mono}>
+                {alertsPlural(ep.days, 'día', 'días')} · {alertsPlural(ep.alertIds.length, 'aviso', 'avisos')}
+                {ep.peak && <> · lectura más alta <b style={{ color: 'var(--neg)' }}>{alertsPct(ep.peak.score)}</b> ({alertsDayLabel(ep.peak.day)})</>}
+              </div>
+            </div>
+            {ep.alertIds.map((id) => byId[id] && <AlertItem key={id} a={byId[id]} />)}
+          </div>
+        ))}
+        {(data.otherAlertIds || []).length > 0 && (
+          <div style={{ borderTop: '1px solid var(--hairline)' }}>
+            <div style={{ padding: '16px 16px 10px' }}>
+              <div style={overline}>Otras reglas</div>
+              <div style={{ fontSize: 'var(--fs-title-md)', fontWeight: 600, marginTop: 2 }}>{alertsPlural(data.otherAlertIds.length, 'aviso', 'avisos')} de palabra clave, volumen o proporción negativa</div>
+            </div>
+            {data.otherAlertIds.slice(0, 40).map((id) => byId[id] && <AlertItem key={id} a={byId[id]} />)}
+          </div>
+        )}
+      </div>
+
+      {/* 4 · ¿Qué vigila ECO? */}
+      <div className="card">
+        <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-3)' }}>
+          <div>
+            <div className="card-hd-title">Qué vigila ECO</div>
+            <div className="card-hd-sub">Las reglas de esta agencia, dichas en una oración.</div>
+          </div>
+          {canRules && <button className="btn btn-primary" onClick={onNewRule}><Icons.Plus size={13} /> Nueva regla</button>}
+        </div>
+        {(data.rules || []).length === 0 && <div style={box}>Esta agencia no tiene reglas de alerta.</div>}
+        {(data.rules || []).map((r) => {
+          const s = alertsRuleSentence(r);
+          const on = !!active[r.id];
+          return (
+            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 200px', '1fr'), gap: 'var(--sp-4)', padding: '16px', borderTop: '1px solid var(--hairline)' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={overline}>{s.kind} · {r.name}</div>
+                <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.5, marginTop: 4, color: on && !s.broken ? 'var(--text)' : 'var(--text-2)' }}>{s.body}</div>
+                <div style={{ ...mono, marginTop: 8 }}>
+                  {r.fired30d > 0 ? <>Disparó {alertsPlural(r.fired30d, 'vez', 'veces')} en 30 días · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : (r.lastFiredAt ? <>Sin disparos en 30 días · último aviso {window.ecoFmtDateTime(r.lastFiredAt)}</> : 'Nunca ha disparado')}
+                  {r.notifyCount === 0 && <span style={{ color: 'var(--warn)' }}> · sin destinatarios: no avisa a nadie</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: mobile ? 'flex-start' : 'flex-end', gap: 'var(--sp-2)' }}>
+                {canRules ? (
+                  <button onClick={() => toggleRule(r.id)} disabled={saving === r.id} aria-pressed={on}
+                    title={on ? 'Desactivar esta regla' : 'Activar esta regla'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-15)', fontSize: 'var(--fs-overline)', cursor: saving === r.id ? 'wait' : 'pointer', background: 'none', border: 0, padding: 0, opacity: saving === r.id ? 0.6 : 1 }}>
+                    <div style={{ width: 28, height: 16, borderRadius: 'var(--r-lg)', background: on ? 'var(--pos)' : 'var(--hairline-strong)', position: 'relative', transition: 'all 0.2s' }}>
+                      <div style={{ position: 'absolute', top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--knob)', transition: 'all var(--dur) var(--ease)' }} />
+                    </div>
+                    <span style={{ color: on ? 'var(--pos)' : 'var(--text-3)' }}>{on ? 'Activa' : 'Inactiva'}</span>
+                  </button>
+                ) : (
+                  <span className={`pill ${on ? 'pill-pos' : 'pill-neu'}`}>{on ? 'Activa' : 'Inactiva'}</span>
+                )}
+                {canRules && r.config && r.config.type === 'crisis_threshold' && <button className="btn" onClick={onEditCrisis}>Editar</button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -5185,182 +5393,6 @@ function AlertRuleEditor({ topics, onClose, onSaved, onError, initial }) {
 
 // shell.js abre este editor desde «Crear alerta» en un detalle.
 window.AlertRuleEditor = AlertRuleEditor;
-
-function AlertsHistory({ onMentionClick }) {
-  const [rows, setRows] = React.useState(null); // null = loading
-  React.useEffect(() => {
-    const agency = localStorage.getItem('eco.agency') || '';
-    // Misma ventana que el resto del producto, INCLUIDO el rango personalizado:
-    // con `period=custom` y sin from/to el endpoint cae a 30 días por defecto
-    // (api/alerts/history: `PERIOD_DAYS[periodKey] ?? 30`), así que la tabla y el
-    // histograma mostraban un mes mientras el header decía otra cosa.
-    const qs = new URLSearchParams(Object.assign(
-      { agency },
-      (typeof window.ecoGetPeriodParams === 'function') ? window.ecoGetPeriodParams() : { period: localStorage.getItem('eco.period') || '7D' },
-    ));
-    fetch('/api/alerts/history?' + qs.toString(), { credentials: 'same-origin' })
-      .then((r) => r.ok ? r.json() : { history: [] })
-      .then((j) => setRows(j.history || []))
-      .catch(() => setRows([]));
-  }, []);
-  if (rows === null) {
-    return <div className="card card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Cargando historial…</div>;
-  }
-  if (rows.length === 0) {
-    return <div className="card card-bd" style={{ padding: 'var(--sp-10)', textAlign: 'center', color: 'var(--text-3)', fontSize: 'var(--fs-body-sm)' }}>Sin alertas disparadas en el período.</div>;
-  }
-  // Aggregate by day for a mini bar chart
-  const byDay = {};
-  rows.forEach((r) => {
-    // Día de PR (UTC−4), no el del ISO en UTC: un disparo de las 8:10 PM del
-    // 8-oct caía en la columna del 9 (QA oct-2026).
-    const t = Date.parse(r.triggeredAt || '');
-    if (!Number.isFinite(t)) return;
-    const day = new Date(t - 4 * 3600 * 1000).toISOString().slice(0, 10);
-    byDay[day] = (byDay[day] || 0) + 1;
-  });
-  const days = Object.keys(byDay).sort();
-  // Dominio DECLARADO, con piso. Normalizar contra el propio máximo con un rango
-  // de 1-2 eventos pintaba "2 eventos" como una columna de 110 px que llenaba la
-  // card: la misma tinta que tendría una crisis, y 14x la que recibe un 4 en la
-  // card de severidad de al lado. Con piso 4 la proporción se conserva (1 sigue
-  // siendo la mitad de 2) a una altura acorde a la magnitud, y el subtítulo
-  // publica la escala para que el lector sepa qué significa "columna llena".
-  const yMax = Math.max(4, ...Object.values(byDay));
-  // Densidad de rótulos como en AreaLineChart: una etiqueta por columna mientras
-  // caben, una de cada N cuando el período es largo (30D/3M).
-  const tickEvery = Math.max(1, Math.ceil(days.length / 7));
-  const showValues = days.length <= 10;
-  // Analítica derivada del mismo historial (sin backend nuevo): mezcla de
-  // severidad + ranking de reglas por número de activaciones.
-  const sev = { alta: 0, media: 0, baja: 0 };
-  rows.forEach((r) => { const s = (r.severity === 'alta' || r.severity === 'baja') ? r.severity : 'media'; sev[s]++; });
-  const byRule = {};
-  rows.forEach((r) => { const n = r.ruleName || r.rule || 'Regla'; byRule[n] = (byRule[n] || 0) + 1; });
-  const ruleRank = Object.entries(byRule).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: window.ecoCols('1fr 1fr', '1fr'), gap: 'var(--sp-4)' }}>
-        <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Mezcla de severidad</div><div className="card-hd-sub">Barra = % de {rows.length} activaciones</div></div></div>
-          <div className="card-bd">
-            {/* UN denominador para las DOS listas de esta fila (el total de
-                activaciones del período) y UNA geometría (HBarList). Antes esta
-                card normalizaba al total y la de al lado al máximo del ranking
-                sobre una pista 4,8x más corta: el mismo valor 3 medía 117 px aquí
-                y 89 px allí, y "barra llena" significaba 11 a la izquierda y 3 a
-                la derecha. Ahora una barra llena significa lo mismo en las dos y
-                el subtítulo declara el denominador. Sin `trackHeight`: la pista
-                hereda los 6 px de HBarList, que es la altura que usan las listas
-                de barras del resto del producto (Overview, Geografía). */}
-            <HBarList
-              items={[['Alta', 'var(--neg)'], ['Media', 'var(--warn)'], ['Baja', 'var(--text-3)']].map(([label, color]) => ({ label, color, value: sev[label.toLowerCase()] }))}
-              max={Math.max(1, rows.length)}
-              colorFn={(it) => it.color}
-            />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-hd"><div><div className="card-hd-title">Reglas más activas</div><div className="card-hd-sub">Top {ruleRank.length} · barra = % de {rows.length} activaciones</div></div></div>
-          <div className="card-bd">
-            <HBarList
-              items={ruleRank.map(([label, value]) => ({ label, value }))}
-              max={Math.max(1, rows.length)}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-hd"><div><div className="card-hd-title">Activaciones por día</div><div className="card-hd-sub">{rows.length} eventos · escala 0–{yMax}</div></div></div>
-        <div className="card-bd">
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', height: 88, alignItems: 'end' }}>
-            {days.map((d) => (
-              <div key={d} title={`${d} · ${byDay[d]} eventos`} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
-                <div style={{ width: '100%', height: `${(byDay[d] / yMax) * 100}%`, background: 'var(--accent)', borderRadius: 'var(--r-sm) var(--r-sm) 0 0', minHeight: 2 }} />
-              </div>
-            ))}
-          </div>
-          {/* Eje real: valor y fecha DEBAJO de cada columna, en la misma rejilla.
-              Antes sólo se rotulaban el primer y el último día — los cinco del
-              medio no eran identificables — y no había ni cero ni valores, así
-              que la altura era la única pista de magnitud. El `opacity: 0.85` de
-              las columnas se elimina: producía un segundo naranja para la MISMA
-              métrica que las barras de la card de al lado. */}
-          {showValues && (
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
-              {days.map((d) => (
-                <span key={d} className="num" style={{ textAlign: 'center', fontSize: 'var(--fs-overline)', color: 'var(--text-2)' }}>{byDay[d]}</span>
-              ))}
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${days.length}, 1fr)`, gap: 'var(--sp-1)', marginTop: 'var(--sp-05)', fontSize: 'var(--fs-overline)', color: 'var(--chart-axis)' }}>
-            {/* `d` es 'YYYY-MM-DD' tal como lo agrupa el backend: se corta como
-                cadena y no con new Date(), porque esa forma se parsea como
-                medianoche UTC y en AST (UTC-4) el rótulo saldría un día antes. */}
-            {days.map((d, i) => (
-              <span key={d} className="num" style={{ textAlign: 'center' }}>{i % tickEvery === 0 ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : ''}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-hd"><div>
-          <div className="card-hd-title">Historial detallado</div>
-          {/* Denominador explícito: la card recortaba a 40 filas en silencio y era
-              la única de la pantalla sin `card-hd-sub`, mientras las otras tres
-              declaran el suyo. Un recorte que no se anuncia se lee como "esto es
-              todo lo que hubo". */}
-          <div className="card-hd-sub">
-            {rows.length > 40 ? `Mostrando 40 de ${rows.length} activaciones` : `${rows.length} activaciones`}
-          </div>
-        </div></div>
-        <div className="scroll-x">
-          {/* Fila de encabezados, con la misma pauta que la tabla de Reglas: la
-              cuarta columna imprimía una fila de ceros sin nada que la nombrara. */}
-          <div className="hide-mobile" style={{
-            display: 'grid', gridTemplateColumns: '120px 140px 1fr 90px',
-            gap: 'var(--sp-3)', padding: '0 0 var(--sp-2)',
-            fontSize: 'var(--fs-overline)', textTransform: 'uppercase', fontFamily: 'var(--ff-mono)',
-            letterSpacing: 'var(--tracking-overline)', color: 'var(--text-3)', fontWeight: 500,
-          }}>
-            <span>Cuándo</span><span>Severidad</span><span>Regla</span>
-            <span style={{ textAlign: 'right' }}>Menciones</span>
-          </div>
-          {rows.slice(0, 40).map((r, i) => (
-            /* En móvil la fila se pliega a dos líneas en vez de mantener columnas
-               fijas: con '120px 140px 1fr 90px' la marca de tiempo y una píldora de
-               cuatro letras se comían 260 de los ~350 px visibles (74%), al nombre
-               de la regla le quedaban 77 px y el conteo caía fuera del viewport.
-               Con '1fr auto' los cuatro hijos se auto-colocan en dos filas
-               (tiempo | severidad / regla | conteo) sin reordenar el marcado, y sin
-               minWidth no hace falta scroll horizontal para leer el dato principal.
-               168 px en la primera columna es lo que mide "20 jul 26, 10:00 a. m."
-               en IBM Plex Mono 12 px: hoy la cadena es más larga que su columna de
-               120 px y envuelve a dos renglones dentro de la fila. */
-            <div key={r.id || i} style={{ display: 'grid', gridTemplateColumns: window.ecoCols('168px 96px 1fr 72px', '1fr auto'), minWidth: window.ecoIsMobile() ? 0 : 560, gap: window.ecoCols('var(--sp-3)', 'var(--sp-1) var(--sp-3)'), padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--hairline)' : 'none', fontSize: 'var(--fs-caption)', alignItems: 'center' }}>
-              {/* toLocaleString sin componentes rendía "07/20/2026, 10:00:00 a. m.":
-                  año de cuatro cifras y segundos que nadie audita, en una columna
-                  de 120 px donde no caben. */}
-              <span className="mono" style={{ color: 'var(--text-3)' }}>{window.ecoFmtDateTime(r.triggeredAt)}</span>
-              {/* justifySelf: la píldora es inline-flex, pero como hija de grid se
-                  blockifica y llenaba los 140 px de su columna — ~100 px de relleno
-                  vacío que hacían leer "ALTA" como una barra de progreso. En la
-                  tabla de Reglas el mismo componente ya llevaba justifySelf. */}
-              <span className={`pill ${r.severity === 'alta' ? 'pill-neg' : r.severity === 'media' ? 'pill-warn' : 'pill-neu'}`} style={{ justifySelf: 'start' }}>{r.severity || 'media'}</span>
-              <span style={{ color: 'var(--text)' }}>{r.ruleName || r.rule || 'Regla'}</span>
-              {/* "—", no "0". Dos líneas más arriba la misma pantalla ya usa la raya
-                  para "sin dato", y un cero aquí afirma "esta activación no tocó
-                  ninguna mención", que es una medición que nadie hizo. */}
-              <span className="num" style={{ textAlign: 'right', fontWeight: 600 }}>
-                {r.mentionIds?.length ? r.mentionIds.length : '—'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // =============== SETTINGS ===============
 function SettingsScreen() {
