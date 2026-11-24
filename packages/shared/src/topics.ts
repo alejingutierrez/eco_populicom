@@ -222,11 +222,11 @@ export const DDECPR_TOPICS: TopicDef[] = [
   {
     slug: 'gestion-secretario',
     name: 'Gestión del Secretario',
-    description: 'Declaraciones y acciones del Secretario de Desarrollo Económico',
+    description: 'Declaraciones y acciones del Secretario de Desarrollo Económico (desde 2026, Carlos J. Ríos Pierluisi)',
     displayOrder: 7,
     subtopics: [
-      { slug: 'designacion-confirmacion-secretario', name: 'Designación y Confirmación del Secretario', description: 'Anuncio (ene 2025) y confirmación senatorial (feb 2025) de Sebastián Negrón Reichard', displayOrder: 1 },
-      { slug: 'nombramientos-equipo-ddec', name: 'Nombramientos del Equipo DDEC', description: 'Nombramientos que el Secretario hace (Lefranc PRIDCO, Ríos Pierluisi LRA Roosevelt Roads), exsecretarios', displayOrder: 2 },
+      { slug: 'designacion-confirmacion-secretario', name: 'Designación y Confirmación del Secretario', description: 'Designación y confirmación senatorial del Secretario: Carlos J. Ríos Pierluisi, sucesor de Sebastián Negrón Reichard (Secretario de 2025 a julio de 2026)', displayOrder: 1 },
+      { slug: 'nombramientos-equipo-ddec', name: 'Nombramientos del Equipo DDEC', description: 'Nombramientos que el Secretario hace en el equipo del DDEC y sus dependencias (PRIDCO, LRA Roosevelt Roads), exsecretarios', displayOrder: 2 },
       { slug: 'agenda-publica-representacion', name: 'Agenda Pública y Representación', description: 'Eventos públicos del Secretario (paneles, Business Lunch, podcasts, cumbres, reuniones con alcaldes, visitas)', displayOrder: 3 },
       { slug: 'narrativa-logros-y-vision', name: 'Narrativa de Logros y Visión', description: 'Comunicación de logros (primer año, 302→89 días permisos, 574→1041 decretos, asume IAE, defensa en medios)', displayOrder: 4 },
       { slug: 'contenido-institucional-y-reacciones', name: 'Contenido Institucional y Reacciones', description: 'Posts FB/IG/LinkedIn del DDEC con bajo signal individual (efemérides + reacciones cortas + felicitaciones)', displayOrder: 5 },
