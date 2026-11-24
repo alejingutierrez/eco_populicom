@@ -4,6 +4,7 @@ import { sql, eq } from 'drizzle-orm';
 import { resolveAgencyId, resolveCallerAgencyId } from '@/lib/agency';
 import { requireCapability, requireAlertsAccess } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
+import { validateMentionRuleConfig } from '@eco/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,11 @@ function validateAlertConfig(cfg: Record<string, unknown>): { ok: true } | { ok:
   const type = cfg?.type;
   if (typeof type !== 'string' || !KNOWN_CONFIG_TYPES.has(type)) {
     return { ok: false, error: 'config.type inválido o ausente' };
+  }
+  // Las reglas por mención se validan con la misma función que usa el lambda
+  // que las evalúa: lo que aquí se guarda, allá dispara.
+  if (type === 'keyword' || type === 'volume_spike' || type === 'negative_sentiment') {
+    return validateMentionRuleConfig(cfg);
   }
   if (type === 'metric_threshold') {
     if (typeof cfg.metric !== 'string' || !METRIC_KEYS.has(cfg.metric)) return { ok: false, error: 'metric inválida' };

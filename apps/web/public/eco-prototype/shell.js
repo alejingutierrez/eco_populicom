@@ -199,11 +199,9 @@ function ecoHasCap(cap) {
 function ecoCanSeePage(key) {
   const s = ecoSession();
   if (!s) return true;
-  // Alertas: restringida por correo desde el servidor (ALERTS_ALLOWED_EMAILS →
-  // /api/auth/me expone `canSeeAlerts`). Flag propio y no un recorte de
-  // allowedPages, porque esa lista significa "vacía = todas". Sin sesión
-  // cargada NO se oculta (evita parpadeo); el corte real vive en las rutas
-  // /api/alerts/*, así que ocultarlo aquí es solo cosmético.
+  // Alertas (COR-04): la ve quien tenga la página permitida. `canSeeAlerts`
+  // llega de /api/auth/me con la misma regla que aplica el servidor en
+  // /api/alerts/*; ocultarla aquí es solo cosmético.
   if (key === 'alerts' && s.canSeeAlerts === false) return false;
   if (key !== 'overview' && Array.isArray(s.allowedPages) && s.allowedPages.length > 0 && !s.allowedPages.includes(key)) return false;
   if (key === 'settings') {
@@ -1682,6 +1680,8 @@ function EmptyState({ reason = 'empty', title, detail, action, actionLabel, comp
 function MentionsSliceModal({ slice, onClose, onMentionClick }) {
   const [liveSlice, setLiveSlice] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  // Borrador de regla cuando se pulsa «Crear alerta» en este detalle (COR-04).
+  const [alertDraft, setAlertDraft] = React.useState(null);
 
   // Un drill-down = un evento, con QUÉ se filtró (claves del _filter), no los valores.
   const sliceKey = slice ? (slice.title || slice.eyebrow || '') : '';
@@ -2041,40 +2041,21 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
                   palabra era el problema. */}
               {canCreateAlert && (
                 <button className="btn"
-                  onClick={async () => {
-                    // La regla se deriva del slice activo (slice._filter + slice.title);
-                    // antes referenciaba una variable `mention` inexistente y lanzaba
-                    // ReferenceError al primer clic en cualquier drill-down.
+                  onClick={() => {
+                    // COR-04: antes esto guardaba la regla al vuelo con un prompt,
+                    // sin destinatarios (no avisaba a nadie) y con un umbral mal
+                    // formado (no disparaba nunca). Ahora abre el mismo editor
+                    // de la pantalla de Alertas, con el tipo y el nombre
+                    // sugeridos por el detalle, y ahí se piden umbral y correos.
                     const f = (slice && slice._filter) || {};
                     const label = (slice && (slice.title || slice.eyebrow)) || 'filtro actual';
-                    const name = prompt('Nombre de la alerta', 'Menciones · ' + label);
-                    if (!name || !name.trim()) return;
-                    // config.type debe pertenecer a KNOWN_CONFIG_TYPES del backend o
-                    // /api/alerts responde 422. negative_sentiment para slices
-                    // negativos; volume_spike para cualquier otro segmento.
-                    const type = (f.sentiment === 'negativo' || f.sentiment === 'negative') ? 'negative_sentiment' : 'volume_spike';
-                    const config = { type, threshold: { volumeMinutes: 60, minMentions: 5 } };
-                    ['topic', 'municipality', 'sentiment', 'source', 'emotion', 'region', 'minEngagement', 'day', 'dow', 'hour'].forEach((k) => {
-                      if (f[k] != null && f[k] !== '') config[k] = f[k];
+                    const negative = f.sentiment === 'negativo' || f.sentiment === 'negative';
+                    setAlertDraft({
+                      name: (negative ? 'Proporción negativa · ' : 'Pico de volumen · ') + label,
+                      description: 'Creada desde: ' + label,
+                      type: negative ? 'negative_sentiment' : 'volume_spike',
+                      origin: 'drilldown',
                     });
-                    try {
-                      const res = await fetch('/api/alerts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({
-                          name: name.trim(),
-                          description: 'Creada desde: ' + label,
-                          config,
-                          notifyEmails: [],
-                        }),
-                      });
-                      if (res.ok) {
-                        ecoTrackShell('alert_rule_create', { alert_type: type, origin: 'drilldown' });
-                        (window.ecoToast || (() => {}))('ok', 'Alerta creada.');
-                      }
-                      else (window.ecoToast || (() => {}))('err', 'No se pudo crear la alerta (' + res.status + ')');
-                    } catch (_) { (window.ecoToast || (() => {}))('err', 'Error creando la alerta'); }
                   }}>
                   <Icons.Bell size={13} /> Crear alerta
                 </button>
@@ -2083,6 +2064,16 @@ function MentionsSliceModal({ slice, onClose, onMentionClick }) {
           )}
         </div>
       </div>
+      {/* El editor vive en screens.js (se carga después que este archivo), por
+          eso se busca en window en el momento de pintar y no al cargar. */}
+      {alertDraft && typeof window.AlertRuleEditor === 'function' && (
+        <window.AlertRuleEditor
+          initial={alertDraft}
+          onClose={() => setAlertDraft(null)}
+          onSaved={() => { setAlertDraft(null); (window.ecoToast || (() => {}))('ok', 'Alerta creada.'); }}
+          onError={(m) => (window.ecoToast || (() => {}))('err', m || 'No se pudo crear la alerta')}
+        />
+      )}
     </>
   );
 }

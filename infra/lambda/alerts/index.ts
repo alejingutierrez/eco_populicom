@@ -22,6 +22,12 @@ import {
   renderSimpleAlertHtml,
   validateImageUrl,
   type SimpleAlertRenderData,
+  inCooldown,
+  keywordList,
+  mentionRuleCooldownHours,
+  negativeShareParams,
+  negativeShareTriggered,
+  volumeSpikeParams,
 } from '@eco/shared';
 
 const ses = new SESClient({});
@@ -96,12 +102,44 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
     let shouldTrigger = false;
     // Contexto del pico de volumen para las filas de "Datos clave".
     let volumeContext: { count: number; threshold: number; windowMinutes: number } | null = null;
+    let negativeContext: { total: number; negative: number; thresholdPct: number; windowHours: number } | null = null;
+
+    // Solo los tres tipos por mención se evalúan aquí; las reglas de métrica y
+    // de crisis las lleva eco-metrics-calculator.
+    if (config?.type !== 'negative_sentiment' && config?.type !== 'keyword' && config?.type !== 'volume_spike') continue;
+
+    // Cooldown (COR-04): sin él, una regla mandaba un correo por cada mención
+    // mientras la condición siguiera cumpliéndose. Se mira ANTES de evaluar
+    // para no gastar consultas en una regla que no puede avisar todavía.
+    const lastResult = await pgClient.query(
+      'SELECT MAX(triggered_at) AS last FROM alert_history WHERE alert_rule_id = $1',
+      [rule.id],
+    );
+    const last = lastResult.rows[0]?.last ? new Date(lastResult.rows[0].last) : null;
+    if (inCooldown(last, new Date(), mentionRuleCooldownHours(config))) continue;
 
     switch (config.type) {
-      case 'negative_sentiment':
-        // Trigger on any negative mention (simplified for now)
-        shouldTrigger = alert.sentiment === 'negativo';
+      case 'negative_sentiment': {
+        // Proporción negativa de la ventana, no «cualquier mención negativa»:
+        // solo se mide cuando la que acaba de llegar es negativa.
+        if (alert.sentiment !== 'negativo') break;
+        const { thresholdPct, windowHours } = negativeShareParams(config);
+        const shareResult = await pgClient.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE COALESCE(nlp_sentiment, bw_sentiment) = 'negativo')::int AS negative
+             FROM mentions
+            WHERE agency_id = $1
+              AND is_duplicate = false
+              AND (nlp_pertinence IS NULL OR nlp_pertinence <> 'baja')
+              AND published_at >= NOW() - ($2::int * INTERVAL '1 hour')`,
+          [alert.agencyId, Math.round(windowHours)],
+        );
+        const total = Number(shareResult.rows[0]?.total ?? 0);
+        const negative = Number(shareResult.rows[0]?.negative ?? 0);
+        shouldTrigger = negativeShareTriggered(total, negative, thresholdPct);
+        negativeContext = { total, negative, thresholdPct, windowHours };
         break;
+      }
 
       case 'keyword': {
         // Check if any keyword appears in topic slugs or the mention
@@ -111,7 +149,7 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
         );
         if (mentionResult.rows.length > 0) {
           const text = `${mentionResult.rows[0].title ?? ''} ${mentionResult.rows[0].snippet ?? ''}`.toLowerCase();
-          shouldTrigger = config.keywords.some((kw: string) => text.includes(kw.toLowerCase()));
+          shouldTrigger = keywordList(config).some((kw) => text.includes(kw));
           if (config.sentiment) {
             shouldTrigger = shouldTrigger && alert.sentiment === config.sentiment;
           }
@@ -121,7 +159,10 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
 
       case 'volume_spike': {
         // Count mentions in the configured time window
-        const windowMinutes = config.window_minutes ?? 60;
+        // Una regla mal formada (umbral que no es número) no dispara nunca.
+        const spike = volumeSpikeParams(config);
+        if (!spike) break;
+        const windowMinutes = spike.windowMinutes;
         const windowMs = windowMinutes * 60 * 1000;
         const windowStart = new Date(Date.now() - windowMs).toISOString();
         const countResult = await pgClient.query(
@@ -129,7 +170,7 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
           [alert.agencyId, windowStart],
         );
         const count = parseInt(countResult.rows[0].cnt, 10);
-        const threshold = config.threshold ?? 50;
+        const threshold = spike.threshold;
         shouldTrigger = count >= threshold;
         volumeContext = { count, threshold, windowMinutes };
         break;
@@ -168,7 +209,7 @@ async function evaluateAlertRules(pgClient: any, alert: AlertMessage): Promise<v
           .join(', ');
 
         const html = renderSimpleAlertHtml(
-          buildRuleAlertRenderData(agency, rule.name, config, alert, mention, mentionImage, topicNames, volumeContext),
+          buildRuleAlertRenderData(agency, rule.name, config, alert, mention, mentionImage, topicNames, volumeContext, negativeContext),
         );
         const subject = buildSubject('Alerta', agencyShortName(agency.slug), rule.name);
 
@@ -206,6 +247,7 @@ function buildRuleAlertRenderData(
   mentionImage: string | null,
   topicNames: string,
   volumeContext: { count: number; threshold: number; windowMinutes: number } | null,
+  negativeContext: { total: number; negative: number; thresholdPct: number; windowHours: number } | null = null,
 ): SimpleAlertRenderData {
   const facts: SimpleAlertRenderData['facts'] = [];
   let leadHtml: string;
@@ -224,6 +266,15 @@ function buildRuleAlertRenderData(
     leadHtml = typeof mention?.nlp_summary === 'string' && mention.nlp_summary.trim().length > 0
       ? mention.nlp_summary
       : `Se registró una mención que coincide con la regla configurada "${ruleName}".`;
+    if (config.type === 'negative_sentiment' && negativeContext && negativeContext.total > 0) {
+      const pct = Math.round((negativeContext.negative / negativeContext.total) * 100);
+      leadHtml = `En las últimas <strong>${negativeContext.windowHours} horas</strong>, <strong>${negativeContext.negative} de ${negativeContext.total}</strong> menciones fueron negativas (<strong>${pct}%</strong>), sobre el umbral configurado de ${negativeContext.thresholdPct}%. Esta es la más reciente.`;
+      facts.push(
+        { label: 'Proporción negativa', value: `${pct}%`, tone: 'neg', mono: true },
+        { label: 'Umbral configurado', value: `≥ ${negativeContext.thresholdPct}%`, mono: true },
+        { label: 'Ventana', value: `${negativeContext.windowHours} h`, mono: true },
+      );
+    }
     if (config.type === 'keyword' && Array.isArray(config.keywords) && config.keywords.length > 0) {
       facts.push({ label: 'Palabras clave', value: config.keywords.join(', ') });
     }

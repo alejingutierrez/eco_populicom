@@ -62,15 +62,11 @@ export async function GET(): Promise<NextResponse> {
     }
   }
 
-  // Alertas está restringida a una lista de correos (ALERTS_ALLOWED_EMAILS).
-  // Se expone como flag PROPIO en vez de recortar `allowedPages`: esa lista
-  // tiene semántica "vacía = todas", así que materializarla para quitar un
-  // item habría ocultado cualquier página ausente del arreglo (Configuración,
-  // las vistas exec, /search…). El SPA lo lee en ecoCanSeePage.
-  //
-  // Esto es solo la mitad de UI; el corte que importa es requireAlertsAccess
-  // en /api/alerts/*, que lee la MISMA constante.
-  const canAlerts = canSeeAlerts(user.email);
+  // Alertas (COR-04): ya no hay lista de correos. La ve quien tenga la página
+  // en `allowedPages` (vacía = todas), la MISMA regla que aplica
+  // requireAlertsAccess en /api/alerts/*. El flag se conserva porque el SPA
+  // ya lo lee en ecoCanSeePage.
+  const canAlerts = canSeeAlerts(allowedPages);
 
   return NextResponse.json({
     user: {
