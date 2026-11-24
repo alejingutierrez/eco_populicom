@@ -29,6 +29,9 @@ import {
   fetchOgImage,
   formatMetric,
   HISTORY_DAYS,
+  agencyFreshness,
+  buildDataHealthMetricLines,
+  FRESHNESS_LIMIT_AWAKE_MINUTES,
   hourInTimeZone,
   isArticlePageType,
   isExpiringImageUrl,
@@ -309,6 +312,17 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       }
     }
 
+    // Salud de los datos (OPS-04): solo en la corrida completa del cron. Una
+    // invocación manual de una sola agencia publicaría «1 snapshot» y haría
+    // parecer que faltan las demás.
+    if (!event.agencySlug) {
+      try {
+        await publishDataHealth(client, agencies, computed);
+      } catch (err) {
+        console.error('[salud] no se pudieron publicar las métricas de salud:', err);
+      }
+    }
+
     console.log(`[metrics-calculator] computed=${computed} crisisFired=${alertsFired}`);
     return { statusCode: 200, body: `Computed ${computed} agencies, ${alertsFired} crisis alerts` };
   } finally {
@@ -319,6 +333,36 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
 // ============================================================
 // Daily metric snapshot
 // ============================================================
+
+/**
+ * Publica por EMF (una línea de log = métricas de CloudWatch) cuántos
+ * snapshots de hoy se calcularon y cuánto lleva cada agencia sin recibir
+ * menciones. Las alarmas `eco-metricas-del-dia` y `eco-agencia-sin-menciones`
+ * (infra/lib/monitoring-stack.ts) leen estas métricas.
+ *
+ * Solo cuentan las agencias que recibieron alguna mención en los últimos 7
+ * días: una agencia en pausa (AAA) o archivada no es una caída. El filtro por
+ * `published_at` usa el índice; no hay índice por `ingested_at`.
+ */
+async function publishDataHealth(client: any, agencies: Array<{ id: string; slug: string }>, snapshotsComputed: number): Promise<void> {
+  const r = await client.query(
+    `SELECT agency_id, MAX(ingested_at) AS last_ingested
+       FROM mentions
+      WHERE published_at > NOW() - INTERVAL '10 days'
+        AND ingested_at > NOW() - INTERVAL '7 days'
+      GROUP BY agency_id`,
+  );
+  const limit = Number(process.env.FRESHNESS_LIMIT_AWAKE_MINUTES) || FRESHNESS_LIMIT_AWAKE_MINUTES;
+  const bySlug = new Map(agencies.map((a) => [a.id, a.slug]));
+  const now = new Date();
+  const freshness = (r.rows as Array<{ agency_id: string; last_ingested: string | Date }>)
+    .filter((row) => bySlug.has(row.agency_id))
+    .map((row) => agencyFreshness(bySlug.get(row.agency_id)!, new Date(row.last_ingested), now, limit));
+  for (const f of freshness) {
+    if (f.silent) console.warn(`[salud] ${f.slug} lleva ${f.minutesSince} min sin menciones nuevas (${f.awakeMinutes} hábiles; límite ${limit})`);
+  }
+  for (const line of buildDataHealthMetricLines({ snapshotsComputed, agencies: freshness })) console.log(line);
+}
 
 async function computeForAgency(client: any, agencyId: string, today: string): Promise<void> {
   const agg = await getDailyAggregates(client, agencyId, today);
