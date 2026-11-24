@@ -5,12 +5,10 @@ import { ymdInTimeZone, addDaysYmd } from '@eco/shared';
 import { resolveAgencyId } from '@/lib/agency';
 import { requireAlertsAccess } from '@/lib/auth/require-admin';
 import { log } from '@/lib/log';
-import { daysOverWithoutAlert, groupEpisodes, type AlertRow } from '@/lib/alerts/summary';
+import { daysOverWithoutAlert, groupEpisodes, resolveAlertsWindow, type AlertRow } from '@/lib/alerts/summary';
 
 export const dynamic = 'force-dynamic';
 
-const SERIES_DAYS = 31;
-const ALERTS_DAYS = 45;
 const TZ = 'America/Puerto_Rico';
 
 /**
@@ -18,8 +16,10 @@ const TZ = 'America/Puerto_Rico';
  * el estado de hoy, la serie diaria de riesgo de crisis con los días de
  * aviso, los avisos agrupados por episodio y las reglas con sus disparos.
  *
- * Ventanas FIJAS (31 días de serie, 45 de avisos), independientes del selector
- * de periodo: esta pantalla es un registro de operación, no un análisis.
+ * Sigue el selector de fechas del encabezado (`from`/`to`, días de Puerto
+ * Rico): los avisos y los disparos de cada regla son los del periodo; el
+ * gráfico se ajusta para leerse (ver `resolveAlertsWindow`). El bloque «Ahora»
+ * no depende del periodo: siempre habla de hoy y del último aviso.
  * La agencia se resuelve con `resolveAgencyId` (el selector, dentro de las
  * agencias del usuario).
  */
@@ -30,15 +30,23 @@ export async function GET(request: NextRequest) {
   if (!agencyId) return NextResponse.json({ error: 'Agency not resolved' }, { status: 403 });
 
   const today = ymdInTimeZone(new Date(), TZ);
-  const seriesFrom = addDaysYmd(today, -(SERIES_DAYS - 1));
+  const sp = request.nextUrl.searchParams;
+  const win = resolveAlertsWindow(sp.get('from'), sp.get('to'), today);
+  // Bordes del periodo como instantes: medianoche de Puerto Rico (UTC−4).
+  const winStart = `${win.from}T00:00:00-04:00`;
+  const winEnd = `${addDaysYmd(win.to, 1)}T00:00:00-04:00`;
+  // Los avisos se leen desde el primer día que se VE (el gráfico puede abrir
+  // antes que el periodo): si no, un día de contexto con aviso saldría sin su
+  // punto y contado como «sobre el umbral sin aviso».
+  const readStart = `${win.seriesFrom < win.from ? win.seriesFrom : win.from}T00:00:00-04:00`;
   const db = getDb();
   try {
-    const [seriesRes, alertsRes, rulesRes, episodeRes] = await Promise.all([
+    const [seriesRes, alertsRes, rulesRes, episodeRes, lastRes] = await Promise.all([
       db.execute(sql`
         SELECT to_char(date, 'YYYY-MM-DD') AS date, crisis_risk_score AS score,
                total_mentions AS total, negative_count AS negative
           FROM daily_metric_snapshots
-         WHERE agency_id = ${agencyId} AND date BETWEEN ${seriesFrom}::date AND ${today}::date
+         WHERE agency_id = ${agencyId} AND date BETWEEN ${win.seriesFrom}::date AND ${win.to}::date
          ORDER BY date`),
       db.execute(sql`
         SELECT h.id, h.triggered_at, h.details, h.mention_ids,
@@ -46,14 +54,17 @@ export async function GET(request: NextRequest) {
           FROM alert_history h
           JOIN alert_rules r ON r.id = h.alert_rule_id
          WHERE h.agency_id = ${agencyId}
-           AND h.triggered_at > NOW() - (${ALERTS_DAYS}::int * INTERVAL '1 day')
+           AND h.triggered_at >= ${readStart}::timestamptz
+           AND h.triggered_at < ${winEnd}::timestamptz
          ORDER BY h.triggered_at DESC
-         LIMIT 300`),
+         LIMIT 400`),
       db.execute(sql`
         SELECT r.id, r.name, r.description, r.is_active, r.config,
                jsonb_array_length(COALESCE(r.notify_emails, '[]'::jsonb)) AS notify_count,
                (SELECT COUNT(*) FROM alert_history h
-                 WHERE h.alert_rule_id = r.id AND h.triggered_at > NOW() - INTERVAL '30 days')::int AS fired_30d,
+                 WHERE h.alert_rule_id = r.id
+                   AND h.triggered_at >= ${winStart}::timestamptz
+                   AND h.triggered_at < ${winEnd}::timestamptz)::int AS fired_period,
                (SELECT MAX(h.triggered_at) FROM alert_history h WHERE h.alert_rule_id = r.id) AS last_fired
           FROM alert_rules r
          WHERE r.agency_id = ${agencyId}
@@ -65,6 +76,8 @@ export async function GET(request: NextRequest) {
           FROM crisis_episodes
          WHERE agency_id = ${agencyId} AND closed_at IS NULL
          ORDER BY opened_at DESC LIMIT 1`).catch(() => ({ rows: [] as unknown[] })),
+      // Último aviso de la agencia, dentro o fuera del periodo: es para «Ahora».
+      db.execute(sql`SELECT MAX(triggered_at) AS last FROM alert_history WHERE agency_id = ${agencyId}`),
     ]);
 
     const num = (v: unknown): number | null => (v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -77,7 +90,7 @@ export async function GET(request: NextRequest) {
     const dailyScores = new Map<string, number>();
     for (const p of series) if (p.score != null) dailyScores.set(p.date, p.score);
 
-    const alerts: AlertRow[] = (alertsRes.rows as Array<Record<string, unknown>>).map((r) => {
+    const allAlerts: AlertRow[] = (alertsRes.rows as Array<Record<string, unknown>>).map((r) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = (r.details as any) || {};
       const at = new Date(r.triggered_at as string).toISOString();
@@ -99,6 +112,10 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Para marcar el gráfico valen todos los leídos; para listar, los del periodo.
+    const alertDays = new Set(allAlerts.filter((a) => a.band != null).map((a) => a.day));
+    const alerts = allAlerts.filter((a) => a.at >= new Date(winStart).toISOString());
+
     const rules = (rulesRes.rows as Array<Record<string, unknown>>).map((r) => ({
       id: String(r.id),
       name: String(r.name),
@@ -107,7 +124,7 @@ export async function GET(request: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       config: (r.config as any) ?? {},
       notifyCount: num(r.notify_count) ?? 0,
-      fired30d: num(r.fired_30d) ?? 0,
+      firedInPeriod: num(r.fired_period) ?? 0,
       lastFiredAt: r.last_fired ? new Date(r.last_fired as string).toISOString() : null,
     }));
     const crisisRule = rules.find((r) => r.config?.type === 'crisis_threshold') ?? null;
@@ -117,10 +134,21 @@ export async function GET(request: NextRequest) {
     // Solo los avisos de crisis forman episodios; los de otras reglas van sueltos.
     const crisisAlerts = alerts.filter((a) => a.band != null);
     const episodes = groupEpisodes(crisisAlerts, dailyScores, { openFromDay: open ? String(open.opened_day) : null });
-    const todayPoint = series.find((p) => p.date === today) ?? null;
+    // «Ahora» siempre es hoy, aunque el periodo elegido termine antes.
+    const todayRes = win.to === today
+      ? null
+      : await db.execute(sql`
+          SELECT crisis_risk_score AS score, total_mentions AS total, negative_count AS negative
+            FROM daily_metric_snapshots WHERE agency_id = ${agencyId} AND date = ${today}::date`);
+    const todayRow = todayRes ? (todayRes.rows as Array<Record<string, unknown>>)[0] : null;
+    const todayPoint = todayRes
+      ? (todayRow ? { score: num(todayRow.score), total: num(todayRow.total) ?? 0, negative: num(todayRow.negative) ?? 0 } : null)
+      : (series.find((p) => p.date === today) ?? null);
+    const lastRow = (lastRes.rows as Array<Record<string, unknown>>)[0];
 
     const res = NextResponse.json({
       today,
+      window: win,
       threshold,
       now: {
         score: todayPoint?.score ?? null,
@@ -130,13 +158,13 @@ export async function GET(request: NextRequest) {
           ? { openedDay: String(open.opened_day), openedAt: new Date(open.opened_at as string).toISOString(), alertsSent: num(open.alerts_sent) ?? 1, peakScore: num(open.peak_score) }
           : null,
       },
-      series: series.map((p) => ({ ...p, alerted: crisisAlerts.some((a) => a.day === p.date) })),
-      overWithoutAlert: daysOverWithoutAlert(series, new Set(crisisAlerts.map((a) => a.day)), threshold, today),
+      series: series.map((p) => ({ ...p, alerted: alertDays.has(p.date) })),
+      overWithoutAlert: daysOverWithoutAlert(series, alertDays, threshold, today),
       alerts: alerts.map((a) => ({ ...a, closedScore: dailyScores.get(a.day) ?? null })),
       episodes,
       otherAlertIds: alerts.filter((a) => a.band == null).map((a) => a.id),
-      alerts30d: crisisAlerts.filter((a) => a.day >= addDaysYmd(today, -29)).length,
-      lastAlertAt: alerts[0]?.at ?? null,
+      alertsInPeriod: crisisAlerts.length,
+      lastAlertAt: lastRow?.last ? new Date(lastRow.last as string).toISOString() : null,
       crisisRecipients: crisisRule?.notifyCount ?? 0,
       rules,
     });
