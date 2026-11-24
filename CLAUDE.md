@@ -575,6 +575,11 @@ nunca el mismo día del último aviso (la decisión vive en
 `@eco/shared/crisis/episode.ts`). El cierre no se guarda en `alert_history`
 (no arranca cooldown): queda en `crisis_episodes.close_*`.
 
+- Aviso por un día ya cerrado: desde las 8:00 a.m. PR, si AYER terminó sobre
+  el umbral sin ningún aviso y el cooldown lo permite, sale el aviso por ese
+  día (`shouldAlertForClosedDay`), con una nota que lo explica. Existe porque
+  Brandwatch entrega menciones de un día hasta horas después de medianoche y
+  el aviso normal solo mira el día en curso (DF, 31-oct y 1-nov-2026).
 - Foto principal: notas (news/blog/forum) negativas del día detonante y del
   anterior, buscadas aparte de la muestra de 20; se sirve desde la copia en
   `media/` (necesita `MEDIA_BUCKET` y `s3:PutObject` sobre `media/*`; sin eso

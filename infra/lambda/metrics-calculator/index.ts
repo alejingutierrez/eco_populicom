@@ -26,6 +26,7 @@ import {
   crisisEpisodeDays,
   crisisEpisodePeak,
   decideCrisisEpisode,
+  shouldAlertForClosedDay,
   fetchOgImage,
   formatMetric,
   HISTORY_DAYS,
@@ -671,11 +672,16 @@ async function evaluateCrisisAlerts(
 
     let episode: EpisodeRow | null = null;
     let kind: 'first' | 'followup' = 'first';
+    // Día por el que sale el aviso: hoy, salvo cuando se avisa por ayer (abajo).
+    let alertDay = today;
+    let alertSnap: SnapshotRow = snap;
     if (!force) {
       episode = manage ? await getOpenEpisode(client, rule.id) : null;
 
       let hoursSinceLastAlert: number | null = null;
-      if (above) {
+      // Se consulta siempre que haga falta decidir un aviso: con hoy arriba, o
+      // para saber si se puede avisar por ayer.
+      if (above || manage) {
         const recent = await client.query(
           `SELECT triggered_at FROM alert_history
             WHERE alert_rule_id = $1 AND notification_sent = true
@@ -692,7 +698,10 @@ async function evaluateCrisisAlerts(
       const yesterday = addDaysYmd(today, -1);
       let closedSnap: SnapshotRow | null = null;
       let lastClosedDayAbove: boolean | null = null;
-      if (episode && !above) {
+      const localHour = hourInTimeZone(new Date(), REPORT_TIMEZONE);
+      // Ayer hace falta para cerrar un episodio y para avisar por un día que
+      // cruzó el umbral ya cerrado; antes de las 8 a.m. ninguna de las dos se decide.
+      if (!above && manage && (episode || localHour >= 8)) {
         closedSnap = await getTodaySnapshot(client, agency.id, yesterday);
         lastClosedDayAbove = closedSnap
           ? (closedSnap.crisis_risk_score ?? 0) >= threshold && (closedSnap.crisis_severity ?? 0) >= severityMin
@@ -705,11 +714,33 @@ async function evaluateCrisisAlerts(
         hoursSinceLastAlert,
         cooldownHours: cooldownH,
         today,
-        localHour: hourInTimeZone(new Date(), REPORT_TIMEZONE),
+        localHour,
         lastClosedDayAbove,
       });
 
-      if (decision.action === 'none') {
+      // Aviso por un día ya cerrado: ayer terminó sobre el umbral con menciones
+      // tardías y nadie lo evaluó (ver shouldAlertForClosedDay). Solo cuando
+      // hoy no manda, y nunca sobre un cierre de episodio.
+      let catchUp = false;
+      if (manage && decision.action === 'none'
+        && (decision.reason === 'below-threshold' || decision.reason === 'closed-day-above')
+        && closedSnap && lastClosedDayAbove === true) {
+        catchUp = shouldAlertForClosedDay({
+          todayAbove: above,
+          yesterdayAbove: true,
+          alertSentForYesterday: await alertAlreadySentForDay(client, agency.id, yesterday),
+          hoursSinceLastAlert,
+          cooldownHours: cooldownH,
+          localHour,
+        });
+      }
+
+      if (catchUp) {
+        console.log(`[crisis] ${agency.slug} ${yesterday} cerró sobre el umbral sin aviso (crisis=${closedSnap!.crisis_risk_score} sev=${closedSnap!.crisis_severity}) — se avisa por ese día`);
+        alertDay = yesterday;
+        alertSnap = closedSnap!;
+        kind = episode ? 'followup' : 'first';
+      } else if (decision.action === 'none') {
         if (decision.reason === 'below-threshold') {
           console.log(`[crisis] ${agency.slug} below threshold (crisis=${crisis} sev=${severity} min=${threshold}/${severityMin})`);
         } else if (decision.reason === 'cooldown') {
@@ -718,17 +749,16 @@ async function evaluateCrisisAlerts(
           console.log(`[crisis] ${agency.slug} episodio ${episode?.id} sigue abierto (${decision.reason}; crisis=${crisis})`);
         }
         continue;
-      }
-
-      if (decision.action === 'close') {
+      } else if (decision.action === 'close') {
         try {
           await sendCrisisClose(client, agency, rule, episode!, yesterday, closedSnap, recipients, { previewOnly: false, persist: true });
         } catch (err) {
           console.error(`[crisis] ${agency.slug} close failed:`, err);
         }
         continue;
+      } else {
+        kind = decision.kind;
       }
-      kind = decision.kind;
     }
 
     if (recipients.length === 0) {
@@ -737,14 +767,15 @@ async function evaluateCrisisAlerts(
     }
 
     try {
-      const result = await fireCrisisAlert(client, agency, rule, snap, recipients, today, {
+      const result = await fireCrisisAlert(client, agency, rule, alertSnap, recipients, alertDay, {
         previewOnly: false,
         episode: kind === 'followup' ? episode : null,
+        closedDay: alertDay !== today,
       });
       fired++;
       // El episodio solo avanza con un aviso que de verdad salió.
       if (manage && result.sent > 0) {
-        await recordEpisodeAlert(client, agency, rule, episode, snap, today, result.headline);
+        await recordEpisodeAlert(client, agency, rule, episode, alertSnap, alertDay, result.headline);
       }
     } catch (err) {
       console.error(`[crisis] ${agency.slug} fire failed:`, err);
@@ -1297,6 +1328,8 @@ async function fireCrisisAlert(
     episode?: EpisodeRow | null;
     /** Envía pero no escribe alert_history (pruebas de episodio). */
     skipLog?: boolean;
+    /** `today` es un día ya cerrado (aviso a la mañana siguiente). */
+    closedDay?: boolean;
   } = { previewOnly: false },
 ): Promise<{ html: string; sent: number; headline: string }> {
   const episode = opts.episode ?? null;
@@ -1327,7 +1360,9 @@ async function fireCrisisAlert(
   //   - mínimo 3 días válidos y promedio ≥ 3 menciones para publicar el %.
   // La crisisVelocity interna (clamp del z-score 30d) sigue viva dentro del
   // crisis_risk_score; aquí solo cambia lo que se MUESTRA.
-  const nowTimePR = new Intl.DateTimeFormat('en-GB', {
+  // Con un día ya cerrado no hay corte horario: se compara el día completo
+  // contra los días previos completos.
+  const nowTimePR = opts.closedDay ? '23:59:59' : new Intl.DateTimeFormat('en-GB', {
     timeZone: REPORT_TIMEZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(new Date());
   const avg7Result = await client.query(
@@ -1526,6 +1561,7 @@ async function fireCrisisAlert(
     agencyShortName: agencyShortName(agency.slug),
     generatedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
     triggerDay: today,
+    triggerDayClosed: opts.closedDay === true,
     band,
     crisisRiskScore: snap.crisis_risk_score ?? 0,
     crisisRiskScore24hAgo: prevSnap?.crisis_risk_score ?? null,
@@ -1655,6 +1691,7 @@ async function fireCrisisAlert(
     agencyShortName: agencyShortName(agency.slug),
     detectedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
     triggerDayLabel: formatShortDay(today),
+    triggerDayClosed: opts.closedDay === true,
     band,
     metrics: {
       crisisRiskScore: snap.crisis_risk_score ?? 0,
@@ -1765,6 +1802,7 @@ async function fireCrisisAlert(
   const details = {
     band,
     kind: episode ? 'followup' : 'first',
+    closed_day: opts.closedDay === true,
     episode_id: episode?.id ?? null,
     hero_image: heroImageUrl ?? null,
     crisis_risk_score: snap.crisis_risk_score,

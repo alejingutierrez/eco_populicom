@@ -69,6 +69,44 @@ export function decideCrisisEpisode(inp: CrisisEpisodeDecisionInput): CrisisEpis
   return { action: 'close' };
 }
 
+/**
+ * Aviso por un día ya cerrado (nov-2026).
+ *
+ * El aviso se decide sobre el día en curso, cada 5 minutos. Pero Brandwatch
+ * sigue entregando menciones de un día varias horas después de medianoche, y
+ * un día puede cruzar el umbral cuando ya no es «hoy»: nadie lo evaluaba y no
+ * salía correo. Pasó en DF el 31-oct-2026 (máximo en curso 38 %, cierre 41 %)
+ * y el 1-nov (32 % a las 23:59, cierre 40 %).
+ *
+ * Regla: a partir de las 8:00 a.m. de Puerto Rico (misma hora que el cierre de
+ * episodio, por las mismas razones), si AYER terminó sobre el umbral, no tuvo
+ * ningún aviso y el cooldown lo permite, se avisa por ese día. Hoy tiene
+ * prioridad: si el día en curso ya está sobre el umbral, avisa por hoy.
+ */
+export interface ClosedDayCatchUpInput {
+  /** El día en curso cruza el umbral (si es así, el aviso normal manda). */
+  todayAbove: boolean;
+  /** Ayer terminó cruzando el umbral (score y severidad mínima). */
+  yesterdayAbove: boolean;
+  /** Ya salió algún aviso cuyo día detonante fue ayer. */
+  alertSentForYesterday: boolean;
+  /** Horas desde el último aviso ENVIADO de la regla (null = nunca). */
+  hoursSinceLastAlert: number | null;
+  cooldownHours: number;
+  /** Hora local (0–23) en Puerto Rico. */
+  localHour: number;
+  fromHour?: number;
+}
+
+export function shouldAlertForClosedDay(inp: ClosedDayCatchUpInput): boolean {
+  if (inp.todayAbove) return false;
+  if (!inp.yesterdayAbove) return false;
+  if (inp.alertSentForYesterday) return false;
+  if (inp.localHour < (inp.fromHour ?? CRISIS_CLOSE_FROM_HOUR)) return false;
+  if (inp.hoursSinceLastAlert != null && inp.hoursSinceLastAlert < inp.cooldownHours) return false;
+  return true;
+}
+
 /** Días calendario entre dos YYYY-MM-DD, contando ambos extremos (mínimo 1). */
 export function crisisEpisodeDays(openedDay: string, untilDay: string): number {
   const toUtc = (ymd: string) => {

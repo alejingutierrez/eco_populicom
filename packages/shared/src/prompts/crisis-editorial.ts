@@ -27,6 +27,12 @@ export interface CrisisEditorialInputs {
    * él, el modelo no tenía fecha y la inventaba ("sábado 28" siendo lunes).
    */
   triggerDay?: string;
+  /**
+   * El día detonante ya CERRÓ: el aviso sale a la mañana siguiente porque el
+   * día cruzó el umbral con menciones que llegaron tarde. Sin esto el modelo
+   * hablaba de un día cerrado como «en curso» y de «hoy».
+   */
+  triggerDayClosed?: boolean;
   /** Banda actual: NORMAL | ELEVADO | ALERTA | CRISIS. */
   band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS';
 
@@ -211,12 +217,14 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs, opts: Pro
   return `
 AGENCIA: ${inp.agencyName} (abreviada: ${inp.agencyShortName})
 GENERADO: ${inp.generatedAtLabel}
-${inp.triggerDay ? `DÍA DETONANTE: ${formatPromptDay(inp.triggerDay)} — el día EN CURSO (parcial). Si lo nombras en el texto, usa exactamente ese día de la semana y esa fecha, nunca otros.\n` : ''}BANDA ACTUAL: ${inp.band}
+${inp.triggerDay ? (inp.triggerDayClosed
+    ? `DÍA DETONANTE: ${formatPromptDay(inp.triggerDay)} — un día ya CERRADO (completo), NO el día en curso. Este aviso sale a la mañana siguiente porque el día terminó sobre el umbral con menciones que llegaron tarde. Habla de ese día en pasado y nómbralo con exactamente ese día de la semana y esa fecha; no digas «hoy».\n`
+    : `DÍA DETONANTE: ${formatPromptDay(inp.triggerDay)} — el día EN CURSO (parcial). Si lo nombras en el texto, usa exactamente ese día de la semana y esa fecha, nunca otros.\n`) : ''}BANDA ACTUAL: ${inp.band}
 ${episodeBlock(inp)}
 INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas; son los MISMOS que el lector ve en el correo):
 - Crisis Score: ${fmtPct(inp.crisisRiskScore)} ${scoreDelta}
 - Severidad (concentración negativa): ${fmtPctN(inp.crisisSeverity)}
-- Velocidad (volumen del día EN CURSO, a esta hora, vs el promedio de los 7 días previos al mismo corte horario): ${inp.volumeVsAvg7Pct == null ? 'sin historial suficiente' : `${inp.volumeVsAvg7Pct > 0 ? '+' : ''}${inp.volumeVsAvg7Pct}%`}
+- Velocidad (${inp.triggerDayClosed ? 'volumen del día detonante completo vs el promedio de los 7 días previos completos' : 'volumen del día EN CURSO, a esta hora, vs el promedio de los 7 días previos al mismo corte horario'}): ${inp.volumeVsAvg7Pct == null ? 'sin historial suficiente' : `${inp.volumeVsAvg7Pct > 0 ? '+' : ''}${inp.volumeVsAvg7Pct}%`}
 - Volumen vs lo usual de los últimos 30 días: ${volumePlain(inp.volumeAnomalyZscore)}
 
 VOLUMEN DEL DÍA DETONANTE:

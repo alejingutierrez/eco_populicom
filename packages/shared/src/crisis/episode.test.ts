@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { crisisEpisodeDays, crisisEpisodePeak, decideCrisisEpisode, scorePointsDelta, type CrisisEpisodeDecisionInput } from './episode';
+import { crisisEpisodeDays, crisisEpisodePeak, decideCrisisEpisode, scorePointsDelta, shouldAlertForClosedDay, type ClosedDayCatchUpInput, type CrisisEpisodeDecisionInput } from './episode';
 
 const BASE: CrisisEpisodeDecisionInput = {
   above: true,
@@ -101,4 +101,35 @@ test('el cambio en puntos se calcula sobre lo que se muestra', () => {
   // 0.524 → 52 %, 0.606 → 61 %: el lector ve 9 puntos, no 8.
   assert.equal(scorePointsDelta(0.606, 0.524), 9);
   assert.equal(scorePointsDelta(0.30, 0.52), -22);
+});
+
+// DF, 1-nov-2026 a las 8:05 a.m.: el 31-oct cerró en 41 % (en curso nunca pasó
+// de 38 %), sin aviso ese día; el último aviso fue el 22-oct.
+const CATCH_UP: ClosedDayCatchUpInput = {
+  todayAbove: false,
+  yesterdayAbove: true,
+  alertSentForYesterday: false,
+  hoursSinceLastAlert: 236,
+  cooldownHours: 12,
+  localHour: 8,
+};
+
+test('día cerrado sobre el umbral y sin aviso: se avisa a la mañana siguiente', () => {
+  assert.equal(shouldAlertForClosedDay(CATCH_UP), true);
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, hoursSinceLastAlert: null }), true);
+});
+
+test('no se avisa de madrugada: ayer todavía recibe menciones', () => {
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, localHour: 0 }), false);
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, localHour: 7 }), false);
+});
+
+test('no se repite un día que ya tuvo aviso ni se salta el cooldown', () => {
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, alertSentForYesterday: true }), false);
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, hoursSinceLastAlert: 9 }), false);
+});
+
+test('si hoy ya cruza el umbral manda el aviso de hoy; si ayer no cruzó, nada', () => {
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, todayAbove: true }), false);
+  assert.equal(shouldAlertForClosedDay({ ...CATCH_UP, yesterdayAbove: false }), false);
 });

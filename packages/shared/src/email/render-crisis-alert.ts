@@ -39,6 +39,11 @@ export interface CrisisAlertRenderData {
   detectedAtLabel: string;
   /** Día calendario AST sobre el que se computó la crisis (ej. "18 mayo"). */
   triggerDayLabel: string;
+  /**
+   * El día detonante ya cerró: el aviso sale a la mañana siguiente porque el
+   * día cruzó el umbral con menciones que llegaron tarde. El correo lo dice.
+   */
+  triggerDayClosed?: boolean;
 
   band: 'NORMAL' | 'ELEVADO' | 'ALERTA' | 'CRISIS';
 
@@ -415,7 +420,17 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
   const scoreStr = formatMetric('crisis', data.metrics.crisisRiskScore).value || '—';
   const lede = (data.editorial.lede ?? '').trim();
 
+  // Aviso por un día ya cerrado: se explica arriba, antes que cualquier cifra,
+  // para que nadie lea «40 %» como el estado de este momento.
+  const closedDayNote = data.triggerDayClosed
+    ? sectionRow(
+        `<div style="font-size:13px;line-height:1.5;color:${T.ink2};"><strong style="font-weight:600;color:${T.ink};">Este aviso es por el ${esc(data.triggerDayLabel)}, un día ya cerrado.</strong> Ese día terminó sobre el umbral con menciones que llegaron después de medianoche, por eso el correo sale a la mañana siguiente. Las cifras son las del día completo.</div>`,
+        { padding: '14px 32px', bg: T.subtle },
+      )
+    : '';
+
   const contentRows = [
+    closedDayNote,
     renderReadouts(data, accent),
     renderVolumeBand(data),
     renderEpisode(data),
@@ -441,8 +456,8 @@ export function renderCrisisAlertHtml(data: CrisisAlertRenderData): string {
         : `${data.agencyShortName} · Detección de crisis`,
       title: data.editorial.headline,
       meta: data.episode
-        ? `Detectado ${data.detectedAtLabel} · día detonante ${data.triggerDayLabel} · episodio abierto hace ${daysLabelEs(data.episode.daysOpen)}`
-        : `Detectado ${data.detectedAtLabel} · día detonante ${data.triggerDayLabel}`,
+        ? `Detectado ${data.detectedAtLabel} · día detonante ${data.triggerDayLabel}${data.triggerDayClosed ? ' (cerrado)' : ''} · episodio abierto hace ${daysLabelEs(data.episode.daysOpen)}`
+        : `Detectado ${data.detectedAtLabel} · día detonante ${data.triggerDayLabel}${data.triggerDayClosed ? ' (cerrado)' : ''}`,
       extraHtml: lede ? `<p style="margin:14px 0 0 0;font-family:${FONT_SANS};font-size:15px;line-height:1.6;color:${T.ink2};">${esc(lede)}</p>` : '',
     },
     contentRows,
