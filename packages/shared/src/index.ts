@@ -53,3 +53,4 @@ export * from './narratives/sustained-level';
 // aquí, por la misma razón que `./bedrock`.
 export * from './composer';
 export * from './crisis/episode';
+export * from './ops/freshness';

@@ -126,16 +126,23 @@ export class MonitoringStack extends cdk.Stack {
     });
     ingestaCallada.addAlarmAction(snsAction);
 
-    // El lambda corre, pero alguna query lleva más de 1 h sin sondearse (el
+    // El lambda corre, pero alguna query lleva más de 15 min sin sondearse (el
     // caso del 24–26-oct: DDEC entraba y DF/Gobernadora nunca llegaban).
+    //
+    // Este es el aviso INMEDIATO de «una agencia dejó de recibir» (OPS-04): no
+    // espera a que falten menciones, mira si el sondeo de su query se completó,
+    // y eso vale igual de madrugada. Era 60 min; del 19 al 24-nov (1,369
+    // lecturas) lo normal fue 5 min y el máximo 10, así que 15 avisa en la
+    // tercera corrida fallida sin ruido. `eco-agencia-sin-menciones` queda
+    // como red para lo que esto no ve: el sondeo responde bien pero vacío.
     const ingestaQueryDesatendida = new cloudwatch.Alarm(this, 'IngestaQueryDesatendidaAlarm', {
       alarmName: 'eco-ingesta-query-desatendida',
       metric: ingestaMetric('MinutosSinSondeoMax', 'Maximum', cdk.Duration.minutes(5)),
-      threshold: 60,
+      threshold: 15,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'eco-ingestion: alguna query activa lleva más de 60 min sin un sondeo completado',
+      alarmDescription: 'eco-ingestion: alguna query activa lleva más de 15 min sin un sondeo completado',
     });
     ingestaQueryDesatendida.addAlarmAction(snsAction);
 
@@ -151,6 +158,120 @@ export class MonitoringStack extends cdk.Stack {
       alarmDescription: 'eco-ingestion: 10 o más respuestas 429 de Brandwatch en 24 h',
     });
     ingesta429.addAlarmAction(snsAction);
+
+    // ---- Errores del resto de procesos (OPS-04) ----
+    // Hasta nov-2026 solo ingesta, processor y alerts tenían alarma de
+    // errores. Estos nueve se referencian por NOMBRE, no por objeto: así el
+    // stack de monitoreo no importa nada nuevo de EcoWorkers y se despliega
+    // solo. Umbral: un error en una hora. En los 14 días previos al 24-nov
+    // ninguno tuvo errores salvo eco-migration, que es una herramienta manual
+    // (una consulta mal escrita cuenta como error) y por eso tolera 10.
+    const otrosProcesos: Array<{ name: string; errores: number }> = [
+      { name: 'metrics-calculator', errores: 1 },
+      { name: 'weekly-report', errores: 1 },
+      { name: 'ai-tasks', errores: 1 },
+      { name: 'article-fetch', errores: 1 },
+      { name: 'mention-import', errores: 1 },
+      { name: 'narrative-cluster', errores: 1 },
+      { name: 'narrative-drift', errores: 1 },
+      { name: 'narrative-edges', errores: 1 },
+      { name: 'migration', errores: 10 },
+    ];
+    for (const { name, errores } of otrosProcesos) {
+      const id = name.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+      const alarm = new cloudwatch.Alarm(this, `Lambda${id}ErrorAlarm`, {
+        alarmName: `eco-lambda-${name}-errors`,
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Errors',
+          dimensionsMap: { FunctionName: `eco-${name}` },
+          statistic: 'Sum',
+          period: cdk.Duration.hours(1),
+        }),
+        threshold: errores,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        alarmDescription: `eco-${name}: ${errores === 1 ? 'al menos un error' : `${errores} o más errores`} en una hora`,
+      });
+      alarm.addAlarmAction(snsAction);
+    }
+
+    // ---- Salud de los datos (OPS-04) ----
+    // eco-metrics-calculator publica por EMF, al cierre de cada corrida de 5
+    // minutos, cuántos snapshots de hoy calculó y cuántas agencias llevan
+    // demasiado sin menciones (packages/shared/src/ops/freshness.ts).
+    const datosMetric = (metricName: string, statistic: string) =>
+      new cloudwatch.Metric({ namespace: 'ECO/Datos', metricName, statistic, period: cdk.Duration.minutes(5) });
+
+    // Las métricas del día no se están calculando: 20 minutos sin un solo
+    // snapshot. Vale a cualquier hora, así que cubre «faltan las métricas del
+    // día a las 10:00 UTC» (la hora del correo diario) y también el resto del
+    // día. FILL por la misma razón que en la ingesta callada: sin datos,
+    // CloudWatch tarda mucho más en evaluar.
+    const metricasDelDia = new cloudwatch.Alarm(this, 'MetricasDelDiaAlarm', {
+      alarmName: 'eco-metricas-del-dia',
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(calculados, 0)',
+        usingMetrics: { calculados: datosMetric('SnapshotsCalculados', 'Sum') },
+        period: cdk.Duration.minutes(5),
+        label: 'Snapshots de hoy calculados (0 si no hubo corrida)',
+      }),
+      threshold: 1,
+      evaluationPeriods: 4,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      alarmDescription: 'eco-metrics-calculator: 20 min sin calcular las métricas del día de ninguna agencia',
+    });
+    metricasDelDia.addAlarmAction(snsAction);
+
+    // Una agencia activa lleva más de 4 horas hábiles sin recibir menciones
+    // (la madrugada no cuenta y el fin de semana cuenta la mitad). Dos
+    // lecturas seguidas para no avisar por una corrida aislada. El correo no
+    // nombra la agencia: está en el log del lambda («[salud] <agencia> lleva…»)
+    // y en la métrica MinutosHabilesSinMenciones por agencia.
+    const agenciaSinMenciones = new cloudwatch.Alarm(this, 'AgenciaSinMencionesAlarm', {
+      alarmName: 'eco-agencia-sin-menciones',
+      metric: datosMetric('AgenciasCalladas', 'Maximum'),
+      threshold: 1,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription:
+        'Alguna agencia activa lleva más de 4 horas hábiles sin menciones nuevas. Cuál: log de eco-metrics-calculator, líneas «[salud]»',
+    });
+    agenciaSinMenciones.addAlarmAction(snsAction);
+
+    // ---- Pantallas (OPS-04) ----
+    // Respuestas 5xx de la aplicación web: 10 o más en 5 minutos.
+    const web5xx = new cloudwatch.Alarm(this, 'Web5xxAlarm', {
+      alarmName: 'eco-web-5xx',
+      metric: props.alb.metrics.httpCodeTarget(elbv2.HttpCodeTarget.TARGET_5XX_COUNT, {
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 10,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Web de ECO: 10 o más respuestas 5xx en 5 minutos',
+    });
+    web5xx.addAlarmAction(snsAction);
+
+    // El balanceador responde 5xx por su cuenta: no hay instancia sana detrás.
+    const webBalanceador5xx = new cloudwatch.Alarm(this, 'WebBalanceador5xxAlarm', {
+      alarmName: 'eco-web-5xx-balanceador',
+      metric: props.alb.metrics.httpCodeElb(elbv2.HttpCodeElb.ELB_5XX_COUNT, {
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 10,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Web de ECO: el balanceador devolvió 10 o más 5xx en 5 minutos (sin instancia sana detrás)',
+    });
+    webBalanceador5xx.addAlarmAction(snsAction);
 
     // CloudWatch Dashboard
     new cloudwatch.Dashboard(this, 'EcoDashboard', {

@@ -293,7 +293,7 @@ Alarmas (`infra/lib/monitoring-stack.ts`, a `eco-alerts-ops`):
 | Alarma | Condición | Sin datos |
 |---|---|---|
 | `eco-ingesta-callada` | `FILL(Sum(QueriesSondeadas), 0) < 1` en 11 periodos de 1 min | fallo |
-| `eco-ingesta-query-desatendida` | `Max(MinutosSinSondeoMax) > 60` en 5 min | no cuenta |
+| `eco-ingesta-query-desatendida` | `Max(MinutosSinSondeoMax) > 15` en 5 min (era 60 hasta OPS-04, nov-2026) | no cuenta |
 | `eco-ingesta-429-dia` | `Sum(Avisos429) ≥ 10` en 24 h | no cuenta |
 
 `eco-ingesta-callada` usa `FILL(…, 0)` a propósito: con «sin datos = fallo» a
