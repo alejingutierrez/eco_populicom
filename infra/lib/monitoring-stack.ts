@@ -21,6 +21,9 @@ export interface MonitoringStackProps extends cdk.StackProps {
   alb: elbv2.ApplicationLoadBalancer;
 }
 
+/** Nombre completo del balanceador de la web (dimensión `LoadBalancer` de CloudWatch). */
+const ECO_ALB_FULL_NAME = 'app/eco-alb/95764472687f6b7d';
+
 export class MonitoringStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MonitoringStackProps) {
     super(scope, id, props);
@@ -243,13 +246,24 @@ export class MonitoringStack extends cdk.Stack {
     agenciaSinMenciones.addAlarmAction(snsAction);
 
     // ---- Pantallas (OPS-04) ----
+    // El balanceador va por su nombre completo, no por `props.alb`: usar el
+    // objeto obliga a EcoCompute a exportar un valor nuevo, y EcoCompute no se
+    // despliega por CDK (el primer intento, 24-nov, falló con «No export named
+    // EcoCompute:…LoadBalancerFullName» y revirtió limpio). Si el balanceador
+    // se recrea, este nombre cambia: `aws elbv2 describe-load-balancers`.
+    const albMetric = (metricName: string) =>
+      new cloudwatch.Metric({
+        namespace: 'AWS/ApplicationELB',
+        metricName,
+        dimensionsMap: { LoadBalancer: ECO_ALB_FULL_NAME },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      });
+
     // Respuestas 5xx de la aplicación web: 10 o más en 5 minutos.
     const web5xx = new cloudwatch.Alarm(this, 'Web5xxAlarm', {
       alarmName: 'eco-web-5xx',
-      metric: props.alb.metrics.httpCodeTarget(elbv2.HttpCodeTarget.TARGET_5XX_COUNT, {
-        period: cdk.Duration.minutes(5),
-        statistic: 'Sum',
-      }),
+      metric: albMetric('HTTPCode_Target_5XX_Count'),
       threshold: 10,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
@@ -261,10 +275,7 @@ export class MonitoringStack extends cdk.Stack {
     // El balanceador responde 5xx por su cuenta: no hay instancia sana detrás.
     const webBalanceador5xx = new cloudwatch.Alarm(this, 'WebBalanceador5xxAlarm', {
       alarmName: 'eco-web-5xx-balanceador',
-      metric: props.alb.metrics.httpCodeElb(elbv2.HttpCodeElb.ELB_5XX_COUNT, {
-        period: cdk.Duration.minutes(5),
-        statistic: 'Sum',
-      }),
+      metric: albMetric('HTTPCode_ELB_5XX_Count'),
       threshold: 10,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
