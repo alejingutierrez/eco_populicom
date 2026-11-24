@@ -133,7 +133,12 @@ test('MonitoringStack creates SNS topic and CloudWatch dashboard', () => {
     EvaluationPeriods: 2,
     TreatMissingData: 'notBreaching',
   });
-  template.hasResourceProperties('AWS::CloudWatch::Alarm', { AlarmName: 'eco-web-5xx', Threshold: 10 });
+  template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+    AlarmName: 'eco-web-5xx',
+    Threshold: 10,
+    // Por nombre: nada que EcoCompute tenga que exportar.
+    Dimensions: [{ Name: 'LoadBalancer', Value: 'app/eco-alb/95764472687f6b7d' }],
+  });
   template.hasResourceProperties('AWS::CloudWatch::Alarm', { AlarmName: 'eco-web-5xx-balanceador', Threshold: 10 });
 
   // Salud de la ingesta (ING-01): métricas propias del lambda, sin dimensiones.
