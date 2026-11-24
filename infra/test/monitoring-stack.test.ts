@@ -163,7 +163,7 @@ test('MonitoringStack creates SNS topic and CloudWatch dashboard', () => {
     Namespace: 'ECO/Ingesta',
     MetricName: 'MinutosSinSondeoMax',
     Statistic: 'Maximum',
-    Threshold: 60,
+    Threshold: 15,
     ComparisonOperator: 'GreaterThanThreshold',
     TreatMissingData: 'notBreaching',
   });

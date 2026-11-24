@@ -126,16 +126,23 @@ export class MonitoringStack extends cdk.Stack {
     });
     ingestaCallada.addAlarmAction(snsAction);
 
-    // El lambda corre, pero alguna query lleva más de 1 h sin sondearse (el
+    // El lambda corre, pero alguna query lleva más de 15 min sin sondearse (el
     // caso del 24–26-oct: DDEC entraba y DF/Gobernadora nunca llegaban).
+    //
+    // Este es el aviso INMEDIATO de «una agencia dejó de recibir» (OPS-04): no
+    // espera a que falten menciones, mira si el sondeo de su query se completó,
+    // y eso vale igual de madrugada. Era 60 min; del 19 al 24-nov (1,369
+    // lecturas) lo normal fue 5 min y el máximo 10, así que 15 avisa en la
+    // tercera corrida fallida sin ruido. `eco-agencia-sin-menciones` queda
+    // como red para lo que esto no ve: el sondeo responde bien pero vacío.
     const ingestaQueryDesatendida = new cloudwatch.Alarm(this, 'IngestaQueryDesatendidaAlarm', {
       alarmName: 'eco-ingesta-query-desatendida',
       metric: ingestaMetric('MinutosSinSondeoMax', 'Maximum', cdk.Duration.minutes(5)),
-      threshold: 60,
+      threshold: 15,
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: 'eco-ingestion: alguna query activa lleva más de 60 min sin un sondeo completado',
+      alarmDescription: 'eco-ingestion: alguna query activa lleva más de 15 min sin un sondeo completado',
     });
     ingestaQueryDesatendida.addAlarmAction(snsAction);
 

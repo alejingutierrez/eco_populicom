@@ -536,6 +536,10 @@ Todas en `infra/lib/monitoring-stack.ts`, al canal SNS `eco-alerts-ops`:
   la agencia: está en el log del lambda (`[salud] <slug> lleva…`) y en la
   métrica `MinutosHabilesSinMenciones` por `Agencia`. El límite se cambia con
   la variable `FRESHNESS_LIMIT_AWAKE_MINUTES` del lambda.
+- `eco-ingesta-query-desatendida` bajó de 60 a 15 min: es el aviso inmediato
+  de que una agencia dejó de recibir (mira el sondeo, no las menciones, y vale
+  de madrugada). La de minutos hábiles es solo la red para «el sondeo responde
+  bien pero vacío».
 - `eco-web-5xx` y `eco-web-5xx-balanceador`: 10 o más 5xx en 5 min.
 
 Las métricas `ECO/Datos` solo se publican en la corrida completa del cron
