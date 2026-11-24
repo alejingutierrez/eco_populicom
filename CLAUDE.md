@@ -521,6 +521,31 @@ aws lambda invoke --function-name eco-weekly-report \
 dirigido (`"trigger":"test"` + `recipients`) tampoco marca la fila: solo el
 barrido programado lo hace.
 
+## Correo de crisis por episodio (COR-02, nov 2026)
+
+`eco-metrics-calculator` lleva un **episodio** por regla de crisis en
+`crisis_episodes` (la tabla la crea el propio lambda): primer aviso → reavisos
+cada `cooldown_hours` con el bloque «Episodio abierto» (desde cuándo y qué
+cambió desde el aviso anterior) → **correo de cierre** cuando el último día
+completo terminó bajo el umbral. El cierre solo sale desde las 8:00 a.m. PR y
+nunca el mismo día del último aviso (la decisión vive en
+`@eco/shared/crisis/episode.ts`). El cierre no se guarda en `alert_history`
+(no arranca cooldown): queda en `crisis_episodes.close_*`.
+
+- Foto principal: notas (news/blog/forum) negativas del día detonante y del
+  anterior, buscadas aparte de la muestra de 20; se sirve desde la copia en
+  `media/` (necesita `MEDIA_BUCKET` y `s3:PutObject` sobre `media/*`; sin eso
+  usa la URL del medio).
+- Botón: `/overview?agency=<slug>&ver=crisis` abre el detalle de riesgo de
+  crisis (la SPA consume `ver` y lo quita de la URL).
+- Probar sin escribir nada (usa el episodio abierto o arma uno con el último
+  aviso): `{"agencySlug":"df","crisisEmail":"reaviso"}` o `"cierre"` devuelve
+  `{preview:true, html}`; con `"recipientsOverride":["x@…"]` lo envía solo a
+  esas direcciones. El primer aviso se prueba con `previewCrisis` o
+  `forceCrisis` (este sí escribe `alert_history` y arranca cooldown).
+- Vistas previas con datos mock: `scripts/preview-crisis-alert.ts` escribe
+  `crisis-alert-`, `crisis-reaviso-` y `crisis-cierre-preview.html`.
+
 ## Reportes por correo (`eco-weekly-report` — diario + semanal)
 
 - **Trigger**: EventBridge cron `cron(0 * * * ? *)` — cada hora, minuto 0

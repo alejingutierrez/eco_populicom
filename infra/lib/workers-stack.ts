@@ -319,6 +319,10 @@ export class WorkersStack extends cdk.Stack {
         SES_FROM_EMAIL: 'agutierrez@populicom.com',
         SES_FROM_NAME: 'ECO Radar',
         DASHBOARD_BASE_URL: DASHBOARD_BASE_URL,
+        // COR-02: la foto principal del correo de crisis se sirve desde
+        // nuestra copia (`/media/<clave>`), como las imágenes de redes.
+        MEDIA_BUCKET: props.rawBucket.bucketName,
+        MEDIA_PUBLIC_BASE_URL: 'https://citizenecho.com/media',
       },
       logGroup: importLogGroup('MetricsCalcLogGroup', 'eco-metrics-calculator'),
       bundling: bundlingOptions,
@@ -337,6 +341,7 @@ export class WorkersStack extends cdk.Stack {
       actions: ['ses:SendEmail', 'ses:SendRawEmail'],
       resources: ['*'],
     }));
+    props.rawBucket.grantPut(this.metricsCalculatorFunction, 'media/*');
 
     // EventBridge schedule: every 5 minutes (computes today's snapshot only).
     // El path normal es <10s (agregaciones SQL por agencia, sin Bedrock salvo

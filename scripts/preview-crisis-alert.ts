@@ -13,12 +13,22 @@
  * - 3 voces representativas con tonos distintos (neg/neu/pos) para
  *   validar el color de la línea izquierda del pull-quote
  *
+ * Desde COR-02 (nov 2026) escribe los TRES correos del episodio:
+ *   crisis-alert-preview.html    primer aviso
+ *   crisis-reaviso-preview.html  reaviso, con el bloque «Episodio abierto»
+ *   crisis-cierre-preview.html   cierre del episodio
+ *
  * Uso: tsx scripts/preview-crisis-alert.ts
- *      → escribe a apps/web/public/emails/crisis-alert-preview.html
+ *      → escribe en apps/web/public/emails/
  *      → abrir en http://localhost:3000/emails/crisis-alert-preview.html
  */
 
-import { renderCrisisAlertHtml, type CrisisAlertRenderData } from '../packages/shared/src/email/render-crisis-alert.ts';
+import {
+  renderCrisisAlertHtml,
+  renderCrisisCloseHtml,
+  type CrisisAlertRenderData,
+  type CrisisCloseRenderData,
+} from '../packages/shared/src/email/render-crisis-alert.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -136,13 +146,64 @@ const data: CrisisAlertRenderData = {
     closing: 'El indicador cruza umbral por primera vez en mayo. La concentración geográfica y el volumen anómalo se ubican en el cuartil superior del histórico de 30 días.',
   },
 
-  dashboardUrl: 'https://citizenecho.com/overview?agency=ddecpr',
+  dashboardUrl: 'https://citizenecho.com/overview?agency=ddecpr&ver=crisis',
 };
 
-const html = renderCrisisAlertHtml(data);
 // __dirname (no cwd): el preview debe aterrizar en el repo del script aunque
 // se invoque con tsx desde el monorepo principal.
-const outPath = join(__dirname, '..', 'apps/web/public/emails/crisis-alert-preview.html');
-writeFileSync(outPath, html, 'utf-8');
-console.log(`Written: ${outPath}`);
-console.log(`Preview: http://localhost:3000/emails/crisis-alert-preview.html`);
+const outDir = join(__dirname, '..', 'apps/web/public/emails');
+
+// Reaviso: mismo episodio, al día siguiente. El índice subió y el titular
+// cuenta qué cambió, no que «empieza» una crisis.
+const followup: CrisisAlertRenderData = {
+  ...data,
+  detectedAtLabel: '19 may · 2:05 p.m. AST',
+  triggerDayLabel: '19 may',
+  band: 'CRISIS',
+  metrics: { crisisRiskScore: 0.612, crisisRiskScore24hAgo: 0.557, crisisSeverity: 0.702, volumeVsAvg7Pct: 164 },
+  volume: { totalMentions: 158, negativeCount: 71, negativeShare: 71 / 158, prevDayTotal: 187, prevDayNegative: 66 },
+  editorial: {
+    ...data.editorial,
+    headline: 'La queja por los permisos sigue creciendo y ya la recoge la Legislatura',
+    lede: 'El episodio abierto ayer no cede: hoy suma 158 menciones antes de las 2 de la tarde y la proporción negativa subió de 35% a 45%.',
+  },
+  scoreTrend: [...(data.scoreTrend ?? []).slice(1), { label: '19 may', score: 61 }],
+  episode: {
+    alertNumber: 2,
+    openedAtLabel: '18 may, 1:42 p.m.',
+    daysOpen: 2,
+    previousAtLabel: '18 may, 1:42 p.m.',
+    previous: { dayLabel: '18 may', score: data.metrics.crisisRiskScore, totalMentions: data.volume.totalMentions, negativeCount: data.volume.negativeCount },
+    current: { dayLabel: '19 may', score: 0.612, totalMentions: 158, negativeCount: 71 },
+    peak: { score: 0.612, dayLabel: '19 may' },
+  },
+};
+
+// Cierre: el 21 terminó bajo el umbral; sale el 22 a las 8 de la mañana.
+const close: CrisisCloseRenderData = {
+  agencyName: data.agencyName,
+  agencyShortName: data.agencyShortName,
+  closedAtLabel: '22 may · 8:05 a.m. AST',
+  openedAtLabel: '18 may, 1:42 p.m.',
+  daysOpen: 4,
+  alertsSent: 4,
+  closedDay: { dayLabel: '21 may', score: 0.28, severity: 0.41, totalMentions: 74, negativeCount: 17 },
+  peak: { score: 0.64, dayLabel: '19 may' },
+  threshold: 0.4,
+  severityMin: 0.5,
+  firstHeadline: data.editorial.headline,
+  scoreTrend: [...(data.scoreTrend ?? []).slice(3), { label: '19 may', score: 64 }, { label: '20 may', score: 47 }, { label: '21 may', score: 28 }],
+  dashboardUrl: data.dashboardUrl,
+};
+
+const outputs: Array<[string, string]> = [
+  ['crisis-alert-preview.html', renderCrisisAlertHtml(data)],
+  ['crisis-reaviso-preview.html', renderCrisisAlertHtml(followup)],
+  ['crisis-cierre-preview.html', renderCrisisCloseHtml(close)],
+];
+for (const [name, html] of outputs) {
+  const outPath = join(outDir, name);
+  writeFileSync(outPath, html, 'utf-8');
+  console.log(`Written: ${outPath}`);
+  console.log(`Preview: http://localhost:3000/emails/${name}`);
+}

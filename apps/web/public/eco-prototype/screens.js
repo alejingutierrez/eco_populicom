@@ -6753,6 +6753,26 @@ function OverviewHighlights({ metrics, crisis, onOpenInsight }) {
   const m = metrics || {};
   const C = crisis || {};
   const score = C.window != null ? C.window : m.crisisRiskScore;
+  // Enlace del correo de crisis: /overview?agency=<slug>&ver=crisis abre el
+  // detalle de riesgo de crisis sin que el lector tenga que buscar la tarjeta.
+  // El parámetro se consume una sola vez y sale de la URL, para que recargar
+  // o compartir el enlace no vuelva a abrir el detalle. Va ANTES del return
+  // de abajo (regla de hooks) y espera a que haya una lectura que mostrar.
+  const hasScore = score != null;
+  React.useEffect(() => {
+    if (!hasScore || !onOpenInsight) return;
+    let wanted = false;
+    try { wanted = new URLSearchParams(location.search).get('ver') === 'crisis'; } catch (_) { /* sin URL */ }
+    if (!wanted) return;
+    try {
+      const rest = new URLSearchParams(location.search);
+      rest.delete('ver');
+      const qs = rest.toString();
+      history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+    } catch (_) { /* la URL se queda como está */ }
+    const d = (m.display && m.display.crisis) || null;
+    onOpenInsight('crisis', d && d.value ? d.value : (Math.round(score * 100) + '%'), 'var(--neg)');
+  }, [hasScore]);
   if (score == null) return null;
   const cb = crisisBand(score);
   const cd = (m.display && m.display.crisis) || null;

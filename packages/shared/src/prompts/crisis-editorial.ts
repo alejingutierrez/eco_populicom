@@ -67,6 +67,22 @@ export interface CrisisEditorialInputs {
 
   /** 6–10 menciones negativas representativas para que el modelo cite voces concretas. */
   sampleMentions: MentionSample[];
+
+  /**
+   * Presente solo en un REAVISO (COR-02): el episodio ya estaba abierto y el
+   * lector recibió antes otro aviso. Sin esto el modelo redactaba cada reaviso
+   * como si la crisis empezara en ese momento.
+   */
+  episode?: {
+    /** Número de este aviso dentro del episodio (≥ 2). */
+    alertNumber: number;
+    /** Día del primer aviso (YYYY-MM-DD, hora de PR). */
+    openedDay: string;
+    daysOpen: number;
+    /** Día y Crisis Score (0–1) del aviso anterior. */
+    previousDay: string;
+    previousScore: number;
+  } | null;
 }
 
 export interface CrisisEditorialOutput {
@@ -196,7 +212,7 @@ export function buildCrisisEditorialPrompt(inp: CrisisEditorialInputs, opts: Pro
 AGENCIA: ${inp.agencyName} (abreviada: ${inp.agencyShortName})
 GENERADO: ${inp.generatedAtLabel}
 ${inp.triggerDay ? `DÍA DETONANTE: ${formatPromptDay(inp.triggerDay)} — el día EN CURSO (parcial). Si lo nombras en el texto, usa exactamente ese día de la semana y esa fecha, nunca otros.\n` : ''}BANDA ACTUAL: ${inp.band}
-
+${episodeBlock(inp)}
 INDICADORES DE CRISIS (escala pública % — cítalos TAL CUAL, no los conviertas; son los MISMOS que el lector ve en el correo):
 - Crisis Score: ${fmtPct(inp.crisisRiskScore)} ${scoreDelta}
 - Severidad (concentración negativa): ${fmtPctN(inp.crisisSeverity)}
@@ -235,6 +251,24 @@ Llama la herramienta \`submit_crisis_editorial\` con un objeto que tenga:
 `.trim();
 }
 
+
+/** Contexto del reaviso; cadena vacía en un primer aviso (el prompt queda byte a byte como antes). */
+function episodeBlock(inp: CrisisEditorialInputs): string {
+  const ep = inp.episode;
+  if (!ep) return '';
+  const dias = ep.daysOpen === 1 ? '1 día' : `${ep.daysOpen} días`;
+  // Sobre las cifras ya redondeadas: es la misma resta que hace la tabla del
+  // correo (52% → 61% = 9 puntos), para que el texto y la tabla no discrepen.
+  const d = Math.round(inp.crisisRiskScore * 100) - Math.round(ep.previousScore * 100);
+  const shownPts = d > 0 ? `subió ${d} puntos` : d < 0 ? `bajó ${Math.abs(d)} puntos` : 'sin cambio';
+  return `
+EPISODIO EN CURSO — ESTE CORREO ES UN REAVISO (aviso n.º ${ep.alertNumber}):
+- El episodio se abrió el ${formatPromptDay(ep.openedDay)} y lleva ${dias} abierto. El lector ya recibió el aviso anterior.
+- Aviso anterior (${formatPromptDay(ep.previousDay)}): Crisis Score ${Math.round(ep.previousScore * 100)}%. Ahora: ${Math.round(inp.crisisRiskScore * 100)}% (${shownPts}).
+- No lo presentes como algo que empieza hoy. El titular y el lede dicen qué CAMBIÓ o qué se SOSTIENE desde el aviso anterior.
+- El correo ya muestra en una tabla las cifras del aviso anterior y las de ahora: no las repitas todas ni calcules otras.
+`;
+}
 
 /** "subió 32 puntos" / "bajó 8 puntos" / "sin cambio" — para el contexto del prompt. */
 function deltaPts(cur: number, prev: number): string {

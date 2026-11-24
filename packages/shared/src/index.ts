@@ -52,3 +52,4 @@ export * from './narratives/sustained-level';
 // adaptador de Bedrock vive en `./composer/bedrock-llm` y tampoco se exporta
 // aquí, por la misma razón que `./bedrock`.
 export * from './composer';
+export * from './crisis/episode';

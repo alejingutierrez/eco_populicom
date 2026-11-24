@@ -16,21 +16,32 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import {
   CRISIS_EDITORIAL_SYSTEM_PROMPT,
   buildCrisisEditorialPrompt,
   buildSubject,
   calculateMetrics,
+  crisisCloseHeadline,
+  crisisEpisodeDays,
+  crisisEpisodePeak,
+  decideCrisisEpisode,
   fetchOgImage,
   formatMetric,
   HISTORY_DAYS,
+  hourInTimeZone,
   isArticlePageType,
+  isExpiringImageUrl,
   isGenericImageUrl,
   loadAgencyCoverage,
+  mirrorImage,
   renderCrisisAlertHtml,
+  renderCrisisCloseHtml,
   renderSimpleAlertHtml,
   validateImageUrl,
   type CrisisAlertRenderData,
+  type CrisisCloseRenderData,
+  type CrisisEpisodeValues,
   type SimpleAlertRenderData,
   type CrisisEditorialInputs,
   type CrisisEditorialOutput,
@@ -42,6 +53,7 @@ import {
 const sm = new SecretsManagerClient({});
 const bedrock = new BedrockRuntimeClient({});
 const ses = new SESClient({});
+const s3 = new S3Client({});
 
 const DB_SECRET_ARN = process.env.DB_SECRET_ARN!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-opus-4-6-v1';
@@ -49,6 +61,15 @@ const BEDROCK_FALLBACK_MODEL_ID = process.env.BEDROCK_FALLBACK_MODEL_ID ?? 'us.a
 const SES_FROM_EMAIL = process.env.SES_FROM_EMAIL ?? 'agutierrez@populicom.com';
 const SES_FROM_NAME = process.env.SES_FROM_NAME ?? 'ECO Radar';
 const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL ?? 'https://citizenecho.com';
+
+/**
+ * Copia propia de la foto principal del correo de crisis (COR-02): se guarda
+ * en `media/` del bucket crudo y la app la sirve en `/media/<clave>`, igual
+ * que el processor con las imágenes de redes. Sin bucket configurado no se
+ * copia nada y el correo usa la URL original del medio.
+ */
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET ?? '';
+const MEDIA_PUBLIC_BASE_URL = process.env.MEDIA_PUBLIC_BASE_URL ?? 'https://citizenecho.com/media';
 
 const REPORT_TIMEZONE = 'America/Puerto_Rico';
 /** Días que recalcula el backfill programado (sin bordes): 30 de historia + margen. */
@@ -88,6 +109,14 @@ interface InvokePayload {
    * (a diferencia de forceCrisis, no arranca cooldown). Requiere agencySlug.
    */
   previewCrisis?: boolean;
+  /**
+   * Prueba de los correos de episodio (COR-02) con datos reales de la agencia:
+   * 'reaviso' o 'cierre'. Usa el episodio abierto si lo hay; si no, arma uno
+   * de prueba con el último aviso enviado. Con `recipientsOverride` lo ENVÍA a
+   * esas direcciones; sin él devuelve el HTML ({preview:true, html}). Nunca
+   * escribe en alert_history ni en crisis_episodes. Requiere agencySlug.
+   */
+  crisisEmail?: 'reaviso' | 'cierre';
   /**
    * Con `backfill` + `agencySlug`: tras recalcular, evalúa las reglas de
    * crisis y de métrica en los días recalculados de los últimos
@@ -187,6 +216,37 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
       return { statusCode: 200, body: `Backfilled ${computed} snapshots${agency ? `, ${alertsFired} alertas` : ''}` };
     }
 
+    // Prueba de los correos de episodio: reaviso o cierre, sin escribir nada.
+    if (event.crisisEmail) {
+      const agency = agencies.find((a) => a.slug === event.agencySlug);
+      if (!agency) {
+        return { statusCode: 400, body: 'crisisEmail requiere un agencySlug válido' };
+      }
+      const today = ymdInTimeZone(new Date(), REPORT_TIMEZONE);
+      const yesterday = addDaysYmd(today, -1);
+      await computeForAgency(client, agency.id, today);
+      const recipients = (event.recipientsOverride ?? []).filter(Boolean);
+      const previewOnly = recipients.length === 0;
+      const rule = await getCrisisRuleForTest(client, agency.id);
+      const episode = (rule.id !== 'preview' ? await getOpenEpisode(client, rule.id) : null)
+        ?? await simulatedEpisode(client, agency.id, today);
+      let html: string;
+      if (event.crisisEmail === 'cierre') {
+        const closedSnap = await getTodaySnapshot(client, agency.id, yesterday);
+        html = (await sendCrisisClose(client, agency, rule, episode, yesterday, closedSnap, recipients, { previewOnly, persist: false })).html;
+      } else {
+        const snap = await getTodaySnapshot(client, agency.id, today);
+        if (!snap) return { statusCode: 404, body: `sin snapshot de ${today} para ${agency.slug}` };
+        html = (await fireCrisisAlert(client, agency, rule, snap, recipients, today, { previewOnly, skipLog: true, episode })).html;
+      }
+      return {
+        statusCode: 200,
+        body: previewOnly
+          ? JSON.stringify({ preview: true, html })
+          : `Prueba de ${event.crisisEmail} enviada a ${recipients.length} destinatario(s)`,
+      };
+    }
+
     // Preview de crisis: render con datos reales, sin SES ni alert_history.
     if (event.previewCrisis) {
       const agency = agencies.find((a) => a.slug === event.agencySlug);
@@ -200,7 +260,7 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
         return { statusCode: 404, body: `sin snapshot de ${today} para ${agency.slug}` };
       }
       const previewRule: CrisisRuleRow = { id: 'preview', name: 'preview', config: { type: 'crisis_threshold' }, notify_emails: [] };
-      const html = await fireCrisisAlert(client, agency, previewRule, snap, [], today, { previewOnly: true });
+      const { html } = await fireCrisisAlert(client, agency, previewRule, snap, [], today, { previewOnly: true });
       return { statusCode: 200, body: JSON.stringify({ preview: true, html }) };
     }
 
@@ -227,6 +287,8 @@ export const handler = async (event: InvokePayload = {}): Promise<{ statusCode: 
           today,
           event.forceCrisis === true,
           event.recipientsOverride,
+          // Solo el camino normal lleva el episodio: abre, reavisa y cierra.
+          { manageEpisode: true },
         );
         alertsFired += fired;
       } catch (err) {
@@ -434,6 +496,33 @@ async function ensureCrisisSchema(client: any): Promise<void> {
   await client.query(`CREATE INDEX IF NOT EXISTS idx_alert_rules_agency_active ON alert_rules(agency_id, is_active);`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_alert_history_rule_triggered ON alert_history(alert_rule_id, triggered_at DESC);`);
 
+  // Episodios de crisis (COR-02): del primer aviso al día en que el índice
+  // vuelve bajo el umbral. Un solo episodio abierto por regla.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS crisis_episodes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      alert_rule_id UUID NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+      agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+      opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      opened_day DATE NOT NULL,
+      first_values JSONB NOT NULL,
+      first_headline TEXT,
+      last_alert_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_alert_day DATE NOT NULL,
+      last_values JSONB NOT NULL,
+      peak_score REAL NOT NULL,
+      peak_day DATE NOT NULL,
+      alerts_sent INTEGER NOT NULL DEFAULT 1,
+      closed_at TIMESTAMPTZ,
+      closed_day DATE,
+      close_values JSONB,
+      close_notified BOOLEAN,
+      close_details JSONB
+    );
+  `);
+  await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_crisis_episodes_open ON crisis_episodes(alert_rule_id) WHERE closed_at IS NULL;`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_crisis_episodes_agency ON crisis_episodes(agency_id, opened_at DESC);`);
+
   // Seed: una regla crisis_threshold por agencia activa que tenga recipients
   // en report_configs. Solo inserta si no existe ya alguna regla del mismo
   // type para esa agencia.
@@ -496,6 +585,7 @@ async function evaluateCrisisAlerts(
   today: string,
   force: boolean,
   recipientsOverride?: string[],
+  opts: { manageEpisode?: boolean } = {},
 ): Promise<number> {
   const rulesResult = await client.query(
     `SELECT id, name, config, notify_emails
@@ -514,6 +604,11 @@ async function evaluateCrisisAlerts(
     return 0;
   }
 
+  // El episodio (reaviso con contexto y correo de cierre) solo se lleva en el
+  // camino normal de cada 5 minutos. Las pruebas forzadas y la evaluación de
+  // días pasados tras un importe avisan como antes, sin abrir ni cerrar nada.
+  const manage = opts.manageEpisode === true && !force;
+
   let fired = 0;
   for (const rule of rules) {
     const cfg = rule.config;
@@ -523,46 +618,385 @@ async function evaluateCrisisAlerts(
 
     const crisis = snap.crisis_risk_score ?? 0;
     const severity = snap.crisis_severity ?? 0;
-    if (!force && (crisis < threshold || severity < severityMin)) {
-      console.log(`[crisis] ${agency.slug} below threshold (crisis=${crisis} sev=${severity} min=${threshold}/${severityMin})`);
-      continue;
-    }
-
-    if (!force) {
-      const recent = await client.query(
-        `SELECT triggered_at FROM alert_history
-          WHERE alert_rule_id = $1 AND notification_sent = true
-          ORDER BY triggered_at DESC LIMIT 1`,
-        [rule.id],
-      );
-      const recentRows = recent.rows as Array<{ triggered_at: string }>;
-      if (recentRows.length > 0) {
-        const lastTs = new Date(recentRows[0].triggered_at).getTime();
-        const hoursAgo = (Date.now() - lastTs) / (1000 * 60 * 60);
-        if (hoursAgo < cooldownH) {
-          console.log(`[crisis] ${agency.slug} cooldown active (${hoursAgo.toFixed(1)}h < ${cooldownH}h)`);
-          continue;
-        }
-      }
-    }
+    const above = crisis >= threshold && severity >= severityMin;
 
     const baseRecipients = Array.isArray(rule.notify_emails) ? rule.notify_emails.filter(Boolean) : [];
     const recipients = recipientsOverride && recipientsOverride.length > 0
       ? recipientsOverride
       : baseRecipients;
+
+    let episode: EpisodeRow | null = null;
+    let kind: 'first' | 'followup' = 'first';
+    if (!force) {
+      episode = manage ? await getOpenEpisode(client, rule.id) : null;
+
+      let hoursSinceLastAlert: number | null = null;
+      if (above) {
+        const recent = await client.query(
+          `SELECT triggered_at FROM alert_history
+            WHERE alert_rule_id = $1 AND notification_sent = true
+            ORDER BY triggered_at DESC LIMIT 1`,
+          [rule.id],
+        );
+        const recentRows = recent.rows as Array<{ triggered_at: string }>;
+        if (recentRows.length > 0) {
+          hoursSinceLastAlert = (Date.now() - new Date(recentRows[0].triggered_at).getTime()) / (1000 * 60 * 60);
+        }
+      }
+
+      // Para cerrar hace falta saber cómo terminó el último día completo.
+      const yesterday = addDaysYmd(today, -1);
+      let closedSnap: SnapshotRow | null = null;
+      let lastClosedDayAbove: boolean | null = null;
+      if (episode && !above) {
+        closedSnap = await getTodaySnapshot(client, agency.id, yesterday);
+        lastClosedDayAbove = closedSnap
+          ? (closedSnap.crisis_risk_score ?? 0) >= threshold && (closedSnap.crisis_severity ?? 0) >= severityMin
+          : null;
+      }
+
+      const decision = decideCrisisEpisode({
+        above,
+        open: episode ? { lastAlertDay: episode.last_alert_day } : null,
+        hoursSinceLastAlert,
+        cooldownHours: cooldownH,
+        today,
+        localHour: hourInTimeZone(new Date(), REPORT_TIMEZONE),
+        lastClosedDayAbove,
+      });
+
+      if (decision.action === 'none') {
+        if (decision.reason === 'below-threshold') {
+          console.log(`[crisis] ${agency.slug} below threshold (crisis=${crisis} sev=${severity} min=${threshold}/${severityMin})`);
+        } else if (decision.reason === 'cooldown') {
+          console.log(`[crisis] ${agency.slug} cooldown active (${(hoursSinceLastAlert ?? 0).toFixed(1)}h < ${cooldownH}h)`);
+        } else {
+          console.log(`[crisis] ${agency.slug} episodio ${episode?.id} sigue abierto (${decision.reason}; crisis=${crisis})`);
+        }
+        continue;
+      }
+
+      if (decision.action === 'close') {
+        try {
+          await sendCrisisClose(client, agency, rule, episode!, yesterday, closedSnap, recipients, { previewOnly: false, persist: true });
+        } catch (err) {
+          console.error(`[crisis] ${agency.slug} close failed:`, err);
+        }
+        continue;
+      }
+      kind = decision.kind;
+    }
+
     if (recipients.length === 0) {
       console.warn(`[crisis] ${agency.slug} rule ${rule.id} has no recipients`);
       continue;
     }
 
     try {
-      await fireCrisisAlert(client, agency, rule, snap, recipients, today, { previewOnly: false });
+      const result = await fireCrisisAlert(client, agency, rule, snap, recipients, today, {
+        previewOnly: false,
+        episode: kind === 'followup' ? episode : null,
+      });
       fired++;
+      // El episodio solo avanza con un aviso que de verdad salió.
+      if (manage && result.sent > 0) {
+        await recordEpisodeAlert(client, agency, rule, episode, snap, today, result.headline);
+      }
     } catch (err) {
       console.error(`[crisis] ${agency.slug} fire failed:`, err);
     }
   }
   return fired;
+}
+
+// ============================================================
+// Episodio de crisis (COR-02)
+// ============================================================
+
+interface EpisodeRow {
+  id: string;
+  opened_at: string | Date;
+  /** YYYY-MM-DD, hora de PR. */
+  opened_day: string;
+  last_alert_at: string | Date;
+  last_alert_day: string;
+  first_values: CrisisEpisodeValues;
+  last_values: CrisisEpisodeValues;
+  peak_score: number;
+  peak_day: string;
+  alerts_sent: number;
+  first_headline: string | null;
+}
+
+const EPISODE_COLUMNS = `id, opened_at, to_char(opened_day, 'YYYY-MM-DD') AS opened_day,
+            last_alert_at, to_char(last_alert_day, 'YYYY-MM-DD') AS last_alert_day,
+            first_values, last_values, peak_score, to_char(peak_day, 'YYYY-MM-DD') AS peak_day,
+            alerts_sent, first_headline`;
+
+async function getOpenEpisode(client: any, ruleId: string): Promise<EpisodeRow | null> {
+  const r = await client.query(
+    `SELECT ${EPISODE_COLUMNS}
+       FROM crisis_episodes
+      WHERE alert_rule_id = $1 AND closed_at IS NULL
+      ORDER BY opened_at DESC
+      LIMIT 1`,
+    [ruleId],
+  );
+  const row = (r.rows as EpisodeRow[])[0];
+  return row ? { ...row, peak_score: Number(row.peak_score), alerts_sent: Number(row.alerts_sent) } : null;
+}
+
+function episodeValues(snap: SnapshotRow, day: string): CrisisEpisodeValues {
+  return {
+    day,
+    score: snap.crisis_risk_score ?? 0,
+    severity: snap.crisis_severity,
+    totalMentions: snap.total_mentions,
+    negativeCount: snap.negative_count,
+  };
+}
+
+/** Abre el episodio con el primer aviso o anota un reaviso en el que ya está abierto. */
+async function recordEpisodeAlert(
+  client: any,
+  agency: AgencyRow,
+  rule: CrisisRuleRow,
+  episode: EpisodeRow | null,
+  snap: SnapshotRow,
+  today: string,
+  headline: string,
+): Promise<void> {
+  const values = episodeValues(snap, today);
+  if (!episode) {
+    // ON CONFLICT: si otra invocación abrió el episodio en el mismo instante,
+    // el índice único de «un abierto por regla» descarta este insert.
+    await client.query(
+      `INSERT INTO crisis_episodes
+         (alert_rule_id, agency_id, opened_day, first_values, first_headline,
+          last_alert_day, last_values, peak_score, peak_day)
+       VALUES ($1, $2, $3::date, $4::jsonb, $5, $3::date, $4::jsonb, $6, $3::date)
+       ON CONFLICT DO NOTHING`,
+      [rule.id, agency.id, today, JSON.stringify(values), headline, values.score],
+    );
+    console.log(`[crisis] ${agency.slug} episodio abierto (${today}, score=${values.score})`);
+    return;
+  }
+  const peak = crisisEpisodePeak({ score: episode.peak_score, day: episode.peak_day }, { score: values.score, day: today });
+  await client.query(
+    `UPDATE crisis_episodes
+        SET last_alert_at = NOW(), last_alert_day = $2::date, last_values = $3::jsonb,
+            alerts_sent = alerts_sent + 1, peak_score = $4, peak_day = $5::date
+      WHERE id = $1`,
+    [episode.id, today, JSON.stringify(values), peak.score, peak.day],
+  );
+  console.log(`[crisis] ${agency.slug} episodio ${episode.id}: reaviso n.º ${episode.alerts_sent + 1}`);
+}
+
+/** Regla de crisis de la agencia para las pruebas de episodio; una ficticia si no tiene. */
+async function getCrisisRuleForTest(client: any, agencyId: string): Promise<CrisisRuleRow> {
+  const r = await client.query(
+    `SELECT id, name, config, notify_emails
+       FROM alert_rules
+      WHERE agency_id = $1 AND config->>'type' = 'crisis_threshold'
+      ORDER BY is_active DESC, created_at ASC
+      LIMIT 1`,
+    [agencyId],
+  );
+  return (r.rows as CrisisRuleRow[])[0]
+    ?? { id: 'preview', name: 'preview', config: { type: 'crisis_threshold' }, notify_emails: [] };
+}
+
+/**
+ * Episodio de PRUEBA para ver el reaviso o el cierre cuando la agencia no
+ * tiene uno abierto: toma el último aviso de crisis enviado como «aviso
+ * anterior». Sin ninguno, usa el snapshot de ayer. No se guarda.
+ */
+async function simulatedEpisode(client: any, agencyId: string, today: string): Promise<EpisodeRow> {
+  const r = await client.query(
+    `SELECT triggered_at, details
+       FROM alert_history
+      WHERE agency_id = $1 AND notification_sent = true
+        AND details->>'band' IS NOT NULL
+        AND details->>'trigger_day' IS NOT NULL
+      ORDER BY triggered_at DESC
+      LIMIT 1`,
+    [agencyId],
+  );
+  const last = (r.rows as Array<{ triggered_at: string | Date; details: any }>)[0];
+  if (last) {
+    const d = last.details ?? {};
+    const values: CrisisEpisodeValues = {
+      day: String(d.trigger_day),
+      score: Number(d.crisis_risk_score ?? 0),
+      severity: d.crisis_severity == null ? null : Number(d.crisis_severity),
+      totalMentions: Number(d.total_mentions ?? 0),
+      negativeCount: Number(d.negative_count ?? 0),
+    };
+    return {
+      id: 'simulado', opened_at: last.triggered_at, opened_day: values.day,
+      last_alert_at: last.triggered_at, last_alert_day: values.day,
+      first_values: values, last_values: values,
+      peak_score: values.score, peak_day: values.day,
+      alerts_sent: 1, first_headline: d.editorial?.headline ?? null,
+    };
+  }
+  const yesterday = addDaysYmd(today, -1);
+  const snap = await getTodaySnapshot(client, agencyId, yesterday);
+  const values: CrisisEpisodeValues = snap
+    ? episodeValues(snap, yesterday)
+    : { day: yesterday, score: 0, severity: null, totalMentions: 0, negativeCount: 0 };
+  const openedAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return {
+    id: 'simulado', opened_at: openedAt, opened_day: yesterday,
+    last_alert_at: openedAt, last_alert_day: yesterday,
+    first_values: values, last_values: values,
+    peak_score: values.score, peak_day: yesterday,
+    alerts_sent: 1, first_headline: null,
+  };
+}
+
+/**
+ * Cierra el episodio y envía el correo de cierre. Primero RECLAMA el cierre
+ * (UPDATE … WHERE closed_at IS NULL): si dos invocaciones coinciden, solo una
+ * envía. Si el envío falla el episodio queda cerrado igual, con
+ * `close_notified = false`: un cierre sin correo es mejor que un correo de
+ * cierre repetido cada 5 minutos.
+ */
+async function sendCrisisClose(
+  client: any,
+  agency: AgencyRow,
+  rule: CrisisRuleRow,
+  episode: EpisodeRow,
+  closedDay: string,
+  closedSnap: SnapshotRow | null,
+  recipients: string[],
+  opts: { previewOnly: boolean; persist: boolean },
+): Promise<{ html: string; sent: number }> {
+  const threshold = rule.config.crisis_min ?? 0.4;
+  const severityMin = rule.config.severity_min ?? 0;
+
+  if (opts.persist) {
+    const claimed = await client.query(
+      `UPDATE crisis_episodes SET closed_at = NOW(), closed_day = $2::date
+        WHERE id = $1 AND closed_at IS NULL
+        RETURNING id`,
+      [episode.id, closedDay],
+    );
+    if (claimed.rows.length === 0) {
+      console.log(`[crisis] ${agency.slug} episodio ${episode.id} ya estaba cerrado — no se repite el correo`);
+      return { html: '', sent: 0 };
+    }
+  }
+
+  // La lectura más alta: la mayor entre las de los avisos y los días ya
+  // cerrados del episodio (un día puede terminar más alto que a la hora del aviso).
+  const peakResult = await client.query(
+    `SELECT to_char(date, 'YYYY-MM-DD') AS date, crisis_risk_score
+       FROM daily_metric_snapshots
+      WHERE agency_id = $1 AND date BETWEEN $2::date AND $3::date
+        AND crisis_risk_score IS NOT NULL
+      ORDER BY crisis_risk_score DESC, date ASC
+      LIMIT 1`,
+    [agency.id, episode.opened_day, closedDay],
+  );
+  const dayPeak = (peakResult.rows as Array<{ date: string; crisis_risk_score: number }>)[0];
+  let peak = { score: episode.peak_score, day: episode.peak_day };
+  if (dayPeak) peak = crisisEpisodePeak(peak, { score: Number(dayPeak.crisis_risk_score), day: dayPeak.date });
+
+  const closeValues = {
+    day: closedDay,
+    score: closedSnap?.crisis_risk_score ?? null,
+    severity: closedSnap?.crisis_severity ?? null,
+    totalMentions: closedSnap?.total_mentions ?? 0,
+    negativeCount: closedSnap?.negative_count ?? 0,
+  };
+  const daysOpen = crisisEpisodeDays(episode.opened_day, closedDay);
+  const renderData: CrisisCloseRenderData = {
+    agencyName: agency.name,
+    agencyShortName: agencyShortName(agency.slug),
+    closedAtLabel: formatTimestampLabel(new Date(), REPORT_TIMEZONE),
+    openedAtLabel: formatShortTimestamp(episode.opened_at, REPORT_TIMEZONE),
+    daysOpen,
+    alertsSent: episode.alerts_sent,
+    closedDay: {
+      dayLabel: formatShortDay(closedDay),
+      score: closeValues.score,
+      severity: closeValues.severity,
+      totalMentions: closeValues.totalMentions,
+      negativeCount: closeValues.negativeCount,
+    },
+    peak: { score: peak.score, dayLabel: formatShortDay(peak.day) },
+    threshold,
+    severityMin,
+    firstHeadline: episode.first_headline,
+    scoreTrend: await loadScoreTrend(client, agency.id, closedDay),
+    dashboardUrl: crisisViewUrl(agency.slug),
+  };
+  const html = renderCrisisCloseHtml(renderData);
+  const closeScoreStr = closeValues.score == null ? 'sin lectura' : `riesgo de crisis ${formatMetric('crisis', closeValues.score).value ?? '—'}`;
+  const subject = buildSubject(
+    'Alerta',
+    agencyShortName(agency.slug),
+    `${crisisCloseHeadline()} — ${closeScoreStr} el ${formatShortDay(closedDay)}`,
+  );
+
+  if (opts.previewOnly) {
+    console.log(`[crisis] ${agency.slug} cierre previewOnly — skip SES`);
+    return { html, sent: 0 };
+  }
+
+  const sent: string[] = [];
+  const failed: string[] = [];
+  let firstMessageId: string | undefined;
+  for (const recipient of recipients) {
+    try {
+      const result = await ses.send(new SendEmailCommand({
+        Source: `${SES_FROM_NAME} <${SES_FROM_EMAIL}>`,
+        Destination: { ToAddresses: [recipient] },
+        Message: {
+          Subject: { Data: subject, Charset: 'UTF-8' },
+          Body: { Html: { Data: html, Charset: 'UTF-8' } },
+        },
+      }));
+      sent.push(recipient);
+      if (!firstMessageId) firstMessageId = result.MessageId;
+      console.log(`[crisis] ${agency.slug} cierre sent to=${recipient} messageId=${result.MessageId}`);
+    } catch (err: any) {
+      failed.push(recipient);
+      console.warn(`[crisis] ${agency.slug} cierre SKIPPED ${recipient}: ${err?.message ?? err}`);
+    }
+  }
+
+  if (opts.persist) {
+    await client.query(
+      `UPDATE crisis_episodes
+          SET close_values = $2::jsonb, close_notified = $3, close_details = $4::jsonb
+        WHERE id = $1`,
+      [
+        episode.id,
+        JSON.stringify(closeValues),
+        sent.length > 0,
+        JSON.stringify({
+          days_open: daysOpen,
+          peak_score: peak.score,
+          peak_day: peak.day,
+          recipients_sent: sent,
+          recipients_failed: failed,
+          message_id: firstMessageId ?? null,
+        }),
+      ],
+    );
+    console.log(`[crisis] ${agency.slug} episodio ${episode.id} cerrado (${closedDay}, ${daysOpen} día(s), ${episode.alerts_sent} aviso(s))`);
+  }
+  return { html, sent: sent.length };
+}
+
+/**
+ * Vista de crisis de la agencia: el Overview con el detalle de «Riesgo de
+ * crisis» ya abierto (`ver=crisis`, que la aplicación consume y quita de la URL).
+ */
+function crisisViewUrl(slug: string): string {
+  return `${DASHBOARD_BASE_URL}/overview?agency=${encodeURIComponent(slug)}&ver=crisis`;
 }
 
 interface SnapshotRow {
@@ -813,9 +1247,16 @@ async function fireCrisisAlert(
   snap: SnapshotRow,
   recipients: string[],
   today: string,
-  opts: { previewOnly: boolean } = { previewOnly: false },
-): Promise<string> {
-  console.log(`[crisis] ${agency.slug} firing rule ${rule.name} (score=${snap.crisis_risk_score})`);
+  opts: {
+    previewOnly: boolean;
+    /** Episodio abierto: el correo sale como REAVISO, con su contexto. */
+    episode?: EpisodeRow | null;
+    /** Envía pero no escribe alert_history (pruebas de episodio). */
+    skipLog?: boolean;
+  } = { previewOnly: false },
+): Promise<{ html: string; sent: number; headline: string }> {
+  const episode = opts.episode ?? null;
+  console.log(`[crisis] ${agency.slug} firing rule ${rule.name} (score=${snap.crisis_risk_score}${episode ? `, reaviso del episodio ${episode.id}` : ''})`);
 
   // 1. Contexto cuantitativo: día previo + 24h ago para delta.
   const yesterday = addDaysYmd(today, -1);
@@ -1064,6 +1505,15 @@ async function fireCrisisAlert(
       negative: m.negative,
     })),
     sampleMentions: samples,
+    episode: episode
+      ? {
+          alertNumber: episode.alerts_sent + 1,
+          openedDay: episode.opened_day,
+          daysOpen: crisisEpisodeDays(episode.opened_day, today),
+          previousDay: episode.last_values.day,
+          previousScore: episode.last_values.score,
+        }
+      : null,
   };
 
   const editorial = await generateCrisisEditorial(editorialInputs);
@@ -1101,16 +1551,32 @@ async function fireCrisisAlert(
     imageCache.set(r.id, p);
     return p;
   };
-  const heroCandidates = sampleRows.filter((r) => isArticlePageType(r.page_type)).slice(0, 8);
+  //
+  // COR-02 (nov 2026): las candidatas a foto principal ya no salen de las 20
+  // de la muestra. Esa muestra ordena por interacción y una noticia casi no
+  // tiene (engagement 0), así que en agencias con mucha conversación en redes
+  // (DF) ninguna nota entraba y el correo salía sin foto aunque hubiera notas
+  // con foto ese día. Ahora se buscan aparte las NOTAS del episodio.
+  const heroCandidates = await loadHeroCandidates(client, agency.id, today, topNegTopics, dominantNegTopic, sampleRows);
   const [scoreTrend, ogImages, heroImages] = await Promise.all([
     loadScoreTrend(client, agency.id, today),
     Promise.all(top6.map(imageForRow)),
     Promise.all(heroCandidates.map(imageForRow)),
   ]);
-  // heroCandidates viene ordenado DESC por relevance_score, así que el primer
-  // índice con imagen es la noticia más relevante que tiene foto utilizable.
-  const heroCandidateIdx = heroImages.findIndex((img) => img != null);
-  const heroImageUrl = heroCandidateIdx >= 0 ? heroImages[heroCandidateIdx]! : null;
+  // heroCandidates viene en orden de preferencia: gana la primera nota con
+  // foto utilizable. La foto se sirve desde nuestra copia en S3; si la URL de
+  // origen caduca (CDN de Meta) y no se pudo copiar, esa nota se salta: una
+  // foto que se rompe a los cinco días es peor que la siguiente candidata.
+  let heroCandidateIdx = -1;
+  let heroImageUrl: string | null = null;
+  for (let i = 0; i < heroCandidates.length && heroImageUrl == null; i++) {
+    const img = heroImages[i];
+    if (!img) continue;
+    const own = await ownImageCopy(img);
+    if (!own && isExpiringImageUrl(img)) continue;
+    heroCandidateIdx = i;
+    heroImageUrl = own ?? img;
+  }
   const heroMention = heroCandidateIdx >= 0 ? heroCandidates[heroCandidateIdx]! : null;
   const heroImageIdx = heroMention ? top6.findIndex((r) => r.id === heroMention.id) : -1;
   const heroImageCaption = heroMention
@@ -1174,8 +1640,35 @@ async function fireCrisisAlert(
     heroImageUrl,
     heroImageCaption,
     editorial,
-    // Misma URL que los CTAs del diario/semanal (paridad ago 2026).
-    dashboardUrl: `${DASHBOARD_BASE_URL}/overview?agency=${agency.slug}`,
+    episode: episode
+      ? {
+          alertNumber: episode.alerts_sent + 1,
+          openedAtLabel: formatShortTimestamp(episode.opened_at, REPORT_TIMEZONE),
+          daysOpen: crisisEpisodeDays(episode.opened_day, today),
+          previousAtLabel: formatShortTimestamp(episode.last_alert_at, REPORT_TIMEZONE),
+          previous: {
+            dayLabel: formatShortDay(episode.last_values.day),
+            score: episode.last_values.score,
+            totalMentions: episode.last_values.totalMentions,
+            negativeCount: episode.last_values.negativeCount,
+          },
+          current: {
+            dayLabel: formatShortDay(today),
+            score: snap.crisis_risk_score ?? 0,
+            totalMentions: snap.total_mentions,
+            negativeCount: snap.negative_count,
+          },
+          peak: (() => {
+            const pk = crisisEpisodePeak(
+              { score: episode.peak_score, day: episode.peak_day },
+              { score: snap.crisis_risk_score ?? 0, day: today },
+            );
+            return { score: pk.score, dayLabel: formatShortDay(pk.day) };
+          })(),
+        }
+      : null,
+    // Vista de crisis de la agencia (COR-02): Overview con el detalle abierto.
+    dashboardUrl: crisisViewUrl(agency.slug),
   };
 
   const html = renderCrisisAlertHtml(renderData);
@@ -1185,13 +1678,15 @@ async function fireCrisisAlert(
   const subject = buildSubject(
     band === 'CRISIS' ? 'Crisis' : 'Alerta',
     agencyShortName(agency.slug),
-    `Riesgo de crisis ${crisisValueStr} — ${truncate(editorial.headline, 60)}`,
+    episode
+      ? `Reaviso n.º ${episode.alerts_sent + 1} · riesgo de crisis ${crisisValueStr} — ${truncate(editorial.headline, 60)}`
+      : `Riesgo de crisis ${crisisValueStr} — ${truncate(editorial.headline, 60)}`,
   );
 
   // PreviewOnly: salimos sin SES ni alert_history. Útil para iterar el template.
   if (opts.previewOnly) {
     console.log(`[crisis] ${agency.slug} previewOnly — skip SES + alert_history`);
-    return html;
+    return { html, sent: 0, headline: editorial.headline };
   }
 
   // 9. Enviar individual por destinatario (mismo patrón que weekly-report).
@@ -1217,9 +1712,17 @@ async function fireCrisisAlert(
     }
   }
 
+  if (opts.skipLog) {
+    console.log(`[crisis] ${agency.slug} prueba de episodio — skip alert_history`);
+    return { html, sent: sent.length, headline: editorial.headline };
+  }
+
   // 10. Log alert_history (siempre, incluso si SES falló para 0 recipients).
   const details = {
     band,
+    kind: episode ? 'followup' : 'first',
+    episode_id: episode?.id ?? null,
+    hero_image: heroImageUrl ?? null,
     crisis_risk_score: snap.crisis_risk_score,
     crisis_severity: snap.crisis_severity,
     crisis_velocity: snap.crisis_velocity,
@@ -1250,7 +1753,105 @@ async function fireCrisisAlert(
       sent.length > 0 ? new Date() : null,
     ],
   );
-  return html;
+  return { html, sent: sent.length, headline: editorial.headline };
+}
+
+/**
+ * Notas candidatas a foto principal, en orden de preferencia.
+ *
+ * Entran noticias, blogs y foros del día detonante y del anterior (una alerta
+ * de la mañana suele venir de la nota de anoche) que sean negativas, o que
+ * traten uno de los temas negativos del día sin ser positivas. Orden: primero
+ * las del día detonante, las negativas, las más pertinentes, las del tema
+ * dominante, las que ya tienen imagen guardada y, al final, las más recientes.
+ *
+ * Las notas que ya venían en la muestra van primero, en su orden, para no
+ * cambiar la foto en los casos que ya funcionaban.
+ */
+async function loadHeroCandidates<R extends { id: string; page_type: string | null; url: string | null; resolved_image_url: string | null; source: string | null; published_at: string }>(
+  client: any,
+  agencyId: string,
+  today: string,
+  topNegTopics: string[],
+  dominantNegTopic: string | null,
+  sampleRows: R[],
+): Promise<R[]> {
+  const fromSample = sampleRows.filter((r) => isArticlePageType(r.page_type)).slice(0, 8);
+  let extra: R[] = [];
+  try {
+    const result = await client.query(
+      `WITH cand AS (
+         SELECT m.id, m.title, m.snippet, m.url,
+                COALESCE(m.content_source_name, m.domain) AS source,
+                m.page_type, m.resolved_image_url,
+                m.nlp_pertinence AS pertinence,
+                COALESCE(m.nlp_sentiment, m.bw_sentiment) AS sentiment,
+                m.published_at,
+                COALESCE(m.engagement_score, 0) AS engagement,
+                0::float AS relevance_score,
+                (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date AS pr_day,
+                (SELECT t.name
+                   FROM mention_topics mt
+                   JOIN topics t ON t.id = mt.topic_id
+                  WHERE mt.mention_id = m.id
+                  ORDER BY mt.confidence DESC NULLS LAST
+                  LIMIT 1) AS topic
+           FROM mentions m
+          WHERE m.agency_id = $1
+            AND m.is_duplicate = false
+            AND COALESCE(m.nlp_pertinence, 'media') IN ('alta', 'media')
+            AND LOWER(m.page_type) IN ('news', 'blog', 'forum')
+            AND m.url IS NOT NULL
+            AND (m.published_at AT TIME ZONE 'America/Puerto_Rico')::date BETWEEN ($2::date - 1) AND $2::date
+       )
+       SELECT *
+         FROM cand
+        WHERE sentiment = 'negativo'
+           OR (topic = ANY($3::text[]) AND COALESCE(sentiment, '') <> 'positivo')
+        ORDER BY (pr_day = $2::date) DESC,
+                 (sentiment = 'negativo') DESC,
+                 CASE pertinence WHEN 'alta' THEN 0 ELSE 1 END,
+                 CASE WHEN topic = $4 THEN 0 WHEN topic = ANY($3::text[]) THEN 1 ELSE 2 END,
+                 (resolved_image_url IS NOT NULL) DESC,
+                 published_at DESC
+        LIMIT 12`,
+      [agencyId, today, topNegTopics, dominantNegTopic],
+    );
+    extra = result.rows as R[];
+  } catch (err) {
+    // La foto nunca tumba el correo: sin candidatas extra se usa la muestra.
+    console.warn('[crisis] hero candidates query failed:', err);
+  }
+  const seen = new Set(fromSample.map((r) => r.id));
+  const merged = [...fromSample];
+  for (const r of extra) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    merged.push(r);
+  }
+  return merged.slice(0, 12);
+}
+
+/**
+ * Copia la imagen a `media/` y devuelve la URL propia; null si no hay bucket
+ * configurado o la copia falló (el caller decide si usa la original).
+ */
+async function ownImageCopy(url: string): Promise<string | null> {
+  if (url.startsWith(MEDIA_PUBLIC_BASE_URL)) return url;
+  if (!MEDIA_BUCKET) return null;
+  return mirrorImage(url, {
+    publicBaseUrl: MEDIA_PUBLIC_BASE_URL,
+    put: async (key, body, contentType) => {
+      await s3.send(new PutObjectCommand({
+        Bucket: MEDIA_BUCKET,
+        Key: `media/${key}`,
+        Body: body,
+        ContentType: contentType,
+        // La clave es el hash de la URL de origen: el contenido no cambia.
+        CacheControl: 'public, max-age=31536000, immutable',
+      }));
+    },
+  }).catch(() => null);
 }
 
 // ============================================================
