@@ -13,6 +13,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
+import { ECO_INGESTION_CRON } from './ingestion-schedule';
 
 export interface WorkersStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
@@ -126,8 +127,11 @@ export class WorkersStack extends cdk.Stack {
     // ~6 query IDs cada minuto pide >quota → 429s → backoff → "death spiral".
     // 5 min es la cadencia que pidió el usuario y deja ~6 req/5min, holgado bajo
     // la cuota, con un page-cap por corrida como guarda extra (ver ingestion).
+    //
+    // Minutos fijos (0, 5, 10…) en vez de `rate(5 minutes)`: BrandIQ comparte
+    // la cuota y corre en los minutos 2, 7, 12… (ver ./ingestion-schedule).
     const ingestionRule = new events.Rule(this, 'IngestionSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      schedule: events.Schedule.expression(ECO_INGESTION_CRON),
     });
     ingestionRule.addTarget(new targets.LambdaFunction(this.ingestionFunction));
 
