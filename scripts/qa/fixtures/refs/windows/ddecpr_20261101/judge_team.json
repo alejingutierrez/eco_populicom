@@ -1,0 +1,209 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Comentarios tardíos a la publicación de El Horno de Pane del lunes 26 dominaron el domingo",
+   "verdict": "verdadera",
+   "why": "La mayoría de las menciones del domingo (D5, D8, D9, D10, D11, D12, D13, D14, D16, D17, D18, D19, D20) son comentarios a la publicación del lunes 26 sobre El Horno de Pane, llegados ~6 días después. Estos superan en número a los comentarios sobre otras publicaciones. El titular refleja correctamente la situación."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El domingo 1 de noviembre no hubo noticias nuevas ni cobertura de prensa sobre el DDEC",
+   "verdict": "sin_respaldo",
+   "why": "Las menciones del día mostradas (D1-D20) son todas publicaciones en redes y comentarios de usuarios, sin noticias de prensa. Sin embargo, solo se muestran 20 de 64 menciones, por lo que no se puede confirmar al 100% que no hubo ninguna cobertura de prensa entre las 44 restantes."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Las 64 menciones del día se dividen entre comentarios a la publicación del Mes de la Manufactura sobre El Horno de Pane del lunes 26",
+   "verdict": "verdadera",
+   "why": "day_total = 64 es correcto. Múltiples menciones del día (D5, D8, D9, D10, D11, D12, D13, D14, D16, D17, D18, D19, D20) son comentarios a la publicación del lunes 26 sobre El Horno de Pane."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La publicación sobre El Horno de Pane fue publicada el lunes 26 de octubre, seis días antes",
+   "verdict": "verdadera",
+   "why": "La publicación original es del lunes 26 de octubre; el domingo 1 de noviembre es efectivamente 6 días después. Los datos de los comentarios confirman ~6.1-6.4 días de diferencia."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Hubo reacciones a la publicación sobre Sorullitos Mamá Toña del jueves 29 de octubre",
+   "verdict": "verdadera",
+   "why": "D3 (usuario_59c6d2) y D6 (usuario_66ce95) son comentarios del domingo a la publicación sobre Sorullitos Mamá Toña del jueves 29."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Hubo respuestas a un mensaje genérico de promoción institucional que la agencia publicó ese mismo domingo",
+   "verdict": "verdadera",
+   "why": "D1, D2, D4 son la publicación '¡El desarrollo sigue!' del domingo, y D7, D15 son comentarios a esa publicación del mismo día."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La negatividad fue mínima: 4 menciones negativas",
+   "verdict": "verdadera",
+   "why": "day_neg = 4 según los datos reales."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Entre las negativas, un usuario pidió que se baje la tarifa de luz",
+   "verdict": "verdadera",
+   "why": "N7 (usuario_c92906): 'Lo que tienen que hacer es bajar la luz' es un comentario negativo del domingo 1 de noviembre."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Otro usuario afirmó que el gobierno cree que el país se mantiene con pan y agua",
+   "verdict": "verdadera",
+   "why": "D18/N5 (usuario_2eb205): 'El gobierno se cree que un país se mantiene con pan y agua' es un comentario negativo del domingo."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El resto de los comentarios fue neutral o positivo: usuarios que elogiaron los productos de El Horno de Pane, preguntaron dónde queda el negocio o felicitaron a Sorullitos Mamá Toña",
+   "verdict": "verdadera",
+   "why": "Los datos muestran day_neu=54, day_pos=6, day_neg=4. Las menciones D8, D9, D11 preguntan ubicación; D10, D12 elogian productos; D3 felicita a Sorullitos Mamá Toña."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Varios usuarios siguieron preguntando en Facebook la ubicación de El Horno de Pane seis días después de la publicación original",
+   "verdict": "verdadera",
+   "why": "D8 (usuario_906c99: 'A donde concigo y en que pueblo'), D9 (usuario_065e14: 'Donde están ubicados'), D11 (usuario_95ec67: 'Me encantaria ir Diario') son comentarios del domingo a la publicación del lunes 26, ~6 días después."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Otros criticaron que el video no incluía dirección ni nombre completo del negocio, una queja que se repite desde el viernes 30 de octubre",
+   "verdict": "verdadera",
+   "why": "N16 (usuario_53e103, viernes 30: 'El nombre brilla por su ausencia'), N17 (usuario_4b1dae, viernes 30), N8 (usuario_50e8bc, sábado 31: 'no decir la ubicación es BOTAR DINERO'), N10 (usuario_a1a59b, sábado 31: 'no dicen donde queda'), D16 (usuario_c7af2a, domingo: 'busco el mapa en línea y no me sale'), D17 (usuario_4d53d9, domingo, proporcionando la dirección)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El DDEC publicó el domingo un mensaje institucional genérico ('¡El desarrollo sigue!')",
+   "verdict": "verdadera",
+   "why": "D1, D2, D4 confirman la publicación '¡El desarrollo sigue!' del domingo 1 de noviembre."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El mensaje recibió algunos comentarios el mismo día, casi todos neutrales",
+   "verdict": "verdadera",
+   "why": "D7 (usuario_4dd576, neutral), D15 (usuario_494d75, neutral), N7 (usuario_c92906, negativo) son comentarios del domingo a esa publicación. 2 de 3 visibles son neutrales, 1 negativo."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Entre las críticas, un usuario pidió que se baje la luz en vez de hacer anuncios",
+   "verdict": "verdadera",
+   "why": "N7 (usuario_c92906): 'Lo que tienen que hacer es bajar la luz, eso que están anunciando no...'"
+  },
+  {
+   "section": "viñetas",
+   "claim": "Otro pidió al gobierno que escuche al pueblo",
+   "verdict": "verdadera",
+   "why": "D7 (usuario_4dd576): 'Gobierno de Puerto Rico Escuchen al pueblo'. Aunque este comentario está clasificado como neutral, no negativo, el contenido sí pide al gobierno que escuche."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La semana cerró con 698 menciones",
+   "verdict": "verdadera",
+   "why": "week_total = 698 según los datos reales."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El 84 % fueron comentarios de usuarios en redes sociales",
+   "verdict": "verdadera",
+   "why": "comment_share_week = 84 % (586 de 698) según los datos reales."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Frente al 20 % de la semana anterior",
+   "verdict": "verdadera",
+   "why": "comment_share_prev_week = 20 % (34 de 168) según los datos reales."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen alto se debe a reacciones acumuladas en publicaciones de la agencia, no a cobertura mediática amplia",
+   "verdict": "verdadera",
+   "why": "Con 84% de las menciones siendo comentarios de usuarios en publicaciones de la agencia, la interpretación es razonable y consistente con los datos."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La publicación sobre Sorullitos Mamá Toña, del jueves 29 de octubre, también recibió comentarios positivos el domingo",
+   "verdict": "verdadera",
+   "why": "D3 (usuario_59c6d2, positivo: 'Son los mejores !!!!') es un comentario positivo del domingo a la publicación del jueves 29 sobre Sorullitos Mamá Toña."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Los comentarios a Sorullitos Mamá Toña fueron en menor volumen que los de El Horno de Pane",
+   "verdict": "verdadera",
+   "why": "De las menciones del domingo mostradas, solo D3 y D6 son sobre Sorullitos Mamá Toña, mientras que la gran mayoría (D5, D8-D14, D16-D20) son sobre El Horno de Pane."
+  },
+  {
+   "section": "insights",
+   "claim": "Entre el viernes 30 de octubre y el domingo 1 de noviembre, varios usuarios en Facebook criticaron que la publicación del lunes 26 sobre El Horno de Pane no incluía la ubicación del negocio",
+   "verdict": "verdadera",
+   "why": "N16, N17 (viernes 30), N8, N9, N10, N11 (sábado 31), D16 (domingo 1) son críticas sobre la falta de ubicación."
+  },
+  {
+   "section": "insights",
+   "claim": "Otros respondieron a una publicación del DDEC del viernes 30 de octubre calificando de ficción lo que publica la agencia y afirmando que restaurantes están cerrando",
+   "verdict": "verdadera",
+   "why": "N14 (usuario_1ddc08, viernes 30: 'Esta gente vive en otro País virtual, viven en una ficción') y N13 (usuario_0e2d5a, sábado 31: 'NO SEA HIPOCRITA! RESTAURANTES CERRANDO!!') son respuestas a la publicación del viernes 30."
+  },
+  {
+   "section": "insights",
+   "claim": "La serie del Mes de la Manufactura —con publicaciones sobre El Horno de Pane el lunes 26 y Sorullitos Mamá Toña el jueves 29— concentró la actividad de toda la semana",
+   "verdict": "verdadera",
+   "why": "La gran mayoría de los comentarios de la semana (que representan el 84% de las 698 menciones) son reacciones a estas publicaciones del Mes de la Manufactura."
+  },
+  {
+   "section": "insights",
+   "claim": "El 84 % de las 698 menciones fueron comentarios de usuarios a esas publicaciones",
+   "verdict": "exagerada",
+   "why": "El 84% de las menciones fueron comentarios de usuarios en publicaciones de redes de la agencia (comment_share_week = 84%), pero no todos fueron necesariamente a las publicaciones del Mes de la Manufactura específicamente. Algunos comentarios fueron a otras publicaciones (como la del viernes 30 sobre ASORE, o la del domingo sobre '¡El desarrollo sigue!')."
+  },
+  {
+   "section": "insights",
+   "claim": "Noticias RTZ y Notiséis WIPR informaron el martes 27 de octubre que PRAK Industries ampliará sus operaciones en Aibonito para manufactura de uniformes",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "E3 (Noticias RTZ) sí es del martes 27 y menciona PRAK Industries en Aibonito para manufactura de uniformes. Sin embargo, E4 (Notiséis WIPR) es del viernes 30 de octubre y trata sobre apoyo energético/almacenamiento de energía, no sobre PRAK Industries. La mención de Notiséis WIPR sobre PRAK no se confirma en los datos; E7 (Notiséis WIPR del martes 27) trata sobre apoyo a familias y comerciantes, no específicamente sobre PRAK."
+  },
+  {
+   "section": "insights",
+   "claim": "PRAK Industries ampliará con el compromiso de crear y retener empleos",
+   "verdict": "verdadera",
+   "why": "E3 menciona 'la creación de 120 empleos', E11 y E13 mencionan 'crear y retener 120 empleos'."
+  },
+  {
+   "section": "insights",
+   "claim": "El DDEC y PRIDCO publicaron contenido propio sobre el anuncio de PRAK Industries",
+   "verdict": "verdadera",
+   "why": "E11 (desarrollopr, martes 27), E12 (Departamento de Desarrollo Económico y Comercio, martes 27), E13 (desarrollopr, martes 27) son publicaciones propias del DDEC sobre PRAK Industries mencionando PRIDCO."
+  },
+  {
+   "section": "insights",
+   "claim": "La publicación sobre El Horno de Pane generó comentarios positivos de usuarios en Instagram y Facebook que elogiaron los productos y felicitaron al negocio",
+   "verdict": "verdadera",
+   "why": "P2, P5, P6, P7, P8, P9, P10 (Instagram/desarrollopr), P13 (Facebook/Departamento de Desarrollo Económico y Comercio) son comentarios positivos elogiando productos y felicitando."
+  },
+  {
+   "section": "insights",
+   "claim": "Los comentarios positivos se concentraron entre el lunes 26 y el martes 27 de octubre",
+   "verdict": "verdadera",
+   "why": "La mayoría de los comentarios positivos mostrados (P2, P5-P10 del lunes 26; P14-P20 del martes 27) se concentran en esos dos días. El lunes tuvo 37 positivas y el martes 39, sumando 76 de 138 positivas semanales (55%)."
+  },
+  {
+   "section": "insights",
+   "claim": "La semana cerró con un 20 % de menciones positivas",
+   "verdict": "verdadera",
+   "why": "week_pos_pct = 20 % según los datos reales (138 de 698)."
+  },
+  {
+   "section": "insights",
+   "claim": "Hecho en Puerto Rico publicó el miércoles 28 de octubre un video de su serie «Detrás del Sello» destacando la colaboración con el DDEC para destacar empresarios locales",
+   "verdict": "verdadera",
+   "why": "P1 confirma: Hecho en Puerto Rico, miércoles 28, serie 'Detrás del Sello', menciona 'compromiso compartido entre la Asociación Hecho en Puerto Rico y el Departamento de Desarrollo Económico y Comercio'."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "El insight neutral afirma que 'el 84% de las 698 menciones fueron comentarios de usuarios a esas publicaciones' (refiriéndose específicamente a las del Mes de la Manufactura), pero el dato real de comment_share_week = 84% se refiere a comentarios en publicaciones de redes en general, no solo a las del Mes de la Manufactura. La viñeta lo describe correctamente como 'comentarios de usuarios en redes sociales' sin atribuirlos exclusivamente a esas dos publicaciones.",
+  "El insight neutral dice que 'Notiséis WIPR informaron el martes 27 de octubre' sobre PRAK Industries, pero en los datos E7 (Notiséis WIPR del martes 27) trata sobre apoyo a familias y comerciantes en general, no específicamente sobre PRAK Industries. La cobertura de Notiséis WIPR visible en los datos (E4) es del viernes 30 y trata otro tema."
+ ],
+ "notes": "El texto es en general preciso y bien fundamentado en los datos. Correctamente identifica que el domingo fue dominado por comentarios tardíos a publicaciones anteriores, especialmente la de El Horno de Pane. El titular es descriptivo y sobrio. El texto reconoce explícitamente que los comentarios son tardíos (6 días después), por lo que no presenta publicaciones viejas como noticias del día. La principal imprecisión es atribuir a Notiséis WIPR la cobertura de PRAK Industries el martes 27, y la ligera exageración de que el 84% de comentarios fueron específicamente a las publicaciones del Mes de la Manufactura."
+}

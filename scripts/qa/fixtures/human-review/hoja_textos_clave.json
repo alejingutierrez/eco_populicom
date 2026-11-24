@@ -1,0 +1,62 @@
+[
+ {
+  "n": "T1",
+  "window": "ddecpr_20261101",
+  "system": "team"
+ },
+ {
+  "n": "T2",
+  "window": "ddecpr_20261101",
+  "system": "base"
+ },
+ {
+  "n": "T3",
+  "window": "df_20261030",
+  "system": "base"
+ },
+ {
+  "n": "T4",
+  "window": "df_20261101",
+  "system": "team"
+ },
+ {
+  "n": "T5",
+  "window": "df_20261026",
+  "system": "team"
+ },
+ {
+  "n": "T6",
+  "window": "ddecpr_20261022",
+  "system": "base"
+ },
+ {
+  "n": "T7",
+  "window": "ddecpr_20261031",
+  "system": "team"
+ },
+ {
+  "n": "T8",
+  "window": "df_20261101",
+  "system": "base"
+ },
+ {
+  "n": "T9",
+  "window": "ddecpr_20261031",
+  "system": "base"
+ },
+ {
+  "n": "T10",
+  "window": "df_20261026",
+  "system": "base"
+ },
+ {
+  "n": "T11",
+  "window": "ddecpr_20261022",
+  "system": "team"
+ },
+ {
+  "n": "T12",
+  "window": "df_20261030",
+  "system": "team"
+ }
+]

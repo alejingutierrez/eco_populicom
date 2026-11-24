@@ -1,0 +1,154 @@
+{
+ "claims": [
+  {
+   "section": "titular",
+   "claim": "Usuarios siguen pidiendo la ubicación de El Horno de Pane",
+   "verdict": "verdadera",
+   "why": "Múltiples comentarios del sábado 31 (D5, D6, D10, D11, D12) y días anteriores (N13, N20, N11) piden la dirección o ubicación del negocio."
+  },
+  {
+   "section": "titular",
+   "claim": "La publicación es del lunes 26",
+   "verdict": "verdadera",
+   "why": "Los datos confirman que la publicación original sobre El Horno de Pane es del lunes 26 de octubre (D1-D6, D9-D12, D15-D16, D18, E3, E18)."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El sábado 31 de octubre fue el segundo día con menos menciones de la semana",
+   "verdict": "verdadera",
+   "why": "La serie muestra: dom 25=13, lun 26=100, mar 27=155, mié 28=167, jue 29=148, vie 30=36, sáb 31=28. Ordenando de menor a mayor: 13, 28, 36, 100, 148, 155, 167. El sábado (28) es el segundo más bajo. Equivale a posición 6 de 7 por volumen, confirmado por day_rank."
+  },
+  {
+   "section": "párrafo",
+   "claim": "El sábado tuvo solo 28 menciones",
+   "verdict": "verdadera",
+   "why": "day_total = 28 según los datos reales."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Casi todas son comentarios tardíos a la publicación que la agencia hizo el lunes 26 de octubre sobre El Horno de Pane",
+   "verdict": "verdadera",
+   "why": "De las 20 menciones del día mostradas (D1-D20), la gran mayoría (D1-D12, D15-D16, D18) son comentarios a la publicación del lunes 26 sobre El Horno de Pane. Solo unas pocas son de otro tipo (D13 nota de prensa, D14 comentario a publicación del 29, D17/D19/D20 publicaciones propias)."
+  },
+  {
+   "section": "párrafo",
+   "claim": "Unos elogian el producto y otros critican que el video no incluía la dirección del negocio",
+   "verdict": "verdadera",
+   "why": "Comentarios positivos como D3 ('Que BELLEZA'), D16 ('Son los mejores'), D18 ('me encanta todo lo que confeccionan') elogian el producto. Comentarios negativos como D2, D4, D12 critican la falta de dirección."
+  },
+  {
+   "section": "párrafo",
+   "claim": "No hubo cobertura de medios externos sobre el DDEC",
+   "verdict": "verdadera_pero_enganosa",
+   "why": "D13 es una nota de prensa/blog de la UPR en Humacao que menciona al DDEC (oficina de PromoExport). Si bien no es cobertura mediática tradicional (no es un medio noticioso), sí es una mención externa. El texto luego menciona este simposio en las viñetas, así que no lo oculta del todo, pero la afirmación categórica de 'no hubo cobertura de medios externos' es cuestionable dado D13."
+  },
+  {
+   "section": "párrafo",
+   "claim": "La actividad propia se limitó a un resumen fotográfico de cierre de mes con imágenes de la Semana en Desarrollo",
+   "verdict": "verdadera",
+   "why": "D19 y D20 son publicaciones propias del DDEC/desarrollopr del sábado 31 con el resumen fotográfico de cierre de octubre y la Semana en Desarrollo. No se observan otras publicaciones propias ese día aparte de estas."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Usuarios en Facebook siguen llegando a la publicación de El Horno de Pane cinco días después",
+   "verdict": "verdadera",
+   "why": "Los comentarios del sábado 31 a la publicación del lunes 26 llegaron entre 5.0 y 5.4 días después, según los datos (D1-D6, D9-D12, D15-D16, D18)."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Repiten la misma queja: no dice dónde queda el negocio",
+   "verdict": "verdadera",
+   "why": "D2 ('Que bueno cuando no dicen dónde es'), D4 ('Malísimo anuncio pues no dicen donde queda!'), D5 ('Donde Estan ubicados'), D6 ('En que pueblo están uvicados'), D10 ('En qué parte de Puerto Rico están ubicados???'), D11 ('Donde esta ubicado'), D12 ('Debe dejar saber donde están ubicados')."
+  },
+  {
+   "section": "viñetas",
+   "claim": "Varias de las 6 menciones negativas del sábado corresponden a esa queja",
+   "verdict": "verdadera",
+   "why": "day_neg = 6. De las negativas del sábado visibles: D2 (no dice dónde), D4 (no dice dónde), D12 (no dice dónde) son 3 de las 6 negativas. Además N7 y N8 son negativas del sábado con otros temas. 'Varias' (al menos 3 de 6) es correcto."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La misma publicación también recibió felicitaciones al negocio y comentarios de orgullo por la manufactura local, con 6 menciones positivas el sábado",
+   "verdict": "verdadera",
+   "why": "day_pos = 6. Comentarios positivos del sábado incluyen D3 ('Que BELLEZA'), D8 ('Muy rico. Los felicito'), D14 ('Los mejoresssss'), D16 ('Son los mejores'), D18 ('Enhorabuena... me encanta todo lo que confeccionan')."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El volumen semanal alcanzó 647 menciones",
+   "verdict": "verdadera",
+   "why": "week_total = 647 según los datos reales."
+  },
+  {
+   "section": "viñetas",
+   "claim": "El salto lo explican los comentarios de usuarios en redes, que pasaron de representar 17 % a 83 % del total",
+   "verdict": "verdadera",
+   "why": "comment_share_prev_week = 17 % y comment_share_week = 83 %, exactamente como se indica."
+  },
+  {
+   "section": "viñetas",
+   "claim": "La UPR en Humacao anunció la celebración del VII Simposio de Comercio Internacional, programado para el 12 de noviembre",
+   "verdict": "verdadera",
+   "why": "D13 confirma: 'UPR en Humacao celebrará el VII Simposio de Comercio Internacional 2026 el jueves, 12 de noviembre'."
+  },
+  {
+   "section": "viñetas",
+   "claim": "En colaboración con la oficina de PromoExport del DDEC",
+   "verdict": "verdadera",
+   "why": "D13 dice 'con la oficina de PromoExport del Departamento de Desarrollo Económico y Comercio de Puerto Rico (DDEC)'."
+  },
+  {
+   "section": "insights",
+   "claim": "Varios usuarios en Facebook criticaron entre el jueves 29 y el sábado 31 de octubre que la publicación del lunes 26 sobre El Horno de Pane no incluía la dirección ni el pueblo del negocio",
+   "verdict": "verdadera",
+   "why": "N13 (jueves 29), N20 (jueves 29), N4/N5/N6 (sábado 31) y otros comentarios confirman esta crítica en ese rango de fechas."
+  },
+  {
+   "section": "insights",
+   "claim": "Algunos calificaron el contenido de inútil sin ese dato",
+   "verdict": "verdadera",
+   "why": "N13 ('si no dices ubicación, pues ni haga'), N5/D4 ('Malísimo anuncio pues no dicen donde queda!') equivalen a calificar el contenido de inútil."
+  },
+  {
+   "section": "insights",
+   "claim": "Un usuario relató el jueves 29 de octubre, en comentarios a una publicación del 6 de octubre sobre eficiencia energética, que fue aprobado para recibir artículos del programa pero nunca los recibió",
+   "verdict": "verdadera",
+   "why": "N14, N16, N17 son de usuario_56ac94 el jueves 29, comentando una publicación del 6 de octubre. Relata que fue aprobado, le prometieron artículos (bombillas, receptáculo, cabeza de ducha) pero nunca llegaron."
+  },
+  {
+   "section": "insights",
+   "claim": "Lo calificó de engaño",
+   "verdict": "verdadera",
+   "why": "N14: 'OJO MI GENTE CON ESTO YO Pasé por esto. Me huele a truco.' Calificar algo de 'truco' equivale a calificarlo de engaño."
+  },
+  {
+   "section": "insights",
+   "claim": "La publicación del lunes 26 de octubre sobre El Horno de Pane, parte del Mes de la Manufactura, generó la mayor parte de los comentarios de toda la semana tanto en Facebook como en Instagram",
+   "verdict": "sin_respaldo",
+   "why": "Los datos muestran que muchos comentarios se refieren a esa publicación, pero no hay un desglose exacto que permita confirmar que fue 'la mayor parte' de todos los comentarios de la semana. Es plausible dado el volumen visible, pero no se puede verificar con certeza con los datos proporcionados."
+  },
+  {
+   "section": "insights",
+   "claim": "Las menciones positivas representaron 21 % del total semanal",
+   "verdict": "verdadera",
+   "why": "week_pos_pct = 21 % según los datos reales."
+  },
+  {
+   "section": "insights",
+   "claim": "La publicación de El Horno de Pane recibió durante toda la semana comentarios positivos de usuarios en Facebook e Instagram que elogiaron el producto y expresaron intención de visitar el negocio",
+   "verdict": "verdadera",
+   "why": "P3 ('Los voy a visitar'), P10 ('Cuando regrese en Noviembre los visitaré'), P8 ('Me encanta son ricos'), P15 ('Venimos de Culebra y Humacao a comprar pan') confirman elogios e intención de visita en ambas plataformas."
+  },
+  {
+   "section": "insights",
+   "claim": "La Asociación Hecho en Puerto Rico publicó el miércoles 28 de octubre un episodio de su serie Detrás del Sello destacando la colaboración con el DDEC para impulsar empresarios locales",
+   "verdict": "verdadera",
+   "why": "P1 confirma: publicación de 'Hecho en Puerto Rico' del miércoles 28 de octubre sobre 'Detrás del Sello' mencionando 'compromiso compartido entre la Asociación Hecho en Puerto Rico y el Departamento de Desarrollo Económico y Comercio por seguir impulsando a nuestros empresarios locales'."
+  }
+ ],
+ "headline_drama_0_5": 1,
+ "old_post_presented_as_day_news": false,
+ "contradictions_between_blocks": [
+  "El párrafo dice 'No hubo cobertura de medios externos sobre el DDEC' pero las viñetas mencionan la nota de la UPR en Humacao sobre el VII Simposio de Comercio Internacional (D13), que es una mención externa al DDEC publicada ese mismo sábado."
+ ],
+ "notes": "El texto es en general preciso y bien fundamentado. El titular es descriptivo y sobrio (drama 1/5). El texto deja claro que los comentarios del sábado son tardíos a una publicación del lunes 26, por lo que no presenta contenido viejo como noticia del día. La única contradicción menor es entre la afirmación del párrafo de que no hubo cobertura externa y la viñeta que menciona el simposio de la UPR, aunque podría argumentarse que una nota de prensa universitaria no es estrictamente 'cobertura de medios'. La publicación sobre eficiencia energética mencionada en el insight negativo se describe como del 6 de octubre; los datos confirman que los comentarios de usuario_56ac94 son a una publicación del martes 6 de octubre."
+}
